@@ -45,7 +45,14 @@ function New-LocalAiContext {
 }
 
 function Assert-InvestigationResult {
-    param([Parameter(Mandatory)] $Result)
+    param(
+        [Parameter(Mandatory)] $Result,
+        [Parameter(Mandatory)] [string[]] $AllowedEvidencePath
+    )
+    $allowedEvidence = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $AllowedEvidencePath) {
+        [void] $allowedEvidence.Add($path.Replace('\','/'))
+    }
     foreach ($name in 'summary','findings','evidence','uncertainties','recommended_next_steps') {
         if (-not $Result.PSObject.Properties[$name]) {
             throw "Investigation result is missing required field: $name"
@@ -55,6 +62,9 @@ function Assert-InvestigationResult {
     foreach ($entry in @($Result.evidence)) {
         if (-not $entry.PSObject.Properties['path'] -or -not $entry.PSObject.Properties['detail']) {
             throw 'Each investigation evidence entry requires path and detail.'
+        }
+        if ($entry.path -isnot [string] -or -not $allowedEvidence.Contains($entry.path.Replace('\','/'))) {
+            throw "Investigation evidence path is outside the selected context: $($entry.path)"
         }
     }
 }

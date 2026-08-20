@@ -34,10 +34,39 @@ Describe 'Investigation workflow' {
         }
     }
 
+    It 'accepts one surrounding JSON Markdown fence from the model' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = @'
+```json
+{"summary":"Mapped fenced evidence","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}
+```
+'@; ResponseId = 'fenced-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            $result = Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md')
+
+            $result.summary | Should -Be 'Mapped fenced evidence'
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'awaiting_review'
+        }
+    }
+
     It 'fails closed on invalid model JSON' {
         InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
             Mock Invoke-OpenWebUiChat { [pscustomobject]@{ Content = 'not json'; ResponseId = 'r2'; ModelId = 'jacks-assistant' } }
             { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') } | Should -Throw
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'failed'
+        }
+    }
+
+    It 'fails closed when model evidence cites a file outside the selected context' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"unsupported citation","findings":[],"evidence":[{"path":"docs/IDS.md","detail":"not supplied"}],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'outside-evidence-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') } |
+                Should -Throw '*outside the selected context*'
             (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'failed'
         }
     }
