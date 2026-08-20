@@ -1,0 +1,60 @@
+function New-LocalAiContext {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $Task,
+        [Parameter(Mandatory)] [string[]] $IncludePath,
+        [ValidateRange(1, 10485760)] [int] $MaxBytes = 262144
+    )
+
+    $excludedExtensions = @('.dll','.exe','.pdb','.zip','.rar','.7z','.apworld','.log','.bak')
+    $orderedPaths = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($requestedPath in $IncludePath) { [void] $orderedPaths.Add($requestedPath) }
+    $files = [Collections.Generic.List[object]]::new()
+    $totalBytes = 0
+    foreach ($relative in $orderedPaths) {
+        $normalized = $relative.Replace('\','/')
+        if ([IO.Path]::IsPathFullyQualified($relative) -or
+            $normalized -match '(^|/)\.\.?(/|$)' -or
+            $normalized -match '(^|/)(\.git|\.local-ai|bin|obj|dist)(/|$)' -or
+            [IO.Path]::GetExtension($normalized).ToLowerInvariant() -in $excludedExtensions -or
+            [Management.Automation.WildcardPattern]::ContainsWildcardCharacters($relative)) {
+            throw "Context path is excluded: $relative"
+        }
+        $fullPath = Resolve-ContainedPath -Root $Task.RepositoryRoot -Path $relative -MustExist
+        $tracked = & git -C $Task.RepositoryRoot ls-files --error-unmatch -- $normalized 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $tracked) {
+            throw "Context path is not a tracked file: $relative"
+        }
+        $content = [IO.File]::ReadAllText($fullPath, [Text.Encoding]::UTF8)
+        $content = ConvertTo-RedactedData $content
+        $bytes = [Text.Encoding]::UTF8.GetByteCount($content)
+        if ($totalBytes + $bytes -gt $MaxBytes) {
+            throw "Context byte limit exceeded by: $relative"
+        }
+        $totalBytes += $bytes
+        $files.Add([pscustomobject]@{ Path = $normalized; Bytes = $bytes; Content = $content })
+    }
+    $text = ($files | ForEach-Object { "--- FILE: $($_.Path) ---`n$($_.Content)" }) -join "`n`n"
+    return [pscustomobject]@{
+        RepositoryRoot = $Task.RepositoryRoot
+        BaselineCommit = $Task.BaselineCommit
+        Files = @($files)
+        TotalBytes = $totalBytes
+        Text = $text
+    }
+}
+
+function Assert-InvestigationResult {
+    param([Parameter(Mandatory)] $Result)
+    foreach ($name in 'summary','findings','evidence','uncertainties','recommended_next_steps') {
+        if (-not $Result.PSObject.Properties[$name]) {
+            throw "Investigation result is missing required field: $name"
+        }
+    }
+    if ($Result.summary -isnot [string]) { throw 'Investigation summary must be a string.' }
+    foreach ($entry in @($Result.evidence)) {
+        if (-not $entry.PSObject.Properties['path'] -or -not $entry.PSObject.Properties['detail']) {
+            throw 'Each investigation evidence entry requires path and detail.'
+        }
+    }
+}

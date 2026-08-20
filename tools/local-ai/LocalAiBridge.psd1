@@ -12,6 +12,8 @@
         'Get-LocalAiConfiguration'
         'Get-LocalAiTask'
         'Invoke-OpenWebUiChat'
+        'Invoke-LocalAiInvestigation'
+        'New-LocalAiContext'
         'New-LocalAiTask'
         'Resolve-ContainedPath'
         'Resolve-GameLogPath'
