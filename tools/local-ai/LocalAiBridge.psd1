@@ -8,10 +8,14 @@
     FunctionsToExport = @(
         'Assert-LoopbackUri'
         'Assert-TaskOperation'
+        'Add-LocalAiTaskEvent'
         'Get-LocalAiConfiguration'
+        'Get-LocalAiTask'
+        'New-LocalAiTask'
         'Resolve-ContainedPath'
         'Resolve-GameLogPath'
         'Resolve-PluginDestination'
+        'Set-LocalAiTaskState'
     )
     CmdletsToExport = @()
     VariablesToExport = @()
