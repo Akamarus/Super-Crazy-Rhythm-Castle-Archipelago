@@ -78,4 +78,4 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 Roots is intentionally forced as the starter while its progression chain is being implemented and audited. The next planned discovery is the **Level 4 glasses → Minim trade → Chicken Bucket** chain. Randomized Star requirements come after the meaningful item/story prerequisites are mapped correctly.
 
-See [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the current logic model.
+See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

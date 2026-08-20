@@ -1,5 +1,11 @@
 # Changelog
 
+## Documentation
+
+- Added `docs/PROJECT_OVERVIEW.md` as the living player/contributor-facing architecture and randomizer design guide.
+- Documented the current AP item catalog, Roots progression graph, Area Access routing, Game Garage, Music Lab cassettes/reward chests, difficulty philosophy, planned Star gating, Secret Bunker status, roadmap, and AI-development disclosure.
+- Updated repository workflow to require maintaining the overview when player-facing behavior changes.
+
 This file begins at the point the project moved to source control. Earlier experimental versions remain represented by the permanent ID history and existing development notes rather than by imported ZIP history.
 
 ## Baseline imported to Git — 2026-08-20

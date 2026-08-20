@@ -30,3 +30,9 @@ For future development, provide the GitLab repository URL and the branch/commit 
 For runtime bugs, upload `BepInEx\LogOutput.log` from the exact build/seed being tested.
 
 Generated game DLLs, interop assemblies, credentials, and private tokens must not be added to the repository or uploaded as source artifacts.
+
+## Living project documentation
+
+Any milestone that changes player-facing randomizer behavior must update `docs/PROJECT_OVERVIEW.md` in the same commit. This includes new/renamed items or checks, progression requirements, area routing, difficulty rules, Star-gating behavior, and implemented-system status.
+
+`docs/IDS.md` remains authoritative for permanent network IDs; `docs/PROGRESSION.md` remains the concise logic reference.
