@@ -7,7 +7,11 @@
     PowerShellVersion = '7.0'
     FunctionsToExport = @(
         'Assert-LoopbackUri'
+        'Assert-TaskOperation'
         'Get-LocalAiConfiguration'
+        'Resolve-ContainedPath'
+        'Resolve-GameLogPath'
+        'Resolve-PluginDestination'
     )
     CmdletsToExport = @()
     VariablesToExport = @()
