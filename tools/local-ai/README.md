@@ -43,7 +43,8 @@ $findings = Invoke-LocalAiInvestigation `
         'docs/PROJECT_OVERVIEW.md',
         'docs/PROGRESSION.md',
         'client/Plugin.cs'
-    )
+    ) `
+    -OpenWebUiTimeoutSec 600
 
 New-LocalAiHandoff -TaskId $task.TaskId -RepositoryRoot $PWD
 ```

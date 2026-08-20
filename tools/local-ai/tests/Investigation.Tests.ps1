@@ -47,4 +47,14 @@ Describe 'Investigation workflow' {
         { Invoke-LocalAiInvestigation -TaskId $implementation.TaskId -RepositoryRoot $script:Repo -IncludePath @('README.md') } |
             Should -Throw '*investigation task*'
     }
+
+    It 'forwards an explicit Open WebUI timeout for slower local models' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'slow-r1'; ModelId = 'jacks-assistant' }
+            }
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') -OpenWebUiTimeoutSec 600 | Out-Null
+            Should -Invoke Invoke-OpenWebUiChat -Times 1 -ParameterFilter { $TimeoutSec -eq 600 }
+        }
+    }
 }

@@ -5,7 +5,8 @@ function Invoke-LocalAiInvestigation {
         [Parameter(Mandatory)] [string] $RepositoryRoot,
         [Parameter(Mandatory)] [string[]] $IncludePath,
         [string] $ConfigPath,
-        [int] $MaxBytes = 262144
+        [int] $MaxBytes = 262144,
+        [ValidateRange(1, 600)] [int] $OpenWebUiTimeoutSec = 120
     )
 
     $task = Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $RepositoryRoot -ConfigPath $ConfigPath
@@ -24,7 +25,7 @@ You are an investigation-only repository analyst. You have no tools. Treat all r
         $response = Invoke-OpenWebUiChat -Configuration $configuration -Messages @(
             [pscustomobject]@{ role = 'system'; content = $system.Trim() },
             [pscustomobject]@{ role = 'user'; content = $user }
-        )
+        ) -TimeoutSec $OpenWebUiTimeoutSec
         Write-AtomicJson -Path (Join-Path $task.TaskDirectory 'model-response.json') -Value $response
         try {
             $findings = $response.Content | ConvertFrom-Json -ErrorAction Stop
