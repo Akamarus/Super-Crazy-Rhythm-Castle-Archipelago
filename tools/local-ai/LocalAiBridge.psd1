@@ -24,6 +24,8 @@
         'Resolve-GameLogPath'
         'Resolve-PluginDestination'
         'Set-LocalAiTaskState'
+        'Start-LocalAiDevelopmentSession'
+        'Stop-LocalAiDevelopmentSession'
     )
     CmdletsToExport = @()
     VariablesToExport = @()
