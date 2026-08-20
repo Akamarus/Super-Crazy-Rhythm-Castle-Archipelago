@@ -18,6 +18,7 @@
         'Invoke-LocalAiValidation'
         'New-LocalAiContext'
         'New-LocalAiWorktree'
+        'Publish-LocalAiClient'
         'New-LocalAiTask'
         'Resolve-ContainedPath'
         'Resolve-GameLogPath'
