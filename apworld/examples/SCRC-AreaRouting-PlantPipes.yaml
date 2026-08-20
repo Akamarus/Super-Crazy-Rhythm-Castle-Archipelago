@@ -1,0 +1,7 @@
+name: Jack
+description: Super Crazy Rhythm Castle Roots-first routing + Weed Killer + Plant Pipes randomization v0.15
+game: Super Crazy Rhythm Castle
+
+Super Crazy Rhythm Castle:
+  progression_balancing: 50
+  accessibility: items

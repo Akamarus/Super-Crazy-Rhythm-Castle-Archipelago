@@ -1,0 +1,9 @@
+stages:
+  - validate
+
+validate-source:
+  stage: validate
+  image: python:3.12-alpine
+  script:
+    - python tools/validate-repo.py
+    - python -m py_compile apworld/scrc/__init__.py

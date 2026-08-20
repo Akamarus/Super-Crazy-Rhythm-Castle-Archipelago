@@ -1,0 +1,565 @@
+from dataclasses import dataclass
+
+from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
+from Options import PerGameCommonOptions
+from worlds.AutoWorld import WebWorld, World
+from worlds.generic.Rules import set_rule
+
+
+GAME_NAME = "Super Crazy Rhythm Castle"
+BASE_ID = 187256000
+
+GARAGE_SONGS = (
+    "Bloody Tears",
+    "Gradius Remix",
+    "Smooch",
+    "Superstar",
+    "Vampire Killer",
+    "Wag the Dog",
+)
+
+GARAGE_STICKER_TIERS = (
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+)
+
+GARAGE_CARTRIDGE_ITEMS = {
+    "Bloody Tears": "Bloody Tears Cartridge",
+    "Gradius Remix": "Gradius Remix Cartridge",
+    "Smooch": "Smooch Cartridge",
+    "Superstar": "Superstar Cartridge",
+    "Vampire Killer": "Vampire Killer Cartridge",
+    "Wag the Dog": "Wag the Dog Cartridge",
+}
+
+CASSETTE_SONGS = (
+    "The Little Things",
+    "No Plan B",
+    "Jolt City",
+    "Quieres Bailar",
+    "Quicksand",
+    "Gold",
+    "I Got Money",
+    "Hippo and Frog",
+    "On the Way",
+    "Badass",
+    "Heavy Metal",
+    "AOK",
+    "Rainbow Melodies",
+    "Sneaking",
+    "The Heist",
+    "Money",
+    "Lets Go",
+    "Bounce",
+    "Epical",
+    "Hollywood Trailer",
+    "False Data",
+    "Gotta Get Up",
+    "Fumblin Around",
+    "Party Non Stop",
+    "Keep On Hustlin",
+    "Another Day In Paradise",
+    "Flamenco",
+    "Ten-Four Good Buddy",
+    "Zen",
+    "Wiggle",
+)
+
+CASSETTE_MEDAL_TIERS = (
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+)
+
+AREA_ACCESS_ITEMS = (
+    "Roots Access",
+    "Lobby Access",
+    "Meat Dimension Access",
+    "Cell Tower Access",
+    "Tower of Fear Access",
+    "Royal Corridor Access",
+)
+
+AREA_ITEM_TO_REGION = {
+    "Roots Access": "Roots",
+    "Lobby Access": "Lobby",
+    "Meat Dimension Access": "Meat Dimension",
+    "Cell Tower Access": "Cell Tower",
+    "Tower of Fear Access": "Tower of Fear",
+    "Royal Corridor Access": "Royal Corridor",
+}
+
+# Preserve every ID from GateTest v0.2. New Music Lab checks start at +21,
+# leaving the historical +4..+10 gap untouched.
+LOCATION_NAME_TO_ID = {
+    "Level 1 - Completion": BASE_ID + 1,
+    "Level 2 - Completion": BASE_ID + 2,
+    "Level 3 - Completion": BASE_ID + 3,
+
+    "Development Cache 01": BASE_ID + 11,
+    "Development Cache 02": BASE_ID + 12,
+    "Development Cache 03": BASE_ID + 13,
+    "Development Cache 04": BASE_ID + 14,
+    "Development Cache 05": BASE_ID + 15,
+    "Development Cache 06": BASE_ID + 16,
+    "Development Cache 07": BASE_ID + 17,
+    "Development Cache 08": BASE_ID + 18,
+    "Development Cache 09": BASE_ID + 19,
+    "Development Cache 10": BASE_ID + 20,
+}
+
+GARAGE_LOCATION_START = BASE_ID + 21
+for song_index, song in enumerate(GARAGE_SONGS):
+    for tier_index, tier in enumerate(GARAGE_STICKER_TIERS):
+        LOCATION_NAME_TO_ID[f"Game Garage - {song} - {tier}"] = (
+            GARAGE_LOCATION_START + song_index * len(GARAGE_STICKER_TIERS) + tier_index
+        )
+
+MUSIC_LAB_5_POINT_CHEST = "Music Lab - 5 Point Chest"
+MUSIC_LAB_10_POINT_CHEST = "Music Lab - 10 Point Chest"
+MUSIC_LAB_20_POINT_CHEST = "Music Lab - 20 Point Chest"
+MUSIC_LAB_32_POINT_CHEST = "Music Lab - 32 Point Chest"
+MUSIC_LAB_46_POINT_CHEST = "Music Lab - 46 Point Chest"
+MUSIC_LAB_64_POINT_CHEST = "Music Lab - 64 Point Chest"
+LOCATION_NAME_TO_ID[MUSIC_LAB_64_POINT_CHEST] = BASE_ID + 45
+
+CASSETTE_LOCATION_START = BASE_ID + 46
+for song_index, song in enumerate(CASSETTE_SONGS):
+    for tier_index, tier in enumerate(CASSETTE_MEDAL_TIERS):
+        LOCATION_NAME_TO_ID[f"Music Lab Cassette - {song} - {tier}"] = (
+            CASSETTE_LOCATION_START + song_index * len(CASSETTE_MEDAL_TIERS) + tier_index
+        )
+
+MUSIC_LAB_89_POINT_CHEST = "Music Lab - 89 Point Chest"
+MUSIC_LAB_111_POINT_CHEST = "Music Lab - 111 Point Chest"
+MUSIC_LAB_140_POINT_CHEST = "Music Lab - 140 Point Chest"
+
+LOCATION_NAME_TO_ID[MUSIC_LAB_89_POINT_CHEST] = BASE_ID + 166
+LOCATION_NAME_TO_ID[MUSIC_LAB_111_POINT_CHEST] = BASE_ID + 167
+LOCATION_NAME_TO_ID[MUSIC_LAB_140_POINT_CHEST] = BASE_ID + 168
+
+# v0.10 appends the five earlier reward chests without moving any existing ID.
+LOCATION_NAME_TO_ID[MUSIC_LAB_5_POINT_CHEST] = BASE_ID + 169
+LOCATION_NAME_TO_ID[MUSIC_LAB_10_POINT_CHEST] = BASE_ID + 170
+LOCATION_NAME_TO_ID[MUSIC_LAB_20_POINT_CHEST] = BASE_ID + 171
+LOCATION_NAME_TO_ID[MUSIC_LAB_32_POINT_CHEST] = BASE_ID + 172
+LOCATION_NAME_TO_ID[MUSIC_LAB_46_POINT_CHEST] = BASE_ID + 173
+
+# v0.13 converts the four non-Music-Lab vanilla cartridge sources into AP checks.
+# Gradius Remix and Bloody Tears already use the existing 10/46-point Music Lab
+# chest locations, so creating duplicate cartridge-source checks for them would be wrong.
+CARTRIDGE_SOURCE_LOCATIONS = {
+    "Smooch": "Cartridge Pickup - Smooch",
+    "Superstar": "Cartridge Pickup - Superstar",
+    "Vampire Killer": "Cartridge Pickup - Vampire Killer",
+    "Wag the Dog": "Cartridge Pickup - Wag the Dog",
+}
+for index, name in enumerate(CARTRIDGE_SOURCE_LOCATIONS.values()):
+    LOCATION_NAME_TO_ID[name] = BASE_ID + 174 + index
+
+# v0.14: Gecko's native Weed Killer reward becomes a real Roots AP source check.
+ROOTS_GECKO_WEED_KILLER = "Roots - Gecko's Weed Killer"
+LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER] = BASE_ID + 178
+
+# v0.15: Frog and Hippo's Level 3 Plant Pipes source becomes an AP check.
+# The source is reachable after entering Level 3 with Weed Killer; Plant Pipes
+# itself is only required to complete Level 3, not to reach this check.
+ROOTS_LEVEL3_FROG_HIPPO = "Roots - Level 3 - Frog and Hippo"
+LOCATION_NAME_TO_ID[ROOTS_LEVEL3_FROG_HIPPO] = BASE_ID + 179
+
+MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
+    MUSIC_LAB_5_POINT_CHEST,
+    MUSIC_LAB_10_POINT_CHEST,
+    MUSIC_LAB_20_POINT_CHEST,
+    MUSIC_LAB_32_POINT_CHEST,
+    MUSIC_LAB_46_POINT_CHEST,
+    MUSIC_LAB_64_POINT_CHEST,
+    MUSIC_LAB_89_POINT_CHEST,
+    MUSIC_LAB_111_POINT_CHEST,
+    MUSIC_LAB_140_POINT_CHEST,
+)
+
+MUSIC_LAB_TEST_LOCATIONS = {
+    name
+    for name in LOCATION_NAME_TO_ID
+    if (
+        name.startswith("Game Garage - ")
+        or name.startswith("Music Lab Cassette - ")
+        or name in MUSIC_LAB_REWARD_CHEST_LOCATIONS
+    )
+}
+
+ITEM_NAME_TO_ID = {
+    # Historical development item IDs are preserved even though Level 2/3
+    # Access are no longer generated by v0.13.
+    "Level 2 Access": BASE_ID + 101,
+    "Level 3 Access": BASE_ID + 102,
+    "Stardust": BASE_ID + 103,
+    "Roots Access": BASE_ID + 104,
+    "Lobby Access": BASE_ID + 105,
+    "Meat Dimension Access": BASE_ID + 106,
+    "Cell Tower Access": BASE_ID + 107,
+    "Tower of Fear Access": BASE_ID + 108,
+    "Royal Corridor Access": BASE_ID + 109,
+    "Bloody Tears Cartridge": BASE_ID + 110,
+    "Gradius Remix Cartridge": BASE_ID + 111,
+    "Smooch Cartridge": BASE_ID + 112,
+    "Superstar Cartridge": BASE_ID + 113,
+    "Vampire Killer Cartridge": BASE_ID + 114,
+    "Wag the Dog Cartridge": BASE_ID + 115,
+    "Weed Killer": BASE_ID + 116,
+    "Plant Pipes": BASE_ID + 117,
+}
+
+ITEM_CLASSIFICATIONS = {
+    "Level 2 Access": ItemClassification.progression,
+    "Level 3 Access": ItemClassification.progression,
+    "Stardust": ItemClassification.filler,
+    **{name: ItemClassification.progression for name in AREA_ACCESS_ITEMS},
+    **{name: ItemClassification.progression for name in GARAGE_CARTRIDGE_ITEMS.values()},
+    "Weed Killer": ItemClassification.progression,
+    "Plant Pipes": ItemClassification.progression,
+}
+
+
+class SCRCItem(Item):
+    game = GAME_NAME
+
+
+class SCRCLocation(Location):
+    game = GAME_NAME
+
+
+@dataclass
+class SCRCOptions(PerGameCommonOptions):
+    pass
+
+
+class SCRCWebWorld(WebWorld):
+    game = GAME_NAME
+    theme = "partyTime"
+
+    setup_en = Tutorial(
+        "Multiworld Setup Guide",
+        "Development setup guide for Super Crazy Rhythm Castle Archipelago.",
+        "English",
+        "setup_en.md",
+        "setup/en",
+        ["Jack", "OpenAI"],
+    )
+
+    tutorials = [setup_en]
+
+
+class SCRCWorld(World):
+    """
+    Area-routing development world.
+
+    Archipelago Menu is the required logical root and connects freely to Hub6.
+    Hub6 is the in-game logical home region. Music Lab and Game Garage are always
+    connected to it. The six major castle areas are reached through Area
+    Access items. v0.15 continues to force Roots Access as the precollected
+    starter item for the current Roots development/testing phase, while the
+    other five Area Access items are placed normally.
+
+    v0.15 keeps cartridge routing and Gecko Weed Killer randomization, then
+    adds Plant Pipes as a separate randomized progression item. Frog/Hippo's
+    Level 3 source check requires Weed Killer, while Level 3 Completion requires
+    both Weed Killer and Plant Pipes. This is still not the final star-logic
+    milestone; cassette and broader vanilla-world prerequisites remain incomplete.
+    """
+
+    game = GAME_NAME
+    web = SCRCWebWorld()
+
+    options_dataclass = SCRCOptions
+    options: SCRCOptions
+
+    item_name_to_id = ITEM_NAME_TO_ID
+    location_name_to_id = LOCATION_NAME_TO_ID
+
+    def generate_early(self) -> None:
+        # Development/testing policy for v0.14.1: always begin with Roots.
+        # The remaining five Area Access items stay in the randomized item pool.
+        self.starting_area_item = "Roots Access"
+        self.multiworld.push_precollected(self.create_item(self.starting_area_item))
+
+    def create_regions(self) -> None:
+        # Archipelago core begins reachability sweeps from a region literally
+        # named "Menu". Keep that logical root even though the in-game start
+        # is Hub6 / Phone Hub.
+        menu = Region("Menu", self.player, self.multiworld)
+        phone_hub = Region("Phone Hub", self.player, self.multiworld)
+        music_lab = Region("Music Lab", self.player, self.multiworld)
+        game_garage = Region("Game Garage", self.player, self.multiworld)
+        roots = Region("Roots", self.player, self.multiworld)
+        lobby = Region("Lobby", self.player, self.multiworld)
+        meat = Region("Meat Dimension", self.player, self.multiworld)
+        cell = Region("Cell Tower", self.player, self.multiworld)
+        tower = Region("Tower of Fear", self.player, self.multiworld)
+        royal = Region("Royal Corridor", self.player, self.multiworld)
+
+        # Existing live level checks belong to Roots. Level 3 is intentionally
+        # split into entrance/source reachability and completion: Weed Killer
+        # gets the player into Level 3, while Plant Pipes is required to finish it.
+        for name in ("Level 1 - Completion", "Level 2 - Completion", "Level 3 - Completion"):
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], roots)
+            if name == "Level 3 - Completion":
+                set_rule(
+                    location,
+                    lambda state: (
+                        state.has("Weed Killer", self.player)
+                        and state.has("Plant Pipes", self.player)
+                    ),
+                )
+            roots.locations.append(location)
+
+        # Gecko is reachable from the Roots hub once Roots Access is owned.
+        # Weed Killer is NOT required to reach this source; it is the reward
+        # that vanilla later consumes to unlock entry to Level 3.
+        roots.locations.append(
+            SCRCLocation(
+                self.player,
+                ROOTS_GECKO_WEED_KILLER,
+                LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER],
+                roots,
+            )
+        )
+
+        # Frog/Hippo is an in-level check before Level 3 completion. Weed Killer
+        # is sufficient to enter Level 3 and reach them. Plant Pipes is deliberately
+        # NOT required here so the source can be checked before the level is completable.
+        frog_hippo = SCRCLocation(
+            self.player,
+            ROOTS_LEVEL3_FROG_HIPPO,
+            LOCATION_NAME_TO_ID[ROOTS_LEVEL3_FROG_HIPPO],
+            roots,
+        )
+        set_rule(
+            frog_hippo,
+            lambda state: state.has("Weed Killer", self.player),
+        )
+        roots.locations.append(frog_hippo)
+
+        # Preserve historical location IDs/datapackage names, but keep the
+        # old synthetic caches filler-only so progression can never be placed
+        # on a location the game client cannot actually report.
+        for index in range(1, 11):
+            name = f"Development Cache {index:02d}"
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
+            location.item_rule = lambda item: item.name == "Stardust"
+            phone_hub.locations.append(location)
+
+        # v0.14 keeps the four cartridge sources that are not already
+        # represented by Music Lab reward chests. Their exact physical-region
+        # logic is intentionally not modeled yet, so keep these checks filler-only:
+        # generation may never strand progression on an inaccurately modeled source.
+        for name in CARTRIDGE_SOURCE_LOCATIONS.values():
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
+            location.item_rule = lambda item: item.name == "Stardust"
+            phone_hub.locations.append(location)
+
+        # Hub6 side content is always logically reachable. v0.14 intentionally
+        # permits Area Access items here so current-save networking can test
+        # real AP-driven area unlocks. Cassette/point/full world prerequisites
+        # will be modeled in a later logic milestone.
+        for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
+            music_lab.locations.append(
+                SCRCLocation(
+                    self.player,
+                    chest_name,
+                    LOCATION_NAME_TO_ID[chest_name],
+                    music_lab,
+                )
+            )
+
+        for song in CASSETTE_SONGS:
+            for tier in CASSETTE_MEDAL_TIERS:
+                name = f"Music Lab Cassette - {song} - {tier}"
+                music_lab.locations.append(
+                    SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
+                )
+
+        for song in GARAGE_SONGS:
+            cartridge_item = GARAGE_CARTRIDGE_ITEMS[song]
+            for tier in GARAGE_STICKER_TIERS:
+                name = f"Game Garage - {song} - {tier}"
+                location = SCRCLocation(
+                    self.player, name, LOCATION_NAME_TO_ID[name], game_garage
+                )
+                set_rule(
+                    location,
+                    lambda state, item=cartridge_item: state.has(item, self.player),
+                )
+                game_garage.locations.append(location)
+
+        # AP core root -> in-game home base. This connection is always free.
+        menu.connect(phone_hub, "Menu -> Phone Hub")
+
+        # Music Lab + Garage are permanent home-base side regions.
+        phone_hub.connect(music_lab, "Phone Hub -> Music Lab")
+        phone_hub.connect(game_garage, "Phone Hub -> Game Garage")
+
+        # The six red phones are represented as six independently gated
+        # connections from Hub6. The client enforces the same items physically.
+        area_regions = {
+            "Roots Access": roots,
+            "Lobby Access": lobby,
+            "Meat Dimension Access": meat,
+            "Cell Tower Access": cell,
+            "Tower of Fear Access": tower,
+            "Royal Corridor Access": royal,
+        }
+        for access_item, region in area_regions.items():
+            phone_hub.connect(
+                region,
+                f"Phone Hub -> {region.name}",
+                lambda state, item=access_item: state.has(item, self.player),
+            )
+
+        victory = SCRCLocation(self.player, "Victory", None, phone_hub)
+        victory.place_locked_item(
+            SCRCItem("Victory", ItemClassification.progression, None, self.player)
+        )
+        phone_hub.locations.append(victory)
+
+        self.multiworld.regions += [
+            menu,
+            phone_hub,
+            music_lab,
+            game_garage,
+            roots,
+            lobby,
+            meat,
+            cell,
+            tower,
+            royal,
+        ]
+
+    def create_items(self) -> None:
+        starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
+
+        # Starter is precollected in generate_early; only the other five
+        # Area Access items occupy randomized locations.
+        progression_items = []
+        for name in AREA_ACCESS_ITEMS:
+            if name != starter:
+                progression_items.append(name)
+
+        # All six Game Garage cartridges remain true randomized items in v0.14.
+        progression_items.extend(GARAGE_CARTRIDGE_ITEMS.values())
+
+        # First meaningful vanilla quest item randomized by the area-routing world.
+        # Gecko's source is reachable with Roots Access alone, so Weed Killer can
+        # safely be progression and may be placed anywhere logic can reach.
+        progression_items.append("Weed Killer")
+
+        # Plant Pipes is obtained at Frog/Hippo inside Level 3 in vanilla. AP logic
+        # allows that source with Weed Killer alone, but requires Plant Pipes for
+        # Level 3 Completion. This permits the intended menu-exit partial-level route.
+        progression_items.append("Plant Pipes")
+
+        for name in progression_items:
+            self.multiworld.itempool.append(self.create_item(name))
+
+        filler_count = len(LOCATION_NAME_TO_ID) - len(progression_items)
+        for _ in range(filler_count):
+            self.multiworld.itempool.append(self.create_item("Stardust"))
+
+    def create_item(self, name: str) -> SCRCItem:
+        if name == "Victory":
+            return SCRCItem(name, ItemClassification.progression, None, self.player)
+
+        return SCRCItem(
+            name,
+            ITEM_CLASSIFICATIONS[name],
+            ITEM_NAME_TO_ID[name],
+            self.player,
+        )
+
+    def get_filler_item_name(self) -> str:
+        return "Stardust"
+
+    def set_rules(self) -> None:
+        # Development completion condition for the routing milestone: obtain
+        # all six Area Access items (one starter + five randomized).
+        set_rule(
+            self.multiworld.get_location("Victory", self.player),
+            lambda state: all(
+                state.has(item_name, self.player)
+                for item_name in AREA_ACCESS_ITEMS
+            ),
+        )
+
+        self.multiworld.completion_condition[self.player] = (
+            lambda state: state.has("Victory", self.player)
+        )
+
+    def fill_slot_data(self) -> dict:
+        starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
+        return {
+            "implementation_version": "area-routing-plant-pipes-0.15",
+            "logical_root_region": "Menu",
+            "home_region": "Phone Hub",
+            "starting_area_item": starter,
+            "starting_area": AREA_ITEM_TO_REGION[starter],
+            "starting_area_forced": True,
+            "area_access_items": list(AREA_ACCESS_ITEMS),
+            "always_open_regions": ["Phone Hub", "Music Lab", "Game Garage"],
+            "development_cache_count": 10,
+            "development_caches_filler_only": True,
+            "game_garage_song_count": len(GARAGE_SONGS),
+            "randomize_game_garage_cartridges": True,
+            "game_garage_cartridge_items": dict(GARAGE_CARTRIDGE_ITEMS),
+            "randomize_vanilla_cartridge_sources": True,
+            "cartridge_source_locations": dict(CARTRIDGE_SOURCE_LOCATIONS),
+            "randomize_weed_killer": True,
+            "weed_killer_item": "Weed Killer",
+            "weed_killer_source_location": ROOTS_GECKO_WEED_KILLER,
+            "weed_killer_native_bag_flag": "WEED_KILLER_BAG_ITEM",
+            "weed_killer_native_collected_flag": "ROOTS_HUB_WEED_KILLER_COLLECTED",
+            "randomize_plant_pipes": True,
+            "plant_pipes_item": "Plant Pipes",
+            "plant_pipes_source_location": ROOTS_LEVEL3_FROG_HIPPO,
+            "plant_pipes_native_ability_flag": "WEED_KILLER_ABILITY",
+            "plant_pipes_native_source_marker_flag": "LEVEL_07_WK_ABILITY_EARNED",
+            "plant_pipes_source_room": "GameRoom_07",
+            "level_3_logic": {
+                "entry_requires": ["Roots Access", "Weed Killer"],
+                "frog_hippo_check_requires": ["Roots Access", "Weed Killer"],
+                "completion_requires": ["Roots Access", "Weed Killer", "Plant Pipes"],
+                "menu_exit_without_plant_pipes_is_intended": True,
+            },
+            "game_garage_sticker_tiers": list(GARAGE_STICKER_TIERS),
+            "game_garage_location_format": "Game Garage - {song} - {tier}",
+            "music_lab_cassette_song_count": len(CASSETTE_SONGS),
+            "music_lab_cassette_songs": list(CASSETTE_SONGS),
+            "music_lab_cassette_medal_tiers": list(CASSETTE_MEDAL_TIERS),
+            "music_lab_cassette_location_format": "Music Lab Cassette - {song} - {tier}",
+            "music_lab_reward_chests": {
+                "5": MUSIC_LAB_5_POINT_CHEST,
+                "10": MUSIC_LAB_10_POINT_CHEST,
+                "20": MUSIC_LAB_20_POINT_CHEST,
+                "32": MUSIC_LAB_32_POINT_CHEST,
+                "46": MUSIC_LAB_46_POINT_CHEST,
+                "64": MUSIC_LAB_64_POINT_CHEST,
+                "89": MUSIC_LAB_89_POINT_CHEST,
+                "111": MUSIC_LAB_111_POINT_CHEST,
+                "140": MUSIC_LAB_140_POINT_CHEST,
+            },
+            "internal_level_map": {
+                "Level 1 - Completion": "Level_05",
+                "Level 2 - Completion": "Level_06",
+                "Level 3 - Completion": "Level_07",
+            },
+            "routing_logic_complete": False,
+            "routing_logic_note": (
+                "v0.15 validates Roots-first area routing, randomized Weed Killer, "
+                "and the split Level 3 Plant Pipes source/completion logic. Randomized "
+                "AP-Star costs and the remaining vanilla prerequisites are deferred."
+            ),
+        }
+

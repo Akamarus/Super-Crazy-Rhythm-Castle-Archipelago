@@ -1,0 +1,42 @@
+# .NET / IDE output
+**/bin/
+**/obj/
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.pdb
+
+# Generated release artifacts
+/dist/*
+!/dist/.gitkeep
+*.apworld
+*.zip
+*.rar
+*.7z
+
+# Game / BepInEx / proprietary binaries
+BepInEx/
+interop/
+*.dll
+
+# Runtime logs and saves
+LogOutput.log
+*.log
+*.bak
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local secrets/config
+.env
+.env.*
+secrets.*
+*.local
+
+# OS clutter
+.DS_Store
+Thumbs.db
+Desktop.ini
