@@ -14,6 +14,8 @@
         'Get-LocalAiWorktreeStatus'
         'Invoke-OpenWebUiChat'
         'Invoke-LocalAiInvestigation'
+        'Invoke-LocalAiBuild'
+        'Invoke-LocalAiValidation'
         'New-LocalAiContext'
         'New-LocalAiWorktree'
         'New-LocalAiTask'

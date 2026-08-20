@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
-    [string]$GameDir
+    [string]$GameDir,
+
+    [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +22,11 @@ $outDir = Join-Path $PSScriptRoot "bin\Release\net6.0"
 $dll = Join-Path $outDir "RhythmCastleAP.dll"
 if (!(Test-Path $dll)) {
     throw "Build succeeded but RhythmCastleAP.dll was not found."
+}
+
+if ($SkipInstall) {
+    Write-Host "Build complete; installation skipped."
+    return
 }
 
 $pluginDir = Join-Path $GameDir "BepInEx\plugins\RhythmCastleAP"
