@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Public testing documentation
+
+- Added the public smoke-test and issue-reporting guide, with installation and advanced-diagnostics cross-links.
+- Documented the current v0.67.59 client / v0.15 APWorld testing boundary, expected evidence, safe redaction guidance, and known experimental limitations.
+
+Documentation only: this section does not indicate a client or APWorld version bump, release artifact, or completed randomizer milestone.
+
 ## Documentation
 
 - Added `docs/PROJECT_OVERVIEW.md` as the living player/contributor-facing architecture and randomizer design guide.
