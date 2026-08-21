@@ -105,8 +105,8 @@ These names are design targets, not yet committed AP items unless listed above:
 
 | Planned item | Source / role | Status |
 | --- | --- | --- |
-| **Glasses** (exact in-game name TBD) | Picked up near the end of Level 4; required for the Minim trade blocking the Level 5 / Life Quest route. | Discovery pending. |
-| **Chicken Bucket** | Reward associated with the glasses-for-bucket Minim interaction. | Discovery pending. |
+| **Hip Glasses** | Picked up near the end of Level 4; traded to the Bucket Minion as part of the Lift Quest route. | Historical gameplay chain confirmed; exact native pickup flag and current AP design pending. |
+| **Chicken Bucket** | Received from the Bucket Minion in exchange for Hip Glasses; later becomes the Combo Bucket ability during Lift Quest. | Historical gameplay chain confirmed; current Area Access item/check design pending. |
 | Additional vanilla quest items / abilities | Converted individually when they materially gate traversal or completion. | Future work. |
 
 ---
@@ -364,6 +364,8 @@ The client evaluates the real result-time clean-medal tier and sends cumulative 
 
 Nine Hub6 Music Lab reward chests are tracked from their live native metadata. The client does not create fake startup chest components; it waits until Hub6 loads and reads the actual chest unlock requirement and native collection flag.
 
+Music Lab Points currently remain the game's native medal-score currency, read through `CurrentPlayerSaveEnquiries.GetMedalScore()`. The nine reward chests are AP locations; Music Lab Points are not currently generated AP inventory items. Randomizing point tokens would require a separate approved design and new reachability analysis.
+
 | Point threshold | Native chest |
 | ---: | --- |
 | 5 | ManiacMemoryCardChest |
@@ -529,12 +531,13 @@ The client follows several implementation rules developed through testing:
 | Gecko / Weed Killer | Implemented and tested | Source check + randomized consumable delivery + native consumption work. |
 | Frog/Hippo / Plant Pipes | Implemented and tested | Source check is reachable without Plant Pipes; ability is randomized. |
 | Level 3 partial completion model | Implemented and tested | Player can menu-exit when Plant Pipes is elsewhere. |
-| Level 4 glasses | Discovery next | Exact name/native flags pending. |
-| Minim glasses trade | Discovery next | Intended to become a check. |
-| Chicken Bucket | Planned | Intended randomized progression item after native mapping. |
+| Level 4 Hip Glasses | Historical mapping confirmed | Pickup timing and route confirmed; exact native pickup flag and current AP treatment pending. |
+| Bucket Minion glasses trade | Historical mapping confirmed | Vanilla ordering confirmed; whether it becomes a check under Area Access remains undecided. |
+| Chicken Bucket | Historical mapping confirmed / design pending | `COMBO_BUCKET_ABILITY` and `LEVEL_09_COMBO_ABILITY_EARNED` are known; randomization design is not yet approved. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
 | Garage cartridges | Implemented | 6 AP items; source pickups/chests randomized. |
-| Music Lab cassettes | Implemented | 30 songs × 4 cumulative medal tiers. |
+| Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers; cassette items are not randomized in the current APWorld. |
+| Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Partial/development | Star Eater test override exists; final item logic TBD. |
 | Difficulty options | Designed / partial | Normal/Hard/Expert/Perfection; exact final check tables pending. |
@@ -563,17 +566,17 @@ flowchart TD
     ROOTSREST --> OTHER --> STARS --> DIFF --> STARTERS
 ```
 
-Immediate next gameplay discovery:
+Immediate next evidence reconciliation:
 
 ```text
-Level 4 glasses pickup
-→ exact native item/source flags
-→ Minim blocking Life Quest / Level 5
-→ glasses consumption/trade marker
-→ Chicken Bucket native item state
+historical Level 4 Hip Glasses pickup
+→ recover exact native pickup/source flag if present in prior logs
+→ Bucket Minion trade and Lift Quest ordering
+→ recover a distinct trade marker if present
+→ reconcile Chicken Bucket / Combo Bucket with Area Access
 ```
 
-No permanent item/location IDs should be allocated for these until the native mapping is confirmed and implementation is ready.
+The observed chain is already recorded in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Do not request a replay unless the historical record is genuinely insufficient. No permanent item/location IDs should be allocated until the current Area Access design is approved and implementation is ready.
 
 ---
 

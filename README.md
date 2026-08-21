@@ -2,6 +2,27 @@
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
+> [!WARNING]
+> This is an experimental development build, not a release. Back up your save and expect incomplete logic.
+
+## TL;DR
+
+- Playable now: Roots-first APWorld v0.15 with Area Access routing, randomized Game Garage cartridges, Weed Killer, Plant Pipes, campaign checks for Levels 1–3, Music Lab cassette medal checks, and nine Music Lab chest checks.
+- Not finished: full-game logic, generated AP Stars, randomized cassettes/quest items, victory, balanced item pool, verified local co-op, and release packaging.
+- Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
+- Start with the installation guide, then use the testing/reporting checklist when something breaks.
+
+[Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Approved randomizer design](docs/superpowers/specs/2026-08-20-randomizer-logic-design.md)
+
+## Simplified roadmap
+
+1. Current playable prototype — Roots routing, Weed Killer, Plant Pipes, Garage/cassette/chest checks.
+2. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
+3. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
+4. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
+
+See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
+
 This repository contains both halves of the implementation:
 
 - `client/` — BepInEx/IL2CPP C# client plugin used inside the game.
@@ -76,6 +97,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-Roots is intentionally forced as the starter while its progression chain is being implemented and audited. The next planned discovery is the **Level 4 glasses → Minim trade → Chicken Bucket** chain. Randomized Star requirements come after the meaningful item/story prerequisites are mapped correctly.
+Roots is intentionally forced as the starter while its progression chain is being implemented and audited. The next work is to reconcile the historically observed **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket** chain with the current Area Access design; it is not implemented randomizer logic. Randomized Star requirements come after the meaningful item/story prerequisites are mapped correctly.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.
