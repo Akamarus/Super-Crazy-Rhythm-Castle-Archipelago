@@ -10,9 +10,9 @@ This is the canonical installation guide for public development testing. The com
 You need:
 
 - Windows and a legally installed PC copy of *Super Crazy Rhythm Castle*.
-- [BepInEx 6 IL2CPP](https://builds.bepinex.dev/projects/bepinex_be) for `win-x64`, installed in the game's directory. Launch the game normally once after installing BepInEx, then close it, so BepInEx can generate its IL2CPP interop files.
+- [BepInEx 6 IL2CPP's official installation guide](https://github.com/BepInEx/bepinex-docs/blob/master/articles/user_guide/installation/unity_il2cpp.md?plain=1). From its [Bleeding Edge download page](https://builds.bepinex.dev/projects/bepinex_be), download the Windows 64-bit IL2CPP archive designated `BepInEx-Unity.IL2CPP-win-x64-6.0.0-....zip` (the trailing build identifier varies); do **not** choose Mono, x86, Linux, or macOS builds. Extract the archive's contents directly into the game root—the directory containing `Rhythm Castle.exe`—not into a nested folder. Launch the game normally once after installing BepInEx, then close it, so BepInEx can generate its IL2CPP interop files.
 - The .NET 6 SDK, PowerShell, and Git.
-- Archipelago 0.6.7 or a compatible newer local installation.
+- Archipelago 0.6.7 or a compatible newer local installation. Follow the [official Archipelago setup guide](https://archipelago.gg/tutorial/Archipelago/setup_en) or download the installer from the [official latest release](https://github.com/ArchipelagoMW/Archipelago/releases/latest), then run the downloaded Windows installer. The default installation is commonly `C:\ProgramData\Archipelago`; this guide calls that location `<Archipelago>`.
 
 An `.apworld` is executable custom-world code. Build it from this repository or obtain it only from a source you trust.
 
@@ -83,7 +83,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 The build creates `dist\scrc.apworld`. In Archipelago Launcher, choose **Install APWorld** and select that file. Double-clicking the file or dragging it onto the launcher can also install it. Restart Archipelago Launcher after installing or replacing the APWorld.
 
-Use the Launcher to generate a template, then configure the generated YAML. The repository includes [SCRC-AreaRouting-PlantPipes.yaml](../apworld/examples/SCRC-AreaRouting-PlantPipes.yaml) as the current Roots-first v0.15 example. Generate the seed locally with Archipelago Launcher; generation produces an `AP_XXXXX.zip` output. Custom worlds generate locally, and a generated seed can be uploaded to a compatible hosting website afterward.
+Use one of these YAML starting points: click **Generate Template Options** in Archipelago Launcher, which writes template YAMLs to `<Archipelago>\Players\Templates`, or use the repository's [SCRC-AreaRouting-PlantPipes.yaml](../apworld/examples/SCRC-AreaRouting-PlantPipes.yaml) Roots-first v0.15 example. Copy the selected YAML to `<Archipelago>\Players` (not `Players\Templates`) and keep it as an uncompressed `.yaml` file. Open the copied file and change its top-level `name:` value to your intended slot name; the repository example starts as `name: Jack`, so replace `Jack`. Use the same slot name in the client's `Slot` setting, including its capitalization.
+
+In Archipelago Launcher, click **Generate**. On success, take the generated archive from `<Archipelago>\output\AP_XXXXX.zip`. Custom worlds generate locally, and the resulting zip can be uploaded to a compatible hosting website afterward.
 
 Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.15** with slot-data implementation `area-routing-plant-pipes-0.15`; it forces Roots as the starter area.
 
@@ -94,6 +96,6 @@ Update the client and APWorld together: rebuild/install both, restart Archipelag
 To uninstall, remove only:
 
 - `<GameDir>\BepInEx\plugins\RhythmCastleAP`
-- The installed `scrc.apworld` from Archipelago's custom-world installation
+- `<Archipelago>\custom_worlds\scrc.apworld`—commonly `C:\ProgramData\Archipelago\custom_worlds\scrc.apworld` when using the default Archipelago installation
 
-Keep your saves and BepInEx installation intact. Do not delete BepInEx core files, game files, or IL2CPP assemblies.
+Do not delete the repository's `dist\scrc.apworld` when uninstalling; that is the build output, not the installed custom world. Keep your saves and BepInEx installation intact. Do not delete BepInEx core files, game files, or IL2CPP assemblies.
