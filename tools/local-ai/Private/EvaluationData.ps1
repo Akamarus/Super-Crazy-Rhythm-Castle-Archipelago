@@ -2,6 +2,10 @@ function Get-LocalAiDecisionLedgerPath {
     return 'tools/local-ai/evaluation/decisions.json'
 }
 
+function Get-LocalAiEvaluationCasesPath {
+    return 'tools/local-ai/evaluation/cases.json'
+}
+
 function Assert-LocalAiExactProperties {
     param(
         [Parameter(Mandatory)] $Value,
@@ -105,4 +109,74 @@ function Get-LocalAiDecisionLedger {
     }
 
     return [pscustomobject] (ConvertTo-RedactedData $ledger)
+}
+
+function Get-LocalAiEvaluationCases {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepositoryRoot)
+
+    $casesPath = Get-LocalAiEvaluationCasesPath
+    $fullPath = Resolve-ContainedPath -Root $RepositoryRoot -Path $casesPath -MustExist
+    $tracked = & git -C $RepositoryRoot ls-files --error-unmatch -- $casesPath 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $tracked) {
+        throw "Evaluation cases are not a tracked file: $casesPath"
+    }
+
+    try {
+        $definition = [IO.File]::ReadAllText($fullPath, [Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "Evaluation cases are not valid JSON: $($_.Exception.Message)"
+    }
+
+    Assert-LocalAiExactProperties -Value $definition -RequiredProperty @('schema_version','cases') -Description 'Evaluation cases'
+    if ($definition.schema_version -isnot [long] -or [long] $definition.schema_version -ne 1) {
+        throw 'Evaluation cases schema_version must be 1.'
+    }
+    if ($definition.cases -isnot [Collections.IEnumerable] -or $definition.cases -is [string] -or @($definition.cases).Count -eq 0) {
+        throw 'Evaluation cases must be a non-empty array.'
+    }
+
+    $caseIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($case in @($definition.cases)) {
+        Assert-LocalAiExactProperties -Value $case -RequiredProperty @('id','prompt','questions') -Description 'Evaluation case'
+        foreach ($name in @('id','prompt')) {
+            if ($case.$name -isnot [string] -or [string]::IsNullOrWhiteSpace($case.$name)) {
+                throw "Evaluation case $name must be a non-empty string."
+            }
+        }
+        if (-not $caseIds.Add($case.id)) {
+            throw "Evaluation cases contain a duplicate id: $($case.id)"
+        }
+        if ($case.questions -isnot [Collections.IEnumerable] -or $case.questions -is [string] -or @($case.questions).Count -eq 0) {
+            throw 'Evaluation case questions must be a non-empty array.'
+        }
+
+        $questionIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($question in @($case.questions)) {
+            Assert-LocalAiExactProperties -Value $question -RequiredProperty @('id','allowed_values','expected') -Description 'Evaluation question'
+            if ($question.id -isnot [string] -or [string]::IsNullOrWhiteSpace($question.id)) {
+                throw 'Evaluation question id must be a non-empty string.'
+            }
+            if (-not $questionIds.Add($question.id)) {
+                throw "Evaluation case $($case.id) contains a duplicate question id: $($question.id)"
+            }
+            if ($question.allowed_values -isnot [Collections.IEnumerable] -or $question.allowed_values -is [string] -or @($question.allowed_values).Count -eq 0) {
+                throw 'Evaluation question allowed_values must be a non-empty string array.'
+            }
+            $allowedValues = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($allowedValue in @($question.allowed_values)) {
+                if ($allowedValue -isnot [string] -or [string]::IsNullOrWhiteSpace($allowedValue)) {
+                    throw 'Evaluation question allowed_values must be a non-empty string array.'
+                }
+                if (-not $allowedValues.Add($allowedValue)) {
+                    throw "Evaluation question allowed_values contains a duplicate value: $allowedValue"
+                }
+            }
+            if ($question.expected -isnot [string] -or -not $allowedValues.Contains($question.expected)) {
+                throw 'Evaluation question expected must be one of its allowed_values.'
+            }
+        }
+    }
+
+    return @($definition.cases)
 }
