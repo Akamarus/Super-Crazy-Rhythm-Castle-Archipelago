@@ -180,9 +180,22 @@ if configured_model_ids != LOCAL_AI_ALLOWED_MODELS:
         f"{repo_path(LOCAL_AI_CONFIG)} allowed models must be exactly: "
         f"{', '.join(LOCAL_AI_ALLOWED_MODELS)}"
     )
-if not re.search(
-    r"['\"]Invoke-LocalAiModelEvaluation['\"]", local_ai_manifest_text
-):
+functions_to_export_match = re.search(
+    r"^\s*FunctionsToExport\s*=\s*@\((?P<body>.*?)^\s*\)\s*$",
+    local_ai_manifest_text,
+    re.DOTALL | re.MULTILINE,
+)
+if not functions_to_export_match:
+    fail(f"{repo_path(LOCAL_AI_MANIFEST)} is missing FunctionsToExport")
+manifest_function_exports = {
+    match.group("value")
+    for match in re.finditer(
+        r"^\s*['\"](?P<value>[^'\"]+)['\"]\s*,?\s*(?:#.*)?$",
+        functions_to_export_match.group("body"),
+        re.MULTILINE,
+    )
+}
+if "Invoke-LocalAiModelEvaluation" not in manifest_function_exports:
     fail(
         f"{repo_path(LOCAL_AI_MANIFEST)} must export "
         "Invoke-LocalAiModelEvaluation"

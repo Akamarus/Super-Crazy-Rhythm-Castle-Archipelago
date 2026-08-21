@@ -95,6 +95,25 @@ class RepositoryContractTests(unittest.TestCase):
             result.stdout + result.stderr,
         )
 
+    def test_validator_requires_evaluation_command_in_manifest_functions_to_export(self):
+        root = self.make_fixture()
+        manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        manifest_text = manifest_text.replace(
+            "        'Invoke-LocalAiModelEvaluation'\n",
+            "",
+        ).replace(
+            "    CmdletsToExport = @()",
+            "    PrivateData = @{ EvaluationCommand = 'Invoke-LocalAiModelEvaluation' }\n"
+            "    CmdletsToExport = @()",
+        )
+        manifest_path.write_text(manifest_text, encoding="utf-8")
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
     def test_validator_checks_every_world_python_file_for_syntax(self):
         root = self.make_fixture()
         (root / "apworld/scrc/difficulty.py").write_text("this is invalid syntax !!!", encoding="utf-8")
