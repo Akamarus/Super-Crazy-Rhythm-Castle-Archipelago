@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — Known blocking issue
+
+- Client v0.67.60 can become stuck on a permanent black screen when entering Game Garage with zero AP-owned Garage cartridges; audio continues and the pause/menu exit is unavailable.
+- The next client release must include and verify a fix for zero-cartridge Garage entry before this item moves to that release's fixed list.
+
 ## APWorld v0.17 / Client v0.67.60 — Roots bucket progression
 
 - Added permanent randomized items `Hip Glasses` (`187256119`) and `Chicken Bucket` (`187256120`).

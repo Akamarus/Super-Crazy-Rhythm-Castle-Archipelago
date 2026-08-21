@@ -40,6 +40,16 @@ Run these steps in order where the seed allows. A received progression item may 
 
 If a step cannot be attempted because the seed has not delivered the needed item, report the completed steps and the item/slot state instead of editing save data or using an untrusted workaround.
 
+## Confirmed blocking bugs
+
+### Game Garage black screen with zero AP cartridges
+
+In Client v0.67.60, entering `GameRoom_27` with Game Garage cartridge randomization enabled and no AP-owned Garage cartridges can leave the game on a permanent black loading screen while Garage audio continues. The pause/menu exit is unavailable, so the player must close the game manually.
+
+The captured reproduction reached `GameRoom_27`, resolved all six native cartridge objects, and marked all six inactive; the log contained no crash or unhandled exception. Treat the all-locked cartridge state as the leading cause until a controlled comparison confirms the exact failing native dependency.
+
+Do not test Game Garage in this build unless specifically requested by a maintainer. The next client release must not claim this issue as fixed until a fresh-save test proves that entering and exiting Game Garage with zero AP-owned cartridges works normally while every unowned song remains inaccessible.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
