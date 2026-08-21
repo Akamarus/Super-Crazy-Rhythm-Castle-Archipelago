@@ -161,6 +161,8 @@ Initially:
 
 This preserves early area routing while preventing the solver from claiming an unproven high-score route.
 
+Testers are specifically invited to investigate later content without Combo Bucket. A useful report identifies the exact campaign level, objective, Music Lab cassette, or Game Garage song; native play difficulty; AP performance tier when applicable; score, stars, medal, and missed objective; player count; relevant abilities; and whether `COMBO_BUCKET_ABILITY` was absent. A successful result without Combo Bucket proves that result is possible under the reported conditions. An unsuccessful attempt is evidence only, not proof of impossibility; reports should include the number of attempts and the best observed result. Video and a focused log excerpt are preferred when practical.
+
 ## 8. Compatibility and slot data
 
 The APWorld exports explicit feature metadata and the exact item/location names required by the client. The client enables suppression only for a recognized compatible implementation version and feature flag. Older seeds retain their existing behavior.
@@ -193,5 +195,6 @@ Gameplay acceptance uses a fresh compatible seed and save to verify:
 5. Lift Quest consumes Chicken Bucket, grants Combo Bucket, completes normally, and triggers the Lobby cutscene.
 6. Save/reload and disconnect/reconnect at each held and consumed state do not duplicate or restore consumed items.
 7. Vanilla play outside an AP-bound save is unchanged.
+8. Representative later score and objective checks are attempted without Combo Bucket and reported with enough detail to decide whether any individual solver requirement is justified.
 
 No merge or push occurs until gameplay acceptance passes and the project owner approves integration.

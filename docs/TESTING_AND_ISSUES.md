@@ -40,6 +40,38 @@ Run these steps in order where the seed allows. A received progression item may 
 
 If a step cannot be attempted because the seed has not delivered the needed item, report the completed steps and the item/slot state instead of editing save data or using an untrusted workaround.
 
+## Optional Combo Bucket feasibility testing
+
+Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
+
+When testing without Combo Bucket, report:
+
+- the exact level, objective, Music Lab cassette, or Game Garage song;
+- native play difficulty and selected AP performance difficulty, when applicable;
+- score, stars, medal, completed objective, and best missed threshold;
+- player count and other relevant abilities or items;
+- confirmation that Combo Bucket was not owned or active;
+- number of attempts and best result; and
+- client/APWorld versions plus a short relevant log excerpt or video when practical.
+
+A successful result demonstrates that the reported target is possible without Combo Bucket under those conditions. A failed attempt is still useful evidence, but it does **not** by itself prove the target is impossible. Do not edit the save or use score cheats for these reports; if a developer diagnostic was used to reach the content, name it explicitly.
+
+Use this optional report block in addition to the general issue template below:
+
+```markdown
+### Combo Bucket feasibility
+- Content and objective:
+- Combo Bucket absent: yes/no
+- Native difficulty:
+- AP performance difficulty:
+- Player count:
+- Other relevant abilities/items:
+- Attempts:
+- Best score/stars/medal/objective result:
+- Target or missed threshold:
+- Diagnostic shortcuts used:
+```
+
 ## Known limitations
 
 - Roots Access is forced as the APWorld v0.15 starter; random safe starters are not implemented.
