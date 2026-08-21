@@ -20,7 +20,8 @@
 - Log watching exists only during an explicit development session and watches only `<GameDir>\BepInEx\LogOutput.log`.
 - Client deployment is restricted to exactly `<GameDir>\BepInEx\plugins\RhythmCastleAP`.
 - Never merge, rebase, push, open a merge request, or automatically remove branches/worktrees.
-- The first end-to-end acceptance test is investigation-only for Level 4 glasses / Minim progression and must not change source or runtime state.
+- The first end-to-end acceptance test is an investigation-only reconciliation of historical Level 4 Hip Glasses / Bucket Minion / Chicken Bucket / Lift Quest evidence with the current Area Access design; it must not change source or runtime state.
+- Treat recovered gameplay observations and native identifiers from the full-game **Archipelago Game Implementation** conversation as historical evidence, but do not carry forward its superseded individual-level access design without explicit reconciliation.
 - Keep credentials, task state, prompts/responses, logs, binaries, and generated artifacts out of Git.
 
 ---
@@ -266,12 +267,12 @@
 
 **Interfaces:**
 - Consumes: completed investigation and handoff workflow.
-- Produces: a reviewable Level 4 glasses / Minim progression investigation with no repository or runtime mutation.
+- Produces: a reviewable reconciliation of the historical Level 4 Hip Glasses / Bucket Minion / Chicken Bucket / Lift Quest evidence with the current Area Access design, with no repository or runtime mutation.
 
 - [ ] **Step 1: Add an automated acceptance test with a mocked Open WebUI response** that snapshots tracked status/HEAD/worktree list and asserts they remain unchanged, while the task reaches `awaiting_review` and produces complete findings/handoff artifacts.
 - [ ] **Step 2: Run the mocked acceptance test; expect it to pass before contacting the live service.**
-- [ ] **Step 3: Record a clean baseline with `git status --short`, `git rev-parse HEAD`, and `git worktree list --porcelain`, then create an investigation task whose exact goal is `Investigate Level 4 glasses / Minim progression.` Include `README.md`, `docs/PROJECT_OVERVIEW.md`, `docs/PROGRESSION.md`, relevant tracked client source, and no runtime logs unless the owner explicitly supplies them.**
-- [ ] **Step 4: Invoke the live loopback Open WebUI endpoint and generate the handoff.** Verify it identifies evidence separately from unknown native flags and does not allocate IDs or claim gameplay facts absent evidence.
+- [ ] **Step 3: Record a clean baseline with `git status --short`, `git rev-parse HEAD`, and `git worktree list --porcelain`, then create an investigation task whose exact goal is `Reconcile the historical Level 4 Hip Glasses / Bucket Minion / Chicken Bucket / Lift Quest evidence with the current Area Access progression design.` Include `README.md`, `docs/PROJECT_OVERVIEW.md`, `docs/PROGRESSION.md`, relevant tracked client source, and no runtime logs unless the owner explicitly supplies them.**
+- [ ] **Step 4: Invoke the live loopback Open WebUI endpoint and generate the handoff.** Verify it separates confirmed vanilla observations and native identifiers from the superseded `Level 5 Access` design, identifies remaining evidence gaps, does not allocate IDs, and does not ask the owner to replay progression already represented in the historical record merely because raw logs are absent from repository context.
 - [ ] **Step 5: Re-run the baseline Git queries and verify no tracked changes, branches, or worktrees were created; verify no build, deployment, game launch, or log watcher event exists; retain only ignored task artifacts.**
 - [ ] **Step 6: Run `Invoke-Pester .\tools\local-ai\tests -Output Detailed` and `python .\tools\validate-repo.py`; expect all tests and repository validation to pass.**
 - [ ] **Step 7: Create a final documentation-only commit for any acceptance wording corrections, if needed, with `git commit -m "test(tools): verify investigation-only AI bridge workflow"`; do not commit local task artifacts.**

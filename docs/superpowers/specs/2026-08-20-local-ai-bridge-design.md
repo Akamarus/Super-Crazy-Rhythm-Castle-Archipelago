@@ -172,22 +172,23 @@ Each consequential operation emits an event. Sensitive values and raw authorizat
 The first acceptance task is investigation-only:
 
 ```text
-Investigate Level 4 glasses / Minim progression.
+Reconcile the historical Level 4 Hip Glasses / Bucket Minion / Chicken Bucket / Lift Quest evidence with the current Area Access progression design.
 ```
 
 It must prove that the bridge can:
 
 1. create and transition an investigation task;
 2. capture the clean repository baseline;
-3. assemble bounded context covering the Level 4 glasses, Minim trade, and Chicken Bucket roadmap;
+3. assemble bounded context covering the confirmed Level 4 (`Level_08`) Hip Glasses pickup, Bucket Minion trade, Chicken Bucket, Lift Quest (`Level_09`), and current Roots Area Access design;
 4. call `http://127.0.0.1:8080/api/chat/completions` using model `jacks-assistant`;
-5. save structured findings with evidence and uncertainties;
+5. save structured findings that distinguish observed vanilla facts and native identifiers from superseded per-level access conclusions and remaining uncertainties;
 6. generate a reviewable handoff;
 7. leave tracked source, Git branches/worktrees, build outputs, the game install, and plugin deployment unchanged.
+
+The project conversation **Archipelago Game Implementation** is the primary historical record of the full-game discovery playthrough and its logs. Because ChatGPT conversation history is not automatically part of repository context, confirmed facts recovered from it must be promoted into tracked documentation before relying on the local bridge. Historical gameplay observations remain evidence; design conclusions from before the Area Access pivot are not current requirements unless explicitly reconciled and approved. The acceptance task must not ask the owner to replay already logged progression merely because the repository summary is incomplete.
 
 Only after this passes should the project owner authorize an implementation acceptance task that exercises edit, validate, build, restricted deployment, and log watching.
 
 ## 14. Acceptance criteria
 
 The bridge design is satisfied when tests demonstrate loopback-only authenticated API access, exact model selection, secret redaction, valid state transitions, investigation/implementation separation, worktree containment, strict deployment containment, session-bound log watching, atomic artifacts, and the absence of automatic merge or push behavior.
-
