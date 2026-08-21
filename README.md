@@ -38,7 +38,7 @@ This repository contains both halves of the implementation:
 | --- | --- | --- |
 | Client | `0.67.59` | Current tested baseline |
 | APWorld | `0.16` | Generation previews; random currently resolves only to validated Roots |
-| Archipelago implementation tag | `generation-foundation-0.16` | Additive preview slot-data implementation |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16` | Preserves current client feature gates while appending the v0.16 preview marker |
 
 Current Roots progression includes randomized **Weed Killer** and **Plant Pipes**, plus the Frog/Hippo in-level AP check. The first Roots arrival cutscene is bypassed for AP routing, and the campaign-order Star Eater blockade / FirstAreaGate are normalized while Roots Access is owned.
 

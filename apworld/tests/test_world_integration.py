@@ -62,6 +62,13 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertEqual(data["schema_version"], 8)
+        self.assertEqual(
+            data["implementation_version"],
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+        )
+        self.assertTrue(data["implementation_version"].startswith("area-routing"))
+        self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
+        self.assertEqual(data["generation_foundation_version"], "generation-foundation-0.16")
         self.assertEqual(data["required_stars"], 50)
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
@@ -76,6 +83,9 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertFalse(data["difficulty_filtering_active"])
         self.assertEqual(data["difficulty_preview_location_count"], len(world.difficulty_preview_locations))
         self.assertTrue(data["development_area_access_victory_active"])
+        self.assertFalse(data["starting_area_forced"])
+        self.assertIn("v0.16", data["routing_logic_note"])
+        self.assertIn("preview", data["routing_logic_note"])
 
     def test_slot_data_has_safe_defaults_for_direct_construction(self):
         world = object.__new__(self.module.SCRCWorld)

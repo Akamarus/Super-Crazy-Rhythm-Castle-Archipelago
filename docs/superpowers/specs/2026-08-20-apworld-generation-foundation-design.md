@@ -154,7 +154,7 @@ The implementation version advances from `area-routing-plant-pipes-0.15` to a ne
 - `difficulty_filtering_active: false` plus the preview count for the selected difficulty;
 - a flag stating that the existing completion condition remains the development Area Access milestone.
 
-Existing v0.15 fields remain available unless their meaning would become false. The client is not changed in this phase, so the new slot data must be additive and must not claim support the client lacks.
+Existing v0.15 fields remain available unless their meaning would become false. The client is not changed in this phase, so the new slot data must be additive and must not claim support the client lacks. In particular, `implementation_version` retains the client-recognized `area-routing-plant-pipes-0.15` prefix and appends `generation-foundation-0.16`; a separate `generation_foundation_version` field exposes the exact foundation schema marker.
 
 ## Generation Validation
 

@@ -266,9 +266,9 @@ class SCRCWorld(World):
     Archipelago Menu is the required logical root and connects freely to Hub6.
     Hub6 is the in-game logical home region. Music Lab and Game Garage are always
     connected to it. The six major castle areas are reached through Area
-    Access items. v0.15 continues to force Roots Access as the precollected
-    starter item for the current Roots development/testing phase, while the
-    other five Area Access items are placed normally.
+    Access items. v0.16 exposes a conservative starting-area option. Random
+    currently samples only validated Roots Access, while unsupported fixed
+    starts stop generation. The other five Area Access items are placed normally.
 
     v0.15 keeps cartridge routing and Gecko Weed Killer randomization, then
     adds Plant Pipes as a separate randomized progression item. Frog/Hippo's
@@ -526,7 +526,8 @@ class SCRCWorld(World):
         generated_requirements = getattr(self, "generated_star_requirements", {})
         difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "generation-foundation-0.16",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+            "generation_foundation_version": "generation-foundation-0.16",
             "schema_version": 8,
             "required_stars": required_stars,
             "difficulty": {
@@ -551,7 +552,7 @@ class SCRCWorld(World):
             "home_region": "Phone Hub",
             "starting_area_item": starter,
             "starting_area": AREA_ITEM_TO_REGION[starter],
-            "starting_area_forced": True,
+            "starting_area_forced": False,
             "area_access_items": list(AREA_ACCESS_ITEMS),
             "always_open_regions": ["Phone Hub", "Music Lab", "Game Garage"],
             "development_cache_count": 10,
@@ -602,8 +603,9 @@ class SCRCWorld(World):
             },
             "routing_logic_complete": False,
             "routing_logic_note": (
-                "v0.15 validates Roots-first area routing, randomized Weed Killer, "
-                "and the split Level 3 Plant Pipes source/completion logic. Randomized "
-                "AP-Star costs and the remaining vanilla prerequisites are deferred."
+                "v0.16 retains Roots-first area routing, randomized Weed Killer, "
+                "and split Level 3 Plant Pipes logic while exporting inactive Star "
+                "and difficulty previews. Live Star gates and remaining prerequisites "
+                "are deferred."
             ),
         }

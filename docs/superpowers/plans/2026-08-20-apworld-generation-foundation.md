@@ -453,7 +453,7 @@ Use safe defaults in `fill_slot_data` only for direct test construction; normal 
 
 - [ ] **Step 6: Advance APWorld metadata and example YAML**
 
-Set `world_version` to `0.16`, increment metadata `version` and `compatible_version` together to 8, and use implementation tag `generation-foundation-0.16`. Add documented YAML values:
+Set `world_version` to `0.16` and increment metadata `version` and `compatible_version` together to 8. Preserve the client-recognized implementation prefix with `area-routing-plant-pipes-0.15-generation-foundation-0.16`, and export `generation_foundation_version: generation-foundation-0.16` separately. This compatibility refinement prevents the unchanged client from disabling existing live systems. Add documented YAML values:
 
 ```yaml
 required_stars: 50
@@ -496,7 +496,8 @@ Run `tools/validate-repo.py` as a subprocess using `sys.executable` and the repo
 
 ```python
 "world_version": "0.16"
-"implementation_version": "generation-foundation-0.16"
+"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16"
+"generation_foundation_version": "generation-foundation-0.16"
 "star_item_id": 187256118
 "next_item_id": 187256119
 ```

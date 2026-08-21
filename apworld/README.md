@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current baseline: **v0.16** (`generation-foundation-0.16`) with client **v0.67.59**.
+Current baseline: **v0.16** (`area-routing-plant-pipes-0.15-generation-foundation-0.16`) with client **v0.67.59**. The retained prefix preserves existing live client systems; `generation-foundation-0.16` identifies the additive preview schema.
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 

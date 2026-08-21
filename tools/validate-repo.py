@@ -19,7 +19,8 @@ IDS = ROOT / "docs" / "IDS.md"
 EXPECTED = {
     "client_version": "0.67.59",
     "world_version": "0.16",
-    "implementation_version": "generation-foundation-0.16",
+    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+    "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
     "plant_pipes_item_id": 187256117,
     "gecko_location_id": 187256178,
@@ -84,6 +85,8 @@ if star_id != EXPECTED["star_item_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
+if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
+    fail("generation_foundation_version changed without updating validator/baseline docs")
 
 for inactive_marker in (
     '"star_items_active": False',
@@ -112,6 +115,7 @@ print(f"APWorld: v{EXPECTED['world_version']} ({EXPECTED['implementation_version
 print(json.dumps({
     "world_version": EXPECTED["world_version"],
     "implementation_version": EXPECTED["implementation_version"],
+    "generation_foundation_version": EXPECTED["generation_foundation_version"],
     "star_item_id": EXPECTED["star_item_id"],
     "next_item_id": EXPECTED["next_item_id"],
 }, indent=2))

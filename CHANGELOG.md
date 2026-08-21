@@ -6,7 +6,7 @@
 - Added deterministic provisional Star requirements for Levels 1–22 and cumulative difficulty-location previews.
 - Registered Star item ID `187256118` and a pure 66-item inventory/capacity planner.
 - Kept Star placement, live difficulty filtering, client Star-gate enforcement, and final victory inactive. The existing Area Access victory milestone remains live until additional validated locations and solver-backed pool construction can safely hold all planned Stars and required progression.
-- Added additive slot-data flags that identify preview versus active systems. Existing v0.15 seeds must be regenerated for v0.16.
+- Added additive slot-data flags that identify preview versus active systems. The implementation tag retains the v0.15 prefix required by the current client and appends the v0.16 foundation marker. Existing v0.15 seeds must be regenerated for v0.16.
 
 ## Unreleased — Public testing documentation
 

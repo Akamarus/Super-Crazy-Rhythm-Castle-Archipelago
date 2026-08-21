@@ -23,7 +23,7 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 **Next safe location offset:** `+180`  
 **Next safe location ID:** `187256180`
 
-Current network-location count in APWorld v0.15: **172**.
+Current network-location count in APWorld v0.16: **172**.
 
 ## Item IDs
 

@@ -35,6 +35,18 @@ class StarRequirementTests(unittest.TestCase):
                 requirements.validate_star_requirements(result, goal)
                 self.assertLess(result["Level 22"], goal)
 
+    def test_requirements_never_drop_when_goal_increases(self):
+        for seed in (0, 1, 22, 77, 999):
+            previous = None
+            for goal in range(1, 67):
+                current = requirements.generate_star_requirements(goal, random.Random(seed))
+                if previous is not None:
+                    self.assertTrue(
+                        all(current[level] >= previous[level] for level in requirements.LEVEL_NAMES),
+                        f"requirements dropped for seed {seed} at goal {goal}",
+                    )
+                previous = current
+
     def test_rejects_goal_outside_supported_range(self):
         for goal in (0, 67, True):
             with self.subTest(goal=goal):

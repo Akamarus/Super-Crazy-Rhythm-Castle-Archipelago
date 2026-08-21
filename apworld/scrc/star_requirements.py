@@ -51,9 +51,10 @@ def generate_star_requirements(
     previous = 0
 
     for fraction in DEFAULT_DEPTH_FRACTIONS:
-        center = round(maximum * fraction)
-        spread = max(0, round(maximum * 0.04))
-        candidate = center + (rng.randint(-spread, spread) if spread else 0)
+        # Goal-independent normalized jitter ensures a larger configured goal
+        # cannot lower a requirement when the seed is unchanged.
+        adjusted_fraction = max(0.0, min(1.0, fraction + rng.uniform(-0.04, 0.04)))
+        candidate = round(maximum * adjusted_fraction)
         value = min(maximum, max(previous, candidate, 0))
         values.append(value)
         previous = value

@@ -41,7 +41,11 @@ class RepositoryContractTests(unittest.TestCase):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('"world_version": "0.16"', result.stdout)
-        self.assertIn('"implementation_version": "generation-foundation-0.16"', result.stdout)
+        self.assertIn(
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16"',
+            result.stdout,
+        )
+        self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
         self.assertIn('"star_item_id": 187256118', result.stdout)
         self.assertIn('"next_item_id": 187256119', result.stdout)
 
