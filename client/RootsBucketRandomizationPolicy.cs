@@ -14,6 +14,18 @@ internal enum RootsBucketGrantDecision
     Consumed,
 }
 
+internal readonly record struct RootsBucketLifecycleState(
+    int HipGlassesReceived,
+    int ChickenBucketReceived,
+    bool HipGlassesHeld,
+    bool HipGlassesConsumed,
+    bool ChickenBucketHeld,
+    bool ChickenBucketConsumed);
+
+internal readonly record struct RootsBucketReconciliation(
+    RootsBucketGrantDecision HipGlasses,
+    RootsBucketGrantDecision ChickenBucket);
+
 internal static class RootsBucketRandomizationPolicy
 {
     internal const string CompatibleVersionPrefix =
@@ -55,4 +67,22 @@ internal static class RootsBucketRandomizationPolicy
             return RootsBucketGrantDecision.AlreadyHeld;
         return RootsBucketGrantDecision.Apply;
     }
+
+    internal static RootsBucketReconciliation Reconcile(
+        bool synchronized,
+        bool compatible,
+        RootsBucketLifecycleState state) =>
+        new(
+            DecideReceivedItemGrant(
+                synchronized,
+                compatible,
+                state.HipGlassesReceived,
+                state.HipGlassesHeld,
+                state.HipGlassesConsumed),
+            DecideReceivedItemGrant(
+                synchronized,
+                compatible,
+                state.ChickenBucketReceived,
+                state.ChickenBucketHeld,
+                state.ChickenBucketConsumed));
 }

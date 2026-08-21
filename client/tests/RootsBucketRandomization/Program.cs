@@ -32,4 +32,39 @@ Equal(RootsBucketGrantDecision.Consumed, RootsBucketRandomizationPolicy.DecideRe
 Equal(RootsBucketGrantDecision.Ignore, RootsBucketRandomizationPolicy.DecideReceivedItemGrant(false, true, 1, false, false), "grant before sync");
 Equal(RootsBucketGrantDecision.Ignore, RootsBucketRandomizationPolicy.DecideReceivedItemGrant(true, false, 1, false, false), "grant on incompatible seed");
 
+var initialDelivery = RootsBucketRandomizationPolicy.Reconcile(
+    true,
+    true,
+    new RootsBucketLifecycleState(1, 1, false, false, false, false));
+Equal(RootsBucketGrantDecision.Apply, initialDelivery.HipGlasses, "initial Hip Glasses delivery");
+Equal(RootsBucketGrantDecision.Apply, initialDelivery.ChickenBucket, "initial Chicken Bucket delivery");
+
+var heldReplay = RootsBucketRandomizationPolicy.Reconcile(
+    true,
+    true,
+    new RootsBucketLifecycleState(1, 1, true, false, true, false));
+Equal(RootsBucketGrantDecision.AlreadyHeld, heldReplay.HipGlasses, "held Hip Glasses replay");
+Equal(RootsBucketGrantDecision.AlreadyHeld, heldReplay.ChickenBucket, "held Chicken Bucket replay");
+
+var consumedReplay = RootsBucketRandomizationPolicy.Reconcile(
+    true,
+    true,
+    new RootsBucketLifecycleState(1, 1, true, true, true, true));
+Equal(RootsBucketGrantDecision.Consumed, consumedReplay.HipGlasses, "consumed Hip Glasses replay");
+Equal(RootsBucketGrantDecision.Consumed, consumedReplay.ChickenBucket, "consumed Chicken Bucket replay");
+
+var failClosed = RootsBucketRandomizationPolicy.Reconcile(
+    false,
+    true,
+    new RootsBucketLifecycleState(1, 1, false, false, false, false));
+Equal(RootsBucketGrantDecision.Ignore, failClosed.HipGlasses, "pre-sync Hip Glasses reconciliation");
+Equal(RootsBucketGrantDecision.Ignore, failClosed.ChickenBucket, "pre-sync Chicken Bucket reconciliation");
+
+var incompatible = RootsBucketRandomizationPolicy.Reconcile(
+    true,
+    false,
+    new RootsBucketLifecycleState(1, 1, false, false, false, false));
+Equal(RootsBucketGrantDecision.Ignore, incompatible.HipGlasses, "incompatible Hip Glasses reconciliation");
+Equal(RootsBucketGrantDecision.Ignore, incompatible.ChickenBucket, "incompatible Chicken Bucket reconciliation");
+
 Console.WriteLine("Roots bucket policy tests passed.");
