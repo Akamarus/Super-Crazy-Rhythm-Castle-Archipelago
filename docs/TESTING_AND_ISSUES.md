@@ -62,6 +62,12 @@ Fresh-seed testing of `AP_28223804408101432968` reached a state with no reasonab
 
 This is a generator/logic failure, not a request for the tester to grind high-skill checks. APWorld must not expose blocked cassette machines, unowned Garage songs, or unavailable native point thresholds to the solver. Required progression must have a solver-proven route through checks that the client and fresh save can actually reach. Keep this seed as a regression fixture; do not use it for further acceptance gameplay.
 
+### AP-delivered Plant Pipes do not persist after Level 3
+
+In an admin-assisted fresh-save test, Client v0.67.60 correctly received Plant Pipes during Level 3 and applied native `WEED_KILLER_ABILITY`, allowing the level to be completed. After the Level 3 result was persisted and the game returned to Roots/Hub2, Plant Pipes were no longer in the player's usable inventory. The log contained no explicit false/unset progression request, so the grant appears to be lost during native level-result or scene-state reconciliation.
+
+The next client release must reconcile AP-owned Plant Pipes after level completion and every relevant scene/save reload, without generating a second AP item. Acceptance requires receiving Plant Pipes once, completing Level 3, returning to Hub2, entering and completing Level 4, and retaining the ability across a full game restart.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
