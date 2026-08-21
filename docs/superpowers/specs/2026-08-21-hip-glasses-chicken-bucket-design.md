@@ -1,6 +1,6 @@
 # Hip Glasses and Chicken Bucket Randomization Design
 
-**Status:** Approved in chat; awaiting written-spec review
+**Status:** Approved
 **Date:** 2026-08-21
 
 ## 1. Purpose
