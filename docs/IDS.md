@@ -46,9 +46,10 @@ Current network-location count in APWorld v0.15: **172**.
 | `+115` | `187256115` | Wag the Dog Cartridge |
 | `+116` | `187256116` | Weed Killer |
 | `+117` | `187256117` | Plant Pipes |
+| `+118` | `187256118` | Star — registered for the generation foundation; not yet active in the live item pool |
 
-**Next safe item offset:** `+118`  
-**Next safe item ID:** `187256118`
+**Next safe item offset:** `+119`
+**Next safe item ID:** `187256119`
 
 ## Rule for changes
 

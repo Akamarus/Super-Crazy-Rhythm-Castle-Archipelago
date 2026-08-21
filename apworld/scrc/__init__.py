@@ -2,6 +2,7 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
+from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
 from .options import SCRCOptions
 
 
@@ -211,6 +212,7 @@ ITEM_NAME_TO_ID = {
     "Wag the Dog Cartridge": BASE_ID + 115,
     "Weed Killer": BASE_ID + 116,
     "Plant Pipes": BASE_ID + 117,
+    **NEW_ITEM_NAME_TO_ID,
 }
 
 ITEM_CLASSIFICATIONS = {
@@ -221,6 +223,7 @@ ITEM_CLASSIFICATIONS = {
     **{name: ItemClassification.progression for name in GARAGE_CARTRIDGE_ITEMS.values()},
     "Weed Killer": ItemClassification.progression,
     "Plant Pipes": ItemClassification.progression,
+    **NEW_ITEM_CLASSIFICATIONS,
 }
 
 
