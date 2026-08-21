@@ -16,13 +16,15 @@ This phase implements:
 - `starting_area`, with `random`, Roots, Lobby, Meat Dimension, and Cell Tower represented;
 - a validated-starter policy in which only Roots is initially generation-valid;
 - deterministic requirements for campaign Levels 1 through 22;
-- construction of exactly 66 copies of one AP `Star` item type;
-- filtering of existing cumulative performance locations by AP difficulty;
+- a pure pool-planning helper that constructs exactly 66 copies of one AP `Star` item type;
+- pure filtering of existing cumulative performance locations by AP difficulty;
 - versioned slot-data output for options and generated requirements; and
 - automated tests for reproducibility, bounds, validation, item counts, and filtering.
 
 This phase explicitly excludes:
 
+- activation of Stars in the live item pool;
+- activation of difficulty filtering in live location generation;
 - client enforcement of generated Star gates;
 - Level 22 victory changes;
 - Tower of Fear or Royal Corridor as starting areas;
@@ -79,9 +81,9 @@ Adding a validated starter later changes only the validated collection and its t
 
 ## Star Item Model
 
-The APWorld defines one item named `Star` with one new permanent item ID at the next safe item offset recorded by `docs/IDS.md`. A generated multiworld contains exactly 66 instances of that item, each sent individually. There are no Star bundles.
+The APWorld defines one item named `Star` with one new permanent item ID at the next safe item offset recorded by `docs/IDS.md`. A pure pool-planning helper constructs exactly 66 instances of that item, each intended to be sent individually. There are no Star bundles.
 
-Stars are progression items. This phase adds them to the item-pool construction model and reports their count in slot data. Because client gates and final victory are not activated, the existing v0.15 milestone behavior remains explicitly identified as temporary. Generation must retain enough locations for the entire pool and fail clearly if item capacity is insufficient.
+Stars are progression items, but this phase does not add them to the live item pool. Activating both 66 Stars and Normal difficulty filtering against the current prototype would leave about 64 active locations for roughly 79 required non-filler items. That would make ordinary Normal seeds impossible. The planning helper therefore accepts an available-location count, rejects insufficient capacity clearly, and remains inactive until the full Normal location catalog provides enough space. Slot data reports the planned count and inactive state. The existing v0.15 item pool and milestone completion behavior remain unchanged.
 
 No other item or location IDs are allocated in this phase. `docs/IDS.md` is updated in the same commit that introduces the Star ID.
 
@@ -115,7 +117,7 @@ Validation raises a descriptive `ValueError` for an out-of-range goal, missing o
 
 ## Difficulty Filtering
 
-Difficulty filtering is based on explicit cumulative tier tables rather than string-order assumptions. A helper receives existing location names and returns the subset enabled by the selected difficulty while preserving input order.
+Difficulty filtering is based on explicit cumulative tier tables rather than string-order assumptions. A helper receives existing location names and returns the subset enabled by the selected difficulty while preserving input order. This phase computes and tests the filtered preview but does not apply it to live region/location creation because doing so before the full Normal catalog exists would make the planned Star pool exceed capacity.
 
 The filter recognizes:
 
@@ -145,24 +147,26 @@ The implementation version advances from `area-routing-plant-pipes-0.15` to a ne
 - requested and resolved starting-area values;
 - the ordered validated-starter list;
 - `star_item_name` and `star_item_count`;
+- `star_items_active: false`;
 - the Level 1–22 generated requirement mapping;
 - a flag stating that requirements use provisional linear campaign depth;
 - a flag stating that client Star-gate enforcement is not active; and
+- `difficulty_filtering_active: false` plus the preview count for the selected difficulty;
 - a flag stating that the existing completion condition remains the development Area Access milestone.
 
 Existing v0.15 fields remain available unless their meaning would become false. The client is not changed in this phase, so the new slot data must be additive and must not claim support the client lacks.
 
 ## Generation Validation
 
-Generation fails with a clear error when:
+Pure planning validation fails with a clear error when:
 
 - an explicitly selected starter is not validated;
 - `required_stars` is outside 1–66;
 - generated requirements violate an invariant;
-- the active location count cannot contain the complete item pool; or
+- a requested activation plan cannot contain the complete item pool in the available location count; or
 - a difficulty value cannot be normalized.
 
-`random` never fails merely because represented-but-unvalidated starters exist; it samples only validated starters. Deterministic tests use fixed RNG seeds rather than global randomness.
+`random` never fails merely because represented-but-unvalidated starters exist; it samples only validated starters. Deterministic tests use fixed RNG seeds rather than global randomness. Live generation does not invoke the capacity failure in this phase because Stars and filtering remain inactive; tests invoke it directly against the planned pool.
 
 ## Testing Strategy
 
@@ -170,12 +174,12 @@ The implementation follows test-driven development. Pure-module tests run withou
 
 - option defaults, ranges, and enum values;
 - deterministic random-start resolution and explicit unsupported starts;
-- exactly 66 individual Star items and one Star network ID;
+- exactly 66 planned individual Star items and one Star network ID, without changing the live pool;
 - reproducible requirement tables for equal seeds;
 - variation across different seeds where the allowed range permits it;
 - all requirement validation failures;
 - monotonic scaling and Level 22 remaining below the goal for goals 1, 2, 10, 50, and 66;
-- cumulative difficulty filtering for every difficulty;
+- cumulative difficulty filtering previews for every difficulty, without changing live locations;
 - preservation of unrecognized/source/chest locations;
 - item-capacity rejection; and
 - complete, accurately labeled slot data.
@@ -188,9 +192,13 @@ This foundation is complete when:
 
 1. the new option classes load through the Archipelago world interface;
 2. random starting-area selection resolves only among validated starters and fixed unsupported starts fail clearly;
-3. exactly 66 individual Stars are constructed with one registered item ID;
+3. the planning helper constructs exactly 66 individual Stars with one registered item ID while the live pool remains unchanged;
 4. generated Level 1–22 requirements are deterministic and satisfy every invariant;
-5. existing performance locations are filtered cumulatively without allocating new locations;
-6. slot data accurately distinguishes generated planning from inactive client enforcement;
+5. existing performance locations are filtered cumulatively in a pure preview without allocating or removing live locations;
+6. slot data accurately distinguishes generated planning from inactive Stars, inactive difficulty filtering, and inactive client enforcement;
 7. all new unit tests, repository validation, and APWorld packaging pass; and
-8. current native mappings, client behavior, and development victory logic remain unchanged.
+8. current live item/location generation, native mappings, client behavior, and development victory logic remain unchanged.
+
+## Activation Gate
+
+Stars and difficulty filtering may become live only in a later implementation after the complete Normal location catalog is available. That activation change must prove that every supported difficulty has capacity for all required non-filler items, then update slot-data activation flags, APWorld versioning, client enforcement, and generation tests together. This foundation does not silently activate either system when capacity happens to increase.
