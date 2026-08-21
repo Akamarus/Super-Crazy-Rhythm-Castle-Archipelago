@@ -9,7 +9,7 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.67.59`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.59 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- Client: `0.67.60`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.60 loading.` (the first `[SCRC-AP]` version line should identify this client version).
 - APWorld: `0.15`.
 - Slot-data implementation tag: `area-routing-plant-pipes-0.15`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
@@ -23,7 +23,7 @@ Follow the [installation guide](INSTALL.md) to build and install both components
 Run these steps in order where the seed allows. A received progression item may belong to a different player or be placed later in your own world, so a source check need not deliver its matching item immediately. Record the exact step, level, or song at which a result differs from the expectation.
 
 1. **Start and connect.** Launch the game with the new save and connect to the room. Confirm the client version line above, normal connection/login lines, and the `area-routing-plant-pipes-0.15` slot-data implementation in `LogOutput.log`.
-2. **Confirm the Hub6 start.** Verify that the save starts at the Hub6 / Music Lab phone hub and that Music Lab and Game Garage are usable. Roots Access is intentionally forced as the starter in APWorld v0.15.
+2. **Confirm the Hub6 start.** Verify that the save starts at the Hub6 / Music Lab phone hub and that Music Lab and Game Garage are usable. APWorld v0.17 random currently selects only validated Roots Access.
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
@@ -74,10 +74,10 @@ Use this optional report block in addition to the general issue template below:
 
 ## Known limitations
 
-- Roots Access is forced as the APWorld v0.15 starter; random safe starters are not implemented.
+- APWorld v0.17 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
 - Full-game logic and the final victory condition are incomplete. The approved 66-Star / Level 22 victory design is not implemented.
 - Generated AP Stars and randomized Music Lab Point inventory are design-only. Current Music Lab reward chests use the game's native medal-score currency.
-- Cassette-item randomization and the remaining quest-item chains are not implemented.
+- Cassette-item randomization and most remaining quest-item chains are not implemented. Hip Glasses and Chicken Bucket are implemented but still require fresh-save gameplay acceptance.
 - Native difficulty-toggle changes and the approved Normal/Hard/Expert/Perfection location model are not implemented.
 - Local co-op is unverified. Online co-op, DeathLink, and an integrated overlay/text client are deferred.
 - Developer diagnostics and hotkeys may exist in development builds. Do not rely on them for normal play, and say exactly which one you used in a report.

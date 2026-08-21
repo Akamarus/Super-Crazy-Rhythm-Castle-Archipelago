@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.59 client / v0.16 APWorld prototype from the approved future randomizer design. Testers should use a matching source build and generate a fresh seed for v0.16 and after later APWorld changes.
+This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.60 client / v0.17 APWorld prototype from the approved future randomizer design. Testers should use matching source builds and a fresh v0.17 seed/save.
 
 ## Status terms
 
@@ -14,7 +14,7 @@ This is an unofficial, experimental development build rather than a release. The
 
 ## Current implementation
 
-| Work | Status | Current v0.67.59 / v0.16 boundary |
+| Work | Status | Current v0.67.60 / v0.17 boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | Random start currently selects only validated Roots Access; the five other Area Access items are randomized. Unsupported fixed starts fail generation. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50), difficulty, and starting area are exported with deterministic Level 1–22 requirements and a cumulative location preview. These previews do not alter live gameplay. |
@@ -22,6 +22,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
 | Plant Pipes source and item | Implemented / needs more testing | Frog/Hippo is reachable after Weed Killer; Plant Pipes is required to finish Level 3. Menu exit before receiving it is intentional. |
+| Hip Glasses and Chicken Bucket chain | Implemented / needs gameplay acceptance | Level 4 and the Bucket Minion trade are AP checks. AP delivers both held items; native interactions consume them and produce non-network Combo Bucket. |
 | Levels 1–3 campaign completion checks | Implemented / needs more testing | These are the only current campaign completion checks. |
 | Game Garage cartridges and sticker checks | Implemented / needs more testing | Six cartridges are AP items and each has cumulative Bronze through Platinum checks. |
 | Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks; cassette items are not randomized yet. |
@@ -33,7 +34,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Work | Status | Why it must wait |
 | --- | --- | --- |
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
-| Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Native mappings verified / implementation design required | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival flags are confirmed. Reload, reconnect, and AP-history reconciliation remain to be implemented and tested. |
+| Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Implemented / needs gameplay acceptance | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival mappings are implemented. Fresh-save reload/reconnect acceptance remains required. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
 | Cassette sources and native inventory mappings | Discovery required | Medal checks exist, but source-to-item randomization has not been mapped for all 30 cassettes. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |
@@ -43,7 +44,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Work | Status | Planned result |
 | --- | --- | --- |
 | Live individual AP Stars and enforced level requirements | Design approved / not implemented | The v0.16 planner and seed-stable preview exist; pool placement and client gates remain inactive until capacity and solver validation are complete. |
-| Hip Glasses, Bucket Minion trade, and Chicken Bucket | Design approved / not implemented | Hip Glasses are randomized at Level 4; the normal trade is the Chicken Bucket source; normal use produces Combo Bucket. |
+| Hip Glasses, Bucket Minion trade, and Chicken Bucket | Implemented / needs gameplay acceptance | Hip Glasses are randomized at Level 4; the normal trade is the Chicken Bucket source check; normal Chicken Bucket use produces Combo Bucket. |
 | Music Lab Point AP inventory | Design approved / not implemented | Point items will be separate from native medal score, pending final location-count validation. |
 | Live difficulty-based performance location sets | Design approved / not implemented | Normal, Hard, Expert, and Perfection previews exist; live location filtering remains inactive. |
 | Complete item pool and solver validation | Design approved / not implemented | Generation must prove opening spheres, item capacity, and no self-locks. |
@@ -53,7 +54,7 @@ This is an unofficial, experimental development build rather than a release. The
 
 | Work | Status | Planned result |
 | --- | --- | --- |
-| AP connection and item delivery for the prototype | Implemented / needs more testing | Current client/APWorld slot data supports the v0.16 prototype and labels preview systems inactive. |
+| AP connection and item delivery for the prototype | Implemented / needs more testing | Current client/APWorld slot data supports v0.17, requires the exact bucket-chain contract, and keeps Star/difficulty previews inactive. |
 | Seed/save binding, robust synchronization, and offline reconciliation | Design approved / not implemented | Future sessions must validate compatibility, rebuild inventory safely, and queue checks across reconnects. |
 | Player-facing AP notifications and integrated text log | Deferred | A later optional in-game text client will expose items, checks, connection state, and errors. |
 | Local co-op verification | Design approved / not implemented | The architecture supports it by design, but shared-result behavior has not been smoke-tested. |
@@ -62,7 +63,7 @@ This is an unofficial, experimental development build rather than a release. The
 
 | Work | Status | Acceptance boundary |
 | --- | --- | --- |
-| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.16 seed, Roots route, Weed Killer, Frog/Hippo, Plant Pipes, and representative Garage/Music Lab checks. |
+| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.17 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative Garage/Music Lab checks. |
 | Full generated-seed matrix | Design approved / not implemented | Validate every supported start, difficulty, Star goal, and optional-area route. |
 | Level 22 victory | Design approved / not implemented | Victory will require the synchronized AP Star goal and a subsequent Level 22 completion. |
 | Full single-player acceptance run | Design approved / not implemented | Includes a post-threshold Level 22 clear, chest checks, representative difficulty tiers, and optional routes. |

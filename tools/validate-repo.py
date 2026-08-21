@@ -55,17 +55,21 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.59",
-    "world_version": "0.16",
-    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+    "client_version": "0.67.60",
+    "world_version": "0.17",
+    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
     "plant_pipes_item_id": 187256117,
     "gecko_location_id": 187256178,
     "frog_hippo_location_id": 187256179,
     "star_item_id": 187256118,
-    "next_item_id": 187256119,
-    "next_location_id": 187256180,
+    "hip_glasses_item_id": 187256119,
+    "chicken_bucket_item_id": 187256120,
+    "hip_glasses_location_id": 187256180,
+    "bucket_trade_location_id": 187256181,
+    "next_item_id": 187256121,
+    "next_location_id": 187256182,
 }
 
 
@@ -214,6 +218,10 @@ for label, expected_id, pattern in (
     ("Plant Pipes", EXPECTED["plant_pipes_item_id"], r'"Plant Pipes"\s*:\s*BASE_ID\s*\+\s*(\d+)'),
     ("Gecko location", EXPECTED["gecko_location_id"], r'LOCATION_NAME_TO_ID\[ROOTS_GECKO_WEED_KILLER\]\s*=\s*BASE_ID\s*\+\s*(\d+)'),
     ("Frog/Hippo location", EXPECTED["frog_hippo_location_id"], r'LOCATION_NAME_TO_ID\[ROOTS_LEVEL3_FROG_HIPPO\]\s*=\s*BASE_ID\s*\+\s*(\d+)'),
+    ("Hip Glasses item", EXPECTED["hip_glasses_item_id"], r'"Hip Glasses"\s*:\s*BASE_ID\s*\+\s*(\d+)'),
+    ("Chicken Bucket item", EXPECTED["chicken_bucket_item_id"], r'"Chicken Bucket"\s*:\s*BASE_ID\s*\+\s*(\d+)'),
+    ("Level 4 source", EXPECTED["hip_glasses_location_id"], r'LOCATION_NAME_TO_ID\[ROOTS_LEVEL4_HIP_GLASSES\]\s*=\s*BASE_ID\s*\+\s*(\d+)'),
+    ("Bucket trade", EXPECTED["bucket_trade_location_id"], r'LOCATION_NAME_TO_ID\[ROOTS_BUCKET_MINION_TRADE\]\s*=\s*BASE_ID\s*\+\s*(\d+)'),
 ):
     match = re.search(pattern, world_text)
     if not match:
@@ -241,6 +249,26 @@ for inactive_marker in (
     if inactive_marker not in world_text:
         fail(f"missing inactive preview marker: {inactive_marker}")
 
+for label, marker in (
+    ("feature flag", '"randomize_hip_glasses_chicken_bucket": True'),
+    ("Hip Glasses slot-data item", '"hip_glasses_item": HIP_GLASSES_ITEM'),
+    ("Chicken Bucket slot-data item", '"chicken_bucket_item": CHICKEN_BUCKET_ITEM'),
+    ("Level 4 slot-data source", '"hip_glasses_source_location": ROOTS_LEVEL4_HIP_GLASSES'),
+    ("Bucket trade slot-data source", '"bucket_minion_trade_location": ROOTS_BUCKET_MINION_TRADE'),
+):
+    if marker not in world_text:
+        fail(f"{label} contract is missing or changed")
+
+for label, marker in (
+    ("Hip Glasses native marker", 'internal const string HipGlassesNativeFlag = "HIP_GLASSES_BAG_ITEM";'),
+    ("Level 4 source marker", 'internal const string HipGlassesSourceFlag = "LEVEL_08_GLASSES_COLLECTED";'),
+    ("Bucket trade marker", 'internal const string BucketTradeFlag = "ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES";'),
+    ("Chicken Bucket native marker", 'internal const string ChickenBucketNativeFlag = "CHICKEN_BUCKET_BAG_ITEM";'),
+    ("native consumed marker", 'internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";'),
+):
+    if marker not in client_text:
+        fail(f"{label} contract is missing or changed")
+
 for required in (
     "ROOTS_HUB_INTRO_WITNESSED",
     "WEED_KILLER_BAG_ITEM",
@@ -263,11 +291,15 @@ print(json.dumps({
     "implementation_version": EXPECTED["implementation_version"],
     "generation_foundation_version": EXPECTED["generation_foundation_version"],
     "star_item_id": EXPECTED["star_item_id"],
+    "hip_glasses_item_id": EXPECTED["hip_glasses_item_id"],
+    "chicken_bucket_item_id": EXPECTED["chicken_bucket_item_id"],
+    "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
+    "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "next_item_id": EXPECTED["next_item_id"],
     "local_ai_allowed_models": list(LOCAL_AI_ALLOWED_MODELS),
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,
 }, indent=2))
-print("v0.16 generation foundations are previews; live generation remains on the Area Access milestone.")
+print("v0.17 activates the Hip Glasses and Chicken Bucket chain; Star generation foundations remain previews and Area Access remains authoritative.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

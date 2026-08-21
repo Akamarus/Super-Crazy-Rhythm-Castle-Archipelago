@@ -50,6 +50,13 @@ Before accepting a Roots milestone, confirm:
 - Without Plant Pipes, menu exit from Level 3 works.
 - Receiving `Plant Pipes` grants `WEED_KILLER_ABILITY`.
 - With Plant Pipes, Level 3 can be completed.
+- Level 4 sets `LEVEL_08_GLASSES_COLLECTED` and sends `Roots - Level 4 - Hip Glasses` exactly once without locally granting Hip Glasses.
+- AP-delivered Hip Glasses enables the normal Bucket Minion interaction.
+- The normal trade consumes Hip Glasses, sends `Roots - Bucket Minion Trade`, preserves dialogue/blockade/King flags, and does not locally grant Chicken Bucket.
+- AP-delivered Chicken Bucket enables the normal Lift Quest interaction.
+- Lift Quest consumes Chicken Bucket, grants native Combo Bucket, completes Level 09, and transitions to the Lobby normally.
+- Reloading/reconnecting while held preserves each item; reloading/reconnecting after consumption does not restore it or duplicate a check.
+- An old/incompatible seed and a non-AP save retain the complete vanilla chain.
 - Stable unrelated systems remain intact: Game Garage, Music Lab reward chests, cassettes, Secret Bunker.
 
 ## Logs
@@ -79,4 +86,10 @@ ROOTS WEED KILLER NATIVE GRANT APPLIED
 ROOTS PLANT PIPES VANILLA GRANT SUPPRESSED
 ROOTS PLANT PIPES SOURCE AP CHECK
 ROOTS PLANT PIPES NATIVE GRANT APPLIED
+ROOTS BUCKET RANDOMIZATION ENABLED
+ROOTS BUCKET VANILLA GRANT SUPPRESSED
+ROOTS BUCKET SOURCE AP CHECK
+ROOTS BUCKET NATIVE GRANT APPLIED
 ```
+
+When testing later score or objective checks without Combo Bucket, report the exact level/song, native difficulty, AP performance tier, score, stars, medal or missed objective, player count, abilities, attempt count, best result, and whether `COMBO_BUCKET_ABILITY` was absent. Include a focused log excerpt and video when practical. A success proves feasibility under those conditions; a failed attempt alone does not prove impossibility and must not create a solver requirement by itself.

@@ -1,5 +1,13 @@
 # Changelog
 
+## APWorld v0.17 / Client v0.67.60 — Roots bucket progression
+
+- Added permanent randomized items `Hip Glasses` (`187256119`) and `Chicken Bucket` (`187256120`).
+- Added Level 4 Hip Glasses and Bucket Minion trade checks (`187256180` and `187256181`).
+- Preserved the native trade, blockade, King conversation, Lift Quest, Combo Bucket, completion, and Lobby-arrival lifecycle while suppressing only the two vanilla inventory grants.
+- Added fail-closed slot-data compatibility and received-history reconciliation so durable consumed markers prevent items returning after trade/conversion.
+- Kept Combo Bucket non-network and kept Star gates/difficulty filtering as inactive previews. A fresh v0.17 seed and fresh-save gameplay acceptance are required.
+
 ## APWorld v0.16 — Generation foundation
 
 - Added configurable `required_stars`, difficulty, and starting-area options. Random currently selects only the validated Roots starter; unsupported fixed starts fail generation.

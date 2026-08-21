@@ -38,23 +38,73 @@ class RepositoryContractTests(unittest.TestCase):
                 shutil.copytree(source, destination)
         return root
 
-    def test_validator_reports_generation_foundation_contract(self):
+    def test_validator_reports_roots_bucket_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('"world_version": "0.16"', result.stdout)
+        self.assertIn('"world_version": "0.17"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
         self.assertIn('"star_item_id": 187256118', result.stdout)
-        self.assertIn('"next_item_id": 187256119', result.stdout)
+        self.assertIn('"hip_glasses_item_id": 187256119', result.stdout)
+        self.assertIn('"chicken_bucket_item_id": 187256120', result.stdout)
+        self.assertIn('"hip_glasses_location_id": 187256180', result.stdout)
+        self.assertIn('"bucket_trade_location_id": 187256181', result.stdout)
+        self.assertIn('"next_item_id": 187256121', result.stdout)
         self.assertIn(
             '"local_ai_allowed_models": [\n    "jacks-assistant",\n    "jacks-assistant-fast"\n  ]',
             result.stdout,
         )
         self.assertIn('"local_ai_decision_schema": 1', result.stdout)
         self.assertIn('"local_ai_evaluation_schema": 1', result.stdout)
+
+    def test_validator_rejects_changed_roots_bucket_contract(self):
+        mutations = {
+            "Hip Glasses item ID": (
+                "apworld/scrc/__init__.py",
+                '"Hip Glasses": BASE_ID + 119',
+                '"Hip Glasses": BASE_ID + 121',
+            ),
+            "Chicken Bucket item ID": (
+                "apworld/scrc/__init__.py",
+                '"Chicken Bucket": BASE_ID + 120',
+                '"Chicken Bucket": BASE_ID + 121',
+            ),
+            "Level 4 source ID": (
+                "apworld/scrc/__init__.py",
+                "LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180",
+                "LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 182",
+            ),
+            "Bucket trade ID": (
+                "apworld/scrc/__init__.py",
+                "LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181",
+                "LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 182",
+            ),
+            "feature flag": (
+                "apworld/scrc/__init__.py",
+                '"randomize_hip_glasses_chicken_bucket": True',
+                '"randomize_hip_glasses_chicken_bucket": False',
+            ),
+            "native consumed marker": (
+                "client/Plugin.cs",
+                'internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";',
+                'internal const string ChickenConsumedFlag = "LEVEL_09_COMPLETED";',
+            ),
+        }
+        for label, (relative, old, new) in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new, 1), encoding="utf-8")
+
+                result = self.run_validator(root)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(label, result.stdout + result.stderr)
 
     def test_validator_rejects_removed_local_ai_decision(self):
         root = self.make_fixture()
