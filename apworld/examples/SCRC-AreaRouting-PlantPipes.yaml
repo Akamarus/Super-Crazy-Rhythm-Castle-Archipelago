@@ -1,5 +1,5 @@
 name: Jack
-description: Super Crazy Rhythm Castle generation foundation preview v0.16
+description: Super Crazy Rhythm Castle Roots bucket progression v0.17
 game: Super Crazy Rhythm Castle
 
 Super Crazy Rhythm Castle:
@@ -11,3 +11,7 @@ Super Crazy Rhythm Castle:
   required_stars: 50
   difficulty: normal
   starting_area: random
+
+  # Hip Glasses and Chicken Bucket are active shuffled progression items.
+  # Their Level 4 and Bucket Minion sources are checks; players still perform
+  # the normal trade and Lift Quest interactions in the game.

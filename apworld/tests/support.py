@@ -34,15 +34,17 @@ class FakeMultiWorld:
         self.itempool = []
         self.precollected = []
         self.completion_condition = {}
-        self.victory = FakeLocation("Victory")
+        self.regions = []
 
     def push_precollected(self, item):
         self.precollected.append(item)
 
     def get_location(self, name: str, player: int):
-        if name != "Victory":
-            raise KeyError(name)
-        return self.victory
+        for region in self.regions:
+            for location in region.locations:
+                if location.name == name and location.player == player:
+                    return location
+        raise KeyError(name)
 
 
 def load_scrc_world():
@@ -72,10 +74,34 @@ def load_scrc_world():
             self.player = player
 
     class Location:
-        pass
+        def __init__(self, player, name, address, parent):
+            self.player = player
+            self.name = name
+            self.address = address
+            self.parent_region = parent
+            self.access_rule = lambda state: True
+            self.item_rule = lambda item: True
+            self.item = None
+
+        def place_locked_item(self, item):
+            self.item = item
 
     class Region:
-        pass
+        def __init__(self, name, player, multiworld):
+            self.name = name
+            self.player = player
+            self.multiworld = multiworld
+            self.locations = []
+            self.connections = []
+
+        def connect(self, other_region, name, rule=None):
+            self.connections.append(
+                types.SimpleNamespace(
+                    name=name,
+                    connected_region=other_region,
+                    access_rule=rule or (lambda state: True),
+                )
+            )
 
     class Tutorial:
         def __init__(self, *args):

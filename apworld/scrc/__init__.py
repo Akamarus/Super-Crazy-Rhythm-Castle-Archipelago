@@ -370,6 +370,77 @@ class SCRCWorld(World):
         )
         roots.locations.append(frog_hippo)
 
+        level4_hip_glasses = SCRCLocation(
+            self.player,
+            ROOTS_LEVEL4_HIP_GLASSES,
+            LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES],
+            roots,
+        )
+        set_rule(
+            level4_hip_glasses,
+            lambda state: (
+                state.has("Roots Access", self.player)
+                and state.has("Weed Killer", self.player)
+                and state.has("Plant Pipes", self.player)
+            ),
+        )
+        roots.locations.append(level4_hip_glasses)
+
+        bucket_trade = SCRCLocation(
+            self.player,
+            ROOTS_BUCKET_MINION_TRADE,
+            LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE],
+            roots,
+        )
+        set_rule(
+            bucket_trade,
+            lambda state: state.has(HIP_GLASSES_ITEM, self.player),
+        )
+        roots.locations.append(bucket_trade)
+
+        bucket_trade_event = SCRCLocation(
+            self.player,
+            "Bucket Minion Trade Complete",
+            None,
+            roots,
+        )
+        set_rule(
+            bucket_trade_event,
+            lambda state: state.has(HIP_GLASSES_ITEM, self.player),
+        )
+        bucket_trade_event.place_locked_item(
+            SCRCItem(
+                "Bucket Minion Trade Complete",
+                ItemClassification.progression,
+                None,
+                self.player,
+            )
+        )
+        roots.locations.append(bucket_trade_event)
+
+        combo_bucket_event = SCRCLocation(
+            self.player,
+            "Combo Bucket Event",
+            None,
+            roots,
+        )
+        set_rule(
+            combo_bucket_event,
+            lambda state: (
+                state.has("Bucket Minion Trade Complete", self.player)
+                and state.has(CHICKEN_BUCKET_ITEM, self.player)
+            ),
+        )
+        combo_bucket_event.place_locked_item(
+            SCRCItem(
+                "Combo Bucket Event",
+                ItemClassification.progression,
+                None,
+                self.player,
+            )
+        )
+        roots.locations.append(combo_bucket_event)
+
         # Preserve historical location IDs/datapackage names, but keep the
         # old synthetic caches filler-only so progression can never be placed
         # on a location the game client cannot actually report.
@@ -488,6 +559,9 @@ class SCRCWorld(World):
         # Level 3 Completion. This permits the intended menu-exit partial-level route.
         progression_items.append("Plant Pipes")
 
+        progression_items.append(HIP_GLASSES_ITEM)
+        progression_items.append(CHICKEN_BUCKET_ITEM)
+
         for name in progression_items:
             self.multiworld.itempool.append(self.create_item(name))
 
@@ -496,7 +570,7 @@ class SCRCWorld(World):
             self.multiworld.itempool.append(self.create_item("Stardust"))
 
     def create_item(self, name: str) -> SCRCItem:
-        if name == "Victory":
+        if name in ("Victory", "Bucket Minion Trade Complete", "Combo Bucket Event"):
             return SCRCItem(name, ItemClassification.progression, None, self.player)
 
         return SCRCItem(
@@ -539,7 +613,7 @@ class SCRCWorld(World):
         generated_requirements = getattr(self, "generated_star_requirements", {})
         difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
             "generation_foundation_version": "generation-foundation-0.16",
             "schema_version": 8,
             "required_stars": required_stars,
@@ -586,6 +660,16 @@ class SCRCWorld(World):
             "plant_pipes_native_ability_flag": "WEED_KILLER_ABILITY",
             "plant_pipes_native_source_marker_flag": "LEVEL_07_WK_ABILITY_EARNED",
             "plant_pipes_source_room": "GameRoom_07",
+            "randomize_hip_glasses_chicken_bucket": True,
+            "hip_glasses_item": HIP_GLASSES_ITEM,
+            "chicken_bucket_item": CHICKEN_BUCKET_ITEM,
+            "hip_glasses_source_location": ROOTS_LEVEL4_HIP_GLASSES,
+            "bucket_minion_trade_location": ROOTS_BUCKET_MINION_TRADE,
+            "hip_glasses_source_flag": "LEVEL_08_GLASSES_COLLECTED",
+            "hip_glasses_native_flag": "HIP_GLASSES_BAG_ITEM",
+            "bucket_trade_flag": "ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES",
+            "chicken_bucket_native_flag": "CHICKEN_BUCKET_BAG_ITEM",
+            "combo_bucket_conversion_flag": "LEVEL_09_COMBO_ABILITY_EARNED",
             "level_3_logic": {
                 "entry_requires": ["Roots Access", "Weed Killer"],
                 "frog_hippo_check_requires": ["Roots Access", "Weed Killer"],

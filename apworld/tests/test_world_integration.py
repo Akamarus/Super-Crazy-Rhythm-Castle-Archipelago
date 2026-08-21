@@ -84,6 +84,45 @@ class WorldIntegrationTests(unittest.TestCase):
             len(self.module.LOCATION_NAME_TO_ID),
         )
 
+    def test_roots_bucket_graph_uses_network_sources_and_internal_events(self):
+        world = self.make_world()
+        world.generate_early()
+        world.create_regions()
+
+        level4 = world.multiworld.get_location(self.module.ROOTS_LEVEL4_HIP_GLASSES, 1)
+        trade = world.multiworld.get_location(self.module.ROOTS_BUCKET_MINION_TRADE, 1)
+        trade_event = world.multiworld.get_location("Bucket Minion Trade Complete", 1)
+        combo_event = world.multiworld.get_location("Combo Bucket Event", 1)
+
+        self.assertEqual(level4.address, 187256180)
+        self.assertEqual(trade.address, 187256181)
+        self.assertIsNone(trade_event.address)
+        self.assertEqual(trade_event.item.name, "Bucket Minion Trade Complete")
+        self.assertIsNone(combo_event.address)
+        self.assertEqual(combo_event.item.name, "Combo Bucket Event")
+
+        self.assertFalse(level4.access_rule(State(["Weed Killer", "Plant Pipes"])))
+        self.assertFalse(level4.access_rule(State(["Roots Access", "Plant Pipes"])))
+        self.assertFalse(level4.access_rule(State(["Roots Access", "Weed Killer"])))
+        self.assertTrue(level4.access_rule(State(["Roots Access", "Weed Killer", "Plant Pipes"])))
+        self.assertFalse(trade.access_rule(State([])))
+        self.assertTrue(trade.access_rule(State(["Hip Glasses"])))
+        self.assertFalse(combo_event.access_rule(State(["Chicken Bucket"])))
+        self.assertFalse(combo_event.access_rule(State(["Bucket Minion Trade Complete"])))
+        self.assertTrue(
+            combo_event.access_rule(State(["Bucket Minion Trade Complete", "Chicken Bucket"]))
+        )
+
+    def test_live_pool_contains_one_of_each_roots_bucket_item(self):
+        world = self.make_world()
+        world.generate_early()
+        world.create_items()
+        names = [item.name for item in world.multiworld.itempool]
+
+        self.assertEqual(names.count("Hip Glasses"), 1)
+        self.assertEqual(names.count("Chicken Bucket"), 1)
+        self.assertEqual(len(names), len(self.module.LOCATION_NAME_TO_ID))
+
     def test_slot_data_labels_preview_features_as_inactive(self):
         world = self.make_world()
         world.generate_early()
@@ -92,7 +131,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["schema_version"], 8)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -111,6 +150,22 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertFalse(data["difficulty_filtering_active"])
         self.assertEqual(data["difficulty_preview_location_count"], len(world.difficulty_preview_locations))
         self.assertTrue(data["development_area_access_victory_active"])
+        self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
+        self.assertEqual(data["hip_glasses_item"], "Hip Glasses")
+        self.assertEqual(data["chicken_bucket_item"], "Chicken Bucket")
+        self.assertEqual(data["hip_glasses_source_location"], "Roots - Level 4 - Hip Glasses")
+        self.assertEqual(data["bucket_minion_trade_location"], "Roots - Bucket Minion Trade")
+        self.assertEqual(data["hip_glasses_source_flag"], "LEVEL_08_GLASSES_COLLECTED")
+        self.assertEqual(data["hip_glasses_native_flag"], "HIP_GLASSES_BAG_ITEM")
+        self.assertEqual(
+            data["bucket_trade_flag"],
+            "ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES",
+        )
+        self.assertEqual(data["chicken_bucket_native_flag"], "CHICKEN_BUCKET_BAG_ITEM")
+        self.assertEqual(
+            data["combo_bucket_conversion_flag"],
+            "LEVEL_09_COMBO_ABILITY_EARNED",
+        )
         self.assertFalse(data["starting_area_forced"])
         self.assertIn("v0.16", data["routing_logic_note"])
         self.assertIn("preview", data["routing_logic_note"])
@@ -136,8 +191,9 @@ class WorldIntegrationTests(unittest.TestCase):
 
     def test_existing_area_access_victory_rule_is_unchanged(self):
         world = self.make_world()
+        world.create_regions()
         world.set_rules()
-        rule = world.multiworld.victory.access_rule
+        rule = world.multiworld.get_location("Victory", 1).access_rule
 
         self.assertTrue(rule(State(self.module.AREA_ACCESS_ITEMS)))
         self.assertFalse(rule(State(self.module.AREA_ACCESS_ITEMS[:-1])))
