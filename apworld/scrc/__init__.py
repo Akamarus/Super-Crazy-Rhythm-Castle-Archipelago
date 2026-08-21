@@ -2,8 +2,16 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
+from .difficulty import DIFFICULTY_NAMES, filter_locations_for_difficulty
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
+from .items import STAR_ITEM_COUNT, STAR_ITEM_NAME
 from .options import SCRCOptions
+from .star_requirements import generate_star_requirements
+from .starting_areas import (
+    STARTING_AREA_NAMES,
+    VALIDATED_STARTING_AREAS,
+    resolve_starting_area,
+)
 
 
 GAME_NAME = "Super Crazy Rhythm Castle"
@@ -279,9 +287,17 @@ class SCRCWorld(World):
     location_name_to_id = LOCATION_NAME_TO_ID
 
     def generate_early(self) -> None:
-        # Development/testing policy for v0.14.1: always begin with Roots.
-        # The remaining five Area Access items stay in the randomized item pool.
-        self.starting_area_item = "Roots Access"
+        requested_start = int(self.options.starting_area.value)
+        required_stars = int(self.options.required_stars.value)
+        difficulty = int(self.options.difficulty.value)
+
+        self.starting_area_item = resolve_starting_area(requested_start, self.random)
+        self.generated_star_requirements = generate_star_requirements(
+            required_stars, self.random
+        )
+        self.difficulty_preview_locations = filter_locations_for_difficulty(
+            LOCATION_NAME_TO_ID, difficulty
+        )
         self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
     def create_regions(self) -> None:
@@ -497,8 +513,40 @@ class SCRCWorld(World):
 
     def fill_slot_data(self) -> dict:
         starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
+        options = getattr(self, "options", None)
+        required_stars = int(
+            getattr(getattr(options, "required_stars", None), "value", 50)
+        )
+        difficulty_value = int(
+            getattr(getattr(options, "difficulty", None), "value", 0)
+        )
+        requested_start = int(
+            getattr(getattr(options, "starting_area", None), "value", 0)
+        )
+        generated_requirements = getattr(self, "generated_star_requirements", {})
+        difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15",
+            "implementation_version": "generation-foundation-0.16",
+            "schema_version": 8,
+            "required_stars": required_stars,
+            "difficulty": {
+                "value": difficulty_value,
+                "name": DIFFICULTY_NAMES[difficulty_value],
+            },
+            "starting_area_requested": STARTING_AREA_NAMES[requested_start],
+            "starting_area_resolved": AREA_ITEM_TO_REGION[starter],
+            "validated_starting_areas": [
+                AREA_ITEM_TO_REGION[item] for item in VALIDATED_STARTING_AREAS
+            ],
+            "star_item_name": STAR_ITEM_NAME,
+            "star_item_count": STAR_ITEM_COUNT,
+            "star_items_active": False,
+            "generated_star_requirements": dict(generated_requirements),
+            "generated_star_requirements_depth_model": "provisional-linear-level-order",
+            "client_star_gate_enforcement_active": False,
+            "difficulty_filtering_active": False,
+            "difficulty_preview_location_count": len(difficulty_preview),
+            "development_area_access_victory_active": True,
             "logical_root_region": "Menu",
             "home_region": "Phone Hub",
             "starting_area_item": starter,

@@ -1,7 +1,13 @@
 name: Jack
-description: Super Crazy Rhythm Castle Roots-first routing + Weed Killer + Plant Pipes randomization v0.15
+description: Super Crazy Rhythm Castle generation foundation preview v0.16
 game: Super Crazy Rhythm Castle
 
 Super Crazy Rhythm Castle:
   progression_balancing: 50
   accessibility: items
+
+  # Generation-foundation options. In v0.16, Stars, difficulty filtering,
+  # client Star-gate enforcement, and the final Star victory are previews only.
+  required_stars: 50
+  difficulty: normal
+  starting_area: random
