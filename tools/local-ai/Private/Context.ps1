@@ -7,8 +7,10 @@ function New-LocalAiContext {
     )
 
     $excludedExtensions = @('.dll','.exe','.pdb','.zip','.rar','.7z','.apworld','.log','.bak')
-    $orderedPaths = [Collections.Generic.SortedSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($requestedPath in $IncludePath) { [void] $orderedPaths.Add($requestedPath.Replace('\','/')) }
+    $uniquePaths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($requestedPath in $IncludePath) { [void] $uniquePaths.Add($requestedPath.Replace('\','/')) }
+    $orderedPaths = [Collections.Generic.List[string]]::new($uniquePaths)
+    $orderedPaths.Sort([StringComparer]::Ordinal)
     $files = [Collections.Generic.List[object]]::new()
     $totalBytes = 0
     foreach ($relative in $orderedPaths) {
