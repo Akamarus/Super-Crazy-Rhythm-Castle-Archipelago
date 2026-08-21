@@ -279,7 +279,7 @@ public sealed class Plugin : BasePlugin
             Log.LogWarning(
                 "[SCRC-AP] MUSIC LAB DIAGNOSTIC ENABLED: Hub6/GameRoom_27 plus live cassette-start enquiry probing. v0.67.59 keeps the solved Garage cartridge-state identity path, sends cumulative Garage sticker AP checks on real results, and tracks all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from the live native Hub6 chest metadata; Hub6 F5 forces reconciliation and prints the discovered mapping/status.");
             Log.LogWarning(
-                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED: F1 grants Level 6; Shift+F1 resets Level 6; Ctrl+F1 grants Level 7; Ctrl+Shift+F1 resets Level 7; Alt+F1 grants Level 8; Alt+Shift+F1 resets Level 8; Ctrl+F2 grants Level 9; Ctrl+Shift+F2 resets Level 9; Alt+F2 grants Level 10; Alt+Shift+F2 resets Level 10; plain F2 resets Level 5; Ctrl+F4 grants Level 5; Shift+F4 cycles the temporary Music Lab point override through the next reward thresholds (89/111/140/OFF); Ctrl+F3 grants Level 11; plain F3 resets Level 11; Ctrl+F5 grants Level 12; Alt+F5 resets Level 12; Ctrl+F6 grants Level 13; Alt+F6 resets Level 13; Ctrl+F7 grants Level 14; Alt+F7 resets Level 14; Ctrl+F8 grants Level 15; Alt+F8 resets Level 15; Ctrl+F9 grants Level 16; Alt+F9 resets Level 16; Ctrl+F10 grants Level 17; Alt+F10 resets Level 17; Ctrl+Shift+F10 grants Level 22; Alt+Shift+F10 resets Level 22; Ctrl+F11 grants Level 18; Alt+F11 resets Level 18; Ctrl+F12 grants Level 19; Alt+F12 resets Level 19; Ctrl+Shift+F12 grants Level 20; Alt+Shift+F12 resets Level 20; Ctrl+Shift+F11 grants Level 21; Alt+Shift+F11 resets Level 21; F4 starts/restarts Secret Bunker / final Star Eater discovery; plain F5 runs the focused Music Lab/Game Garage diagnostic in Hub6/GameRoom_27, otherwise the existing Secret Bunker scan; Shift+F5 forces one 20-second Secret Bunker requirement + interaction patch test; plain F6 direct Level 4 transition; plain F7 resets Level 4; F8 resets Level 2 + reloads; F9 grants Level 2; F10 grants Level 3; F11 resets Level 3; F12 grants Level 4; HOME prints compact Roots baseline status in Hub2 (no probe), otherwise runs the read-only Phone Booth/fast-travel scan and arms the next transition for 30 seconds; when Area Access routing is enabled, PAGE UP grants the next locked area; PAGE DOWN resets only in fixed-start developer mode and is ignored in AP-driven mode; END prints Area Access status.");
+                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED: F1 grants Level 6; Shift+F1 resets Level 6; Ctrl+F1 grants Level 7; Ctrl+Shift+F1 resets Level 7; Alt+F1 grants Level 8; Alt+Shift+F1 resets Level 8; Ctrl+F2 grants Level 9; Ctrl+Shift+F2 resets Level 9; Alt+F2 grants Level 10; Alt+Shift+F2 resets Level 10; plain F2 resets Level 5; Ctrl+F4 grants Level 5; Shift+F4 cycles the temporary Music Lab point override through the next reward thresholds (89/111/140/OFF); Ctrl+F3 grants Level 11; plain F3 resets Level 11; Ctrl+F5 grants Level 12; Alt+F5 resets Level 12; Ctrl+F6 grants Level 13; Alt+F6 resets Level 13; Ctrl+F7 grants Level 14; Alt+F7 resets Level 14; Ctrl+F8 grants Level 15; Alt+F8 resets Level 15; Ctrl+F9 grants Level 16; Alt+F9 resets Level 16; Ctrl+F10 grants Level 17; Alt+F10 resets Level 17; Ctrl+Shift+F10 grants Level 22; Alt+Shift+F10 resets Level 22; Ctrl+F11 grants Level 18; Alt+F11 resets Level 18; Ctrl+F12 grants Level 19; Alt+F12 resets Level 19; Ctrl+Shift+F12 grants Level 20; Alt+Shift+F12 resets Level 20; Ctrl+Shift+F11 grants Level 21; Alt+Shift+F11 resets Level 21; plain F4 starts/restarts the Level 4 -> Lift Quest trace in GameRoom_08/Hub2/GameRoom_09 and keeps the existing discovery elsewhere; plain F5 scans the focused Level 4 -> Lift Quest route in those rooms and keeps the existing context-aware scan elsewhere; Shift+F5 forces one 20-second Secret Bunker requirement + interaction patch test; plain F6 direct Level 4 transition; plain F7 resets Level 4; F8 resets Level 2 + reloads; F9 grants Level 2; F10 grants Level 3; F11 resets Level 3; F12 grants Level 4; HOME prints compact Roots baseline status in Hub2 (no probe), otherwise runs the read-only Phone Booth/fast-travel scan and arms the next transition for 30 seconds; when Area Access routing is enabled, PAGE UP grants the next locked area; PAGE DOWN resets only in fixed-start developer mode and is ignored in AP-driven mode; END prints Area Access status.");
         }
 
         if (IntroHubSkip.Enabled)
@@ -18223,13 +18223,13 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
-            bool control =
-                Input.GetKey(KeyCode.LeftControl) ||
-                Input.GetKey(KeyCode.RightControl);
-
             bool alt =
                 Input.GetKey(KeyCode.LeftAlt) ||
                 Input.GetKey(KeyCode.RightAlt);
+
+            bool control =
+                Input.GetKey(KeyCode.LeftControl) ||
+                Input.GetKey(KeyCode.RightControl);
 
             if (alt && shift)
                 DeveloperHarness.ResetLevel8Locally();
@@ -18293,10 +18293,16 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
+            bool alt =
+                Input.GetKey(KeyCode.LeftAlt) ||
+                Input.GetKey(KeyCode.RightAlt);
+
             if (shift)
                 DeveloperHarness.CycleMusicLabPointOverride();
             else if (control)
                 DeveloperHarness.GrantLevel5Locally();
+            else if (DiagnosticHotkeyRouting.ForF4(DeveloperHarness.CurrentRoomId, control, shift, alt) == DiagnosticHotkeyAction.Level4ToLiftQuest)
+                Level5Discovery.ManualBegin();
             else
                 DeveloperHarness.StartPostAct1Discovery();
         }
@@ -18321,6 +18327,8 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 DeveloperHarness.ResetLevel12Locally();
             else if (shift)
                 DeveloperHarness.RetryBunkerStarRequirementOnce();
+            else if (DiagnosticHotkeyRouting.ForPlainF5(DeveloperHarness.CurrentRoomId) == DiagnosticHotkeyAction.Level4ToLiftQuest)
+                Level5Discovery.ScanCurrentScene();
             else
                 DeveloperHarness.ScanPostAct1RouteObjects();
         }
