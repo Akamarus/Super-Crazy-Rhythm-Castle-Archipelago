@@ -85,6 +85,7 @@ Use this optional report block in addition to the general issue template below:
 ## Known limitations
 
 - APWorld v0.17 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
+- Royal Corridor routing is incomplete. The Hub6 phone lands on the Level 22 side; fresh-save testing confirmed the player cannot approach the Royal Star Eater from that spawn to feed Stars and complete the bridge back toward Level 21. Until the bridge route and logic are implemented, `Royal Corridor Access` exposes only the phone-side Level 22 route and must not make Level 21 or the Royal Star Eater check logically reachable.
 - Full-game logic and the final victory condition are incomplete. The approved 66-Star / Level 22 victory design is not implemented.
 - Generated AP Stars and randomized Music Lab Point inventory are design-only. Current Music Lab reward chests use the game's native medal-score currency.
 - Cassette-item randomization and most remaining quest-item chains are not implemented. Hip Glasses and Chicken Bucket are implemented but still require fresh-save gameplay acceptance.

@@ -178,6 +178,8 @@ After Lift Quest, the playthrough recorded a deliberately branching lobby rather
 
 The Plunger/Star Eater route into the Meat Dimension is separate from the three-hand route. The later King scene starts the Fish Tears quest and records `LOBBY_HUB_FISH_TEARS_KING_WITNESSED`. These paths converge without being the same prerequisite.
 
+Fresh-save Area Access testing on 2026-08-21 confirmed that the Royal Corridor phone arrives on the Level 22 side of the broken bridge. From that spawn the player could use the Level 22 entrance but could not get close enough to the Royal Star Eater to feed Stars and complete the bridge back toward Level 21. Treat Royal phone-side Level 22 access, the Star Eater interaction, and the Level 21 side as distinct routing states in AP logic.
+
 ## Meat Dimension evidence
 
 The recorded vanilla chain includes:
