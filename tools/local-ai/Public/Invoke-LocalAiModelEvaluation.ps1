@@ -35,11 +35,21 @@ function Invoke-LocalAiModelEvaluation {
         [Security.Cryptography.SHA256]::HashData([IO.File]::ReadAllBytes($casesPath))
     ).ToLowerInvariant()
 
-    $stateRelativePath = [IO.Path]::GetRelativePath($configuration.RepositoryRoot, $configuration.StateRoot).Replace('\', '/')
-    $reportRelativePath = $stateRelativePath.TrimEnd('/') + '/evaluations/report.json'
-    & git -C $configuration.RepositoryRoot check-ignore --quiet -- $reportRelativePath
-    if ($LASTEXITCODE -ne 0) {
-        throw "StateRoot must be ignored by Git before evaluation reports can be written: $($configuration.StateRoot)"
+    do {
+        $evaluationId = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+        $evaluationDirectoryCandidate = Resolve-ConfigurationPath -BasePath $configuration.StateRoot -Value (Join-Path 'evaluations' $evaluationId)
+    } while (Test-Path -LiteralPath $evaluationDirectoryCandidate)
+    $jsonReportCandidate = Resolve-ConfigurationPath -BasePath $evaluationDirectoryCandidate -Value 'report.json'
+    $markdownReportCandidate = Resolve-ConfigurationPath -BasePath $evaluationDirectoryCandidate -Value 'report.md'
+    foreach ($reportCandidate in @($jsonReportCandidate, $markdownReportCandidate)) {
+        if (-not (Test-PathInsideRoot -Root $configuration.StateRoot -Path $reportCandidate)) {
+            throw "Evaluation report path resolves outside StateRoot: $reportCandidate"
+        }
+        $reportRelativePath = [IO.Path]::GetRelativePath($configuration.RepositoryRoot, $reportCandidate).Replace('\', '/')
+        & git -C $configuration.RepositoryRoot check-ignore --quiet -- $reportRelativePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Evaluation report path must be ignored by Git: $reportCandidate"
+        }
     }
 
     New-Item -ItemType Directory -Path $configuration.StateRoot -Force | Out-Null
@@ -47,10 +57,7 @@ function Invoke-LocalAiModelEvaluation {
     $evaluationsRootCandidate = Resolve-ContainedPath -Root $stateRoot -Path 'evaluations'
     New-Item -ItemType Directory -Path $evaluationsRootCandidate -Force | Out-Null
     $evaluationsRoot = Resolve-ContainedPath -Root $stateRoot -Path $evaluationsRootCandidate -MustExist
-    do {
-        $evaluationId = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
-        $evaluationDirectory = Resolve-ContainedPath -Root $evaluationsRoot -Path $evaluationId
-    } while (Test-Path -LiteralPath $evaluationDirectory)
+    $evaluationDirectory = Resolve-ContainedPath -Root $evaluationsRoot -Path $evaluationId
     New-Item -ItemType Directory -Path $evaluationDirectory | Out-Null
 
     $startedAtUtc = [DateTime]::UtcNow.ToString('o')

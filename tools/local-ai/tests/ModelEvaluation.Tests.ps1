@@ -190,6 +190,36 @@ Describe 'Local AI model evaluation orchestration and reports' {
         }
     }
 
+    It 'requires every exact future report path to be ignored before creating state or calling HTTP' -ForEach @(
+        @{
+            Name = 'only the obsolete non-ID JSON path is ignored'
+            IgnoreRules = @('.local-ai/evaluations/report.json')
+        },
+        @{
+            Name = 'ID-shaped JSON is ignored but Markdown is not'
+            IgnoreRules = @(
+                '.local-ai/evaluations/report.json',
+                '.local-ai/evaluations/*/report.json'
+            )
+        }
+    ) {
+        param($Name, $IgnoreRules)
+
+        Set-Content -LiteralPath (Join-Path $script:Repo '.gitignore') -Value ($IgnoreRules -join [Environment]::NewLine)
+        git -C $script:Repo add .gitignore
+        git -C $script:Repo commit --quiet -m "ignore fixture: $Name"
+
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo } {
+            Mock Invoke-OpenWebUiChat { throw 'must not run' }
+
+            { Invoke-LocalAiModelEvaluation -RepositoryRoot $Repo } |
+                Should -Throw '*ignored by Git*'
+
+            Should -Invoke Invoke-OpenWebUiChat -Times 0
+        }
+        Test-Path -LiteralPath (Join-Path $script:Repo '.local-ai') | Should -BeFalse
+    }
+
     It 'exports the public evaluation command' {
         Get-Command Invoke-LocalAiModelEvaluation -Module LocalAiBridge -ErrorAction Stop |
             Should -Not -BeNullOrEmpty
