@@ -5,6 +5,8 @@
 
 Use this guide for a focused public smoke test and for reporting a problem. For installation, see the [public installation guide](INSTALL.md). For the broader implementation boundary, see the [roadmap](ROADMAP.md). The [advanced developer testing checklist](TESTING.md) is available when a maintainer asks for targeted diagnostics.
 
+Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
+
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:

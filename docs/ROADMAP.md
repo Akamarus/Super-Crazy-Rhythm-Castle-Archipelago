@@ -2,6 +2,8 @@
 
 This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.60 client / v0.17 APWorld prototype from the approved future randomizer design. Testers should use matching source builds and a fresh v0.17 seed/save.
 
+Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
+
 ## Status terms
 
 | Status | Meaning |
