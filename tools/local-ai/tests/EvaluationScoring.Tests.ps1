@@ -136,6 +136,19 @@ Describe 'Local AI evaluation response parsing' {
         }
     }
 
+    It 'accepts one lowercase json Markdown fence surrounded by whitespace' {
+        $fence = (([char]96).ToString() * 3) -join ''
+        $content = [Environment]::NewLine + "  $fence" + 'json' + [Environment]::NewLine + '{"case_id":"access_design","answers":[{"id":"roots_access_required","value":"yes"}],"explanation":"fenced"}' + [Environment]::NewLine + $fence + [Environment]::NewLine + "`t "
+
+        InModuleScope LocalAiBridge -Parameters @{ Content = $content } {
+            $response = ConvertFrom-LocalAiEvaluationResponse -Content $Content
+
+            $response.case_id | Should -Be 'access_design'
+            $response.answers[0].id | Should -Be 'roots_access_required'
+            $response.answers[0].value | Should -Be 'yes'
+        }
+    }
+
     It 'rejects non-literal json Markdown fence labels' -ForEach @(
         @{ Label = 'JSON' },
         @{ Label = 'Json' }

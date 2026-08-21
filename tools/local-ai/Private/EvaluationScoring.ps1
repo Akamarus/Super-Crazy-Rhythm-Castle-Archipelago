@@ -2,7 +2,7 @@ function ConvertFrom-LocalAiEvaluationResponse {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Content)
 
-    $json = $Content
+    $json = $Content.Trim()
     if ($json -cmatch '\A```json[ \t]*\r?\n(?<json>[\s\S]*?)\r?\n```\z') {
         $json = $Matches.json
     }
