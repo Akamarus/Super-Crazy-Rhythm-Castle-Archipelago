@@ -7,8 +7,9 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Playable now: Roots-first APWorld v0.15 with Area Access routing, randomized Game Garage cartridges, Weed Killer, Plant Pipes, campaign checks for Levels 1–3, Music Lab cassette medal checks, and nine Music Lab chest checks.
-- Not finished: full-game logic, generated AP Stars, randomized cassettes/quest items, victory, balanced item pool, verified local co-op, and release packaging.
+- Playable now: APWorld v0.16 retains the Roots-first Area Access milestone, randomized Game Garage cartridges, Weed Killer, Plant Pipes, Levels 1–3 checks, Music Lab cassette medal checks, and nine Music Lab chest checks.
+- Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
+- Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
@@ -17,9 +18,10 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 ## Simplified roadmap
 
 1. Current playable prototype — Roots routing, Weed Killer, Plant Pipes, Garage/cassette/chest checks.
-2. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
-3. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
-4. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
+2. Generation foundation — options and deterministic previews are implemented; live Star placement and filtering wait for location capacity and solver logic.
+3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
+4. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
+5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
 
 See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
 
@@ -35,8 +37,8 @@ This repository contains both halves of the implementation:
 | Component | Version | Status |
 | --- | --- | --- |
 | Client | `0.67.59` | Current tested baseline |
-| APWorld | `0.15` | Current tested baseline; Roots forced starter |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15` | Current slot-data implementation |
+| APWorld | `0.16` | Generation previews; random currently resolves only to validated Roots |
+| Archipelago implementation tag | `generation-foundation-0.16` | Additive preview slot-data implementation |
 
 Current Roots progression includes randomized **Weed Killer** and **Plant Pipes**, plus the Frog/Hippo in-level AP check. The first Roots arrival cutscene is bypassed for AP routing, and the campaign-order Star Eater blockade / FirstAreaGate are normalized while Roots Access is owned.
 
@@ -97,6 +99,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-Roots is intentionally forced as the starter while its progression chain is being implemented and audited. The next work is to reconcile the historically observed **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket** chain with the current Area Access design; it is not implemented randomizer logic. Randomized Star requirements come after the meaningful item/story prerequisites are mapped correctly.
+The default random starter conservatively samples only validated starts, currently Roots. v0.16 generates provisional Star requirements but does not enforce them. The next discovery work is to reconcile the historically observed **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket** chain with the current Area Access design. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.
