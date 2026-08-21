@@ -377,6 +377,7 @@ git commit -m "feat(apworld): register planned star inventory"
 
 **Files:**
 - Create: `apworld/tests/test_world_integration.py`
+- Modify: `apworld/tests/support.py`
 - Modify: `apworld/scrc/__init__.py`
 - Modify: `apworld/scrc/archipelago.json`
 - Modify: `apworld/examples/SCRC-AreaRouting-PlantPipes.yaml`
@@ -385,26 +386,30 @@ git commit -m "feat(apworld): register planned star inventory"
 - Consumes: option objects, world RNG, pure helpers from Tasks 1–4, existing location names.
 - Produces: resolved starter, generated requirement preview, difficulty-location preview count, and additive slot-data schema.
 
-- [ ] **Step 1: Write failing source-level integration assertions**
+- [ ] **Step 1: Extend the test support with an Archipelago boundary harness**
 
-Because the repository does not vendor Archipelago core, use `ast` plus direct pure-module calls to assert the integration contract without pretending to run the full framework. Tests must verify:
+Add `load_scrc_world()` to `apworld/tests/support.py`. It must install complete lightweight modules for the imported Archipelago boundaries (`BaseClasses`, `Options`, `worlds.AutoWorld`, and `worlds.generic.Rules`) in `sys.modules`, load `apworld/scrc` as a package with its real relative imports, and restore the original module table during cleanup. Stub objects implement every field used by the exercised world methods rather than accepting arbitrary calls.
 
-- `SCRCWorld.options_dataclass` resolves to imported `SCRCOptions`;
-- `generate_early` calls `resolve_starting_area` with the option value and `self.random`;
-- `generate_early` calls `generate_star_requirements` with `required_stars` and `self.random`;
-- `create_items` does not add planned Stars;
-- `create_regions` does not filter live locations;
-- `fill_slot_data` contains every activation flag and preview field from the spec;
-- the implementation/schema tag is updated consistently; and
-- the current Area Access victory rule remains present.
+Add `FakeMultiWorld` with real `itempool` and `precollected` lists, `push_precollected(item)`, and only the methods used by `generate_early` and `create_items`. Add an option wrapper with a `.value` attribute. Keep this harness in test support; no test-only cleanup or injection methods go into production code.
 
-Use AST node inspection for calls and assignments rather than brittle whole-file substring matching where practical.
+- [ ] **Step 2: Write failing behavior-level integration tests**
 
-- [ ] **Step 2: Run and verify RED**
+Instantiate the real `SCRCWorld` with `object.__new__`, then inject `player`, seeded `random.Random`, `FakeMultiWorld`, and an options namespace. Verify observable behavior:
+
+- `generate_early` with random start precollects Roots, stores 22 valid deterministic requirements, and stores the Normal preview names;
+- explicit Lobby start raises the production unsupported-start `ValueError` and precollects nothing;
+- `create_items` produces the same live item-pool size as the current location registry and contains no `Star` item;
+- `fill_slot_data` returns every field from the spec with `star_items_active` and `difficulty_filtering_active` false;
+- equal seeds/options return equal generated requirements and preview counts; and
+- the completion condition remains the existing Area Access milestone when `set_rules` is exercised with a fake Victory location and captured rule.
+
+Do not assert that source text contains a function call. Each assertion must use the real world method's returned data or side effects.
+
+- [ ] **Step 3: Run and verify RED**
 
 Expected: FAIL because the world does not yet call the planners or expose preview slot data.
 
-- [ ] **Step 3: Integrate options and preview generation**
+- [ ] **Step 4: Integrate options and preview generation**
 
 In `generate_early`:
 
@@ -422,7 +427,7 @@ self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
 Do not catch unsupported fixed-start `ValueError`; allow generation to stop with its descriptive message.
 
-- [ ] **Step 4: Add accurately labeled slot data**
+- [ ] **Step 5: Add accurately labeled slot data**
 
 Add exact fields:
 
@@ -446,7 +451,7 @@ Add exact fields:
 
 Use safe defaults in `fill_slot_data` only for direct test construction; normal generation must populate all values in `generate_early`.
 
-- [ ] **Step 5: Advance APWorld metadata and example YAML**
+- [ ] **Step 6: Advance APWorld metadata and example YAML**
 
 Set `world_version` to `0.16`, increment metadata `version` and `compatible_version` together to 8, and use implementation tag `generation-foundation-0.16`. Add documented YAML values:
 
@@ -458,14 +463,14 @@ starting_area: random
 
 Include comments that Stars, filtering, gate enforcement, and final victory remain inactive previews in v0.16.
 
-- [ ] **Step 6: Run RED→GREEN and regression checks**
+- [ ] **Step 7: Run RED→GREEN and regression checks**
 
 Run all unit tests. Inspect `git diff` to confirm `create_items`, `create_regions`, `set_rules`, and client code retain live behavior apart from imports/metadata required for previews.
 
-- [ ] **Step 7: Commit Task 5**
+- [ ] **Step 8: Commit Task 5**
 
 ```powershell
-git add apworld/tests/test_world_integration.py apworld/scrc/__init__.py apworld/scrc/archipelago.json apworld/examples/SCRC-AreaRouting-PlantPipes.yaml
+git add apworld/tests/support.py apworld/tests/test_world_integration.py apworld/scrc/__init__.py apworld/scrc/archipelago.json apworld/examples/SCRC-AreaRouting-PlantPipes.yaml
 git commit -m "feat(apworld): export generation foundation previews"
 ```
 
@@ -485,9 +490,9 @@ git commit -m "feat(apworld): export generation foundation previews"
 - Consumes: v0.16 module layout, Star ID registry, slot-data tag, activation flags.
 - Produces: repository-wide validation and accurate public status documentation.
 
-- [ ] **Step 1: Write failing repository-contract tests**
+- [ ] **Step 1: Write a failing repository-validator behavior test**
 
-Test that the validator's expected constants are updated to:
+Run `tools/validate-repo.py` as a subprocess using `sys.executable` and the repository root as `cwd`. Assert exit code zero and these independently specified output facts:
 
 ```python
 "world_version": "0.16"
@@ -496,7 +501,7 @@ Test that the validator's expected constants are updated to:
 "next_item_id": 187256119
 ```
 
-Assert it parses every `apworld/scrc/*.py` file, checks the Star allocation in `items.py`, checks both inactive activation flags, and no longer requires the literal forced-Roots assignment.
+The test initially fails because the validator still expects v0.15. After implementation it must also prove syntax checking by copying the APWorld tree to a temporary repository fixture, inserting invalid syntax into `difficulty.py`, running the validator against that fixture through a supported `SCRC_REPO_ROOT` environment override, and asserting a nonzero exit mentioning `difficulty.py`. Add a second fixture mutation that changes Star ID `187256118` and assert the validator rejects it. These mutations exercise validator behavior rather than grepping its source.
 
 - [ ] **Step 2: Run and verify RED**
 
@@ -504,7 +509,7 @@ Expected: FAIL because the validator still encodes v0.15 and assumes all IDs liv
 
 - [ ] **Step 3: Update the repository validator**
 
-Parse every Python source file under `apworld/scrc`, report the relative filename on syntax errors, validate the new metadata/tag/ID markers, retain all existing native flag checks, and require:
+Support an optional `SCRC_REPO_ROOT` environment variable for isolated validator fixtures; default to the real repository root. Parse every Python source file under `apworld/scrc`, report the relative filename on syntax errors, validate the new metadata/tag/ID markers, retain all existing native flag checks, and require:
 
 ```python
 "star_items_active": False
