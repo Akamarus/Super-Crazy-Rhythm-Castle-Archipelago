@@ -33,7 +33,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Work | Status | Why it must wait |
 | --- | --- | --- |
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
-| Hip Glasses, Bucket Minion trade, and Chicken Bucket native mappings | Discovery required | The approved source/item/trade flow still needs exact native pickup/trade flags plus ownership, consumption, reload, and reconnection validation. |
+| Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Native mappings verified / implementation design required | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival flags are confirmed. Reload, reconnect, and AP-history reconciliation remain to be implemented and tested. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
 | Cassette sources and native inventory mappings | Discovery required | Medal checks exist, but source-to-item randomization has not been mapped for all 30 cassettes. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |

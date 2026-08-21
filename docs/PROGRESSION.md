@@ -116,15 +116,22 @@ Combo Bucket ability earned
 lobby progression begins
 ```
 
-Confirmed historical identifiers and objects:
+Confirmed identifiers and lifecycle, revalidated in the focused 2026-08-21 gameplay trace:
 
 - Level 4 is internal `Level_08`.
+- The Hip Glasses inventory flag is `HIP_GLASSES_BAG_ITEM`.
+- The Level 4 source marker is `LEVEL_08_GLASSES_COLLECTED`.
+- The Bucket Minion trade marker is `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`.
+- The trade also sets `ROOTS_HUB_BUCKET_MINION_DIALOGUE_PROGRESSION` and `ROOTS_HUB_BUCKET_MINION_BLOCKADE_REMOVED`.
+- The trade sets `CHICKEN_BUCKET_BAG_ITEM` true and consumes `HIP_GLASSES_BAG_ITEM` back to false.
+- The King conversation sets `ROOTS_HUB_KING_LIFT_CHAT_WITNESSED`.
 - Lift Quest / Level 5 is internal `Level_09`.
 - Its hub entrance was identified as `Placeholder_Level_09_Entrance`.
 - The vanilla entrance includes `KingLiftChatWitnessed_Condition`.
-- Using the Chicken Bucket produces `COMBO_BUCKET_ABILITY`.
+- Using the Chicken Bucket sets `COMBO_BUCKET_ABILITY` true and consumes `CHICKEN_BUCKET_BAG_ITEM` back to false.
 - The ability-award marker is `LEVEL_09_COMBO_ABILITY_EARNED`.
-- Level completion records `LEVEL_09`.
+- Level completion sets `LEVEL_09_COMPLETED`.
+- The forced post-level Lobby arrival sets `OVERALL_PROGRESS_REACHED_LOBBY_HUB` and transitions to `GameRoom_Hub1A`.
 
 These are gameplay observations and recovered log conclusions from the project conversation **Archipelago Game Implementation**. That conversation contains the logged discovery playthrough for the wider game and should be treated as a primary historical evidence source when repository documentation is incomplete.
 
@@ -134,4 +141,4 @@ The historical playthrough predates the switch from individual level-unlock item
 
 In particular, the old implementation used a separate `Level 5 Access` item to gate only `Placeholder_Level_09_Entrance` while preserving the Hip Glasses trade and `KingLiftChatWitnessed_Condition`. That per-level access design is superseded and must not be restored. The approved future model randomizes Hip Glasses at the Level 4 source, keeps the normal Bucket Minion trade as the Chicken Bucket source, randomizes Chicken Bucket, and preserves Combo Bucket as the vanilla consequence.
 
-The approved source/item/trade model is not implemented. Exact native pickup and trade flags, ownership/consumption behavior, reload behavior, and reconnection behavior still require discovery before implementation. Do not allocate permanent IDs, guess an unrecorded native flag, or treat an older per-level gate as current intent.
+The approved source/item/trade model is not implemented. Native pickup, ownership, trade, consumption, conversion, and downstream story flags are now mapped. Reload, reconnect, and AP-history reconciliation behavior must be designed and validated during implementation. Do not allocate permanent IDs until that design is approved, and do not treat an older per-level gate as current intent.

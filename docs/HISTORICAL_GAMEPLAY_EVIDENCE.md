@@ -128,10 +128,19 @@ Log-confirmed Roots evidence already promoted into `docs/PROGRESSION.md` include
 - Plant Pipes source/story marker: `LEVEL_07_WK_ABILITY_EARNED`.
 - Level 4: `Level_08`.
 - Lift Quest: `Level_09`.
+- Hip Glasses held item: `HIP_GLASSES_BAG_ITEM`.
+- Hip Glasses source marker: `LEVEL_08_GLASSES_COLLECTED`.
+- Bucket Minion trade marker: `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`.
+- Bucket Minion dialogue marker: `ROOTS_HUB_BUCKET_MINION_DIALOGUE_PROGRESSION`.
+- Bucket Minion blockade marker: `ROOTS_HUB_BUCKET_MINION_BLOCKADE_REMOVED`.
+- King lift conversation marker: `ROOTS_HUB_KING_LIFT_CHAT_WITNESSED`.
+- Chicken Bucket held item: `CHICKEN_BUCKET_BAG_ITEM`.
 - Combo Bucket ability: `COMBO_BUCKET_ABILITY`.
 - Combo Bucket award marker: `LEVEL_09_COMBO_ABILITY_EARNED`.
+- Lift Quest completion marker: `LEVEL_09_COMPLETED`.
+- Lobby arrival marker: `OVERALL_PROGRESS_REACHED_LOBBY_HUB`.
 
-The exact native Hip Glasses pickup flag and a distinct Bucket Minion trade flag were not recovered into tracked documentation. Do not invent them.
+The 2026-08-21 focused trace confirmed each flag above transitioning from false to true, plus `HIP_GLASSES_BAG_ITEM` transitioning true to false at the trade and `CHICKEN_BUCKET_BAG_ITEM` transitioning true to false when converted into Combo Bucket. The game then transitioned directly to `GameRoom_Hub1A` for the Lobby arrival cutscene.
 
 The confirmed order is:
 
@@ -369,8 +378,7 @@ The corresponding `AP_LEVEL_N_ACCESS` flags, hotkeys, and per-level item design 
 
 Before implementing the next progression change:
 
-1. Recover the exact Hip Glasses and Bucket Minion trade flags from the historical logs if present.
-2. Recover the native source, ownership, trade, consumption, reload, and reconnection mappings required to implement the approved Hip Glasses → Chicken Bucket source/item/trade flow.
+1. Design and validate reload, reconnect, and received-item-history reconciliation for the now-mapped Hip Glasses → Chicken Bucket source/item/trade flow.
 3. Reconcile meaningful items across later areas, including Hypno Pan, Fish Tears, Super Nectar, Violance, Bunker Keycard, Demon Key, cassettes, cartridges, and characters.
 4. Decide which vanilla Star Eater thresholds remain, become generated AP Star requirements, or are replaced by Area Access routing.
 5. Confirm exact flags for the Loneliness shield, Devil Seals, demon cartridge, later Music Lab chests, and any postgame completion goal.
