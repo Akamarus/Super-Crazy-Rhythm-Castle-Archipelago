@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import dataclass
 import json
 import os
 import re
@@ -74,158 +75,281 @@ def repo_path(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def powershell_code_projection(
-    text: str, preserve_strings: bool = False, mark_strings: bool = False
-) -> str:
-    projected = []
-    state = "code"
+@dataclass(frozen=True)
+class PowerShellToken:
+    kind: str
+    start: int
+    end: int
+    value: str | None = None
+
+
+@dataclass(frozen=True)
+class PowerShellRootEntry:
+    key: str
+    value_start: int
+    value_end: int
+
+
+def powershell_newline_end(text: str, index: int) -> int | None:
+    if text.startswith("\r\n", index):
+        return index + 2
+    if index < len(text) and text[index] in "\r\n":
+        return index + 1
+    return None
+
+
+def powershell_data_tokens(text: str) -> list[PowerShellToken]:
+    tokens = []
     index = 0
     while index < len(text):
         character = text[index]
-        at_line_start = index == 0 or text[index - 1] == "\n"
-
-        if state == "code":
-            if text.startswith("<#", index):
-                projected.extend("  ")
-                state = "block_comment"
-                index += 2
-                continue
-            if text.startswith("@'", index) or text.startswith('@"', index):
-                projected.extend("S " if mark_strings else "  ")
-                state = "single_here_string" if text[index + 1] == "'" else "double_here_string"
-                index += 2
-                continue
-            if character == "#":
-                projected.append(" ")
-                state = "line_comment"
-            elif character == "'":
-                projected.append(character if preserve_strings else ("S" if mark_strings else " "))
-                state = "single_string"
-            elif character == '"':
-                projected.append(character if preserve_strings else ("S" if mark_strings else " "))
-                state = "double_string"
-            else:
-                projected.append(character)
-        elif state == "line_comment":
-            projected.append(character if character == "\n" else " ")
-            if character == "\n":
-                state = "code"
-        elif state == "block_comment":
-            if text.startswith("#>", index):
-                projected.extend("  ")
-                state = "code"
-                index += 2
-                continue
-            projected.append(character if character == "\n" else " ")
-        elif state == "single_string":
-            projected.append(character if preserve_strings or character == "\n" else " ")
-            if character == "'":
-                if index + 1 < len(text) and text[index + 1] == "'":
-                    projected.append("'" if preserve_strings else " ")
+        newline_end = powershell_newline_end(text, index)
+        if newline_end is not None:
+            tokens.append(PowerShellToken("newline", index, newline_end))
+            index = newline_end
+            continue
+        if character == "\ufeff" or character.isspace():
+            index += 1
+            continue
+        if text.startswith("<#", index):
+            comment_depth = 1
+            index += 2
+            while index < len(text) and comment_depth:
+                if text.startswith("<#", index):
+                    comment_depth += 1
                     index += 2
+                elif text.startswith("#>", index):
+                    comment_depth -= 1
+                    index += 2
+                else:
+                    newline_end = powershell_newline_end(text, index)
+                    if newline_end is not None:
+                        tokens.append(PowerShellToken("newline", index, newline_end))
+                        index = newline_end
+                    else:
+                        index += 1
+            if comment_depth:
+                raise ValueError("unterminated PowerShell block comment")
+            continue
+        if character == "#":
+            while index < len(text) and powershell_newline_end(text, index) is None:
+                index += 1
+            continue
+        if character == "@" and index + 1 < len(text) and text[index + 1] in "'\"":
+            quote = text[index + 1]
+            content_start = powershell_newline_end(text, index + 2)
+            if content_start is None:
+                raise ValueError("PowerShell here-string header must end with a newline")
+            cursor = content_start
+            at_line_start = True
+            while cursor < len(text):
+                if at_line_start and text.startswith(f"{quote}@", cursor):
+                    token_end = cursor + 2
+                    value = text[content_start:cursor] if quote == "'" else None
+                    tokens.append(
+                        PowerShellToken("here_string", index, token_end, value)
+                    )
+                    index = token_end
+                    break
+                newline_end = powershell_newline_end(text, cursor)
+                if newline_end is not None:
+                    cursor = newline_end
+                    at_line_start = True
+                else:
+                    cursor += 1
+                    at_line_start = False
+            else:
+                raise ValueError("unterminated PowerShell here-string")
+            continue
+        if character in "'\"":
+            quote = character
+            cursor = index + 1
+            value_parts = []
+            is_static = True
+            while cursor < len(text):
+                character = text[cursor]
+                if quote == "'" and character == "'":
+                    if cursor + 1 < len(text) and text[cursor + 1] == "'":
+                        value_parts.append("'")
+                        cursor += 2
+                        continue
+                    cursor += 1
+                    break
+                if quote == '"' and character == "`":
+                    is_static = False
+                    cursor += 1
+                    if cursor >= len(text):
+                        raise ValueError("unterminated PowerShell escape sequence")
+                    newline_end = powershell_newline_end(text, cursor)
+                    cursor = newline_end if newline_end is not None else cursor + 1
                     continue
-                state = "code"
-        elif state == "double_string":
-            projected.append(character if preserve_strings or character == "\n" else " ")
-            if character == "`" and index + 1 < len(text):
-                projected.append(
-                    text[index + 1]
-                    if preserve_strings
-                    else ("\n" if text[index + 1] == "\n" else " ")
+                if quote == '"' and character == '"':
+                    cursor += 1
+                    break
+                if quote == '"' and character == "$":
+                    is_static = False
+                value_parts.append(character)
+                cursor += 1
+            else:
+                raise ValueError("unterminated PowerShell string")
+            tokens.append(
+                PowerShellToken(
+                    "string",
+                    index,
+                    cursor,
+                    "".join(value_parts) if is_static else None,
                 )
-                index += 2
-                continue
-            if character == '"':
-                state = "code"
-        elif state == "single_here_string":
-            if at_line_start and text.startswith("'@", index):
-                projected.extend("  ")
-                state = "code"
-                index += 2
-                continue
-            projected.append(character if character == "\n" else " ")
-        elif state == "double_here_string":
-            if at_line_start and text.startswith('"@', index):
-                projected.extend("  ")
-                state = "code"
-                index += 2
-                continue
-            projected.append(character if character == "\n" else " ")
-        index += 1
+            )
+            index = cursor
+            continue
 
-    if state not in ("code", "line_comment"):
-        raise ValueError(f"unterminated PowerShell lexical state: {state}")
-    return "".join(projected)
+        punctuation = {
+            "{": "open",
+            "[": "open",
+            "(": "open",
+            "}": "close",
+            "]": "close",
+            ")": "close",
+            "=": "equals",
+            ";": "separator",
+            ",": "comma",
+            "@": "at",
+        }
+        if character in punctuation:
+            tokens.append(PowerShellToken(punctuation[character], index, index + 1, character))
+            index += 1
+            continue
 
-
-def has_single_root_psd1_hashtable(text: str) -> bool:
-    try:
-        code = powershell_code_projection(text, mark_strings=True)
-    except ValueError:
-        return False
-
-    index = 0
-    while index < len(code) and (code[index].isspace() or code[index] == "\ufeff"):
-        index += 1
-    if not code.startswith("@{", index):
-        return False
-
-    opening_to_closing = {"{": "}", "[": "]", "(": ")"}
-    closing_characters = set(opening_to_closing.values())
-    stack = ["{"]
-    index += 2
-    root_end = None
-    while index < len(code):
-        character = code[index]
-        if character in opening_to_closing:
-            stack.append(character)
-        elif character in closing_characters:
-            if not stack or opening_to_closing[stack[-1]] != character:
-                return False
-            stack.pop()
-            if not stack:
-                root_end = index
+        word_start = index
+        while index < len(text):
+            character = text[index]
+            if (
+                character == "\ufeff"
+                or character.isspace()
+                or character in "{}[]()=;,'\"@#"
+                or text.startswith("<#", index)
+            ):
                 break
-        index += 1
-    if root_end is None:
-        return False
+            if character == "`":
+                index += 1
+                if index >= len(text):
+                    raise ValueError("unterminated PowerShell escape sequence")
+                newline_end = powershell_newline_end(text, index)
+                index = newline_end if newline_end is not None else index + 1
+            else:
+                index += 1
+        tokens.append(
+            PowerShellToken("word", word_start, index, text[word_start:index])
+        )
+    return tokens
 
-    trailing_code = code[root_end + 1 :]
-    return all(character.isspace() or character == "\ufeff" for character in trailing_code)
 
+def parse_root_psd1_entries(
+    text: str,
+) -> tuple[list[PowerShellToken], list[PowerShellRootEntry], dict[int, int]] | None:
+    try:
+        tokens = powershell_data_tokens(text)
+    except ValueError:
+        return None
 
-def find_top_level_psd1_array_bodies(text: str, field_name: str) -> list[str]:
-    code = powershell_code_projection(text)
-    assignment = re.compile(rf"{re.escape(field_name)}\s*=\s*@\(")
-    bodies = []
-    brace_depth = 0
     index = 0
-    while index < len(code):
-        character = code[index]
-        if character == "{":
-            brace_depth += 1
-        elif character == "}":
-            brace_depth -= 1
-        elif brace_depth == 1:
-            match = assignment.match(code, index)
-            previous = code[index - 1] if index else ""
-            if match and not (previous.isalnum() or previous in "_-"):
-                opening_parenthesis = match.end() - 1
-                parenthesis_depth = 1
-                closing_parenthesis = opening_parenthesis + 1
-                while closing_parenthesis < len(code) and parenthesis_depth:
-                    if code[closing_parenthesis] == "(":
-                        parenthesis_depth += 1
-                    elif code[closing_parenthesis] == ")":
-                        parenthesis_depth -= 1
-                    closing_parenthesis += 1
-                if parenthesis_depth:
-                    return []
-                bodies.append(text[opening_parenthesis + 1 : closing_parenthesis - 1])
-                index = closing_parenthesis
-                continue
+    while index < len(tokens) and tokens[index].kind == "newline":
         index += 1
-    return bodies
+    if (
+        index + 1 >= len(tokens)
+        or tokens[index].kind != "at"
+        or tokens[index + 1].kind != "open"
+        or tokens[index + 1].value != "{"
+        or tokens[index].end != tokens[index + 1].start
+    ):
+        return None
+
+    root_open = index + 1
+    opening_to_closing = {"{": "}", "[": "]", "(": ")"}
+    stack = []
+    matching_delimiters = {}
+    root_close = None
+    for cursor in range(root_open, len(tokens)):
+        token = tokens[cursor]
+        if token.kind == "open":
+            stack.append((token.value, cursor))
+        elif token.kind == "close":
+            if not stack or opening_to_closing[stack[-1][0]] != token.value:
+                return None
+            _, opening_index = stack.pop()
+            matching_delimiters[opening_index] = cursor
+            if not stack:
+                root_close = cursor
+                break
+    if root_close is None:
+        return None
+    if any(token.kind != "newline" for token in tokens[root_close + 1 :]):
+        return None
+
+    entries = []
+    index = root_open + 1
+    while index < root_close:
+        while index < root_close and tokens[index].kind in ("newline", "separator"):
+            index += 1
+        if index == root_close:
+            break
+        key_token = tokens[index]
+        if key_token.kind not in ("word", "string") or key_token.value is None:
+            return None
+        index += 1
+        if index >= root_close or tokens[index].kind != "equals":
+            return None
+        index += 1
+        while index < root_close and tokens[index].kind == "newline":
+            index += 1
+        value_start = index
+        value_depth = 0
+        while index < root_close:
+            token = tokens[index]
+            if value_depth == 0 and token.kind in ("newline", "separator"):
+                break
+            if token.kind == "open":
+                value_depth += 1
+            elif token.kind == "close":
+                value_depth -= 1
+            index += 1
+        if value_start == index or value_depth:
+            return None
+        entries.append(
+            PowerShellRootEntry(key_token.value, value_start, index)
+        )
+
+    return tokens, entries, matching_delimiters
+
+
+def psd1_string_array_value(
+    tokens: list[PowerShellToken],
+    entry: PowerShellRootEntry,
+    matching_delimiters: dict[int, int],
+) -> list[str] | None:
+    start = entry.value_start
+    end = entry.value_end
+    if (
+        end - start < 3
+        or tokens[start].kind != "at"
+        or tokens[start + 1].kind != "open"
+        or tokens[start + 1].value != "("
+        or tokens[start].end != tokens[start + 1].start
+        or matching_delimiters.get(start + 1) != end - 1
+    ):
+        return None
+
+    values = []
+    may_read_value = True
+    for token in tokens[start + 2 : end - 1]:
+        if token.kind in ("newline", "separator", "comma"):
+            may_read_value = True
+        elif token.kind == "string" and token.value is not None and may_read_value:
+            values.append(token.value)
+            may_read_value = False
+        else:
+            return None
+    return values
 
 
 for path in (
@@ -334,24 +458,30 @@ if configured_model_ids != LOCAL_AI_ALLOWED_MODELS:
         f"{repo_path(LOCAL_AI_CONFIG)} allowed models must be exactly: "
         f"{', '.join(LOCAL_AI_ALLOWED_MODELS)}"
     )
-if not has_single_root_psd1_hashtable(local_ai_manifest_text):
+manifest_root = parse_root_psd1_entries(local_ai_manifest_text)
+if manifest_root is None:
     fail(f"{repo_path(LOCAL_AI_MANIFEST)} must contain one root data hashtable")
-functions_to_export_bodies = find_top_level_psd1_array_bodies(
-    local_ai_manifest_text, "FunctionsToExport"
-)
-if len(functions_to_export_bodies) != 1:
+manifest_tokens, manifest_entries, manifest_delimiters = manifest_root
+functions_to_export_entries = [
+    entry
+    for entry in manifest_entries
+    if entry.key.casefold() == "functionstoexport"
+]
+if len(functions_to_export_entries) != 1:
     fail(
         f"{repo_path(LOCAL_AI_MANIFEST)} must contain exactly one top-level "
         "FunctionsToExport array"
     )
-manifest_function_exports = {
-    match.group("value")
-    for match in re.finditer(
-        r"^\s*['\"](?P<value>[^'\"]+)['\"]\s*,?\s*(?:#.*)?$",
-        powershell_code_projection(functions_to_export_bodies[0], preserve_strings=True),
-        re.MULTILINE,
+manifest_function_exports = psd1_string_array_value(
+    manifest_tokens,
+    functions_to_export_entries[0],
+    manifest_delimiters,
+)
+if manifest_function_exports is None:
+    fail(
+        f"{repo_path(LOCAL_AI_MANIFEST)} must contain exactly one top-level "
+        "FunctionsToExport array"
     )
-}
 if "Invoke-LocalAiModelEvaluation" not in manifest_function_exports:
     fail(
         f"{repo_path(LOCAL_AI_MANIFEST)} must export "
