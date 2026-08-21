@@ -1,6 +1,6 @@
 # Randomizer Logic and Progression Design
 
-**Status:** Approved architectural baseline; native discovery required before implementation  
+**Status:** Approved architectural baseline; native discovery required before implementation
 **Date:** 2026-08-20
 
 ## 1. Purpose and authority
@@ -370,4 +370,3 @@ Online co-op and DeathLink have separate future validation gates.
 | Stardust-only initial filler | Approved |
 | Preserve IDs and require new seeds for incompatible schemas | Approved |
 | Four verification gates before completion claims | Approved |
-
