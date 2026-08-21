@@ -5,10 +5,25 @@ BeforeAll {
         param([string] $Path)
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $Path 'README.md') -Value 'Level 4 glasses'
+        New-Item -ItemType Directory -Path (Join-Path $Path 'tools\local-ai\evaluation') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $Path 'tools\local-ai\evaluation\decisions.json') -Value @'
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "id": "test-decision",
+      "category": "test",
+      "approved_statement": "Tests use a tracked decision ledger.",
+      "prohibited_interpretations": ["The ledger is optional."],
+      "evidence_paths": ["README.md"]
+    }
+  ]
+}
+'@
         git -C $Path init --quiet
         git -C $Path config user.email 'tests@example.invalid'
         git -C $Path config user.name 'Bridge Tests'
-        git -C $Path add README.md
+        git -C $Path add README.md tools/local-ai/evaluation/decisions.json
         git -C $Path commit --quiet -m baseline
         return $Path
     }
@@ -84,6 +99,50 @@ Describe 'Investigation workflow' {
             }
             Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') -OpenWebUiTimeoutSec 600 | Out-Null
             Should -Invoke Invoke-OpenWebUiChat -Times 1 -ParameterFilter { $TimeoutSec -eq 600 }
+        }
+    }
+
+    It 'includes the validated ledger exactly once when the caller also supplies it' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                param($Configuration, $Messages)
+                $script:CapturedMessages = $Messages
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'ledger-context-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md','tools/local-ai/evaluation/decisions.json') | Out-Null
+
+            $userContent = @($script:CapturedMessages | Where-Object { $_.role -eq 'user' })[0].content
+            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'))).Count | Should -Be 1
+        }
+    }
+
+    It 'automatically includes the validated ledger when the caller does not supply it' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                param($Configuration, $Messages)
+                $script:CapturedMessages = $Messages
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'automatic-ledger-context-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') | Out-Null
+
+            $userContent = @($script:CapturedMessages | Where-Object { $_.role -eq 'user' })[0].content
+            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'))).Count | Should -Be 1
+        }
+    }
+
+    It 'counts the validated ledger toward the context byte limit before HTTP' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"unexpected","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'unexpected'; ModelId = 'jacks-assistant' }
+            }
+            $readmeBytes = [Text.Encoding]::UTF8.GetByteCount([IO.File]::ReadAllText((Join-Path $Repo 'README.md'), [Text.Encoding]::UTF8))
+            $ledgerBytes = [Text.Encoding]::UTF8.GetByteCount([IO.File]::ReadAllText((Join-Path $Repo 'tools/local-ai/evaluation/decisions.json'), [Text.Encoding]::UTF8))
+
+            { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') -MaxBytes ($readmeBytes + $ledgerBytes - 1) } |
+                Should -Throw '*byte limit*'
+            Should -Invoke Invoke-OpenWebUiChat -Times 0
         }
     }
 }

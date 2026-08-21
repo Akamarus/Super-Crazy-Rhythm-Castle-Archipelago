@@ -2,10 +2,24 @@ BeforeAll {
     $script:ModulePath=Join-Path $PSScriptRoot '..\LocalAiBridge.psd1'
     Import-Module $script:ModulePath -Force
     function New-AcceptanceRepo([string]$Path){
-        New-Item -ItemType Directory -Path (Join-Path $Path 'docs') -Force|Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $Path 'docs'),(Join-Path $Path 'tools\local-ai\evaluation') -Force|Out-Null
         Set-Content (Join-Path $Path '.gitignore') '.local-ai/'
         Set-Content (Join-Path $Path 'README.md') '# SCRC test'
         Set-Content (Join-Path $Path 'docs\PROJECT_OVERVIEW.md') 'Level 4 glasses discovery next; Minim trade unknown.'
+        Set-Content (Join-Path $Path 'tools\local-ai\evaluation\decisions.json') @'
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "id": "acceptance-decision",
+      "category": "test",
+      "approved_statement": "Acceptance tests use a tracked decision ledger.",
+      "prohibited_interpretations": ["The ledger may be omitted."],
+      "evidence_paths": ["docs/PROJECT_OVERVIEW.md"]
+    }
+  ]
+}
+'@
         git -C $Path init --quiet;git -C $Path config user.email 'tests@example.invalid';git -C $Path config user.name 'Bridge Tests'
         git -C $Path add .;git -C $Path commit --quiet -m baseline;return $Path
     }
