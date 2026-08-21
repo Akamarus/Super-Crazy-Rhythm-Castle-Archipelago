@@ -114,7 +114,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus"
 ```
 
-Explain alternate Steam library paths, `-SkipInstall`, the exact plugin destination, expected `BepInEx\LogOutput.log` version line, and that the script removes stale plugin-local DLLs but not BepInEx core files.
+Explain alternate Steam library paths, that the current baseline build always installs, the exact plugin destination, expected `BepInEx\LogOutput.log` version line, and that the script removes stale plugin-local DLLs but not BepInEx core files.
 
 - [ ] **Step 3: Document first-run client configuration**
 
