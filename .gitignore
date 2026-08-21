@@ -36,6 +36,7 @@ __pycache__/
 secrets.*
 *.local
 .local-ai/
+.worktrees/
 tools/local-ai/config.local.psd1
 
 # OS clutter
