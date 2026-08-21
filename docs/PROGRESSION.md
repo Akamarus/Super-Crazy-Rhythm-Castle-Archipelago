@@ -1,5 +1,7 @@
 # Progression Design
 
+Historical gameplay and native mapping evidence from the full discovery playthrough is indexed in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Use that evidence as a starting point, while treating its former individual-level access design as superseded by this document's Area Access model.
+
 ## Hub model
 
 **Home:** Hub6 / Music Lab phone hub.
@@ -96,20 +98,40 @@ Without Plant Pipes, Level 3 is intentionally enterable but not completable. The
 
 APWorld logic must never require Plant Pipes to reach its own Frog/Hippo source check.
 
-## Roots — next planned chain
+## Roots — confirmed Level 4 to Lift Quest observations
 
-The next discovery/implementation milestone is expected to be:
+The earlier full-game discovery playthrough recorded this vanilla sequence:
 
 ```text
-Level 4
-    ↓
-glasses pickup near completion
-    ↓ AP source check
-Glasses [exact game name/native flag still to be confirmed]
-    ↓
-Minim blocking Level 5 / Life Quest
-    ↓ glasses trade interaction = AP check
-Chicken Bucket [planned randomized AP item]
+Level 4 (`Level_08`)
+    ↓ Hip Glasses awarded immediately before completion
+Bucket Minion trade
+    ↓ Hip Glasses exchanged for Chicken Bucket
+bucket blockade removed
+    ↓ King lift conversation
+Lift Quest / Level 5 (`Level_09`) becomes available
+    ↓ Chicken Bucket used during the level
+Combo Bucket ability earned
+    ↓ Level 5 completed
+lobby progression begins
 ```
 
-The glasses' exact in-game/native name and the Minim trade / Chicken Bucket progression flags are not yet committed. Do not allocate permanent IDs until the source mapping is confirmed and implementation is ready.
+Confirmed historical identifiers and objects:
+
+- Level 4 is internal `Level_08`.
+- Lift Quest / Level 5 is internal `Level_09`.
+- Its hub entrance was identified as `Placeholder_Level_09_Entrance`.
+- The vanilla entrance includes `KingLiftChatWitnessed_Condition`.
+- Using the Chicken Bucket produces `COMBO_BUCKET_ABILITY`.
+- The ability-award marker is `LEVEL_09_COMBO_ABILITY_EARNED`.
+- Level completion records `LEVEL_09`.
+
+These are gameplay observations and recovered log conclusions from the project conversation **Archipelago Game Implementation**. That conversation contains the logged discovery playthrough for the wider game and should be treated as a primary historical evidence source when repository documentation is incomplete.
+
+### Design-pivot warning
+
+The historical playthrough predates the switch from individual level-unlock items to the current **Area Access** model. Its observed vanilla events, scene names, native identifiers, and ordering remain useful evidence. Its former Archipelago design decisions do not automatically remain valid.
+
+In particular, the old implementation used a separate `Level 5 Access` item to gate only `Placeholder_Level_09_Entrance` while preserving the Hip Glasses trade and `KingLiftChatWitnessed_Condition`. That per-level access design is superseded and must not be restored. The approved future model randomizes Hip Glasses at the Level 4 source, keeps the normal Bucket Minion trade as the Chicken Bucket source, randomizes Chicken Bucket, and preserves Combo Bucket as the vanilla consequence.
+
+The approved source/item/trade model is not implemented. Exact native pickup and trade flags, ownership/consumption behavior, reload behavior, and reconnection behavior still require discovery before implementation. Do not allocate permanent IDs, guess an unrecorded native flag, or treat an older per-level gate as current intent.

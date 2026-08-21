@@ -1,5 +1,8 @@
 # Testing Workflow
 
+> [!NOTE]
+> For the public, end-to-end development-test smoke test and safe issue-report template, start with [Testing and issue reports](TESTING_AND_ISSUES.md). This document is the advanced developer checklist for targeted regression and diagnostics.
+
 ## Runtime environment baseline
 
 Known working baseline:
@@ -51,7 +54,7 @@ Before accepting a Roots milestone, confirm:
 
 ## Logs
 
-`LogOutput.log` is a test artifact, not source. Do not commit it. Attach/upload it when diagnosing a run.
+`LogOutput.log` is a test artifact, not source. Do not commit it. For public reports, follow the redaction and excerpt guidance in [Testing and issue reports](TESTING_AND_ISSUES.md); do not attach credentials, private addresses, personal paths, game files, or proprietary assemblies.
 
 For bridge-assisted development, log watching must be started for an explicit implementation task with `Start-LocalAiDevelopmentSession` and stopped with `Stop-LocalAiDevelopmentSession`. It tails only the configured game's `BepInEx\LogOutput.log`, starts at the current end, and stores filtered output under ignored `.local-ai/<task-id>/` state. It does not launch the game or persist outside the owning PowerShell session.
 

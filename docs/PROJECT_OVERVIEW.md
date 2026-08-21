@@ -105,8 +105,8 @@ These names are design targets, not yet committed AP items unless listed above:
 
 | Planned item | Source / role | Status |
 | --- | --- | --- |
-| **Glasses** (exact in-game name TBD) | Picked up near the end of Level 4; required for the Minim trade blocking the Level 5 / Life Quest route. | Discovery pending. |
-| **Chicken Bucket** | Reward associated with the glasses-for-bucket Minim interaction. | Discovery pending. |
+| **Hip Glasses** | Picked up near the end of Level 4; traded to the Bucket Minion as part of the Lift Quest route. | Design approved / not implemented. Exact native source, ownership, reload, and reconnection mappings are still required. |
+| **Chicken Bucket** | Received from the Bucket Minion in exchange for Hip Glasses; later becomes the Combo Bucket ability during Lift Quest. | Design approved / not implemented. The normal trade and use remain player-driven; Combo Bucket is the vanilla consequence. |
 | Additional vanilla quest items / abilities | Converted individually when they materially gate traversal or completion. | Future work. |
 
 ---
@@ -364,6 +364,8 @@ The client evaluates the real result-time clean-medal tier and sends cumulative 
 
 Nine Hub6 Music Lab reward chests are tracked from their live native metadata. The client does not create fake startup chest components; it waits until Hub6 loads and reads the actual chest unlock requirement and native collection flag.
 
+Music Lab Points currently remain the game's native medal-score currency, read through `CurrentPlayerSaveEnquiries.GetMedalScore()`. The nine reward chests are AP locations; Music Lab Points are not currently generated AP inventory items. Separate AP Music Lab Point inventory is approved future design, not implemented; its final item distribution remains provisional until the location count is validated.
+
 | Point threshold | Native chest |
 | ---: | --- |
 | 5 | ManiacMemoryCardChest |
@@ -398,28 +400,35 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The planned randomizer difficulty choices are:
+The approved future randomizer difficulty choices are:
 
 - **Normal**
 - **Hard**
 - **Expert**
 - **Perfection**
 
-The intent is for difficulty to control which performance-based checks are expected from a seed without changing the fundamental AP item graph.
+This is approved design, not current v0.15 generation behavior. It controls which performance-based checks a seed contains without changing the fundamental AP item graph:
+
+| AP difficulty | Campaign levels | Music Lab and Game Garage |
+| --- | --- | --- |
+| Normal | Completion / 1-Star | Bronze |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum |
 
 A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes are intended to expose progressively stricter performance checks. Exact per-mode check tables are still being finalized and should be documented here before being treated as stable generation behavior.
+Higher difficulty modes expose progressively stricter performance checks. The table is approved; native mapping, generation, and gameplay validation are still required before it becomes stable generation behavior.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
 ---
 
-## 11. Planned AP Star gating
+## 11. Approved future AP Star gating
 
-Randomized Star gates are a later milestone. They should not create a simple linear campaign.
+Randomized Star gates are approved future design, not a current v0.15 feature. They should not create a simple linear campaign.
 
 Design goals:
 
@@ -441,7 +450,7 @@ flowchart LR
     C[Area C] --> SPHERE3
 ```
 
-The exact algorithm is not yet committed.
+Generation implementation and validation are still required.
 
 ---
 
@@ -451,7 +460,7 @@ The Secret Bunker remains a special progression path separate from normal area r
 
 Current client behavior includes a final Hub8 Star Eater requirement override used for development/testing. The current test target is **50 Stars**.
 
-The longer-term design calls for a meaningful **Bunker Keycard** or equivalent prerequisite rather than reducing the entire path to Stars alone. That item/check is not yet committed to the APWorld.
+The approved future design uses a meaningful **Bunker Keycard** as the Secret Bunker access item, rather than a generic Bunker Access item or Stars alone. It is not implemented in the APWorld; its native source/lifecycle mapping still requires validation, and the 50-Star Bunker Star Eater threshold remains provisional.
 
 ---
 
@@ -529,17 +538,18 @@ The client follows several implementation rules developed through testing:
 | Gecko / Weed Killer | Implemented and tested | Source check + randomized consumable delivery + native consumption work. |
 | Frog/Hippo / Plant Pipes | Implemented and tested | Source check is reachable without Plant Pipes; ability is randomized. |
 | Level 3 partial completion model | Implemented and tested | Player can menu-exit when Plant Pipes is elsewhere. |
-| Level 4 glasses | Discovery next | Exact name/native flags pending. |
-| Minim glasses trade | Discovery next | Intended to become a check. |
-| Chicken Bucket | Planned | Intended randomized progression item after native mapping. |
+| Level 4 Hip Glasses | Design approved / not implemented | The Level 4 source becomes an AP source; exact native pickup, ownership, reload, and reconnection mappings are required. |
+| Bucket Minion glasses trade | Design approved / not implemented | The normal trade consumes delivered Hip Glasses and is the Chicken Bucket source; exact native trade markers are required. |
+| Chicken Bucket | Design approved / not implemented | AP receipt grants the normal item for Lift Quest use; Combo Bucket remains the vanilla consequence. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
 | Garage cartridges | Implemented | 6 AP items; source pickups/chests randomized. |
-| Music Lab cassettes | Implemented | 30 songs × 4 cumulative medal tiers. |
+| Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers; cassette items are not randomized in the current APWorld. |
+| Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
-| Secret Bunker | Partial/development | Star Eater test override exists; final item logic TBD. |
-| Difficulty options | Designed / partial | Normal/Hard/Expert/Perfection; exact final check tables pending. |
-| Random AP Star requirements | Planned | To be layered on after meaningful prerequisite mapping. |
-| Other five areas | Routing foundation | Need starter-safety and native progression audits. |
+| Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
+| Difficulty options | Design approved / not implemented | Normal/Hard/Expert/Perfection cumulative table is approved; generation and native mapping remain unimplemented. |
+| Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
+| Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 
 ---
 
@@ -563,17 +573,17 @@ flowchart TD
     ROOTSREST --> OTHER --> STARS --> DIFF --> STARTERS
 ```
 
-Immediate next gameplay discovery:
+Immediate next evidence reconciliation:
 
 ```text
-Level 4 glasses pickup
-→ exact native item/source flags
-→ Minim blocking Life Quest / Level 5
-→ glasses consumption/trade marker
-→ Chicken Bucket native item state
+historical Level 4 Hip Glasses pickup
+→ recover exact native pickup/source flag if present in prior logs
+→ Bucket Minion trade and Lift Quest ordering
+→ recover a distinct trade marker if present
+→ reconcile Chicken Bucket / Combo Bucket with Area Access
 ```
 
-No permanent item/location IDs should be allocated for these until the native mapping is confirmed and implementation is ready.
+The observed chain is already recorded in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Do not request a replay unless the historical record is genuinely insufficient. The Area Access source/item/trade design is approved, but no permanent item/location IDs should be allocated until the remaining native mappings and lifecycle behavior are confirmed and implementation is ready.
 
 ---
 
