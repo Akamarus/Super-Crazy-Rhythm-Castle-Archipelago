@@ -3,25 +3,30 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("SCRC_REPO_ROOT", Path(__file__).resolve().parents[1])).resolve()
 WORLD = ROOT / "apworld" / "scrc" / "__init__.py"
+WORLD_DIR = WORLD.parent
+ITEMS = WORLD_DIR / "items.py"
 META = ROOT / "apworld" / "scrc" / "archipelago.json"
 CLIENT = ROOT / "client" / "Plugin.cs"
 IDS = ROOT / "docs" / "IDS.md"
 
 EXPECTED = {
     "client_version": "0.67.59",
-    "world_version": "0.15",
-    "implementation_version": "area-routing-plant-pipes-0.15",
+    "world_version": "0.16",
+    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16",
+    "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
     "plant_pipes_item_id": 187256117,
     "gecko_location_id": 187256178,
     "frog_hippo_location_id": 187256179,
-    "next_item_id": 187256118,
+    "star_item_id": 187256118,
+    "next_item_id": 187256119,
     "next_location_id": 187256180,
 }
 
@@ -31,19 +36,21 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-for path in (WORLD, META, CLIENT, IDS):
+for path in (WORLD, ITEMS, META, CLIENT, IDS):
     if not path.exists():
         fail(f"missing required file: {path.relative_to(ROOT)}")
 
 world_text = WORLD.read_text(encoding="utf-8")
 client_text = CLIENT.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
+items_text = ITEMS.read_text(encoding="utf-8")
 
 # Syntax-only validation does not require Archipelago to be installed.
-try:
-    ast.parse(world_text, filename=str(WORLD))
-except SyntaxError as exc:
-    fail(f"APWorld Python syntax error: {exc}")
+for python_source in sorted(WORLD_DIR.glob("*.py")):
+    try:
+        ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
+    except SyntaxError as exc:
+        fail(f"APWorld Python syntax error in {python_source.relative_to(ROOT)}: {exc}")
 
 try:
     metadata = json.loads(META.read_text(encoding="utf-8"))
@@ -69,11 +76,24 @@ for label, expected_id, pattern in (
     if absolute != expected_id:
         fail(f"{label} ID changed: expected {expected_id}, got {absolute}")
 
+star_match = re.search(r'STAR_ITEM_NAME\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
+if not star_match:
+    fail("could not locate Star ID assignment")
+star_id = 187256000 + int(star_match.group(1))
+if star_id != EXPECTED["star_item_id"]:
+    fail(f"Star ID changed: expected {EXPECTED['star_item_id']}, got {star_id}")
+
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
+if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
+    fail("generation_foundation_version changed without updating validator/baseline docs")
 
-if "self.starting_area_item = \"Roots Access\"" not in world_text:
-    fail("Roots is no longer forced as the development starter")
+for inactive_marker in (
+    '"star_items_active": False',
+    '"difficulty_filtering_active": False',
+):
+    if inactive_marker not in world_text:
+        fail(f"missing inactive preview marker: {inactive_marker}")
 
 for required in (
     "ROOTS_HUB_INTRO_WITNESSED",
@@ -92,5 +112,13 @@ for expected in (str(EXPECTED["next_item_id"]), str(EXPECTED["next_location_id"]
 print("Repository validation passed.")
 print(f"Client:  v{EXPECTED['client_version']}")
 print(f"APWorld: v{EXPECTED['world_version']} ({EXPECTED['implementation_version']})")
+print(json.dumps({
+    "world_version": EXPECTED["world_version"],
+    "implementation_version": EXPECTED["implementation_version"],
+    "generation_foundation_version": EXPECTED["generation_foundation_version"],
+    "star_item_id": EXPECTED["star_item_id"],
+    "next_item_id": EXPECTED["next_item_id"],
+}, indent=2))
+print("v0.16 generation foundations are previews; live generation remains on the Area Access milestone.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")
