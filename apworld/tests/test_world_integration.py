@@ -128,10 +128,10 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 8)
+        self.assertEqual(data["schema_version"], 9)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -151,6 +151,14 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty_preview_location_count"], len(world.difficulty_preview_locations))
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
+        self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
+        self.assertTrue(data["plant_pipes_durable_reconciliation"])
+        self.assertEqual(data["music_lab_safe_location_classification"], "conservative-v1")
+        self.assertEqual(data["garage_routing_mode"], "interaction-gated")
+        self.assertTrue(data["royal_phone_side_split"])
+        self.assertTrue(data["level_22_native_mapping"])
+        self.assertTrue(data["native_difficulty_choice"])
+        self.assertTrue(data["roots_intro_suppression"])
         self.assertEqual(data["hip_glasses_item"], "Hip Glasses")
         self.assertEqual(data["chicken_bucket_item"], "Chicken Bucket")
         self.assertEqual(data["hip_glasses_source_location"], "Roots - Level 4 - Hip Glasses")

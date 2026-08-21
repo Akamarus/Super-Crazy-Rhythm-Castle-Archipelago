@@ -55,9 +55,9 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.60",
-    "world_version": "0.17",
-    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
+    "client_version": "0.67.61",
+    "world_version": "0.18",
+    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
     "plant_pipes_item_id": 187256117,
@@ -300,6 +300,6 @@ print(json.dumps({
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,
 }, indent=2))
-print("v0.17 activates the Hip Glasses and Chicken Bucket chain; Star generation foundations remain previews and Area Access remains authoritative.")
+print("v0.18 repair contract is active; Star generation foundations remain previews and Area Access remains authoritative.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

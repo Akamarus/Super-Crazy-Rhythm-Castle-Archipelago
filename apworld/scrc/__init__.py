@@ -613,9 +613,9 @@ class SCRCWorld(World):
         generated_requirements = getattr(self, "generated_star_requirements", {})
         difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 8,
+            "schema_version": 9,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -661,6 +661,14 @@ class SCRCWorld(World):
             "plant_pipes_native_source_marker_flag": "LEVEL_07_WK_ABILITY_EARNED",
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
+            "repair_schema_version": "next-release-repair-0.18",
+            "plant_pipes_durable_reconciliation": True,
+            "music_lab_safe_location_classification": "conservative-v1",
+            "garage_routing_mode": "interaction-gated",
+            "royal_phone_side_split": True,
+            "level_22_native_mapping": True,
+            "native_difficulty_choice": True,
+            "roots_intro_suppression": True,
             "hip_glasses_item": HIP_GLASSES_ITEM,
             "chicken_bucket_item": CHICKEN_BUCKET_ITEM,
             "hip_glasses_source_location": ROOTS_LEVEL4_HIP_GLASSES,

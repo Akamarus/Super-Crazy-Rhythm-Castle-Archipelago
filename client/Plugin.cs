@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.60";
+    public const string PluginVersion = "0.67.61";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -100,7 +100,7 @@ public sealed class Plugin : BasePlugin
         LocationMap.GarageMedalLocationFormat = garageMedalLocationFormat.Value;
         LocationMap.CassetteMedalLocationFormat = cassetteMedalLocationFormat.Value;
 
-        Log.LogInfo("[SCRC-AP] v0.67.60 loading.");
+        Log.LogInfo("[SCRC-AP] v0.67.61 loading.");
 
         _harmony = new Harmony(PluginGuid);
         int patched = 0;
