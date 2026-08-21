@@ -27,13 +27,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus"
 ```
 
-To compile without changing the game installation, add `-SkipInstall`:
-
-```powershell
-.\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
-```
-
-Without `-SkipInstall`, the script installs the client and its runtime dependencies only to:
+The build script installs the client and its runtime dependencies only to:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
