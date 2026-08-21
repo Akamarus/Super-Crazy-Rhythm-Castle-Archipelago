@@ -178,6 +178,12 @@ LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER] = BASE_ID + 178
 ROOTS_LEVEL3_FROG_HIPPO = "Roots - Level 3 - Frog and Hippo"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL3_FROG_HIPPO] = BASE_ID + 179
 
+# v0.17: Level 4's Hip Glasses reward and the Bucket Minion trade become AP checks.
+ROOTS_LEVEL4_HIP_GLASSES = "Roots - Level 4 - Hip Glasses"
+ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
+LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
+LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
+
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
     MUSIC_LAB_10_POINT_CHEST,
@@ -220,8 +226,13 @@ ITEM_NAME_TO_ID = {
     "Wag the Dog Cartridge": BASE_ID + 115,
     "Weed Killer": BASE_ID + 116,
     "Plant Pipes": BASE_ID + 117,
+    "Hip Glasses": BASE_ID + 119,
+    "Chicken Bucket": BASE_ID + 120,
     **NEW_ITEM_NAME_TO_ID,
 }
+
+HIP_GLASSES_ITEM = "Hip Glasses"
+CHICKEN_BUCKET_ITEM = "Chicken Bucket"
 
 ITEM_CLASSIFICATIONS = {
     "Level 2 Access": ItemClassification.progression,
@@ -231,6 +242,8 @@ ITEM_CLASSIFICATIONS = {
     **{name: ItemClassification.progression for name in GARAGE_CARTRIDGE_ITEMS.values()},
     "Weed Killer": ItemClassification.progression,
     "Plant Pipes": ItemClassification.progression,
+    HIP_GLASSES_ITEM: ItemClassification.progression,
+    CHICKEN_BUCKET_ITEM: ItemClassification.progression,
     **NEW_ITEM_CLASSIFICATIONS,
 }
 

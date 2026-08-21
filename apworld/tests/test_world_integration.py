@@ -56,6 +56,34 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(len(world.multiworld.itempool), len(self.module.LOCATION_NAME_TO_ID))
         self.assertNotIn("Star", [item.name for item in world.multiworld.itempool])
 
+    def test_roots_bucket_progression_has_permanent_unique_ids(self):
+        self.assertEqual(self.module.ITEM_NAME_TO_ID[self.module.HIP_GLASSES_ITEM], 187256119)
+        self.assertEqual(self.module.ITEM_NAME_TO_ID[self.module.CHICKEN_BUCKET_ITEM], 187256120)
+        self.assertEqual(
+            self.module.LOCATION_NAME_TO_ID[self.module.ROOTS_LEVEL4_HIP_GLASSES],
+            187256180,
+        )
+        self.assertEqual(
+            self.module.LOCATION_NAME_TO_ID[self.module.ROOTS_BUCKET_MINION_TRADE],
+            187256181,
+        )
+        self.assertEqual(
+            self.module.ITEM_CLASSIFICATIONS[self.module.HIP_GLASSES_ITEM],
+            "progression",
+        )
+        self.assertEqual(
+            self.module.ITEM_CLASSIFICATIONS[self.module.CHICKEN_BUCKET_ITEM],
+            "progression",
+        )
+        self.assertEqual(
+            len(set(self.module.ITEM_NAME_TO_ID.values())),
+            len(self.module.ITEM_NAME_TO_ID),
+        )
+        self.assertEqual(
+            len(set(self.module.LOCATION_NAME_TO_ID.values())),
+            len(self.module.LOCATION_NAME_TO_ID),
+        )
+
     def test_slot_data_labels_preview_features_as_inactive(self):
         world = self.make_world()
         world.generate_early()
