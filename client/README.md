@@ -4,6 +4,8 @@ Current baseline: **v0.67.59**.
 
 This is the BepInEx/IL2CPP client for the Super Crazy Rhythm Castle Archipelago implementation.
 
+For the complete public source-build, installation, configuration, APWorld, update, and uninstall flow, use the [canonical installation guide](../docs/INSTALL.md).
+
 ## Requirements
 
 - Super Crazy Rhythm Castle installed locally.
@@ -19,7 +21,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus"
 ```
 
-The project resolves BepInEx and Unity IL2CPP references directly from the supplied game directory. Those proprietary/generated assemblies must not be committed to Git.
+The project resolves BepInEx and Unity IL2CPP references directly from the supplied game directory. Those proprietary/generated assemblies must not be committed to Git. Add `-SkipInstall` to build without installing. A normal install updates only `<GameDir>\BepInEx\plugins\RhythmCastleAP` and removes stale plugin-local DLLs; it does not remove BepInEx core files.
+
+After BepInEx has completed its first IL2CPP interop-generating game launch, confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.59 loading.` Configure the current Roots-first development flow in `jack.rhythmcastle.archipelago.cfg` as described in the [canonical guide](../docs/INSTALL.md), including Area Access routing rather than the retired `RandomizeEarlyProgression` prototype.
 
 ## Current Roots behavior
 

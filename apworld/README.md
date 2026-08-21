@@ -4,6 +4,8 @@ Current baseline: **v0.15** (`area-routing-plant-pipes-0.15`).
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 
+For the canonical public build, Launcher installation, YAML generation, hosting, update, and uninstall instructions, see the [installation guide](../docs/INSTALL.md). Install the generated world using Archipelago Launcher's **Install APWorld** action (or double-click/drag it onto the launcher), then restart the Launcher before generating a fresh seed.
+
 ## Current generation behavior
 
 - **Roots Access** is always precollected while Roots is under active development.
@@ -16,4 +18,4 @@ The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the re
 
 This deliberately supports entering Level 3, collecting the Frog/Hippo check, and menu-exiting if Plant Pipes has not yet been received.
 
-The example generation YAML is under `apworld/examples/`.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Its generated seeds use the current `area-routing-plant-pipes-0.15` slot-data implementation. Pair this APWorld with client **v0.67.59** and generate a fresh seed after every APWorld update.
