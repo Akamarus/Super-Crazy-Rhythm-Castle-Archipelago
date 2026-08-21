@@ -1,6 +1,6 @@
 # Local AI Bridge
 
-This PowerShell module provides a controlled development boundary between this repository and the locally hosted `jacks-assistant` model. PowerShell owns all filesystem, Git, build, deployment, log, and task-state operations. Model text is always treated as data and is never executed.
+This PowerShell module provides a controlled development boundary between this repository and the locally hosted `jacks-assistant` and `jacks-assistant-fast` model profiles. PowerShell owns all filesystem, Git, build, deployment, log, and task-state operations. Model text is always treated as data and is never executed.
 
 ## Requirements
 
@@ -9,7 +9,7 @@ This PowerShell module provides a controlled development boundary between this r
 - Git
 - Python available through `py -3`
 - Open WebUI at `http://127.0.0.1:8080`
-- Open WebUI model ID `jacks-assistant`
+- Open WebUI model IDs `jacks-assistant` and `jacks-assistant-fast`
 
 Set the API token only in the current process environment:
 
@@ -25,7 +25,23 @@ Never put the token in a configuration file. The bridge does not persist or prin
 Import-Module .\tools\local-ai\LocalAiBridge.psd1 -Force
 ```
 
-Copy `config.example.psd1` to the ignored `tools/local-ai/config.local.psd1` only when local path overrides are needed. Configuration may set the state root, external worktree root, and game directory, but cannot change the loopback security boundary or model ID.
+Copy `config.example.psd1` to the ignored `tools/local-ai/config.local.psd1` only when local overrides are needed. The default model remains `jacks-assistant`. To select the only alternative manually, set `ModelId = 'jacks-assistant-fast'` in that ignored file. Configuration may also set the state root, external worktree root, and game directory, but cannot change the loopback security boundary or select a model outside the fixed allowlist.
+
+## Compare the local model profiles
+
+From the repository root, load the module and evaluate both allowlisted profiles:
+
+```powershell
+Import-Module .\tools\local-ai\LocalAiBridge.psd1 -Force
+Invoke-LocalAiModelEvaluation `
+    -RepositoryRoot $PWD `
+    -ModelId @('jacks-assistant','jacks-assistant-fast') `
+    -OpenWebUiTimeoutSec 600
+```
+
+The command writes redacted `report.json` and `report.md` files beneath the ignored `.local-ai/evaluations/<evaluation-id>/` directory. Its exact-answer scoring is deterministic for a given set of returned answers, but the case set is intentionally narrow and does not measure general coding quality or gameplay correctness.
+
+The report and its recommendation are advisory. Evaluation never edits `config.local.psd1` or selects a model automatically; a human must review the per-case answers, errors, and timing before deciding whether to keep `jacks-assistant` or manually select `jacks-assistant-fast`. Human review of model-assisted work remains mandatory, and this evaluation is not a substitute for APWorld generation, client runtime, or gameplay validation.
 
 ## Investigation workflow
 
@@ -130,6 +146,7 @@ Passing automated tests do not validate gameplay. Client changes still require t
 User workflow commands:
 
 - `New-LocalAiTask`, `Get-LocalAiTask`
+- `Invoke-LocalAiModelEvaluation`
 - `Invoke-LocalAiInvestigation`, `New-LocalAiHandoff`, `Complete-LocalAiReview`
 - `New-LocalAiWorktree`, `Get-LocalAiWorktreeStatus`
 - `Invoke-LocalAiValidation`, `Invoke-LocalAiBuild`, `Publish-LocalAiClient`

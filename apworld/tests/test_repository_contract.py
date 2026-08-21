@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import shutil
@@ -29,7 +30,7 @@ class RepositoryContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        for relative in ("apworld/scrc", "client", "docs"):
+        for relative in ("apworld/scrc", "client", "docs", "tools/local-ai"):
             source = REPO_ROOT / relative
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -48,6 +49,51 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
         self.assertIn('"star_item_id": 187256118', result.stdout)
         self.assertIn('"next_item_id": 187256119', result.stdout)
+        self.assertIn(
+            '"local_ai_allowed_models": [\n    "jacks-assistant",\n    "jacks-assistant-fast"\n  ]',
+            result.stdout,
+        )
+        self.assertIn('"local_ai_decision_schema": 1', result.stdout)
+        self.assertIn('"local_ai_evaluation_schema": 1', result.stdout)
+
+    def test_validator_rejects_removed_local_ai_decision(self):
+        root = self.make_fixture()
+        ledger_path = root / "tools/local-ai/evaluation/decisions.json"
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        ledger["decisions"] = [
+            decision for decision in ledger["decisions"] if decision["id"] != "native-flag-confidence"
+        ]
+        ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/evaluation/decisions.json", result.stdout + result.stderr)
+
+    def test_validator_rejects_case_expected_value_outside_allowed_values(self):
+        root = self.make_fixture()
+        cases_path = root / "tools/local-ai/evaluation/cases.json"
+        cases = json.loads(cases_path.read_text(encoding="utf-8"))
+        cases["cases"][0]["questions"][0]["expected"] = "unsupported"
+        cases_path.write_text(json.dumps(cases), encoding="utf-8")
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/evaluation/cases.json", result.stdout + result.stderr)
+
+    def test_validator_requires_public_local_ai_evaluation_command(self):
+        root = self.make_fixture()
+        script_path = root / "tools/local-ai/Public/Invoke-LocalAiModelEvaluation.ps1"
+        script_path.unlink()
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "tools/local-ai/Public/Invoke-LocalAiModelEvaluation.ps1",
+            result.stdout + result.stderr,
+        )
 
     def test_validator_checks_every_world_python_file_for_syntax(self):
         root = self.make_fixture()
