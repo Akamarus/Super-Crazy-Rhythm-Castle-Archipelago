@@ -120,6 +120,8 @@ Physical reward sources and meaningful trades may become AP locations. Receiving
 
 Fresh-save testing on 2026-08-21 completed `Level_28` for one Star at 102 points without any abilities. This proves that neither Note Pad nor Data Stick is required for basic Level 22 completion; their possible effect is limited to results above one Star until further testing. Client v0.67.60 captured the result but did not send an AP check because `Level_28` was missing from its level-name mapping.
 
+The same fresh-save session confirmed that orange construction barriers remain active inside the Music Lab and prevent physical access to substantial groups of cassette machines. Registering all 30 cassette medal sets as AP locations does not make them reachable; the native barrier unlock conditions and affected machine groups still require targeted mapping before final solver logic.
+
 ### Roots item chain
 
 Log-confirmed Roots evidence already promoted into `docs/PROGRESSION.md` includes:
