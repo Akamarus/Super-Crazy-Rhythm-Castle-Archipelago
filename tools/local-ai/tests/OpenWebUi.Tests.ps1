@@ -12,7 +12,11 @@ Describe 'Open WebUI client' {
         }
     }
 
-    It 'posts the exact model and messages to chat completions' {
+    It 'posts and returns the selected allowlisted model' -ForEach @(
+        'jacks-assistant'
+        'jacks-assistant-fast'
+    ) {
+        $script:Configuration.ModelId = $_
         InModuleScope LocalAiBridge -Parameters @{ Configuration = $script:Configuration } {
             Mock Invoke-RestMethod {
                 [pscustomobject]@{
@@ -26,12 +30,13 @@ Describe 'Open WebUI client' {
 
             $result.Content | Should -Be '{"summary":"ready"}'
             $result.ResponseId | Should -Be 'response-1'
+            $result.ModelId | Should -Be $Configuration.ModelId
             Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
                 $Method -eq 'Post' -and
                 $Uri -eq 'http://127.0.0.1:8080/api/chat/completions' -and
                 $ConnectionTimeoutSeconds -eq 17 -and
                 $Headers.Authorization -eq 'Bearer open-webui-test-secret' -and
-                ($Body | ConvertFrom-Json).model -eq 'jacks-assistant' -and
+                ($Body | ConvertFrom-Json).model -eq $Configuration.ModelId -and
                 ($Body | ConvertFrom-Json).messages[0].content -eq 'hello'
             }
         }
@@ -79,8 +84,8 @@ Describe 'Open WebUI client' {
         { Invoke-OpenWebUiChat -Configuration $bad -Messages @() } | Should -Throw '*loopback*'
     }
 
-    It 'rejects a model other than jacks-assistant' {
+    It 'rejects a model outside the allowlist' {
         $bad = [pscustomobject]@{ OpenWebUiBaseUri = [uri] 'http://127.0.0.1:8080'; ModelId = 'other-model' }
-        { Invoke-OpenWebUiChat -Configuration $bad -Messages @() } | Should -Throw '*jacks-assistant*'
+        { Invoke-OpenWebUiChat -Configuration $bad -Messages @() } | Should -Throw '*allowlisted*'
     }
 }

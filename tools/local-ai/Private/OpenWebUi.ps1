@@ -7,8 +7,14 @@ function Invoke-OpenWebUiChat {
     )
 
     $baseUri = Assert-LoopbackUri -Uri ([uri] $Configuration.OpenWebUiBaseUri)
-    if ($Configuration.ModelId -ne 'jacks-assistant') {
-        throw "Open WebUI model must be exactly 'jacks-assistant'."
+    $modelId = [string] $Configuration.ModelId
+    $isAllowlisted = @(
+        Get-AllowedLocalAiModelId | Where-Object {
+            $_.Equals($modelId, [StringComparison]::Ordinal)
+        }
+    ).Count -gt 0
+    if (-not $isAllowlisted) {
+        throw "Open WebUI model must be allowlisted. Allowed values: 'jacks-assistant', 'jacks-assistant-fast'."
     }
     $apiKey = $env:OPENWEBUI_API_KEY
     if ([string]::IsNullOrWhiteSpace($apiKey)) {
@@ -17,7 +23,7 @@ function Invoke-OpenWebUiChat {
 
     $uri = $baseUri.AbsoluteUri.TrimEnd('/') + '/api/chat/completions'
     $body = [ordered]@{
-        model = 'jacks-assistant'
+        model = $modelId
         messages = $Messages
     } | ConvertTo-Json -Depth 20
     $headers = @{ Authorization = "Bearer $apiKey" }
@@ -44,6 +50,6 @@ function Invoke-OpenWebUiChat {
     return [pscustomobject]@{
         Content = [string] $contentProperty.Value
         ResponseId = if ($idProperty) { [string] $idProperty.Value } else { $null }
-        ModelId = 'jacks-assistant'
+        ModelId = $modelId
     }
 }

@@ -11,6 +11,7 @@
         'Add-LocalAiTaskEvent'
         'Complete-LocalAiReview'
         'Get-LocalAiConfiguration'
+        'Get-AllowedLocalAiModelId'
         'Get-LocalAiTask'
         'Get-LocalAiWorktreeStatus'
         'Invoke-OpenWebUiChat'

@@ -23,6 +23,35 @@ Describe 'Local AI bridge configuration' {
         ($config | ConvertTo-Json -Depth 5) | Should -Not -Match 'do-not-return-this'
     }
 
+    It 'returns the fixed local AI model allowlist' {
+        Import-Module $script:ModulePath -Force
+
+        @(Get-AllowedLocalAiModelId) | Should -Be @('jacks-assistant', 'jacks-assistant-fast')
+    }
+
+    It 'accepts the fast allowlisted model alias' {
+        $repo = Join-Path $TestDrive 'repo'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        $configPath = Join-Path $TestDrive 'config.psd1'
+        Set-Content -LiteralPath $configPath -Value "@{ ModelId = 'jacks-assistant-fast' }"
+
+        Import-Module $script:ModulePath -Force
+        $config = Get-LocalAiConfiguration -RepositoryRoot $repo -ConfigPath $configPath
+
+        $config.ModelId | Should -Be 'jacks-assistant-fast'
+    }
+
+    It 'rejects a model outside the fixed allowlist' {
+        $repo = Join-Path $TestDrive 'repo'
+        New-Item -ItemType Directory -Path $repo -Force | Out-Null
+        $configPath = Join-Path $TestDrive 'config.psd1'
+        Set-Content -LiteralPath $configPath -Value "@{ ModelId = 'other-model' }"
+
+        Import-Module $script:ModulePath -Force
+        { Get-LocalAiConfiguration -RepositoryRoot $repo -ConfigPath $configPath } |
+            Should -Throw '*allowlist*jacks-assistant*jacks-assistant-fast*'
+    }
+
     It 'applies known local overrides' {
         $repo = Join-Path $TestDrive 'repo'
         New-Item -ItemType Directory -Path $repo -Force | Out-Null

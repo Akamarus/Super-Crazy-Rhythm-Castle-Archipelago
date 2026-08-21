@@ -12,6 +12,10 @@ function Assert-LoopbackUri {
     return $Uri
 }
 
+function Get-AllowedLocalAiModelId {
+    return @('jacks-assistant', 'jacks-assistant-fast')
+}
+
 function Resolve-ConfigurationPath {
     param(
         [Parameter(Mandatory)] [string] $BasePath,
@@ -70,8 +74,14 @@ function Get-LocalAiConfiguration {
     }
 
     $baseUri = Assert-LoopbackUri -Uri ([uri] $values.OpenWebUiBaseUri)
-    if ($values.ModelId -ne 'jacks-assistant') {
-        throw "ModelId must be exactly 'jacks-assistant'."
+    $modelId = [string] $values.ModelId
+    $isAllowlisted = @(
+        Get-AllowedLocalAiModelId | Where-Object {
+            $_.Equals($modelId, [StringComparison]::Ordinal)
+        }
+    ).Count -gt 0
+    if (-not $isAllowlisted) {
+        throw "ModelId must be allowlisted. Allowed values: 'jacks-assistant', 'jacks-assistant-fast'."
     }
 
     $stateRoot = Resolve-ConfigurationPath -BasePath $repositoryFull -Value ([string] $values.StateRoot)
@@ -89,7 +99,7 @@ function Get-LocalAiConfiguration {
     [pscustomobject]@{
         RepositoryRoot = $repositoryFull
         OpenWebUiBaseUri = $baseUri
-        ModelId = 'jacks-assistant'
+        ModelId = $modelId
         StateRoot = $stateRoot
         WorktreeRoot = $worktreeRoot
         GameDir = $gameDir
