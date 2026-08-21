@@ -83,7 +83,17 @@ Include exactly one answer for every question, preserve each question id exactly
         foreach ($case in $cases) {
             $stopwatch = [Diagnostics.Stopwatch]::StartNew()
             try {
-                $userPrompt = 'Evaluation case:' + [Environment]::NewLine + ($case | ConvertTo-Json -Depth 10 -Compress)
+                $caseInput = [ordered]@{
+                    id = [string] $case.id
+                    prompt = [string] $case.prompt
+                    questions = @($case.questions | ForEach-Object {
+                        [ordered]@{
+                            id = [string] $_.id
+                            allowed_values = @($_.allowed_values)
+                        }
+                    })
+                }
+                $userPrompt = 'Evaluation case:' + [Environment]::NewLine + ($caseInput | ConvertTo-Json -Depth 10 -Compress)
                 $response = Invoke-OpenWebUiChat -Configuration $modelConfiguration -Messages @(
                     [pscustomobject]@{ role = 'system'; content = $systemPrompt },
                     [pscustomobject]@{ role = 'user'; content = $userPrompt }

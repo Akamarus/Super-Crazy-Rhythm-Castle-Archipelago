@@ -46,6 +46,32 @@ BeforeAll {
             Cases = @()
         }
     }
+
+    function Get-PerfectEvaluationAnswerValues {
+        return [ordered]@{
+            access_design = [ordered]@{
+                roots_access_required = 'yes'
+                level_5_access_required = 'no'
+            }
+            location_item_mapping = [ordered]@{
+                ap_location_grants_themed_item = 'no'
+            }
+            hip_glasses_chain = [ordered]@{
+                hip_glasses_source_kind = 'location'
+                hip_glasses_item_kind = 'item'
+                bucket_minion_trade_source_kind = 'location'
+                chicken_bucket_item_kind = 'item'
+                combo_bucket_kind = 'vanilla_ability'
+            }
+            historical_evidence = [ordered]@{
+                historical_gameplay_is_evidence = 'yes'
+                pre_pivot_level_access_is_current_requirement = 'no'
+            }
+            native_flag_confidence = [ordered]@{
+                unknown_native_flags_may_be_invented = 'no'
+            }
+        }
+    }
 }
 
 Describe 'Local AI model evaluation orchestration and reports' {
@@ -56,9 +82,11 @@ Describe 'Local AI model evaluation orchestration and reports' {
 
     It 'evaluates both models in fixed order, continues after a case failure, and writes secure atomic reports without Git mutations' {
         $before = Get-ModelEvaluationGitSnapshot -RepositoryRoot $script:Repo
+        $perfectAnswers = Get-PerfectEvaluationAnswerValues
 
-        $script:Result = InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo } {
+        $script:Result = InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; PerfectAnswers = $perfectAnswers } {
             $script:Calls = [Collections.Generic.List[object]]::new()
+            $script:PerfectAnswers = $PerfectAnswers
             Mock Invoke-OpenWebUiChat {
                 $case = ($Messages[1].content -split '\r?\n', 2)[1] | ConvertFrom-Json
                 $script:Calls.Add([pscustomobject]@{
@@ -72,7 +100,7 @@ Describe 'Local AI model evaluation orchestration and reports' {
                 $content = [ordered]@{
                     case_id = $case.id
                     answers = @($case.questions | ForEach-Object {
-                        [ordered]@{ id = $_.id; value = $_.expected }
+                        [ordered]@{ id = $_.id; value = $script:PerfectAnswers[$case.id][[string] $_.id] }
                     })
                     explanation = 'safe rationale containing evaluation-report-secret'
                 } | ConvertTo-Json -Depth 10 -Compress
@@ -149,16 +177,85 @@ Describe 'Local AI model evaluation orchestration and reports' {
         @(Get-ChildItem -LiteralPath $stateRoot -Recurse -File | Where-Object Name -in @('task.json','events.jsonl')) | Should -BeNullOrEmpty
     }
 
+    It 'sends every case input without exposing the local scoring key' {
+        $perfectAnswers = Get-PerfectEvaluationAnswerValues
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; PerfectAnswers = $perfectAnswers } {
+            $script:PromptCalls = [Collections.Generic.List[object]]::new()
+            $script:PerfectAnswers = $PerfectAnswers
+            Mock Invoke-OpenWebUiChat {
+                $rawUserContent = [string] $Messages[1].content
+                $caseInput = ($rawUserContent -split '\r?\n', 2)[1] | ConvertFrom-Json
+                $script:PromptCalls.Add([pscustomobject]@{
+                    RawUserContent = $rawUserContent
+                    CaseInput = $caseInput
+                })
+                [pscustomobject]@{
+                    Content = ([ordered]@{
+                        case_id = $caseInput.id
+                        answers = @($caseInput.questions | ForEach-Object {
+                            [ordered]@{ id = $_.id; value = $script:PerfectAnswers[$caseInput.id][[string] $_.id] }
+                        })
+                        explanation = 'literal test fixture answer'
+                    } | ConvertTo-Json -Depth 10 -Compress)
+                    ResponseId = "prompt-contract-$($Configuration.ModelId)-$($caseInput.id)"
+                    ModelId = $Configuration.ModelId
+                }
+            }
+
+            Invoke-LocalAiModelEvaluation -RepositoryRoot $Repo | Out-Null
+
+            $script:PromptCalls.Count | Should -Be 10
+            @($script:PromptCalls | Select-Object -First 5 | ForEach-Object { $_.CaseInput.id }) | Should -Be @(
+                'access_design',
+                'location_item_mapping',
+                'hip_glasses_chain',
+                'historical_evidence',
+                'native_flag_confidence'
+            )
+            @($script:PromptCalls | Select-Object -First 5 | ForEach-Object { $_.CaseInput.questions.id }) | Should -Be @(
+                'roots_access_required',
+                'level_5_access_required',
+                'ap_location_grants_themed_item',
+                'hip_glasses_source_kind',
+                'hip_glasses_item_kind',
+                'bucket_minion_trade_source_kind',
+                'chicken_bucket_item_kind',
+                'combo_bucket_kind',
+                'historical_gameplay_is_evidence',
+                'pre_pivot_level_access_is_current_requirement',
+                'unknown_native_flags_may_be_invented'
+            )
+            foreach ($call in $script:PromptCalls) {
+                @($call.CaseInput.PSObject.Properties.Name) | Should -Be @('id', 'prompt', 'questions')
+                $call.CaseInput.prompt | Should -BeOfType [string]
+                $call.CaseInput.prompt | Should -Not -BeNullOrEmpty
+                $call.RawUserContent | Should -Not -Match '(?i)"expected"\s*:'
+                $call.RawUserContent | Should -Not -Match '(?i)"(?:answer[_ -]?key|correct_answers?)"\s*:'
+                foreach ($question in @($call.CaseInput.questions)) {
+                    @($question.PSObject.Properties.Name) | Should -Be @('id', 'allowed_values')
+                    $question.id | Should -BeOfType [string]
+                    @($question.allowed_values).Count | Should -BeGreaterThan 0
+                    @($question.allowed_values | Where-Object { $_ -isnot [string] }).Count | Should -Be 0
+                }
+            }
+            Should -Invoke Invoke-OpenWebUiChat -Times 10 -Exactly
+        }
+    }
+
     It 'allows one explicit allowlisted model' {
-        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo } {
+        $perfectAnswers = Get-PerfectEvaluationAnswerValues
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; PerfectAnswers = $perfectAnswers } {
             $script:CalledModels = [Collections.Generic.List[string]]::new()
+            $script:PerfectAnswers = $PerfectAnswers
             Mock Invoke-OpenWebUiChat {
                 $case = ($Messages[1].content -split '\r?\n', 2)[1] | ConvertFrom-Json
                 $script:CalledModels.Add([string] $Configuration.ModelId)
                 [pscustomobject]@{
                     Content = ([ordered]@{
                         case_id = $case.id
-                        answers = @($case.questions | ForEach-Object { [ordered]@{ id = $_.id; value = $_.expected } })
+                        answers = @($case.questions | ForEach-Object {
+                            [ordered]@{ id = $_.id; value = $script:PerfectAnswers[$case.id][[string] $_.id] }
+                        })
                         explanation = 'perfect'
                     } | ConvertTo-Json -Depth 10 -Compress)
                     ResponseId = 'subset-response'
