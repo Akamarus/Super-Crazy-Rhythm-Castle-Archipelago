@@ -3,7 +3,7 @@ function ConvertFrom-LocalAiEvaluationResponse {
     param([Parameter(Mandatory)] [string] $Content)
 
     $json = $Content
-    if ($json -match '\A```json[ \t]*\r?\n(?<json>[\s\S]*?)\r?\n```\z') {
+    if ($json -cmatch '\A```json[ \t]*\r?\n(?<json>[\s\S]*?)\r?\n```\z') {
         $json = $Matches.json
     }
 

@@ -136,6 +136,19 @@ Describe 'Local AI evaluation response parsing' {
         }
     }
 
+    It 'rejects non-literal json Markdown fence labels' -ForEach @(
+        @{ Label = 'JSON' },
+        @{ Label = 'Json' }
+    ) {
+        param($Label)
+
+        $fence = (([char]96).ToString() * 3) -join ''
+        $content = $fence + $Label + [Environment]::NewLine + '{"case_id":"access_design","answers":[{"id":"roots_access_required","value":"yes"}],"explanation":"x"}' + [Environment]::NewLine + $fence
+        InModuleScope LocalAiBridge -Parameters @{ Content = $content } {
+            { ConvertFrom-LocalAiEvaluationResponse -Content $Content } | Should -Throw '*valid JSON*'
+        }
+    }
+
     It 'rejects malformed JSON' {
         InModuleScope LocalAiBridge {
             { ConvertFrom-LocalAiEvaluationResponse -Content 'not json' } | Should -Throw '*valid JSON*'
