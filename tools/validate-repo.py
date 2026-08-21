@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+import hashlib
 import json
 import os
 import re
@@ -27,6 +27,9 @@ LOCAL_AI_MANIFEST = ROOT / "tools" / "local-ai" / "LocalAiBridge.psd1"
 LOCAL_AI_ALLOWED_MODELS = ("jacks-assistant", "jacks-assistant-fast")
 LOCAL_AI_DECISION_SCHEMA = 1
 LOCAL_AI_EVALUATION_SCHEMA = 1
+LOCAL_AI_MANIFEST_WITH_EVALUATION_EXPORT_SHA256 = (
+    "b25a0d429acc082218a71b06ad9f9db027b1781eb0ce9b9fd2271ae39a26ba2c"
+)
 REQUIRED_LOCAL_AI_DECISION_IDS = {
     "area-access-vs-level-access",
     "location-vs-item",
@@ -73,283 +76,6 @@ def fail(message: str) -> None:
 
 def repo_path(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
-
-
-@dataclass(frozen=True)
-class PowerShellToken:
-    kind: str
-    start: int
-    end: int
-    value: str | None = None
-
-
-@dataclass(frozen=True)
-class PowerShellRootEntry:
-    key: str
-    value_start: int
-    value_end: int
-
-
-def powershell_newline_end(text: str, index: int) -> int | None:
-    if text.startswith("\r\n", index):
-        return index + 2
-    if index < len(text) and text[index] in "\r\n":
-        return index + 1
-    return None
-
-
-def powershell_data_tokens(text: str) -> list[PowerShellToken]:
-    tokens = []
-    index = 0
-    while index < len(text):
-        character = text[index]
-        newline_end = powershell_newline_end(text, index)
-        if newline_end is not None:
-            tokens.append(PowerShellToken("newline", index, newline_end))
-            index = newline_end
-            continue
-        if character == "\ufeff" or character.isspace():
-            index += 1
-            continue
-        if text.startswith("<#", index):
-            comment_depth = 1
-            index += 2
-            while index < len(text) and comment_depth:
-                if text.startswith("<#", index):
-                    comment_depth += 1
-                    index += 2
-                elif text.startswith("#>", index):
-                    comment_depth -= 1
-                    index += 2
-                else:
-                    newline_end = powershell_newline_end(text, index)
-                    if newline_end is not None:
-                        tokens.append(PowerShellToken("newline", index, newline_end))
-                        index = newline_end
-                    else:
-                        index += 1
-            if comment_depth:
-                raise ValueError("unterminated PowerShell block comment")
-            continue
-        if character == "#":
-            while index < len(text) and powershell_newline_end(text, index) is None:
-                index += 1
-            continue
-        if character == "@" and index + 1 < len(text) and text[index + 1] in "'\"":
-            quote = text[index + 1]
-            content_start = powershell_newline_end(text, index + 2)
-            if content_start is None:
-                raise ValueError("PowerShell here-string header must end with a newline")
-            cursor = content_start
-            at_line_start = True
-            while cursor < len(text):
-                if at_line_start and text.startswith(f"{quote}@", cursor):
-                    token_end = cursor + 2
-                    value = text[content_start:cursor] if quote == "'" else None
-                    tokens.append(
-                        PowerShellToken("here_string", index, token_end, value)
-                    )
-                    index = token_end
-                    break
-                newline_end = powershell_newline_end(text, cursor)
-                if newline_end is not None:
-                    cursor = newline_end
-                    at_line_start = True
-                else:
-                    cursor += 1
-                    at_line_start = False
-            else:
-                raise ValueError("unterminated PowerShell here-string")
-            continue
-        if character in "'\"":
-            quote = character
-            cursor = index + 1
-            value_parts = []
-            is_static = True
-            while cursor < len(text):
-                character = text[cursor]
-                if quote == "'" and character == "'":
-                    if cursor + 1 < len(text) and text[cursor + 1] == "'":
-                        value_parts.append("'")
-                        cursor += 2
-                        continue
-                    cursor += 1
-                    break
-                if quote == '"' and character == "`":
-                    is_static = False
-                    cursor += 1
-                    if cursor >= len(text):
-                        raise ValueError("unterminated PowerShell escape sequence")
-                    newline_end = powershell_newline_end(text, cursor)
-                    cursor = newline_end if newline_end is not None else cursor + 1
-                    continue
-                if quote == '"' and character == '"':
-                    cursor += 1
-                    break
-                if quote == '"' and character == "$":
-                    is_static = False
-                value_parts.append(character)
-                cursor += 1
-            else:
-                raise ValueError("unterminated PowerShell string")
-            tokens.append(
-                PowerShellToken(
-                    "string",
-                    index,
-                    cursor,
-                    "".join(value_parts) if is_static else None,
-                )
-            )
-            index = cursor
-            continue
-
-        punctuation = {
-            "{": "open",
-            "[": "open",
-            "(": "open",
-            "}": "close",
-            "]": "close",
-            ")": "close",
-            "=": "equals",
-            ";": "separator",
-            ",": "comma",
-            "@": "at",
-        }
-        if character in punctuation:
-            tokens.append(PowerShellToken(punctuation[character], index, index + 1, character))
-            index += 1
-            continue
-
-        word_start = index
-        while index < len(text):
-            character = text[index]
-            if (
-                character == "\ufeff"
-                or character.isspace()
-                or character in "{}[]()=;,'\"@#"
-                or text.startswith("<#", index)
-            ):
-                break
-            if character == "`":
-                index += 1
-                if index >= len(text):
-                    raise ValueError("unterminated PowerShell escape sequence")
-                newline_end = powershell_newline_end(text, index)
-                index = newline_end if newline_end is not None else index + 1
-            else:
-                index += 1
-        tokens.append(
-            PowerShellToken("word", word_start, index, text[word_start:index])
-        )
-    return tokens
-
-
-def parse_root_psd1_entries(
-    text: str,
-) -> tuple[list[PowerShellToken], list[PowerShellRootEntry], dict[int, int]] | None:
-    try:
-        tokens = powershell_data_tokens(text)
-    except ValueError:
-        return None
-
-    index = 0
-    while index < len(tokens) and tokens[index].kind == "newline":
-        index += 1
-    if (
-        index + 1 >= len(tokens)
-        or tokens[index].kind != "at"
-        or tokens[index + 1].kind != "open"
-        or tokens[index + 1].value != "{"
-        or tokens[index].end != tokens[index + 1].start
-    ):
-        return None
-
-    root_open = index + 1
-    opening_to_closing = {"{": "}", "[": "]", "(": ")"}
-    stack = []
-    matching_delimiters = {}
-    root_close = None
-    for cursor in range(root_open, len(tokens)):
-        token = tokens[cursor]
-        if token.kind == "open":
-            stack.append((token.value, cursor))
-        elif token.kind == "close":
-            if not stack or opening_to_closing[stack[-1][0]] != token.value:
-                return None
-            _, opening_index = stack.pop()
-            matching_delimiters[opening_index] = cursor
-            if not stack:
-                root_close = cursor
-                break
-    if root_close is None:
-        return None
-    if any(token.kind != "newline" for token in tokens[root_close + 1 :]):
-        return None
-
-    entries = []
-    index = root_open + 1
-    while index < root_close:
-        while index < root_close and tokens[index].kind in ("newline", "separator"):
-            index += 1
-        if index == root_close:
-            break
-        key_token = tokens[index]
-        if key_token.kind not in ("word", "string") or key_token.value is None:
-            return None
-        index += 1
-        if index >= root_close or tokens[index].kind != "equals":
-            return None
-        index += 1
-        while index < root_close and tokens[index].kind == "newline":
-            index += 1
-        value_start = index
-        value_depth = 0
-        while index < root_close:
-            token = tokens[index]
-            if value_depth == 0 and token.kind in ("newline", "separator"):
-                break
-            if token.kind == "open":
-                value_depth += 1
-            elif token.kind == "close":
-                value_depth -= 1
-            index += 1
-        if value_start == index or value_depth:
-            return None
-        entries.append(
-            PowerShellRootEntry(key_token.value, value_start, index)
-        )
-
-    return tokens, entries, matching_delimiters
-
-
-def psd1_string_array_value(
-    tokens: list[PowerShellToken],
-    entry: PowerShellRootEntry,
-    matching_delimiters: dict[int, int],
-) -> list[str] | None:
-    start = entry.value_start
-    end = entry.value_end
-    if (
-        end - start < 3
-        or tokens[start].kind != "at"
-        or tokens[start + 1].kind != "open"
-        or tokens[start + 1].value != "("
-        or tokens[start].end != tokens[start + 1].start
-        or matching_delimiters.get(start + 1) != end - 1
-    ):
-        return None
-
-    values = []
-    may_read_value = True
-    for token in tokens[start + 2 : end - 1]:
-        if token.kind in ("newline", "separator", "comma"):
-            may_read_value = True
-        elif token.kind == "string" and token.value is not None and may_read_value:
-            values.append(token.value)
-            may_read_value = False
-        else:
-            return None
-    return values
 
 
 for path in (
@@ -458,34 +184,11 @@ if configured_model_ids != LOCAL_AI_ALLOWED_MODELS:
         f"{repo_path(LOCAL_AI_CONFIG)} allowed models must be exactly: "
         f"{', '.join(LOCAL_AI_ALLOWED_MODELS)}"
     )
-manifest_root = parse_root_psd1_entries(local_ai_manifest_text)
-if manifest_root is None:
-    fail(f"{repo_path(LOCAL_AI_MANIFEST)} must contain one root data hashtable")
-manifest_tokens, manifest_entries, manifest_delimiters = manifest_root
-functions_to_export_entries = [
-    entry
-    for entry in manifest_entries
-    if entry.key.casefold() == "functionstoexport"
-]
-if len(functions_to_export_entries) != 1:
+manifest_sha256 = hashlib.sha256(local_ai_manifest_text.encode("utf-8")).hexdigest()
+if manifest_sha256 != LOCAL_AI_MANIFEST_WITH_EVALUATION_EXPORT_SHA256:
     fail(
-        f"{repo_path(LOCAL_AI_MANIFEST)} must contain exactly one top-level "
-        "FunctionsToExport array"
-    )
-manifest_function_exports = psd1_string_array_value(
-    manifest_tokens,
-    functions_to_export_entries[0],
-    manifest_delimiters,
-)
-if manifest_function_exports is None:
-    fail(
-        f"{repo_path(LOCAL_AI_MANIFEST)} must contain exactly one top-level "
-        "FunctionsToExport array"
-    )
-if "Invoke-LocalAiModelEvaluation" not in manifest_function_exports:
-    fail(
-        f"{repo_path(LOCAL_AI_MANIFEST)} must export "
-        "Invoke-LocalAiModelEvaluation"
+        f"{repo_path(LOCAL_AI_MANIFEST)} must match the reviewed canonical "
+        "manifest that exports Invoke-LocalAiModelEvaluation"
     )
 
 # Syntax-only validation does not require Archipelago to be installed.

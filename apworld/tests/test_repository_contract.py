@@ -125,7 +125,7 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
 
-    def test_validator_accepts_manifest_export_with_lexical_and_nested_decoys(self):
+    def test_validator_rejects_noncanonical_manifest_with_lexical_and_nested_decoys(self):
         root = self.make_fixture()
         manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
         manifest_text = manifest_path.read_text(encoding="utf-8")
@@ -147,8 +147,8 @@ class RepositoryContractTests(unittest.TestCase):
 
         result = self.run_validator(root)
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Repository validation passed.", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
 
     def test_validator_rejects_sibling_root_manifest_export_decoy(self):
         root = self.make_fixture()
@@ -169,6 +169,74 @@ class RepositoryContractTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
+    def test_validator_rejects_non_nesting_block_comment_masking_leading_expression(self):
+        root = self.make_fixture()
+        manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        manifest_path.write_text(
+            "<# outer comment\n"
+            "<# nested-looking marker #>\n"
+            "$leading = 1\n"
+            "#>\n"
+            + manifest_text,
+            encoding="utf-8",
+        )
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
+    def test_validator_rejects_block_comment_newline_export_decoy(self):
+        root = self.make_fixture()
+        manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        export_start = manifest_text.index("    FunctionsToExport = @(")
+        next_field = manifest_text.index("    CmdletsToExport = @()", export_start)
+        comment_newline_decoy = """    Other = 1 <#
+comment-internal newlines are not root-entry separators
+#> FunctionsToExport = @(
+        'Invoke-LocalAiModelEvaluation'
+    )
+"""
+        manifest_path.write_text(
+            manifest_text[:export_start]
+            + comment_newline_decoy
+            + manifest_text[next_field:],
+            encoding="utf-8",
+        )
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
+    def test_validator_rejects_non_direct_or_malformed_comma_export_arrays(self):
+        mutations = {
+            "unary comma nests the apparent export": lambda text: text.replace(
+                "        'Invoke-LocalAiModelEvaluation'\n",
+                "        , 'Invoke-LocalAiModelEvaluation'\n",
+            ),
+            "trailing comma is malformed": lambda text: text.replace(
+                "        'Stop-LocalAiDevelopmentSession'\n    )",
+                "        'Stop-LocalAiDevelopmentSession',\n    )",
+            ),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+                manifest_text = manifest_path.read_text(encoding="utf-8")
+                manifest_path.write_text(mutate(manifest_text), encoding="utf-8")
+
+                result = self.run_validator(root)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "tools/local-ai/LocalAiBridge.psd1",
+                    result.stdout + result.stderr,
+                )
 
     def test_validator_rejects_array_nested_variable_assignment_export_decoy(self):
         root = self.make_fixture()
