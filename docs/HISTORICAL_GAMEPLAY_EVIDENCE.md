@@ -118,6 +118,8 @@ Physical reward sources and meaningful trades may become AP locations. Receiving
 | Level 21 — Locker Room | `Level_14` / `GameRoom_14` | Royal Corridor | Requires Violance and Weed Killer during play. A separate `LevelEntranceDoor_14_DevilMode` exists. |
 | Level 22 — King Ferdinand I | `Level_28` | Royal Corridor | Boss completion sets `OVERALL_PROGRESS_BEAT_KING_ONE`, unlocks King Ferdinand as a character, and awards the Bunker Keycard. |
 
+Fresh-save testing on 2026-08-21 completed `Level_28` for one Star at 102 points without any abilities. This proves that neither Note Pad nor Data Stick is required for basic Level 22 completion; their possible effect is limited to results above one Star until further testing. Client v0.67.60 captured the result but did not send an AP check because `Level_28` was missing from its level-name mapping.
+
 ### Roots item chain
 
 Log-confirmed Roots evidence already promoted into `docs/PROGRESSION.md` includes:

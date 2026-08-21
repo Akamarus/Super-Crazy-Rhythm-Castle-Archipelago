@@ -50,6 +50,12 @@ The captured reproduction reached `GameRoom_27`, resolved all six native cartrid
 
 Do not test Game Garage in this build unless specifically requested by a maintainer. The next client release must not claim this issue as fixed until a fresh-save test proves that entering and exiting Game Garage with zero AP-owned cartridges works normally while every unowned song remains inaccessible.
 
+### Level 22 completion is not sent
+
+Client v0.67.60 observes King Ferdinand I completion as internal level `Level_28` but does not map that identifier to `Level 22 - Completion`. The captured fresh-save result logged `COMPLETION internal=Level_28`, followed by `Unmapped internal level 'Level_28'`, and no AP location was sent.
+
+The next client release must map `Level_28` and verify that an ordinary Level 22 clear sends its completion/performance locations independently of the future Star-goal Victory condition. Fresh-save testing also confirmed that Level 22 is beatable for one Star without any abilities; Note Pad and Data Stick must therefore not gate one-Star completion and remain candidates only for higher performance tiers pending targeted tests.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
