@@ -31,7 +31,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Work | Status | Why it must wait |
 | --- | --- | --- |
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
-| Hip Glasses, Bucket Minion trade, and Chicken Bucket mappings | Discovery required | Historical ordering is preserved, but the exact native source/trade mappings and current Area Access treatment are unresolved. |
+| Hip Glasses, Bucket Minion trade, and Chicken Bucket native mappings | Discovery required | The approved source/item/trade flow still needs exact native pickup/trade flags plus ownership, consumption, reload, and reconnection validation. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
 | Cassette sources and native inventory mappings | Discovery required | Medal checks exist, but source-to-item randomization has not been mapped for all 30 cassettes. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |
@@ -41,6 +41,7 @@ This is an unofficial, experimental development build rather than a release. The
 | Work | Status | Planned result |
 | --- | --- | --- |
 | Individual AP Stars and generated level requirements | Design approved / not implemented | Seed-stable gates will be derived from validated routing and must remain below the final goal. |
+| Hip Glasses, Bucket Minion trade, and Chicken Bucket | Design approved / not implemented | Hip Glasses are randomized at Level 4; the normal trade is the Chicken Bucket source; normal use produces Combo Bucket. |
 | Music Lab Point AP inventory | Design approved / not implemented | Point items will be separate from native medal score, pending final location-count validation. |
 | Difficulty-based performance location sets | Design approved / not implemented | Normal, Hard, Expert, and Perfection will control generated performance checks. |
 | Complete item pool and solver validation | Design approved / not implemented | Generation must prove opening spheres, item capacity, and no self-locks. |
