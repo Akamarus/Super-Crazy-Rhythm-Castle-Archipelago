@@ -122,6 +122,49 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
 
+    def test_validator_rejects_sibling_root_manifest_export_decoy(self):
+        root = self.make_fixture()
+        manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        export_start = manifest_text.index("    FunctionsToExport = @(")
+        next_field = manifest_text.index("    CmdletsToExport = @()", export_start)
+        manifest_without_real_export = manifest_text[:export_start] + manifest_text[next_field:]
+        sibling_decoy = """@{
+    FunctionsToExport = @(
+        'Invoke-LocalAiModelEvaluation'
+    )
+}
+"""
+        manifest_path.write_text(sibling_decoy + manifest_without_real_export, encoding="utf-8")
+
+        result = self.run_validator(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
+    def test_validator_rejects_ambiguous_or_malformed_manifest_root_structure(self):
+        mutations = {
+            "leading executable expression": lambda text: "$leading = 1\n" + text,
+            "trailing data expression": lambda text: text + "\n@('trailing')\n",
+            "duplicate top-level export field": lambda text: text.replace(
+                "    CmdletsToExport = @()",
+                "    FunctionsToExport = @('Invoke-LocalAiModelEvaluation')\n"
+                "    CmdletsToExport = @()",
+            ),
+            "unterminated root hashtable": lambda text: text.rsplit("}", 1)[0],
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
+                manifest_text = manifest_path.read_text(encoding="utf-8")
+                manifest_path.write_text(mutate(manifest_text), encoding="utf-8")
+
+                result = self.run_validator(root)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("tools/local-ai/LocalAiBridge.psd1", result.stdout + result.stderr)
+
     def test_validator_checks_every_world_python_file_for_syntax(self):
         root = self.make_fixture()
         (root / "apworld/scrc/difficulty.py").write_text("this is invalid syntax !!!", encoding="utf-8")

@@ -74,7 +74,9 @@ def repo_path(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def powershell_code_projection(text: str, preserve_strings: bool = False) -> str:
+def powershell_code_projection(
+    text: str, preserve_strings: bool = False, mark_strings: bool = False
+) -> str:
     projected = []
     state = "code"
     index = 0
@@ -89,7 +91,7 @@ def powershell_code_projection(text: str, preserve_strings: bool = False) -> str
                 index += 2
                 continue
             if text.startswith("@'", index) or text.startswith('@"', index):
-                projected.extend("  ")
+                projected.extend("S " if mark_strings else "  ")
                 state = "single_here_string" if text[index + 1] == "'" else "double_here_string"
                 index += 2
                 continue
@@ -97,10 +99,10 @@ def powershell_code_projection(text: str, preserve_strings: bool = False) -> str
                 projected.append(" ")
                 state = "line_comment"
             elif character == "'":
-                projected.append(character if preserve_strings else " ")
+                projected.append(character if preserve_strings else ("S" if mark_strings else " "))
                 state = "single_string"
             elif character == '"':
-                projected.append(character if preserve_strings else " ")
+                projected.append(character if preserve_strings else ("S" if mark_strings else " "))
                 state = "double_string"
             else:
                 projected.append(character)
@@ -151,7 +153,45 @@ def powershell_code_projection(text: str, preserve_strings: bool = False) -> str
             projected.append(character if character == "\n" else " ")
         index += 1
 
+    if state not in ("code", "line_comment"):
+        raise ValueError(f"unterminated PowerShell lexical state: {state}")
     return "".join(projected)
+
+
+def has_single_root_psd1_hashtable(text: str) -> bool:
+    try:
+        code = powershell_code_projection(text, mark_strings=True)
+    except ValueError:
+        return False
+
+    index = 0
+    while index < len(code) and (code[index].isspace() or code[index] == "\ufeff"):
+        index += 1
+    if not code.startswith("@{", index):
+        return False
+
+    opening_to_closing = {"{": "}", "[": "]", "(": ")"}
+    closing_characters = set(opening_to_closing.values())
+    stack = ["{"]
+    index += 2
+    root_end = None
+    while index < len(code):
+        character = code[index]
+        if character in opening_to_closing:
+            stack.append(character)
+        elif character in closing_characters:
+            if not stack or opening_to_closing[stack[-1]] != character:
+                return False
+            stack.pop()
+            if not stack:
+                root_end = index
+                break
+        index += 1
+    if root_end is None:
+        return False
+
+    trailing_code = code[root_end + 1 :]
+    return all(character.isspace() or character == "\ufeff" for character in trailing_code)
 
 
 def find_top_level_psd1_array_bodies(text: str, field_name: str) -> list[str]:
@@ -294,6 +334,8 @@ if configured_model_ids != LOCAL_AI_ALLOWED_MODELS:
         f"{repo_path(LOCAL_AI_CONFIG)} allowed models must be exactly: "
         f"{', '.join(LOCAL_AI_ALLOWED_MODELS)}"
     )
+if not has_single_root_psd1_hashtable(local_ai_manifest_text):
+    fail(f"{repo_path(LOCAL_AI_MANIFEST)} must contain one root data hashtable")
 functions_to_export_bodies = find_top_level_psd1_array_bodies(
     local_ai_manifest_text, "FunctionsToExport"
 )
