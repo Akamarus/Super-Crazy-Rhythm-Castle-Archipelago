@@ -6,6 +6,7 @@
 - The next client release must include and verify a fix for zero-cartridge Garage entry before this item moves to that release's fixed list.
 - Client v0.67.60 captures Level 22 as internal `Level_28` but does not map it to an AP completion location, so no Level 22 check is sent. The next client release must map and verify the ordinary completion separately from future Victory logic.
 - The current AP graph exposes all Music Lab cassette checks even though fresh saves retain orange construction barriers that physically block many cassette machines. Barrier conditions and affected groups must be mapped before those locations are considered logically reachable.
+- APWorld v0.17 can generate a BK'd seed by placing required Area Access and quest items behind blocked cassette machines, unowned Game Garage cartridges, native point thresholds, or unreasonable Platinum checks. Seed `AP_28223804408101432968` is retained as the regression case; generation must not be considered playable until solver rules match fresh-save physical reachability.
 
 ## APWorld v0.17 / Client v0.67.60 — Roots bucket progression
 

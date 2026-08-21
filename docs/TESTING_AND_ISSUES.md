@@ -56,6 +56,12 @@ Client v0.67.60 observes King Ferdinand I completion as internal level `Level_28
 
 The next client release must map `Level_28` and verify that an ordinary Level 22 clear sends its completion/performance locations independently of the future Star-goal Victory condition. Fresh-save testing also confirmed that Level 22 is beatable for one Star without any abilities; Note Pad and Data Stick must therefore not gate one-Star completion and remain candidates only for higher performance tiers pending targeted tests.
 
+### APWorld v0.17 can generate a BK'd seed
+
+Fresh-seed testing of `AP_28223804408101432968` reached a state with no reasonably or physically available checks. The generated spoiler placed `Lobby Access` at `Music Lab Cassette - Lets Go - Platinum`; the other non-Royal Area Access items were placed on cassette checks whose machines were behind native Music Lab barriers. It also placed `Weed Killer` at `Game Garage - Vampire Killer - Platinum` even though no Vampire Killer Cartridge had been received and zero-cartridge Garage entry black-screened, and placed `Plant Pipes` at the native 64-point chest. Hip Glasses and Chicken Bucket were likewise placed on additional cassette checks.
+
+This is a generator/logic failure, not a request for the tester to grind high-skill checks. APWorld must not expose blocked cassette machines, unowned Garage songs, or unavailable native point thresholds to the solver. Required progression must have a solver-proven route through checks that the client and fresh save can actually reach. Keep this seed as a regression fixture; do not use it for further acceptance gameplay.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
