@@ -399,6 +399,16 @@ comment-internal newlines are not root-entry separators
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
 
+    def test_example_yaml_selects_the_validated_roots_start(self):
+        example = (REPO_ROOT / "apworld/examples/SCRC-AreaRouting-PlantPipes.yaml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "  starting_area: roots\n",
+            example,
+            "Archipelago treats the scalar 'random' as a directive to roll every Choice value",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

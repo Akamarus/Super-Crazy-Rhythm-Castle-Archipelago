@@ -10,7 +10,10 @@ Super Crazy Rhythm Castle:
   # client Star-gate enforcement, and the final Star victory are previews only.
   required_stars: 50
   difficulty: normal
-  starting_area: random
+  # Use the explicit validated start. In Archipelago player YAML, the scalar
+  # value "random" is a framework directive that rolls across every Choice
+  # value rather than selecting this world's conservative Random option.
+  starting_area: roots
 
   # Hip Glasses and Chicken Bucket are active shuffled progression items.
   # Their Level 4 and Bucket Minion sources are checks; players still perform
