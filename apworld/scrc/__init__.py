@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-
 from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
-from Options import PerGameCommonOptions
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
+
+from .options import SCRCOptions
 
 
 GAME_NAME = "Super Crazy Rhythm Castle"
@@ -231,11 +230,6 @@ class SCRCItem(Item):
 
 class SCRCLocation(Location):
     game = GAME_NAME
-
-
-@dataclass
-class SCRCOptions(PerGameCommonOptions):
-    pass
 
 
 class SCRCWebWorld(WebWorld):
@@ -562,4 +556,3 @@ class SCRCWorld(World):
                 "AP-Star costs and the remaining vanilla prerequisites are deferred."
             ),
         }
-
