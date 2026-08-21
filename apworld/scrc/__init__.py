@@ -270,8 +270,8 @@ class SCRCWorld(World):
     currently samples only validated Roots Access, while unsupported fixed
     starts stop generation. The other five Area Access items are placed normally.
 
-    v0.15 keeps cartridge routing and Gecko Weed Killer randomization, then
-    adds Plant Pipes as a separate randomized progression item. Frog/Hippo's
+    v0.16 retains cartridge routing, Gecko Weed Killer randomization, and
+    Plant Pipes as a separate randomized progression item. Frog/Hippo's
     Level 3 source check requires Weed Killer, while Level 3 Completion requires
     both Weed Killer and Plant Pipes. This is still not the final star-logic
     milestone; cassette and broader vanilla-world prerequisites remain incomplete.
