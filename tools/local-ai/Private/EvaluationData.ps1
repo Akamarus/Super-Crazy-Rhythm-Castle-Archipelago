@@ -9,9 +9,16 @@ function Assert-LocalAiExactProperties {
         [Parameter(Mandatory)] [string] $Description
     )
 
-    $actual = @($Value.PSObject.Properties.Name)
-    $unexpected = @($actual | Where-Object { $_ -notin $RequiredProperty })
-    $missing = @($RequiredProperty | Where-Object { $_ -notin $actual })
+    $actual = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($property in $Value.PSObject.Properties) {
+        [void] $actual.Add($property.Name)
+    }
+    $required = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($propertyName in $RequiredProperty) {
+        [void] $required.Add($propertyName)
+    }
+    $unexpected = @($actual | Where-Object { -not $required.Contains($_) })
+    $missing = @($required | Where-Object { -not $actual.Contains($_) })
     if ($unexpected.Count -gt 0 -or $missing.Count -gt 0) {
         throw "$Description must contain exactly these properties: $($RequiredProperty -join ', ')."
     }

@@ -102,7 +102,7 @@ Describe 'Investigation workflow' {
         }
     }
 
-    It 'includes the validated ledger exactly once when the caller also supplies it' {
+    It 'includes the validated ledger exactly once for an equivalent backslash and case caller path' {
         InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
             Mock Invoke-OpenWebUiChat {
                 param($Configuration, $Messages)
@@ -110,10 +110,10 @@ Describe 'Investigation workflow' {
                 [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'ledger-context-r1'; ModelId = 'jacks-assistant' }
             }
 
-            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md','tools/local-ai/evaluation/decisions.json') | Out-Null
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md','TOOLS\LOCAL-AI\EVALUATION\DECISIONS.JSON') | Out-Null
 
             $userContent = @($script:CapturedMessages | Where-Object { $_.role -eq 'user' })[0].content
-            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'))).Count | Should -Be 1
+            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'), [Text.RegularExpressions.RegexOptions]::IgnoreCase)).Count | Should -Be 1
         }
     }
 

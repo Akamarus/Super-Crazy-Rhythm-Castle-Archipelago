@@ -7,8 +7,8 @@ function New-LocalAiContext {
     )
 
     $excludedExtensions = @('.dll','.exe','.pdb','.zip','.rar','.7z','.apworld','.log','.bak')
-    $orderedPaths = [Collections.Generic.SortedSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($requestedPath in $IncludePath) { [void] $orderedPaths.Add($requestedPath) }
+    $orderedPaths = [Collections.Generic.SortedSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($requestedPath in $IncludePath) { [void] $orderedPaths.Add($requestedPath.Replace('\','/')) }
     $files = [Collections.Generic.List[object]]::new()
     $totalBytes = 0
     foreach ($relative in $orderedPaths) {
@@ -23,8 +23,14 @@ function New-LocalAiContext {
         $fullPath = Resolve-ContainedPath -Root $Task.RepositoryRoot -Path $relative -MustExist
         $tracked = & git -C $Task.RepositoryRoot ls-files --error-unmatch -- $normalized 2>$null
         if ($LASTEXITCODE -ne 0 -or -not $tracked) {
+            $tracked = @(& git -C $Task.RepositoryRoot ls-files | Where-Object {
+                $_.Equals($normalized, [StringComparison]::OrdinalIgnoreCase)
+            })
+        }
+        if ($LASTEXITCODE -ne 0 -or -not $tracked) {
             throw "Context path is not a tracked file: $relative"
         }
+        $normalized = [string] @($tracked)[0]
         $content = [IO.File]::ReadAllText($fullPath, [Text.Encoding]::UTF8)
         $content = ConvertTo-RedactedData $content
         $bytes = [Text.Encoding]::UTF8.GetByteCount($content)

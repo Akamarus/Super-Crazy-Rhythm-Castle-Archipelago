@@ -133,4 +133,26 @@ Describe 'Local AI decisions ledger' {
             { Get-LocalAiDecisionLedger -RepositoryRoot $Repo } | Should -Throw '*schema_version*'
         }
     }
+
+    It 'rejects a wrong-cased root property name' {
+        $ledger = Get-Content -Raw (Join-Path $script:Repo 'tools\local-ai\evaluation\decisions.json') | ConvertFrom-Json
+        $ledger.PSObject.Properties.Remove('schema_version')
+        $ledger | Add-Member -NotePropertyName 'Schema_Version' -NotePropertyValue 1
+        Set-TestLedger -RepositoryRoot $script:Repo -Ledger $ledger
+
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo } {
+            { Get-LocalAiDecisionLedger -RepositoryRoot $Repo } | Should -Throw '*exactly these properties*'
+        }
+    }
+
+    It 'rejects a wrong-cased decision entry property name' {
+        $ledger = Get-Content -Raw (Join-Path $script:Repo 'tools\local-ai\evaluation\decisions.json') | ConvertFrom-Json
+        $ledger.decisions[0].PSObject.Properties.Remove('id')
+        $ledger.decisions[0] | Add-Member -NotePropertyName 'ID' -NotePropertyValue 'area-access-vs-level-access'
+        Set-TestLedger -RepositoryRoot $script:Repo -Ledger $ledger
+
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo } {
+            { Get-LocalAiDecisionLedger -RepositoryRoot $Repo } | Should -Throw '*exactly these properties*'
+        }
+    }
 }
