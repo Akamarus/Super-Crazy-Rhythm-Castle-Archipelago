@@ -9,11 +9,12 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.67.59`; confirm `<GameDir>\BepInEx\LogOutput.log` starts with `[SCRC-AP] v0.67.59 loading.`
+- Client: `0.67.59`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.59 loading.` (the first `[SCRC-AP]` version line should identify this client version).
 - APWorld: `0.15`.
 - Slot-data implementation tag: `area-routing-plant-pipes-0.15`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
+- For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.
 
 Follow the [installation guide](INSTALL.md) to build and install both components, generate the seed, and configure the client. Use the room's real host, port, slot name, and password locally; do not publish a password or a complete config file.
 
@@ -30,7 +31,12 @@ Run these steps in order where the seed allows. A received progression item may 
 7. **Test Plant Pipes and Level 3 completion.** After the room delivers `Plant Pipes`, verify `ROOTS PLANT PIPES NATIVE GRANT APPLIED`, return to Level 3, and complete it. This confirms that Plant Pipes is required for completion, not for reaching the Frog/Hippo source.
 8. **Test one Game Garage cartridge.** When you own one of the six AP cartridge items, insert its matching cartridge in Game Garage and complete that song at least at Bronze. Confirm the matching `Game Garage - {song} - Bronze` check; a higher sticker should also satisfy its lower cumulative tiers. Record the exact cartridge, song, and sticker tier.
 9. **Test one Music Lab cassette medal.** Play one cassette song that is already natively unlocked on the save and earn a medal. Confirm the matching cumulative `Music Lab Cassette - {song} - {tier}` check and the `MUSIC LAB CASSETTE MEDAL` log line. Cassettes themselves are not randomized in the current v0.15 APWorld.
-10. **Test one Music Lab reward-chest reconciliation.** Open one native Music Lab reward chest that the save qualifies for (the 5-point chest is the first threshold), then reload or return to Hub6 and confirm that its corresponding `Music Lab - {threshold} Point Chest` check is sent once from the native saved chest state. The log should include `MUSIC LAB REWARD CHEST RECONCILE` and, after the full Hub6 map is available, `MUSIC LAB REWARD CHEST RECONCILE COMPLETE`. If a developer diagnostic hotkey is enabled, Hub6 `F5` performs this reconciliation read-only; it does not create chest progress.
+10. **Test one Music Lab reward chest and its reconciliation.** Keep `EnableTestHarness = true` for all parts of this check.
+   - **Initial collection event:** Open one native Music Lab reward chest that the save qualifies for (the 5-point chest is the first threshold). The initial progression request/event may queue `Music Lab - {threshold} Point Chest`; confirm the `MUSIC LAB {threshold}-POINT CHEST COLLECTED` and `QUEUED CHECK` lines.
+   - **Same-session duplicate suppression:** Without restarting the game process, return to Hub6 and wait for its reconciliation pass, or press plain `F5` in Hub6. The log should show `MUSIC LAB REWARD CHEST RECONCILE collected` for the saved chest and `Duplicate local check ignored` for the already queued/sent AP location. This is expected: the client prevents a second local submission in the same session.
+   - **Clean saved-state reconciliation:** Use a safe test save in which a qualifying native reward chest was collected **before** launching the AP-enabled client/session. Enter Hub6 with the client connected and confirm `MUSIC LAB REWARD CHEST RECONCILE collected`, the corresponding `MUSIC LAB {threshold}-POINT CHEST COLLECTED source='save reconciliation'` line, and the queued AP location. After the Hub6 map is available, the log also records `MUSIC LAB REWARD CHEST RECONCILE COMPLETE`.
+
+   Plain Hub6 `F5` is read-only with respect to the native save: it does not open a chest, add native medal points, or alter a native collection flag. It may queue an AP check when the native save already marks that reward chest as collected.
 
 If a step cannot be attempted because the seed has not delivered the needed item, report the completed steps and the item/slot state instead of editing save data or using an untrusted workaround.
 
