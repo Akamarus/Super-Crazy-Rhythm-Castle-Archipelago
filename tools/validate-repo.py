@@ -74,6 +74,120 @@ def repo_path(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
+def powershell_code_projection(text: str, preserve_strings: bool = False) -> str:
+    projected = []
+    state = "code"
+    index = 0
+    while index < len(text):
+        character = text[index]
+        at_line_start = index == 0 or text[index - 1] == "\n"
+
+        if state == "code":
+            if text.startswith("<#", index):
+                projected.extend("  ")
+                state = "block_comment"
+                index += 2
+                continue
+            if text.startswith("@'", index) or text.startswith('@"', index):
+                projected.extend("  ")
+                state = "single_here_string" if text[index + 1] == "'" else "double_here_string"
+                index += 2
+                continue
+            if character == "#":
+                projected.append(" ")
+                state = "line_comment"
+            elif character == "'":
+                projected.append(character if preserve_strings else " ")
+                state = "single_string"
+            elif character == '"':
+                projected.append(character if preserve_strings else " ")
+                state = "double_string"
+            else:
+                projected.append(character)
+        elif state == "line_comment":
+            projected.append(character if character == "\n" else " ")
+            if character == "\n":
+                state = "code"
+        elif state == "block_comment":
+            if text.startswith("#>", index):
+                projected.extend("  ")
+                state = "code"
+                index += 2
+                continue
+            projected.append(character if character == "\n" else " ")
+        elif state == "single_string":
+            projected.append(character if preserve_strings or character == "\n" else " ")
+            if character == "'":
+                if index + 1 < len(text) and text[index + 1] == "'":
+                    projected.append("'" if preserve_strings else " ")
+                    index += 2
+                    continue
+                state = "code"
+        elif state == "double_string":
+            projected.append(character if preserve_strings or character == "\n" else " ")
+            if character == "`" and index + 1 < len(text):
+                projected.append(
+                    text[index + 1]
+                    if preserve_strings
+                    else ("\n" if text[index + 1] == "\n" else " ")
+                )
+                index += 2
+                continue
+            if character == '"':
+                state = "code"
+        elif state == "single_here_string":
+            if at_line_start and text.startswith("'@", index):
+                projected.extend("  ")
+                state = "code"
+                index += 2
+                continue
+            projected.append(character if character == "\n" else " ")
+        elif state == "double_here_string":
+            if at_line_start and text.startswith('"@', index):
+                projected.extend("  ")
+                state = "code"
+                index += 2
+                continue
+            projected.append(character if character == "\n" else " ")
+        index += 1
+
+    return "".join(projected)
+
+
+def find_top_level_psd1_array_bodies(text: str, field_name: str) -> list[str]:
+    code = powershell_code_projection(text)
+    assignment = re.compile(rf"{re.escape(field_name)}\s*=\s*@\(")
+    bodies = []
+    brace_depth = 0
+    index = 0
+    while index < len(code):
+        character = code[index]
+        if character == "{":
+            brace_depth += 1
+        elif character == "}":
+            brace_depth -= 1
+        elif brace_depth == 1:
+            match = assignment.match(code, index)
+            previous = code[index - 1] if index else ""
+            if match and not (previous.isalnum() or previous in "_-"):
+                opening_parenthesis = match.end() - 1
+                parenthesis_depth = 1
+                closing_parenthesis = opening_parenthesis + 1
+                while closing_parenthesis < len(code) and parenthesis_depth:
+                    if code[closing_parenthesis] == "(":
+                        parenthesis_depth += 1
+                    elif code[closing_parenthesis] == ")":
+                        parenthesis_depth -= 1
+                    closing_parenthesis += 1
+                if parenthesis_depth:
+                    return []
+                bodies.append(text[opening_parenthesis + 1 : closing_parenthesis - 1])
+                index = closing_parenthesis
+                continue
+        index += 1
+    return bodies
+
+
 for path in (
     WORLD,
     ITEMS,
@@ -180,18 +294,19 @@ if configured_model_ids != LOCAL_AI_ALLOWED_MODELS:
         f"{repo_path(LOCAL_AI_CONFIG)} allowed models must be exactly: "
         f"{', '.join(LOCAL_AI_ALLOWED_MODELS)}"
     )
-functions_to_export_match = re.search(
-    r"^\s*FunctionsToExport\s*=\s*@\((?P<body>.*?)^\s*\)\s*$",
-    local_ai_manifest_text,
-    re.DOTALL | re.MULTILINE,
+functions_to_export_bodies = find_top_level_psd1_array_bodies(
+    local_ai_manifest_text, "FunctionsToExport"
 )
-if not functions_to_export_match:
-    fail(f"{repo_path(LOCAL_AI_MANIFEST)} is missing FunctionsToExport")
+if len(functions_to_export_bodies) != 1:
+    fail(
+        f"{repo_path(LOCAL_AI_MANIFEST)} must contain exactly one top-level "
+        "FunctionsToExport array"
+    )
 manifest_function_exports = {
     match.group("value")
     for match in re.finditer(
         r"^\s*['\"](?P<value>[^'\"]+)['\"]\s*,?\s*(?:#.*)?$",
-        functions_to_export_match.group("body"),
+        powershell_code_projection(functions_to_export_bodies[0], preserve_strings=True),
         re.MULTILINE,
     )
 }

@@ -100,12 +100,20 @@ class RepositoryContractTests(unittest.TestCase):
         manifest_path = root / "tools/local-ai/LocalAiBridge.psd1"
         manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest_text = manifest_text.replace(
+            "    Description = 'Controlled local AI development bridge for SCRC Archipelago.'",
+            "    Description = \"FunctionsToExport = @('Invoke-LocalAiModelEvaluation')\"",
+        ).replace(
             "        'Invoke-LocalAiModelEvaluation'\n",
             "",
         ).replace(
-            "    CmdletsToExport = @()",
-            "    PrivateData = @{ EvaluationCommand = 'Invoke-LocalAiModelEvaluation' }\n"
-            "    CmdletsToExport = @()",
+            "    FunctionsToExport = @(",
+            "    # FunctionsToExport = @('Invoke-LocalAiModelEvaluation')\n"
+            "    PrivateData = @{\n"
+            "        FunctionsToExport = @(\n"
+            "            'Invoke-LocalAiModelEvaluation'\n"
+            "        )\n"
+            "    }\n"
+            "    FunctionsToExport = @(",
         )
         manifest_path.write_text(manifest_text, encoding="utf-8")
 
