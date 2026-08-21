@@ -268,7 +268,7 @@ The bunker also contains a Star Eater with a vanilla 66-star requirement. Histor
 - Bee Mode and Demon Seal variants have no stars.
 - The Combo Bucket provides score/combo effects throughout the game and a 5× effect in the Music Lab, so score logic must account for its gameplay role.
 
-The approved difficulty concept from the historical conversation was cumulative generated locations:
+The approved future difficulty model uses cumulative generated locations; it is not current v0.15 generation behavior:
 
 | Option | Story levels | Music Lab / Garage |
 | --- | --- | --- |
@@ -277,7 +277,7 @@ The approved difficulty concept from the historical conversation was cumulative 
 | Expert | clear + 2-star + 3-star locations | Bronze + Silver + Gold locations |
 | Perfection | same three story tiers | Bronze + Silver + Gold + Platinum locations |
 
-This is a design preference recorded during the playthrough, not proof that every historical prototype implementation remains correct.
+This historical table matches the current approved design, but it is not proof that every historical prototype implementation is correct or that the design is implemented.
 
 ### Cassettes observed
 
@@ -298,7 +298,7 @@ This is a design preference recorded during the playthrough, not proof that ever
 | 13 | Bounce | Variant `LevelVariant_10_BOUNCE`. |
 | 26 | Quicksand | Unlocked by the Quicksand Cassette. |
 
-The conversation states that normal-level cassettes and character unlocks should be randomized, but those are design preferences to reconcile with current options and logic rather than automatic implementation instructions.
+The approved future design randomizes individual cassette and nonstarting-character items. It is not current implementation: every cassette still needs verified source, inventory, insertion, and reconciliation mappings, and the complete nonstarting-character roster and native unlock mappings still require discovery.
 
 ### Music Lab point chests
 
@@ -312,7 +312,7 @@ CurrentPlayerSaveEnquiries.GetMedalScore()
 
 The tested client reads each live `Hub06MedalScoreRewardChest` object's `unlockRequirement` and `chestUnlockedProgressionFlag`, then reconciles already-collected rewards idempotently against the save. This avoids guessed flags and reports checks collected before the current AP session.
 
-Music Lab Points are not presently documented or implemented as generated AP inventory items. They are earned through native Music Lab/Game Garage medals and gate the native reward chests. Randomizing point tokens would be a new design decision requiring AP item logic, receive-side handling, and reachability analysis.
+Music Lab Points are not presently implemented as generated AP inventory items. In the current prototype, native Music Lab/Game Garage medals earn the native score that gates the reward chests. Separate AP Music Lab Point inventory is approved future design; implementation still needs AP item handling and reachability analysis, while the final 20-item / 180-point distribution remains provisional pending final location-count validation.
 
 | Points | Observed reward | Evidence status |
 | --- | --- | --- |
@@ -344,13 +344,13 @@ Entering the Game Garage consumes the bag-item state and registers the cartridge
 
 ## Character unlocks
 
-The recorded design preference is to randomize playable characters separately from the vanilla item or quest that normally awards them. Observed examples:
+The approved future design randomizes each nonstarting playable character as a useful/cosmetic item, separately from the vanilla item or quest that normally awards it. Observed examples:
 
 - Old Game Data turn-in unlocks Maniac.
 - Car Battery turn-in unlocks Meoo; native flag `PLAYABLE_CHARACTER_UNLOCKED_MEOO` was confirmed.
 - King Ferdinand I completion unlocks King Ferdinand, but a distinct native character flag was not recovered in the cited trace.
 
-Character items should remain useful/cosmetic unless a character is proven mechanically required. This preference still needs current option and item-pool review.
+Character items are useful/cosmetic unless a character is proven mechanically required. The complete roster, native source/unlock mappings, and final item-pool accounting still require discovery before implementation.
 
 ## Historical implementation that is not current design
 
@@ -370,7 +370,7 @@ The corresponding `AP_LEVEL_N_ACCESS` flags, hotkeys, and per-level item design 
 Before implementing the next progression change:
 
 1. Recover the exact Hip Glasses and Bucket Minion trade flags from the historical logs if present.
-2. Decide which parts of the Hip Glasses → Chicken Bucket chain become AP items and/or locations under Roots Access.
+2. Recover the native source, ownership, trade, consumption, reload, and reconnection mappings required to implement the approved Hip Glasses → Chicken Bucket source/item/trade flow.
 3. Reconcile meaningful items across later areas, including Hypno Pan, Fish Tears, Super Nectar, Violance, Bunker Keycard, Demon Key, cassettes, cartridges, and characters.
 4. Decide which vanilla Star Eater thresholds remain, become generated AP Star requirements, or are replaced by Area Access routing.
 5. Confirm exact flags for the Loneliness shield, Devil Seals, demon cartridge, later Music Lab chests, and any postgame completion goal.
