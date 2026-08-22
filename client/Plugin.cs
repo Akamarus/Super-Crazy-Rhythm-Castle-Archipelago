@@ -118,7 +118,6 @@ public sealed class Plugin : BasePlugin
         patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
-
         patched += PatchIntroRoomToHubRedirect();
         patched += PatchDifficultyAssignmentRequest();
         patched += PatchEarlyUnlockSequenceSteps();
@@ -152,6 +151,8 @@ public sealed class Plugin : BasePlugin
             "[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION READY: waits for APWorld v0.14+ slot data. Gecko's WEED_KILLER_BAG_ITEM grant is suppressed, ROOTS_HUB_WEED_KILLER_COLLECTED sends the AP source check, and receiving Weed Killer writes the real native bag-item progression flag so vanilla can consume it for Level 3 access.");
         Log.LogWarning(
             "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
+        if (enabled.Value)
+            AddComponent<PlantPipesReconciliationKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
@@ -16933,9 +16934,12 @@ internal static class PlantPipesRandomization
 
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
-    private static bool _owned;
-    private static bool _pendingNativeGrant;
-    private static bool _nativeGrantApplied;
+    private static bool _slotDataSynchronized;
+    private static bool _compatible;
+    private static int _receivedCount;
+    private static PlantPipesRuntime _runtime = new(new NativeAdapter());
+    private static string _lastRuntimeOutcome = string.Empty;
+    private static bool _processorConstructionFailureLogged;
 
     [ThreadStatic]
     private static bool _applyingNativeGrant;
@@ -16950,9 +16954,12 @@ internal static class PlantPipesRandomization
             Enabled = false;
             ImplementationVersion = string.Empty;
             _playerSaveRequestProcessor = null;
-            _owned = false;
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = false;
+            _slotDataSynchronized = false;
+            _compatible = false;
+            _receivedCount = 0;
+            _runtime = new PlantPipesRuntime(new NativeAdapter());
+            _lastRuntimeOutcome = string.Empty;
+            _processorConstructionFailureLogged = false;
         }
     }
 
@@ -16974,19 +16981,24 @@ internal static class PlantPipesRandomization
                 bool.TryParse(rawEnabled.ToString(), out requested);
         }
 
+        bool repairClaimed = ReadSlotBool(slotData, "plant_pipes_durable_reconciliation");
+        bool repairContractValid = !repairClaimed ||
+                                   RepairCompatibilityPolicy.IsCompatible(implementation, repairClaimed);
+
         lock (Sync)
         {
             ImplementationVersion = implementation;
             Enabled = requested &&
                       implementation.StartsWith("area-routing-plant-pipes-0.15", StringComparison.OrdinalIgnoreCase);
+            _slotDataSynchronized = true;
+            _compatible = Enabled && repairContractValid;
+            _runtime.Configure(_slotDataSynchronized, _compatible);
         }
 
         Plugin.LoggerInstance?.LogWarning(
             Enabled
-                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}'. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP delivery grants the ability."
-                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled implementation='{implementation}' requested={requested}; Plant Pipes remain vanilla for this seed.");
-
-        TryFlushPendingNativeGrant();
+                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}' durableRepair={repairClaimed}. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP ownership is reconciled against the selected save."
+                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled implementation='{implementation}' requested={requested} repairContractValid={repairContractValid}; Plant Pipes remain vanilla for this seed.");
     }
 
     public static bool TryApplyItem(string itemName)
@@ -16994,16 +17006,15 @@ internal static class PlantPipesRandomization
         if (!string.Equals(itemName, ItemName, StringComparison.OrdinalIgnoreCase))
             return false;
 
+        int count;
         lock (Sync)
         {
-            _owned = true;
-            _pendingNativeGrant = true;
+            count = ++_receivedCount;
+            _runtime.NoteReceivedCount(count);
         }
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS PLANT PIPES RECEIVED item='{ItemName}' routingEnabled={Enabled}. Native ability flag '{NativeAbilityFlag}' will be applied immediately when PlayerSaveRequestProcessor is available.");
-
-        TryFlushPendingNativeGrant();
+            $"[SCRC-AP] ROOTS PLANT PIPES RECEIVED item='{ItemName}' receivedCount={count} routingEnabled={Enabled}. Native ability flag '{NativeAbilityFlag}' will be reconciled when the selected save is readable.");
         return true;
     }
 
@@ -17018,32 +17029,45 @@ internal static class PlantPipesRandomization
 
     public static void TryFlushPendingNativeGrant()
     {
-        object? processor;
-        bool shouldGrant;
-        lock (Sync)
-        {
-            shouldGrant = Enabled && _owned && _pendingNativeGrant && !_nativeGrantApplied;
-            processor = _playerSaveRequestProcessor;
-        }
-
-        if (_applyingNativeGrant || !shouldGrant || processor == null)
+        if (_applyingNativeGrant)
             return;
 
-        if (!TrySubmitProgressionFlag(processor, NativeAbilityFlag, true, out string detail))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS PLANT PIPES native grant pending: could not submit '{NativeAbilityFlag}' yet. {detail}");
-            return;
-        }
-
+        string previous;
+        string current;
         lock (Sync)
         {
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = true;
+            _runtime.Configure(_slotDataSynchronized, _compatible);
+            _runtime.NoteReceivedCount(_receivedCount);
+            previous = _lastRuntimeOutcome;
+            _runtime.OnLifecyclePoint("lifecycle");
+            current = _runtime.LastOutcome;
+            _lastRuntimeOutcome = current;
         }
 
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS PLANT PIPES NATIVE GRANT APPLIED flag='{NativeAbilityFlag}'. Level 3 can use the real Plant Pipes ability immediately. {detail}");
+        if (!string.Equals(previous, current, StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS PLANT PIPES reconciliation result={current} receivedCount={_receivedCount} room='{DeveloperHarness.CurrentRoomId}'.");
+        }
+    }
+
+    internal static void TickPending(TimeSpan elapsed)
+    {
+        string previous;
+        string current;
+        lock (Sync)
+        {
+            previous = _lastRuntimeOutcome;
+            _runtime.TickPending(elapsed, "bounded retry");
+            current = _runtime.LastOutcome;
+            _lastRuntimeOutcome = current;
+        }
+
+        if (!string.Equals(previous, current, StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS PLANT PIPES retry result={current} room='{DeveloperHarness.CurrentRoomId}'.");
+        }
     }
 
     public static bool ShouldSuppressFrogHippoVanillaGrant(object request, string flag)
@@ -17077,6 +17101,115 @@ internal static class PlantPipesRandomization
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] ROOTS PLANT PIPES SOURCE AP CHECK flag='{flag}' location='{SourceLocationName}'. Native Frog/Hippo source marker retained; native Plant Pipes ability grant is randomized.");
         Plugin.AP?.QueueLocation(SourceLocationName);
+    }
+
+    internal static string ReadDiagnosticState()
+    {
+        bool abilityReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out bool ability);
+        bool sourceReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeSourceMarkerFlag, out bool source);
+        bool owned;
+        bool pending;
+        bool applied;
+        bool processor;
+        lock (Sync)
+        {
+            owned = _receivedCount > 0;
+            pending = _runtime.HasPendingRetry || _runtime.LastOutcome is "save-unavailable" or "processor-unavailable" or "verification-pending";
+            applied = _runtime.LastOutcome is "grant-submitted" or "verified-owned";
+            processor = _playerSaveRequestProcessor != null;
+        }
+
+        return $"room='{DeveloperHarness.CurrentRoomId}' selectedSaveReadable={abilityReadable && sourceReadable} " +
+               $"{NativeAbilityFlag}={(abilityReadable ? ability.ToString() : "<unavailable>")} " +
+               $"{NativeSourceMarkerFlag}={(sourceReadable ? source.ToString() : "<unavailable>")} " +
+               $"apOwned={owned} pending={pending} appliedThisProcess={applied} processorAvailable={processor}";
+    }
+
+    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
+    {
+        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
+            return false;
+        if (raw is bool value)
+            return value;
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+
+    private static bool EnsureProcessorAvailable()
+    {
+        lock (Sync)
+        {
+            if (_playerSaveRequestProcessor != null)
+                return true;
+        }
+
+        if (!RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _))
+            return false;
+
+        try
+        {
+            Type? processorType = ReflectionUtil.GameAssembly == null
+                ? null
+                : ReflectionUtil.SafeGetTypes(ReflectionUtil.GameAssembly)
+                    .FirstOrDefault(t => string.Equals(t.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal));
+            ConstructorInfo? constructor = processorType?.GetConstructors(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(c => c.GetParameters().Length == 0);
+            object? processor = constructor?.Invoke(Array.Empty<object>());
+            if (processor == null)
+                throw new InvalidOperationException("parameterless PlayerSaveRequestProcessor constructor unavailable");
+
+            lock (Sync)
+                _playerSaveRequestProcessor = processor;
+            Plugin.LoggerInstance?.LogInfo(
+                "[SCRC-AP] ROOTS PLANT PIPES constructed stateless PlayerSaveRequestProcessor after selected-save enquiries became readable.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            bool log;
+            lock (Sync)
+            {
+                log = !_processorConstructionFailureLogged;
+                _processorConstructionFailureLogged = true;
+            }
+            if (log)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] ROOTS PLANT PIPES processor construction unavailable: {ex.GetBaseException().Message}");
+            }
+            return false;
+        }
+    }
+
+    private sealed class NativeAdapter : IPlantPipesNativeAdapter
+    {
+        public bool SaveAvailable =>
+            RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _);
+
+        public bool ProcessorAvailable => EnsureProcessorAvailable();
+
+        public bool TryReadOwned(out bool owned) =>
+            RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out owned);
+
+        public bool TryApply(out string detail)
+        {
+            object? processor;
+            lock (Sync)
+                processor = _playerSaveRequestProcessor;
+            if (processor == null && !EnsureProcessorAvailable())
+            {
+                detail = "PlayerSaveRequestProcessor unavailable.";
+                return false;
+            }
+            lock (Sync)
+                processor = _playerSaveRequestProcessor;
+            if (processor == null)
+            {
+                detail = "PlayerSaveRequestProcessor unavailable after construction.";
+                return false;
+            }
+            return TrySubmitProgressionFlag(processor, NativeAbilityFlag, true, out detail);
+        }
     }
 
     private static bool TrySubmitProgressionFlag(object processor, string flagName, bool value, out string detail)
@@ -17494,7 +17627,7 @@ internal static class RootsBucketRandomization
         Plugin.AP?.QueueLocation(location);
     }
 
-    private static bool TryReadProgressionFlag(string flagName, out bool value)
+    internal static bool TryReadProgressionFlag(string flagName, out bool value)
     {
         value = false;
         Assembly? assembly = ReflectionUtil.GameAssembly;
@@ -17548,6 +17681,33 @@ internal static class RootsBucketRandomization
         if (raw is bool value)
             return value;
         return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+}
+
+internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
+{
+    private int _cooldown;
+    private string _lastState = string.Empty;
+
+    public PlantPipesReconciliationKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 60;
+
+        PlantPipesRandomization.TryFlushPendingNativeGrant();
+        PlantPipesRandomization.TickPending(TimeSpan.FromSeconds(1));
+
+        string state = PlantPipesRandomization.ReadDiagnosticState();
+        if (string.Equals(state, _lastState, StringComparison.Ordinal))
+            return;
+
+        _lastState = state;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] ROOTS PLANT PIPES STATE {state}");
     }
 }
 

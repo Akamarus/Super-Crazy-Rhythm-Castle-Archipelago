@@ -25,6 +25,15 @@ static PlantPipesDecision Decide(
         attemptOutstanding,
         retryCount));
 
+static string MethodBody(string source, string signature, string nextSignature)
+{
+    int start = source.IndexOf(signature, StringComparison.Ordinal);
+    int end = source.IndexOf(nextSignature, start + signature.Length, StringComparison.Ordinal);
+    if (start < 0 || end < 0)
+        throw new InvalidOperationException($"Could not locate source boundaries for {signature}.");
+    return source[start..end];
+}
+
 Equal(PlantPipesDecision.Ignore, Decide(received: 0), "not owned");
 Equal(PlantPipesDecision.Ignore, Decide(compatible: false, received: 1), "incompatible seed");
 Equal(PlantPipesDecision.Ignore, Decide(synchronized: false, received: 1), "history not synchronized");
@@ -42,4 +51,102 @@ Equal<TimeSpan?>(TimeSpan.FromSeconds(4), PlantPipesReconciler.NextRetryDelay(4)
 Equal<TimeSpan?>(null, PlantPipesReconciler.NextRetryDelay(5), "retry is bounded");
 Equal<TimeSpan?>(null, PlantPipesReconciler.NextRetryDelay(-1), "negative retry rejected");
 
+string fullPluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+Equal(false, fullPluginSource.Contains("patched += PatchPlayerSaveProcessorCapture();", StringComparison.Ordinal),
+    "startup must not install the broad temporary save-processor diagnostic hook");
+string pluginSource = fullPluginSource;
+int plantPipesClass = pluginSource.IndexOf("internal static class PlantPipesRandomization", StringComparison.Ordinal);
+if (plantPipesClass < 0)
+    throw new InvalidOperationException("Could not locate PlantPipesRandomization.");
+pluginSource = pluginSource[plantPipesClass..];
+string slotCallback = MethodBody(
+    pluginSource,
+    "public static void ApplySlotData(Dictionary<string, object>? slotData)",
+    "public static bool TryApplyItem(string itemName)");
+string itemCallback = MethodBody(
+    pluginSource,
+    "public static bool TryApplyItem(string itemName)",
+    "public static void CapturePlayerSaveRequestProcessor(object? instance)");
+string flushMethod = MethodBody(
+    pluginSource,
+    "public static void TryFlushPendingNativeGrant()",
+    "internal static void TickPending(TimeSpan elapsed)");
+Equal(false, slotCallback.Contains("TryFlushPendingNativeGrant", StringComparison.Ordinal),
+    "slot-data callback must not invoke native save APIs off the Unity thread");
+Equal(false, itemCallback.Contains("TryFlushPendingNativeGrant", StringComparison.Ordinal),
+    "item callback must not invoke native save APIs off the Unity thread");
+Equal(true, flushMethod.Contains("if (_applyingNativeGrant)", StringComparison.Ordinal),
+    "native grant reconciliation must reject recursive progression-hook entry");
+
+var adapter = new FakePlantPipesNativeAdapter();
+var runtime = new PlantPipesRuntime(adapter);
+runtime.Configure(synchronized: true, compatible: true);
+runtime.NoteReceivedCount(1);
+
+runtime.OnLifecyclePoint("history replay");
+Equal("save-unavailable", runtime.LastOutcome, "history waits for selected save");
+
+adapter.SaveAvailable = true;
+runtime.OnLifecyclePoint("save available");
+Equal("processor-unavailable", runtime.LastOutcome, "selected save waits for processor");
+
+adapter.ProcessorAvailable = true;
+runtime.OnLifecyclePoint("processor captured");
+Equal("grant-submitted", runtime.LastOutcome, "missing ability submits grant");
+Equal(1, adapter.ApplyCount, "grant submitted once");
+
+runtime.OnLifecyclePoint("scene entry");
+Equal("verified-owned", runtime.LastOutcome, "native state verifies ownership");
+Equal(1, adapter.ApplyCount, "verified ownership is idempotent");
+
+runtime.NoteReceivedCount(2);
+runtime.OnLifecyclePoint("duplicate history");
+Equal("verified-owned", runtime.LastOutcome, "duplicate history remains idempotent");
+Equal(1, adapter.ApplyCount, "duplicate item does not grant twice");
+
+var delayedAdapter = new FakePlantPipesNativeAdapter { SaveAvailable = true, ProcessorAvailable = true, PersistOnApply = false };
+var delayedRuntime = new PlantPipesRuntime(delayedAdapter);
+delayedRuntime.Configure(synchronized: true, compatible: true);
+delayedRuntime.NoteReceivedCount(1);
+delayedRuntime.OnLifecyclePoint("first attempt");
+Equal("grant-submitted", delayedRuntime.LastOutcome, "first delayed grant submitted");
+delayedRuntime.OnLifecyclePoint("verification");
+Equal("verification-pending", delayedRuntime.LastOutcome, "failed verification remains pending");
+Equal(true, delayedRuntime.HasPendingRetry, "failed verification schedules bounded retry");
+delayedRuntime.TickPending(TimeSpan.FromMilliseconds(249), "bounded retry");
+Equal(1, delayedAdapter.ApplyCount, "retry does not fire early");
+delayedRuntime.TickPending(TimeSpan.FromMilliseconds(1), "bounded retry");
+Equal(2, delayedAdapter.ApplyCount, "retry resubmits after first delay");
+Equal("grant-submitted", delayedRuntime.LastOutcome, "retry reports resubmission");
+
 Console.WriteLine("Plant Pipes reconciler policy tests passed.");
+
+internal sealed class FakePlantPipesNativeAdapter : IPlantPipesNativeAdapter
+{
+    public bool SaveAvailable { get; set; }
+    public bool ProcessorAvailable { get; set; }
+    public bool NativeOwned { get; set; }
+    public bool PersistOnApply { get; set; } = true;
+    public int ApplyCount { get; private set; }
+
+    public bool TryReadOwned(out bool owned)
+    {
+        owned = NativeOwned;
+        return SaveAvailable;
+    }
+
+    public bool TryApply(out string detail)
+    {
+        if (!ProcessorAvailable)
+        {
+            detail = "processor unavailable";
+            return false;
+        }
+
+        ApplyCount++;
+        if (PersistOnApply)
+            NativeOwned = true;
+        detail = "fake grant submitted";
+        return true;
+    }
+}

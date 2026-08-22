@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Playable now: APWorld v0.17 retains the Roots-first Area Access milestone and adds randomized Hip Glasses and Chicken Bucket to the existing Garage, Weed Killer, Plant Pipes, cassette-medal, and Music Lab chest systems.
+- Playable development baseline: APWorld v0.18 preserves the v0.17 Roots-first Area Access and bucket-chain systems while the repair release is completed. Client v0.67.61 now restores AP-owned Plant Pipes after save load and full restart without requiring another delivery.
 - Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
 - Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -36,11 +36,13 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.60` | Automated baseline; fresh-save gameplay acceptance pending |
-| APWorld | `0.17` | Roots bucket chain active; random currently resolves only to validated Roots |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17` | Preserves prior client feature gates and activates the exact v0.17 chain |
+| Client | `0.67.61` | Plant Pipes history/restart reconciliation verified; full repaired-route acceptance remains pending |
+| APWorld | `0.18` | Repair contract active; Roots bucket chain preserved; random currently resolves only to validated Roots |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18` | Preserves prior client feature gates and advertises the fail-closed v0.18 repair contract |
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
+
+Plant Pipes restart reconciliation passed live testing on save slot 4: received-item history restored the native ability after the selected save became readable, and the ability remained usable after a full close/relaunch. The complete receive → Level 3 → Hub2 → Level 4 route still requires a fresh end-to-end replay before the broader durability blocker is closed. See [Next release bug-fix gate](docs/NEXT_RELEASE_BUG_FIXES.md).
 
 ## Development disclaimer
 

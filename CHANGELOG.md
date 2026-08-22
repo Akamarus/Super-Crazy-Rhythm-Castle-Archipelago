@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — APWorld v0.18 / Client v0.67.61 repair work
+
+- Added fail-closed v0.18 repair-contract metadata while preserving the existing v0.15–v0.17 implementation prefix and live systems.
+- Reworked Plant Pipes delivery into received-history reconciliation after the selected save becomes readable. Native save access now runs only on Unity's main thread, uses bounded verified retries, rejects progression-hook re-entry, and does not require an unrelated native save request.
+- Verified on 2026-08-21 that an existing AP-owned Plant Pipes item restored `WEED_KILLER_ABILITY=True`, remained usable in Roots, and survived a full game restart without another delivery.
+- Kept the broader Plant Pipes durability blocker open until the complete receive → Level 3 → Hub2 → Level 4 route is replayed end to end on the repaired build.
+- Added regression coverage for background-thread isolation, recursive native-grant protection, retry timing, duplicate history, compatibility gating, and nested client-test project isolation.
+
 ## Unreleased — Known blocking issue
 
 - Client v0.67.60 can become stuck on a permanent black screen when entering Game Garage with zero AP-owned Garage cartridges; audio continues and the pause/menu exit is unavailable.
@@ -7,7 +15,7 @@
 - Client v0.67.60 captures Level 22 as internal `Level_28` but does not map it to an AP completion location, so no Level 22 check is sent. The next client release must map and verify the ordinary completion separately from future Victory logic.
 - The current AP graph exposes all Music Lab cassette checks even though fresh saves retain orange construction barriers that physically block many cassette machines. Barrier conditions and affected groups must be mapped before those locations are considered logically reachable.
 - APWorld v0.17 can generate a BK'd seed by placing required Area Access and quest items behind blocked cassette machines, unowned Game Garage cartridges, native point thresholds, or unreasonable Platinum checks. Seed `AP_28223804408101432968` is retained as the regression case; generation must not be considered playable until solver rules match fresh-save physical reachability.
-- Client v0.67.60 applies AP-delivered Plant Pipes inside Level 3 but loses the usable ability after the Level 3 result/return to Hub2. The next release must reconcile one received item durably across level completion, scene changes, save reload, and game restart.
+- The full Plant Pipes receive → Level 3 → Hub2 → Level 4 durability route still needs a fresh end-to-end replay on Client v0.67.61. History reconciliation and full-restart persistence have passed, but this remaining acceptance gate prevents the broader issue from being called fully fixed.
 
 ## APWorld v0.17 / Client v0.67.60 — Roots bucket progression
 

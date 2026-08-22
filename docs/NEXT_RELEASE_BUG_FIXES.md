@@ -11,7 +11,7 @@ The failed regression seed is `AP_28223804408101432968`. It is useful for reprod
 - [ ] **Map Level 22 completion.** Map native `Level_28` to Level 22's ordinary AP completion/performance locations. A one-Star clear must send its normal check even below the future Victory Star goal; receiving the final required Star later must not retroactively award Victory.
 - [ ] **Model Music Lab construction barriers.** Identify each orange barrier's native unlock condition and affected cassette-machine group. Either represent those conditions in AP logic or implement a narrowly scoped AP normalization rule. No blocked cassette check may appear reachable to the solver.
 - [ ] **Make Plant Pipes durable.** One AP-delivered Plant Pipes item must persist after Level 3 completion, return to Hub2, entry into and completion of Level 4, save reload, scene changes, disconnect/reconnect, and full game restart. Reconciliation must use received-item ownership and must never require a duplicate AP delivery.
-- [ ] **Remove Plant Pipes' save-processor timing dependency.** Received-item history must reconcile after the selected save is available even when no unrelated native progression request occurs. The client must retry safely until it can verify the native ability state, then remain idempotent.
+- [x] **Remove Plant Pipes' save-processor timing dependency.** Client v0.67.61 constructs the stateless native request processor only after selected-save enquiries are readable, queues AP callbacks without touching Unity/native state off-thread, retries on the Unity thread, verifies `WEED_KILLER_ABILITY=True`, and remains idempotent. Live slot-4 testing on 2026-08-21 restored Plant Pipes from received-item history without another AP delivery and retained the usable ability after a full game restart.
 - [ ] **Split Royal Corridor reachability.** `Royal Corridor Access` reaches only the phone-side Level 22 route. The Royal Star Eater interaction, completed bridge, and Level 21 side must remain separate logical states until their native requirements are satisfied.
 
 ## Approved next-release behavior work
@@ -34,3 +34,7 @@ After all blockers above pass automated tests:
 9. Restart the game at multiple points and confirm all received progression remains durable.
 
 The release notes must list only the items whose acceptance tests passed. Any remaining unchecked item stays under known issues.
+
+## Verified repair evidence
+
+- **Plant Pipes timing/restart reconciliation:** passed on 2026-08-21 with Client v0.67.61 against the retained v0.17 seed and save slot 4. The selected save already contained the completed Level 3 source marker and previously completed Level 4 route. On load, the client verified `LEVEL_07_WK_ABILITY_EARNED=True`, restored `WEED_KILLER_ABILITY=True` from AP ownership, reached Music Lab normally, and Plant Pipes were usable in Roots. After a normal close and full relaunch, the same save again reached Music Lab and Plant Pipes remained usable. The broader durability blocker remains open until the complete receive -> Level 3 -> Hub2 -> Level 4 sequence is replayed end to end on the repaired build.

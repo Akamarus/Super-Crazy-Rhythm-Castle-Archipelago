@@ -70,6 +70,8 @@ In an admin-assisted fresh-save test, Client v0.67.60 correctly received Plant P
 
 The next client release must reconcile AP-owned Plant Pipes after level completion and every relevant scene/save reload, without generating a second AP item. Acceptance requires receiving Plant Pipes once, completing Level 3, returning to Hub2, entering and completing Level 4, and retaining the ability across a full game restart.
 
+Client v0.67.61 now contains a verified repair candidate. Live slot-4 testing on 2026-08-21 restored `WEED_KILLER_ABILITY=True` from received-item history after the selected save became readable, preserved `LEVEL_07_WK_ABILITY_EARNED=True`, and kept Plant Pipes usable in Roots across a full close/relaunch without another AP delivery. The implementation also prevents native save access from the AP background thread and guards native grant submission against progression-hook re-entry. The complete fresh receive -> Level 3 -> Hub2 -> Level 4 route must still be replayed before the broader durability issue is closed.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
