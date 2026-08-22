@@ -23,6 +23,8 @@ New-Item -ItemType Directory -Force -Path $tempPackage | Out-Null
 
 try {
     Copy-Item (Join-Path $sourceDir "*") $tempPackage -Recurse -Force
+    Get-ChildItem -LiteralPath $tempPackage -Directory -Filter "__pycache__" -Recurse |
+        Remove-Item -Recurse -Force
 
     $zipPath = Join-Path $OutputDir "scrc.zip"
     $apworldPath = Join-Path $OutputDir "scrc.apworld"

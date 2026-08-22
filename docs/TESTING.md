@@ -50,11 +50,29 @@ Before accepting a Roots milestone, confirm:
 - Without Plant Pipes, menu exit from Level 3 works.
 - Receiving `Plant Pipes` grants `WEED_KILLER_ABILITY`.
 - With Plant Pipes, Level 3 can be completed.
+- Level 4 sets `LEVEL_08_GLASSES_COLLECTED` and sends `Roots - Level 4 - Hip Glasses` exactly once without locally granting Hip Glasses.
+- AP-delivered Hip Glasses enables the normal Bucket Minion interaction.
+- The normal trade consumes Hip Glasses, sends `Roots - Bucket Minion Trade`, preserves dialogue/blockade/King flags, and does not locally grant Chicken Bucket.
+- AP-delivered Chicken Bucket enables the normal Lift Quest interaction.
+- Lift Quest consumes Chicken Bucket, grants native Combo Bucket, completes Level 09, and transitions to the Lobby normally.
+- Reloading/reconnecting while held preserves each item; reloading/reconnecting after consumption does not restore it or duplicate a check.
+- An old/incompatible seed and a non-AP save retain the complete vanilla chain.
 - Stable unrelated systems remain intact: Game Garage, Music Lab reward chests, cassettes, Secret Bunker.
 
 ## Logs
 
 `LogOutput.log` is a test artifact, not source. Do not commit it. For public reports, follow the redaction and excerpt guidance in [Testing and issue reports](TESTING_AND_ISSUES.md); do not attach credentials, private addresses, personal paths, game files, or proprietary assemblies.
+
+For bridge-assisted development, log watching must be started for an explicit implementation task with `Start-LocalAiDevelopmentSession` and stopped with `Stop-LocalAiDevelopmentSession`. It tails only the configured game's `BepInEx\LogOutput.log`, starts at the current end, and stores filtered output under ignored `.local-ai/<task-id>/` state. It does not launch the game or persist outside the owning PowerShell session.
+
+Run the bridge regression suite before reviewing bridge changes:
+
+```powershell
+Invoke-Pester .\tools\local-ai\tests -Output Detailed
+python .\tools\validate-repo.py
+```
+
+Bridge tests do not replace the runtime checklist below. Gameplay verification remains required for client behavior.
 
 Useful exact log phrases for the current Roots chain include:
 
@@ -68,4 +86,10 @@ ROOTS WEED KILLER NATIVE GRANT APPLIED
 ROOTS PLANT PIPES VANILLA GRANT SUPPRESSED
 ROOTS PLANT PIPES SOURCE AP CHECK
 ROOTS PLANT PIPES NATIVE GRANT APPLIED
+ROOTS BUCKET RANDOMIZATION ENABLED
+ROOTS BUCKET VANILLA GRANT SUPPRESSED
+ROOTS BUCKET SOURCE AP CHECK
+ROOTS BUCKET NATIVE GRANT APPLIED
 ```
+
+When testing later score or objective checks without Combo Bucket, report the exact level/song, native difficulty, AP performance tier, score, stars, medal or missed objective, player count, abilities, attempt count, best result, and whether `COMBO_BUCKET_ABILITY` was absent. Include a focused log excerpt and video when practical. A success proves feasibility under those conditions; a failed attempt alone does not prove impossibility and must not create a solver requirement by itself.

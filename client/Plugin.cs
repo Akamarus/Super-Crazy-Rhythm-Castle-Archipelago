@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.59";
+    public const string PluginVersion = "0.67.61";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -100,7 +100,7 @@ public sealed class Plugin : BasePlugin
         LocationMap.GarageMedalLocationFormat = garageMedalLocationFormat.Value;
         LocationMap.CassetteMedalLocationFormat = cassetteMedalLocationFormat.Value;
 
-        Log.LogInfo("[SCRC-AP] v0.67.59 loading.");
+        Log.LogInfo("[SCRC-AP] v0.67.61 loading.");
 
         _harmony = new Harmony(PluginGuid);
         int patched = 0;
@@ -118,7 +118,6 @@ public sealed class Plugin : BasePlugin
         patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
-
         patched += PatchIntroRoomToHubRedirect();
         patched += PatchDifficultyAssignmentRequest();
         patched += PatchEarlyUnlockSequenceSteps();
@@ -139,6 +138,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
+        RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
         if (enabled.Value)
         {
@@ -151,6 +151,8 @@ public sealed class Plugin : BasePlugin
             "[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION READY: waits for APWorld v0.14+ slot data. Gecko's WEED_KILLER_BAG_ITEM grant is suppressed, ROOTS_HUB_WEED_KILLER_COLLECTED sends the AP source check, and receiving Weed Killer writes the real native bag-item progression flag so vanilla can consume it for Level 3 access.");
         Log.LogWarning(
             "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
+        if (enabled.Value)
+            AddComponent<PlantPipesReconciliationKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
@@ -164,7 +166,7 @@ public sealed class Plugin : BasePlugin
         }
 
         Log.LogWarning(
-            $"[SCRC-AP] MUSIC LAB REWARD CHEST AP CHECKS READY: thresholds=5/10/20/32/46/64/89/111/140. v0.67.59 reads each live Hub6 chest's native unlock requirement + chestUnlockedProgressionFlag only after Hub6 has loaded, then reconciles already-collected rewards against the save. No startup-time chest component is created; vanilla rewards are unchanged.");
+            $"[SCRC-AP] MUSIC LAB REWARD CHEST AP CHECKS READY: thresholds=5/10/20/32/46/64/89/111/140. v0.67.60 reads each live Hub6 chest's native unlock requirement + chestUnlockedProgressionFlag only after Hub6 has loaded, then reconciles already-collected rewards against the save. No startup-time chest component is created; vanilla rewards are unchanged.");
         Log.LogWarning(
             $"[SCRC-AP] GAME GARAGE AP CHECKS READY: songs=6 cumulativeStickerTiers=Bronze/Silver/Gold/Platinum locationFormat='{LocationMap.GarageMedalLocationFormat}'. Cartridge insertion supplies song identity; SongStickerEvaluation supplies the earned sticker.");
         Log.LogWarning(
@@ -177,7 +179,7 @@ public sealed class Plugin : BasePlugin
         {
             AddComponent<BunkerStarRequirementKeeper>();
             Log.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER STAR REQUIREMENT OVERRIDE ENABLED: final Hub8 Star Eater target={BunkerStarRequirementKeeper.RequiredStars} stars. v0.67.59 keeps the temporary GetValue=target patch and, only near this exact Hub8 Star Eater, temporarily enables its native interaction checks and registers the real NPC with the game's interaction-interest pipeline.");
+                $"[SCRC-AP] SECRET BUNKER STAR REQUIREMENT OVERRIDE ENABLED: final Hub8 Star Eater target={BunkerStarRequirementKeeper.RequiredStars} stars. v0.67.60 keeps the temporary GetValue=target patch and, only near this exact Hub8 Star Eater, temporarily enables its native interaction checks and registers the real NPC with the game's interaction-interest pipeline.");
         }
 
         if (NativeProgression.RandomizeEarlyProgression)
@@ -277,9 +279,9 @@ public sealed class Plugin : BasePlugin
             AddComponent<DeveloperHotkeys>();
             AddComponent<MusicLabDiagnosticKeeper>();
             Log.LogWarning(
-                "[SCRC-AP] MUSIC LAB DIAGNOSTIC ENABLED: Hub6/GameRoom_27 plus live cassette-start enquiry probing. v0.67.59 keeps the solved Garage cartridge-state identity path, sends cumulative Garage sticker AP checks on real results, and tracks all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from the live native Hub6 chest metadata; Hub6 F5 forces reconciliation and prints the discovered mapping/status.");
+                "[SCRC-AP] MUSIC LAB DIAGNOSTIC ENABLED: Hub6/GameRoom_27 plus live cassette-start enquiry probing. v0.67.60 keeps the solved Garage cartridge-state identity path, sends cumulative Garage sticker AP checks on real results, and tracks all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from the live native Hub6 chest metadata; Hub6 F5 forces reconciliation and prints the discovered mapping/status.");
             Log.LogWarning(
-                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED: F1 grants Level 6; Shift+F1 resets Level 6; Ctrl+F1 grants Level 7; Ctrl+Shift+F1 resets Level 7; Alt+F1 grants Level 8; Alt+Shift+F1 resets Level 8; Ctrl+F2 grants Level 9; Ctrl+Shift+F2 resets Level 9; Alt+F2 grants Level 10; Alt+Shift+F2 resets Level 10; plain F2 resets Level 5; Ctrl+F4 grants Level 5; Shift+F4 cycles the temporary Music Lab point override through the next reward thresholds (89/111/140/OFF); Ctrl+F3 grants Level 11; plain F3 resets Level 11; Ctrl+F5 grants Level 12; Alt+F5 resets Level 12; Ctrl+F6 grants Level 13; Alt+F6 resets Level 13; Ctrl+F7 grants Level 14; Alt+F7 resets Level 14; Ctrl+F8 grants Level 15; Alt+F8 resets Level 15; Ctrl+F9 grants Level 16; Alt+F9 resets Level 16; Ctrl+F10 grants Level 17; Alt+F10 resets Level 17; Ctrl+Shift+F10 grants Level 22; Alt+Shift+F10 resets Level 22; Ctrl+F11 grants Level 18; Alt+F11 resets Level 18; Ctrl+F12 grants Level 19; Alt+F12 resets Level 19; Ctrl+Shift+F12 grants Level 20; Alt+Shift+F12 resets Level 20; Ctrl+Shift+F11 grants Level 21; Alt+Shift+F11 resets Level 21; F4 starts/restarts Secret Bunker / final Star Eater discovery; plain F5 runs the focused Music Lab/Game Garage diagnostic in Hub6/GameRoom_27, otherwise the existing Secret Bunker scan; Shift+F5 forces one 20-second Secret Bunker requirement + interaction patch test; plain F6 direct Level 4 transition; plain F7 resets Level 4; F8 resets Level 2 + reloads; F9 grants Level 2; F10 grants Level 3; F11 resets Level 3; F12 grants Level 4; HOME prints compact Roots baseline status in Hub2 (no probe), otherwise runs the read-only Phone Booth/fast-travel scan and arms the next transition for 30 seconds; when Area Access routing is enabled, PAGE UP grants the next locked area; PAGE DOWN resets only in fixed-start developer mode and is ignored in AP-driven mode; END prints Area Access status.");
+                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED: F1 grants Level 6; Shift+F1 resets Level 6; Ctrl+F1 grants Level 7; Ctrl+Shift+F1 resets Level 7; Alt+F1 grants Level 8; Alt+Shift+F1 resets Level 8; Ctrl+F2 grants Level 9; Ctrl+Shift+F2 resets Level 9; Alt+F2 grants Level 10; Alt+Shift+F2 resets Level 10; plain F2 resets Level 5; Ctrl+F4 grants Level 5; Shift+F4 cycles the temporary Music Lab point override through the next reward thresholds (89/111/140/OFF); Ctrl+F3 grants Level 11; plain F3 resets Level 11; Ctrl+F5 grants Level 12; Alt+F5 resets Level 12; Ctrl+F6 grants Level 13; Alt+F6 resets Level 13; Ctrl+F7 grants Level 14; Alt+F7 resets Level 14; Ctrl+F8 grants Level 15; Alt+F8 resets Level 15; Ctrl+F9 grants Level 16; Alt+F9 resets Level 16; Ctrl+F10 grants Level 17; Alt+F10 resets Level 17; Ctrl+Shift+F10 grants Level 22; Alt+Shift+F10 resets Level 22; Ctrl+F11 grants Level 18; Alt+F11 resets Level 18; Ctrl+F12 grants Level 19; Alt+F12 resets Level 19; Ctrl+Shift+F12 grants Level 20; Alt+Shift+F12 resets Level 20; Ctrl+Shift+F11 grants Level 21; Alt+Shift+F11 resets Level 21; plain F4 starts/restarts the Level 4 -> Lift Quest trace in GameRoom_08/Hub2/GameRoom_09 and keeps the existing discovery elsewhere; plain F5 scans the focused Level 4 -> Lift Quest route in those rooms and keeps the existing context-aware scan elsewhere; Shift+F5 forces one 20-second Secret Bunker requirement + interaction patch test; plain F6 direct Level 4 transition; plain F7 resets Level 4; F8 resets Level 2 + reloads; F9 grants Level 2; F10 grants Level 3; F11 resets Level 3; F12 grants Level 4; HOME prints compact Roots baseline status in Hub2 (no probe), otherwise runs the read-only Phone Booth/fast-travel scan and arms the next transition for 30 seconds; when Area Access routing is enabled, PAGE UP grants the next locked area; PAGE DOWN resets only in fixed-start developer mode and is ignored in AP-driven mode; END prints Area Access status.");
         }
 
         if (IntroHubSkip.Enabled)
@@ -1043,8 +1045,9 @@ internal sealed class ArchipelagoClient
                             bool handledGarageCartridge = GarageCartridgeAccess.TryApplyItem(item.ItemName);
                             bool handledWeedKiller = WeedKillerRandomization.TryApplyItem(item.ItemName);
                             bool handledPlantPipes = PlantPipesRandomization.TryApplyItem(item.ItemName);
+                            bool handledRootsBucket = RootsBucketRandomization.TryApplyItem(item.ItemName);
 
-                            if (!handledAreaAccess && !handledGarageCartridge && !handledWeedKiller && !handledPlantPipes && _applyReceivedProgression)
+                            if (!handledAreaAccess && !handledGarageCartridge && !handledWeedKiller && !handledPlantPipes && !handledRootsBucket && _applyReceivedProgression)
                                 NativeProgression.ApplyArchipelagoItem(item.ItemName);
                         }
                         catch (Exception ex)
@@ -1092,6 +1095,7 @@ internal sealed class ArchipelagoClient
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
+                    RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
                 }
                 catch (Exception ex)
                 {
@@ -16930,9 +16934,12 @@ internal static class PlantPipesRandomization
 
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
-    private static bool _owned;
-    private static bool _pendingNativeGrant;
-    private static bool _nativeGrantApplied;
+    private static bool _slotDataSynchronized;
+    private static bool _compatible;
+    private static int _receivedCount;
+    private static PlantPipesRuntime _runtime = new(new NativeAdapter());
+    private static string _lastRuntimeOutcome = string.Empty;
+    private static bool _processorConstructionFailureLogged;
 
     [ThreadStatic]
     private static bool _applyingNativeGrant;
@@ -16947,9 +16954,12 @@ internal static class PlantPipesRandomization
             Enabled = false;
             ImplementationVersion = string.Empty;
             _playerSaveRequestProcessor = null;
-            _owned = false;
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = false;
+            _slotDataSynchronized = false;
+            _compatible = false;
+            _receivedCount = 0;
+            _runtime = new PlantPipesRuntime(new NativeAdapter());
+            _lastRuntimeOutcome = string.Empty;
+            _processorConstructionFailureLogged = false;
         }
     }
 
@@ -16971,19 +16981,24 @@ internal static class PlantPipesRandomization
                 bool.TryParse(rawEnabled.ToString(), out requested);
         }
 
+        bool repairClaimed = ReadSlotBool(slotData, "plant_pipes_durable_reconciliation");
+        bool repairContractValid = !repairClaimed ||
+                                   RepairCompatibilityPolicy.IsCompatible(implementation, repairClaimed);
+
         lock (Sync)
         {
             ImplementationVersion = implementation;
             Enabled = requested &&
                       implementation.StartsWith("area-routing-plant-pipes-0.15", StringComparison.OrdinalIgnoreCase);
+            _slotDataSynchronized = true;
+            _compatible = Enabled && repairContractValid;
+            _runtime.Configure(_slotDataSynchronized, _compatible);
         }
 
         Plugin.LoggerInstance?.LogWarning(
             Enabled
-                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}'. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP delivery grants the ability."
-                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled implementation='{implementation}' requested={requested}; Plant Pipes remain vanilla for this seed.");
-
-        TryFlushPendingNativeGrant();
+                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}' durableRepair={repairClaimed}. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP ownership is reconciled against the selected save."
+                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled implementation='{implementation}' requested={requested} repairContractValid={repairContractValid}; Plant Pipes remain vanilla for this seed.");
     }
 
     public static bool TryApplyItem(string itemName)
@@ -16991,16 +17006,15 @@ internal static class PlantPipesRandomization
         if (!string.Equals(itemName, ItemName, StringComparison.OrdinalIgnoreCase))
             return false;
 
+        int count;
         lock (Sync)
         {
-            _owned = true;
-            _pendingNativeGrant = true;
+            count = ++_receivedCount;
+            _runtime.NoteReceivedCount(count);
         }
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS PLANT PIPES RECEIVED item='{ItemName}' routingEnabled={Enabled}. Native ability flag '{NativeAbilityFlag}' will be applied immediately when PlayerSaveRequestProcessor is available.");
-
-        TryFlushPendingNativeGrant();
+            $"[SCRC-AP] ROOTS PLANT PIPES RECEIVED item='{ItemName}' receivedCount={count} routingEnabled={Enabled}. Native ability flag '{NativeAbilityFlag}' will be reconciled when the selected save is readable.");
         return true;
     }
 
@@ -17015,32 +17029,45 @@ internal static class PlantPipesRandomization
 
     public static void TryFlushPendingNativeGrant()
     {
-        object? processor;
-        bool shouldGrant;
-        lock (Sync)
-        {
-            shouldGrant = Enabled && _owned && _pendingNativeGrant && !_nativeGrantApplied;
-            processor = _playerSaveRequestProcessor;
-        }
-
-        if (_applyingNativeGrant || !shouldGrant || processor == null)
+        if (_applyingNativeGrant)
             return;
 
-        if (!TrySubmitProgressionFlag(processor, NativeAbilityFlag, true, out string detail))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS PLANT PIPES native grant pending: could not submit '{NativeAbilityFlag}' yet. {detail}");
-            return;
-        }
-
+        string previous;
+        string current;
         lock (Sync)
         {
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = true;
+            _runtime.Configure(_slotDataSynchronized, _compatible);
+            _runtime.NoteReceivedCount(_receivedCount);
+            previous = _lastRuntimeOutcome;
+            _runtime.OnLifecyclePoint("lifecycle");
+            current = _runtime.LastOutcome;
+            _lastRuntimeOutcome = current;
         }
 
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS PLANT PIPES NATIVE GRANT APPLIED flag='{NativeAbilityFlag}'. Level 3 can use the real Plant Pipes ability immediately. {detail}");
+        if (!string.Equals(previous, current, StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS PLANT PIPES reconciliation result={current} receivedCount={_receivedCount} room='{DeveloperHarness.CurrentRoomId}'.");
+        }
+    }
+
+    internal static void TickPending(TimeSpan elapsed)
+    {
+        string previous;
+        string current;
+        lock (Sync)
+        {
+            previous = _lastRuntimeOutcome;
+            _runtime.TickPending(elapsed, "bounded retry");
+            current = _runtime.LastOutcome;
+            _lastRuntimeOutcome = current;
+        }
+
+        if (!string.Equals(previous, current, StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS PLANT PIPES retry result={current} room='{DeveloperHarness.CurrentRoomId}'.");
+        }
     }
 
     public static bool ShouldSuppressFrogHippoVanillaGrant(object request, string flag)
@@ -17074,6 +17101,115 @@ internal static class PlantPipesRandomization
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] ROOTS PLANT PIPES SOURCE AP CHECK flag='{flag}' location='{SourceLocationName}'. Native Frog/Hippo source marker retained; native Plant Pipes ability grant is randomized.");
         Plugin.AP?.QueueLocation(SourceLocationName);
+    }
+
+    internal static string ReadDiagnosticState()
+    {
+        bool abilityReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out bool ability);
+        bool sourceReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeSourceMarkerFlag, out bool source);
+        bool owned;
+        bool pending;
+        bool applied;
+        bool processor;
+        lock (Sync)
+        {
+            owned = _receivedCount > 0;
+            pending = _runtime.HasPendingRetry || _runtime.LastOutcome is "save-unavailable" or "processor-unavailable" or "verification-pending";
+            applied = _runtime.LastOutcome is "grant-submitted" or "verified-owned";
+            processor = _playerSaveRequestProcessor != null;
+        }
+
+        return $"room='{DeveloperHarness.CurrentRoomId}' selectedSaveReadable={abilityReadable && sourceReadable} " +
+               $"{NativeAbilityFlag}={(abilityReadable ? ability.ToString() : "<unavailable>")} " +
+               $"{NativeSourceMarkerFlag}={(sourceReadable ? source.ToString() : "<unavailable>")} " +
+               $"apOwned={owned} pending={pending} appliedThisProcess={applied} processorAvailable={processor}";
+    }
+
+    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
+    {
+        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
+            return false;
+        if (raw is bool value)
+            return value;
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+
+    private static bool EnsureProcessorAvailable()
+    {
+        lock (Sync)
+        {
+            if (_playerSaveRequestProcessor != null)
+                return true;
+        }
+
+        if (!RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _))
+            return false;
+
+        try
+        {
+            Type? processorType = ReflectionUtil.GameAssembly == null
+                ? null
+                : ReflectionUtil.SafeGetTypes(ReflectionUtil.GameAssembly)
+                    .FirstOrDefault(t => string.Equals(t.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal));
+            ConstructorInfo? constructor = processorType?.GetConstructors(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(c => c.GetParameters().Length == 0);
+            object? processor = constructor?.Invoke(Array.Empty<object>());
+            if (processor == null)
+                throw new InvalidOperationException("parameterless PlayerSaveRequestProcessor constructor unavailable");
+
+            lock (Sync)
+                _playerSaveRequestProcessor = processor;
+            Plugin.LoggerInstance?.LogInfo(
+                "[SCRC-AP] ROOTS PLANT PIPES constructed stateless PlayerSaveRequestProcessor after selected-save enquiries became readable.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            bool log;
+            lock (Sync)
+            {
+                log = !_processorConstructionFailureLogged;
+                _processorConstructionFailureLogged = true;
+            }
+            if (log)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] ROOTS PLANT PIPES processor construction unavailable: {ex.GetBaseException().Message}");
+            }
+            return false;
+        }
+    }
+
+    private sealed class NativeAdapter : IPlantPipesNativeAdapter
+    {
+        public bool SaveAvailable =>
+            RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _);
+
+        public bool ProcessorAvailable => EnsureProcessorAvailable();
+
+        public bool TryReadOwned(out bool owned) =>
+            RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out owned);
+
+        public bool TryApply(out string detail)
+        {
+            object? processor;
+            lock (Sync)
+                processor = _playerSaveRequestProcessor;
+            if (processor == null && !EnsureProcessorAvailable())
+            {
+                detail = "PlayerSaveRequestProcessor unavailable.";
+                return false;
+            }
+            lock (Sync)
+                processor = _playerSaveRequestProcessor;
+            if (processor == null)
+            {
+                detail = "PlayerSaveRequestProcessor unavailable after construction.";
+                return false;
+            }
+            return TrySubmitProgressionFlag(processor, NativeAbilityFlag, true, out detail);
+        }
     }
 
     private static bool TrySubmitProgressionFlag(object processor, string flagName, bool value, out string detail)
@@ -17232,6 +17368,349 @@ internal static class PlantPipesRandomization
         return false;
     }
 }
+
+internal static class RootsBucketRandomization
+{
+    internal const string HipGlassesItem = "Hip Glasses";
+    internal const string ChickenBucketItem = "Chicken Bucket";
+    internal const string HipGlassesLocation = "Roots - Level 4 - Hip Glasses";
+    internal const string BucketTradeLocation = "Roots - Bucket Minion Trade";
+    internal const string HipGlassesNativeFlag = "HIP_GLASSES_BAG_ITEM";
+    internal const string HipGlassesSourceFlag = "LEVEL_08_GLASSES_COLLECTED";
+    internal const string BucketTradeFlag = "ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES";
+    internal const string ChickenBucketNativeFlag = "CHICKEN_BUCKET_BAG_ITEM";
+    internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";
+
+    private static readonly object Sync = new();
+    private static object? _playerSaveRequestProcessor;
+    private static bool _slotDataSynchronized;
+    private static bool _compatible;
+    private static int _hipGlassesReceived;
+    private static int _chickenBucketReceived;
+    private static bool _hipGrantAppliedThisProcess;
+    private static bool _chickenGrantAppliedThisProcess;
+    private static bool _nativeProbePendingLogged;
+
+    [ThreadStatic]
+    private static int _applyingArchipelagoGrant;
+
+    internal static void Configure()
+    {
+        lock (Sync)
+        {
+            _playerSaveRequestProcessor = null;
+            _slotDataSynchronized = false;
+            _compatible = false;
+            _hipGlassesReceived = 0;
+            _chickenBucketReceived = 0;
+            _hipGrantAppliedThisProcess = false;
+            _chickenGrantAppliedThisProcess = false;
+            _nativeProbePendingLogged = false;
+        }
+    }
+
+    internal static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        string implementation = ReadSlotString(slotData, "implementation_version");
+        bool requested = ReadSlotBool(slotData, "randomize_hip_glasses_chicken_bucket");
+        bool metadataMatches =
+            string.Equals(ReadSlotString(slotData, "hip_glasses_item"), HipGlassesItem, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "chicken_bucket_item"), ChickenBucketItem, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "hip_glasses_source_location"), HipGlassesLocation, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "bucket_minion_trade_location"), BucketTradeLocation, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "hip_glasses_source_flag"), HipGlassesSourceFlag, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "hip_glasses_native_flag"), HipGlassesNativeFlag, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "bucket_trade_flag"), BucketTradeFlag, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "chicken_bucket_native_flag"), ChickenBucketNativeFlag, StringComparison.Ordinal) &&
+            string.Equals(ReadSlotString(slotData, "combo_bucket_conversion_flag"), ChickenConsumedFlag, StringComparison.Ordinal);
+        bool compatible = RootsBucketRandomizationPolicy.IsCompatible(implementation, requested) && metadataMatches;
+
+        lock (Sync)
+        {
+            _slotDataSynchronized = true;
+            _compatible = compatible;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            compatible
+                ? $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION ENABLED implementation='{implementation}'. Level 4 and Bucket Minion sources are AP checks; received inventory reconciles against native consumption markers."
+                : $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION disabled implementation='{implementation}' requested={requested} metadataMatches={metadataMatches}; native behavior remains unchanged.");
+
+        TryFlushPendingNativeGrants();
+    }
+
+    internal static bool TryApplyItem(string itemName)
+    {
+        bool hip = string.Equals(itemName, HipGlassesItem, StringComparison.Ordinal);
+        bool chicken = string.Equals(itemName, ChickenBucketItem, StringComparison.Ordinal);
+        if (!hip && !chicken)
+            return false;
+
+        int count;
+        lock (Sync)
+        {
+            if (hip)
+                count = ++_hipGlassesReceived;
+            else
+                count = ++_chickenBucketReceived;
+        }
+
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] ROOTS BUCKET ITEM RECEIVED item='{itemName}' receivedCount={count}.");
+        TryFlushPendingNativeGrants();
+        return true;
+    }
+
+    internal static void CapturePlayerSaveRequestProcessor(object? instance)
+    {
+        if (instance == null ||
+            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
+            return;
+
+        lock (Sync)
+            _playerSaveRequestProcessor = instance;
+    }
+
+    internal static void TryFlushPendingNativeGrants()
+    {
+        if (_applyingArchipelagoGrant != 0)
+            return;
+
+        object? processor;
+        bool synchronized;
+        bool compatible;
+        int hipReceived;
+        int chickenReceived;
+        bool hipApplied;
+        bool chickenApplied;
+        lock (Sync)
+        {
+            processor = _playerSaveRequestProcessor;
+            synchronized = _slotDataSynchronized;
+            compatible = _compatible;
+            hipReceived = _hipGlassesReceived;
+            chickenReceived = _chickenBucketReceived;
+            hipApplied = _hipGrantAppliedThisProcess;
+            chickenApplied = _chickenGrantAppliedThisProcess;
+        }
+
+        if (!synchronized || !compatible || processor == null || (hipReceived <= 0 && chickenReceived <= 0))
+            return;
+
+        if (!TryReadProgressionFlag(HipGlassesNativeFlag, out bool hipHeld) ||
+            !TryReadProgressionFlag(BucketTradeFlag, out bool hipConsumed) ||
+            !TryReadProgressionFlag(ChickenBucketNativeFlag, out bool chickenHeld) ||
+            !TryReadProgressionFlag(ChickenConsumedFlag, out bool chickenConsumed))
+        {
+            bool log;
+            lock (Sync)
+            {
+                log = !_nativeProbePendingLogged;
+                _nativeProbePendingLogged = true;
+            }
+            if (log)
+                Plugin.LoggerInstance?.LogInfo("[SCRC-AP] ROOTS BUCKET reconciliation deferred until native progression enquiries are available.");
+            return;
+        }
+
+        lock (Sync)
+            _nativeProbePendingLogged = false;
+
+        RootsBucketReconciliation result = RootsBucketRandomizationPolicy.Reconcile(
+            synchronized,
+            compatible,
+            new RootsBucketLifecycleState(
+                hipReceived,
+                chickenReceived,
+                hipHeld || hipApplied,
+                hipConsumed,
+                chickenHeld || chickenApplied,
+                chickenConsumed));
+
+        ApplyGrantDecision(processor, HipGlassesItem, HipGlassesNativeFlag, result.HipGlasses, hip: true);
+        ApplyGrantDecision(processor, ChickenBucketItem, ChickenBucketNativeFlag, result.ChickenBucket, hip: false);
+    }
+
+    private static void ApplyGrantDecision(
+        object processor,
+        string itemName,
+        string flagName,
+        RootsBucketGrantDecision decision,
+        bool hip)
+    {
+        if (decision == RootsBucketGrantDecision.Consumed)
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS BUCKET reconciliation item='{itemName}' result=consumed; received history will not restore it.");
+            return;
+        }
+        if (decision != RootsBucketGrantDecision.Apply)
+            return;
+
+        _applyingArchipelagoGrant++;
+        bool submitted;
+        string detail;
+        try
+        {
+            submitted = WeedKillerRandomization.TrySubmitProgressionFlag(processor, flagName, true, out detail);
+        }
+        finally
+        {
+            _applyingArchipelagoGrant--;
+        }
+
+        if (!submitted)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] ROOTS BUCKET native grant pending item='{itemName}' flag='{flagName}'. {detail}");
+            return;
+        }
+
+        lock (Sync)
+        {
+            if (hip)
+                _hipGrantAppliedThisProcess = true;
+            else
+                _chickenGrantAppliedThisProcess = true;
+        }
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] ROOTS BUCKET NATIVE GRANT APPLIED item='{itemName}' flag='{flagName}'. {detail}");
+    }
+
+    internal static bool ShouldSuppressVanillaGrant(object request, string flag)
+    {
+        bool synchronized;
+        bool compatible;
+        lock (Sync)
+        {
+            synchronized = _slotDataSynchronized;
+            compatible = _compatible;
+        }
+
+        bool value = ReflectionUtil.ReadBool(request, "Value") ?? false;
+        bool suppress = _applyingArchipelagoGrant == 0 &&
+                        RootsBucketRandomizationPolicy.ShouldSuppressVanillaGrant(
+                            synchronized,
+                            compatible,
+                            DeveloperHarness.CurrentRoomId,
+                            flag,
+                            value);
+        if (suppress)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] ROOTS BUCKET VANILLA GRANT SUPPRESSED flag='{flag}' room='{DeveloperHarness.CurrentRoomId}'. Native story progression continues; inventory must come from Archipelago.");
+        }
+        return suppress;
+    }
+
+    internal static void RecordSourceCollected(object request, string flag)
+    {
+        bool active;
+        lock (Sync)
+            active = _slotDataSynchronized && _compatible;
+        if (!active || !(ReflectionUtil.ReadBool(request, "Value") ?? false))
+            return;
+
+        string? location = null;
+        if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_08", StringComparison.Ordinal) &&
+            string.Equals(flag, HipGlassesSourceFlag, StringComparison.Ordinal))
+            location = HipGlassesLocation;
+        else if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub2", StringComparison.Ordinal) &&
+                 string.Equals(flag, BucketTradeFlag, StringComparison.Ordinal))
+            location = BucketTradeLocation;
+
+        if (location == null)
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] ROOTS BUCKET SOURCE AP CHECK flag='{flag}' location='{location}'. Native marker retained.");
+        Plugin.AP?.QueueLocation(location);
+    }
+
+    internal static bool TryReadProgressionFlag(string flagName, out bool value)
+    {
+        value = false;
+        Assembly? assembly = ReflectionUtil.GameAssembly;
+        if (assembly == null)
+            return false;
+
+        Type? enquiries = ReflectionUtil.SafeGetTypes(assembly)
+            .FirstOrDefault(t => string.Equals(t.Name, "CurrentPlayerSaveEnquiries", StringComparison.Ordinal));
+        if (enquiries == null)
+            return false;
+
+        foreach (MethodInfo method in enquiries.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+        {
+            if (method.ReturnType != typeof(bool))
+                continue;
+            ParameterInfo[] parameters;
+            try { parameters = method.GetParameters(); }
+            catch { continue; }
+            if (parameters.Length != 1 ||
+                !parameters[0].ParameterType.Name.Contains("GameProgressionFlag", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                Type flagType = parameters[0].ParameterType;
+                object flagValue = flagType.IsEnum
+                    ? Enum.Parse(flagType, flagName, ignoreCase: false)
+                    : Activator.CreateInstance(flagType, flagName)
+                      ?? throw new InvalidOperationException($"Could not construct {flagType.FullName}.");
+                object? raw = method.Invoke(null, new[] { flagValue });
+                if (raw is bool result)
+                {
+                    value = result;
+                    return true;
+                }
+            }
+            catch { }
+        }
+        return false;
+    }
+
+    private static string ReadSlotString(Dictionary<string, object>? slotData, string key) =>
+        slotData != null && slotData.TryGetValue(key, out object? raw)
+            ? raw?.ToString() ?? string.Empty
+            : string.Empty;
+
+    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
+    {
+        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
+            return false;
+        if (raw is bool value)
+            return value;
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+}
+
+internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
+{
+    private int _cooldown;
+    private string _lastState = string.Empty;
+
+    public PlantPipesReconciliationKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 60;
+
+        PlantPipesRandomization.TryFlushPendingNativeGrant();
+        PlantPipesRandomization.TickPending(TimeSpan.FromSeconds(1));
+
+        string state = PlantPipesRandomization.ReadDiagnosticState();
+        if (string.Equals(state, _lastState, StringComparison.Ordinal))
+            return;
+
+        _lastState = state;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] ROOTS PLANT PIPES STATE {state}");
+    }
+}
+
 
 internal static class GarageCartridgeAccess
 {
@@ -18223,13 +18702,13 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
-            bool control =
-                Input.GetKey(KeyCode.LeftControl) ||
-                Input.GetKey(KeyCode.RightControl);
-
             bool alt =
                 Input.GetKey(KeyCode.LeftAlt) ||
                 Input.GetKey(KeyCode.RightAlt);
+
+            bool control =
+                Input.GetKey(KeyCode.LeftControl) ||
+                Input.GetKey(KeyCode.RightControl);
 
             if (alt && shift)
                 DeveloperHarness.ResetLevel8Locally();
@@ -18293,10 +18772,16 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
+            bool alt =
+                Input.GetKey(KeyCode.LeftAlt) ||
+                Input.GetKey(KeyCode.RightAlt);
+
             if (shift)
                 DeveloperHarness.CycleMusicLabPointOverride();
             else if (control)
                 DeveloperHarness.GrantLevel5Locally();
+            else if (DiagnosticHotkeyRouting.ForF4(DeveloperHarness.CurrentRoomId, control, shift, alt) == DiagnosticHotkeyAction.Level4ToLiftQuest)
+                Level5Discovery.ManualBegin();
             else
                 DeveloperHarness.StartPostAct1Discovery();
         }
@@ -18321,6 +18806,8 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 DeveloperHarness.ResetLevel12Locally();
             else if (shift)
                 DeveloperHarness.RetryBunkerStarRequirementOnce();
+            else if (DiagnosticHotkeyRouting.ForPlainF5(DeveloperHarness.CurrentRoomId) == DiagnosticHotkeyAction.Level4ToLiftQuest)
+                Level5Discovery.ScanCurrentScene();
             else
                 DeveloperHarness.ScanPostAct1RouteObjects();
         }
@@ -22192,6 +22679,8 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
+        RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        RootsBucketRandomization.TryFlushPendingNativeGrants();
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return true;
@@ -22207,6 +22696,9 @@ internal static class ProgressionPatches
             return false;
 
         if (PlantPipesRandomization.ShouldSuppressFrogHippoVanillaGrant(req, flag))
+            return false;
+
+        if (RootsBucketRandomization.ShouldSuppressVanillaGrant(req, flag))
             return false;
 
         if (NativeProgression.ShouldBlockVanillaRequest(flag, req, __instance))
@@ -22233,6 +22725,8 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
+        RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        RootsBucketRandomization.TryFlushPendingNativeGrants();
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return;
@@ -22248,6 +22742,7 @@ internal static class ProgressionPatches
         GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag);
         WeedKillerRandomization.RecordGeckoSourceCollected(req, flag);
         PlantPipesRandomization.RecordFrogHippoSourceCollected(req, flag);
+        RootsBucketRandomization.RecordSourceCollected(req, flag);
 
         bool interesting = GateKeywords.Any(k =>
             flag.Contains(k, StringComparison.OrdinalIgnoreCase));

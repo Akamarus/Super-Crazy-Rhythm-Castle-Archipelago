@@ -1,7 +1,20 @@
 name: Jack
-description: Super Crazy Rhythm Castle Roots-first routing + Weed Killer + Plant Pipes randomization v0.15
+description: Super Crazy Rhythm Castle Roots bucket progression v0.17
 game: Super Crazy Rhythm Castle
 
 Super Crazy Rhythm Castle:
   progression_balancing: 50
   accessibility: items
+
+  # Generation-foundation options. In v0.16, Stars, difficulty filtering,
+  # client Star-gate enforcement, and the final Star victory are previews only.
+  required_stars: 50
+  difficulty: normal
+  # Use the explicit validated start. In Archipelago player YAML, the scalar
+  # value "random" is a framework directive that rolls across every Choice
+  # value rather than selecting this world's conservative Random option.
+  starting_area: roots
+
+  # Hip Glasses and Chicken Bucket are active shuffled progression items.
+  # Their Level 4 and Bucket Minion sources are checks; players still perform
+  # the normal trade and Lift Quest interactions in the game.

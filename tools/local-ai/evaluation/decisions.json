@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "id": "area-access-vs-level-access",
+      "category": "access",
+      "approved_statement": "Roots Access is required to enter Roots; individual Level Access items are superseded.",
+      "prohibited_interpretations": [
+        "Roots content requires no Area Access item.",
+        "Level 5 Access should be restored."
+      ],
+      "evidence_paths": [
+        "docs/PROGRESSION.md"
+      ]
+    },
+    {
+      "id": "location-vs-item",
+      "category": "mapping",
+      "approved_statement": "An AP location check sends the randomized item placed there and does not guarantee its thematically associated item.",
+      "prohibited_interpretations": [
+        "Collecting an AP location always grants its thematically associated item.",
+        "An AP location and its randomized item are the same concept."
+      ],
+      "evidence_paths": [
+        "docs/PROGRESSION.md"
+      ]
+    },
+    {
+      "id": "hip-glasses-chain",
+      "category": "mapping",
+      "approved_statement": "Level 4's pickup is a Hip Glasses source location; Hip Glasses is separately a randomized item; the normal Bucket Minion trade is the Chicken Bucket source location; Chicken Bucket is separately a randomized item; Combo Bucket remains a vanilla consequence.",
+      "prohibited_interpretations": [
+        "Hip Glasses and Chicken Bucket source locations guarantee those items.",
+        "Combo Bucket is a randomized AP item."
+      ],
+      "evidence_paths": [
+        "docs/PROGRESSION.md",
+        "docs/HISTORICAL_GAMEPLAY_EVIDENCE.md"
+      ]
+    },
+    {
+      "id": "historical-vs-current-design",
+      "category": "evidence",
+      "approved_statement": "Gameplay observations remain evidence, while pre-pivot per-level design conclusions are not current requirements.",
+      "prohibited_interpretations": [
+        "Historical per-level access design remains a current requirement.",
+        "Historical gameplay observations should be discarded."
+      ],
+      "evidence_paths": [
+        "docs/PROGRESSION.md",
+        "docs/HISTORICAL_GAMEPLAY_EVIDENCE.md"
+      ]
+    },
+    {
+      "id": "native-flag-confidence",
+      "category": "evidence",
+      "approved_statement": "Unknown native identifiers must remain unknown and must never be invented.",
+      "prohibited_interpretations": [
+        "A plausible native identifier may be inferred without evidence.",
+        "Missing native mappings may be presented as confirmed."
+      ],
+      "evidence_paths": [
+        "docs/PROJECT_OVERVIEW.md",
+        "docs/HISTORICAL_GAMEPLAY_EVIDENCE.md"
+      ]
+    }
+  ]
+}

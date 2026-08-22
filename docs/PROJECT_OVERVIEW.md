@@ -105,8 +105,8 @@ These names are design targets, not yet committed AP items unless listed above:
 
 | Planned item | Source / role | Status |
 | --- | --- | --- |
-| **Hip Glasses** | Picked up near the end of Level 4; traded to the Bucket Minion as part of the Lift Quest route. | Design approved / not implemented. Exact native source, ownership, reload, and reconnection mappings are still required. |
-| **Chicken Bucket** | Received from the Bucket Minion in exchange for Hip Glasses; later becomes the Combo Bucket ability during Lift Quest. | Design approved / not implemented. The normal trade and use remain player-driven; Combo Bucket is the vanilla consequence. |
+| **Hip Glasses** | Picked up near the end of Level 4; `LEVEL_08_GLASSES_COLLECTED` is the source and `HIP_GLASSES_BAG_ITEM` is the held item consumed by the Bucket Minion. | Native mapping verified / not implemented. Reload and AP-history reconciliation remain implementation requirements. |
+| **Chicken Bucket** | `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES` is the trade source; `CHICKEN_BUCKET_BAG_ITEM` is later consumed into `COMBO_BUCKET_ABILITY` during Lift Quest. | Native mapping verified / not implemented. The normal trade and use remain player-driven; Combo Bucket is the vanilla consequence. |
 | Additional vanilla quest items / abilities | Converted individually when they materially gate traversal or completion. | Future work. |
 
 ---
@@ -538,9 +538,9 @@ The client follows several implementation rules developed through testing:
 | Gecko / Weed Killer | Implemented and tested | Source check + randomized consumable delivery + native consumption work. |
 | Frog/Hippo / Plant Pipes | Implemented and tested | Source check is reachable without Plant Pipes; ability is randomized. |
 | Level 3 partial completion model | Implemented and tested | Player can menu-exit when Plant Pipes is elsewhere. |
-| Level 4 Hip Glasses | Design approved / not implemented | The Level 4 source becomes an AP source; exact native pickup, ownership, reload, and reconnection mappings are required. |
-| Bucket Minion glasses trade | Design approved / not implemented | The normal trade consumes delivered Hip Glasses and is the Chicken Bucket source; exact native trade markers are required. |
-| Chicken Bucket | Design approved / not implemented | AP receipt grants the normal item for Lift Quest use; Combo Bucket remains the vanilla consequence. |
+| Level 4 Hip Glasses | Native mapping verified / not implemented | Source `LEVEL_08_GLASSES_COLLECTED`; held item `HIP_GLASSES_BAG_ITEM`. The source becomes an AP check and the native item grant will be suppressed. |
+| Bucket Minion glasses trade | Native mapping verified / not implemented | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, grants Chicken Bucket, removes the blockade, and unlocks the King conversation. |
+| Chicken Bucket | Native mapping verified / not implemented | Held item `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
 | Garage cartridges | Implemented | 6 AP items; source pickups/chests randomized. |
 | Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers; cassette items are not randomized in the current APWorld. |
@@ -573,17 +573,17 @@ flowchart TD
     ROOTSREST --> OTHER --> STARS --> DIFF --> STARTERS
 ```
 
-Immediate next evidence reconciliation:
+Completed 2026-08-21 evidence reconciliation:
 
 ```text
-historical Level 4 Hip Glasses pickup
-→ recover exact native pickup/source flag if present in prior logs
-→ Bucket Minion trade and Lift Quest ordering
-→ recover a distinct trade marker if present
-→ reconcile Chicken Bucket / Combo Bucket with Area Access
+Level 4 sets HIP_GLASSES_BAG_ITEM + LEVEL_08_GLASSES_COLLECTED
+→ Bucket Minion sets CHICKEN_BUCKET_BAG_ITEM and consumes HIP_GLASSES_BAG_ITEM
+→ ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES is the durable trade source
+→ Lift Quest consumes CHICKEN_BUCKET_BAG_ITEM into COMBO_BUCKET_ABILITY
+→ LEVEL_09_COMBO_ABILITY_EARNED records the conversion
 ```
 
-The observed chain is already recorded in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Do not request a replay unless the historical record is genuinely insufficient. The Area Access source/item/trade design is approved, but no permanent item/location IDs should be allocated until the remaining native mappings and lifecycle behavior are confirmed and implementation is ready.
+The Area Access source/item/trade design and native mappings are now confirmed. The next step is an implementation design covering source suppression, AP delivery, native consumption precedence, reload, reconnect, and received-item-history reconciliation. Permanent IDs remain unallocated until that design is approved and implementation is ready.
 
 ---
 

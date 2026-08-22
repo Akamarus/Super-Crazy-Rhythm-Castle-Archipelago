@@ -1,11 +1,13 @@
 param(
     [Parameter(Mandatory=$true)]
-    [string]$GameDir
+    [string]$GameDir,
+
+    [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "Building RhythmCastleAP v0.67.59 against:" $GameDir
+Write-Host "Building RhythmCastleAP v0.67.61 against:" $GameDir
 
 $project = Join-Path $PSScriptRoot "RhythmCastleAP.csproj"
 
@@ -20,6 +22,11 @@ $outDir = Join-Path $PSScriptRoot "bin\Release\net6.0"
 $dll = Join-Path $outDir "RhythmCastleAP.dll"
 if (!(Test-Path $dll)) {
     throw "Build succeeded but RhythmCastleAP.dll was not found."
+}
+
+if ($SkipInstall) {
+    Write-Host "Build complete; installation skipped."
+    return
 }
 
 $pluginDir = Join-Path $GameDir "BepInEx\plugins\RhythmCastleAP"
@@ -45,6 +52,6 @@ Get-ChildItem $outDir -File | Where-Object {
 Write-Host ""
 Write-Host "Next:"
 Write-Host "1. Launch Rhythm Castle.exe normally (File Explorer is fine)."
-Write-Host "2. Confirm BepInEx\LogOutput.log says: [SCRC-AP] v0.67.59 loading."
-Write-Host "3. For the current APWorld v0.15 routing, set DirectStartAtPhoneHub=true, EnableAreaAccessPrototype=true, and PrototypeStartingArea=AP."
-Write-Host "4. Use a compatible APWorld v0.15 seed; generate a fresh seed whenever APWorld data changes."
+Write-Host "2. Confirm BepInEx\LogOutput.log says: [SCRC-AP] v0.67.61 loading."
+Write-Host "3. Set DirectStartAtPhoneHub=true, EnableAreaAccessPrototype=true, and PrototypeStartingArea=AP."
+Write-Host "4. Use a fresh compatible APWorld v0.18 seed."

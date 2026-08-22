@@ -19,11 +19,14 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+174..+177` | `187256174..187256177` | Smooch / Superstar / Vampire Killer / Wag the Dog cartridge source checks |
 | `+178` | `187256178` | Roots - Gecko's Weed Killer |
 | `+179` | `187256179` | Roots - Level 3 - Frog and Hippo |
+| `+180` | `187256180` | Roots - Level 4 - Hip Glasses |
+| `+181` | `187256181` | Roots - Bucket Minion Trade |
 
-**Next safe location offset:** `+180`  
-**Next safe location ID:** `187256180`
+**Next safe location offset:** `+182`
+**Next safe location ID:** `187256182`
 
-Current network-location count in APWorld v0.15: **172**.
+The v0.17 allocation contains **174** network locations; live generation activates
+the two new Roots checks when Task 2 is complete.
 
 ## Item IDs
 
@@ -46,9 +49,12 @@ Current network-location count in APWorld v0.15: **172**.
 | `+115` | `187256115` | Wag the Dog Cartridge |
 | `+116` | `187256116` | Weed Killer |
 | `+117` | `187256117` | Plant Pipes |
+| `+118` | `187256118` | Star — registered for the generation foundation; not yet active in the live item pool |
+| `+119` | `187256119` | Hip Glasses |
+| `+120` | `187256120` | Chicken Bucket |
 
-**Next safe item offset:** `+118`  
-**Next safe item ID:** `187256118`
+**Next safe item offset:** `+121`
+**Next safe item ID:** `187256121`
 
 ## Rule for changes
 

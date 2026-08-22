@@ -1,0 +1,148 @@
+BeforeAll {
+    $script:ModulePath = Join-Path $PSScriptRoot '..\LocalAiBridge.psd1'
+    Import-Module $script:ModulePath -Force
+    function New-InvestigationRepo {
+        param([string] $Path)
+        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $Path 'README.md') -Value 'Level 4 glasses'
+        New-Item -ItemType Directory -Path (Join-Path $Path 'tools\local-ai\evaluation') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $Path 'tools\local-ai\evaluation\decisions.json') -Value @'
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "id": "test-decision",
+      "category": "test",
+      "approved_statement": "Tests use a tracked decision ledger.",
+      "prohibited_interpretations": ["The ledger is optional."],
+      "evidence_paths": ["README.md"]
+    }
+  ]
+}
+'@
+        git -C $Path init --quiet
+        git -C $Path config user.email 'tests@example.invalid'
+        git -C $Path config user.name 'Bridge Tests'
+        git -C $Path add README.md tools/local-ai/evaluation/decisions.json
+        git -C $Path commit --quiet -m baseline
+        return $Path
+    }
+}
+
+Describe 'Investigation workflow' {
+    BeforeEach {
+        $env:OPENWEBUI_API_KEY = 'investigation-secret'
+        $script:Repo = New-InvestigationRepo (Join-Path $TestDrive ([guid]::NewGuid().ToString('N')))
+        $script:Task = New-LocalAiTask -Goal 'Investigate Level 4 glasses / Minim progression.' -Mode investigation -RepositoryRoot $script:Repo
+    }
+
+    It 'stores validated findings and reaches awaiting review' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"Mapped current evidence","findings":["Glasses are pending discovery"],"evidence":[{"path":"README.md","detail":"Level 4 glasses"}],"uncertainties":["Native flags unknown"],"recommended_next_steps":["Collect gameplay log"]}'; ResponseId = 'r1'; ModelId = 'jacks-assistant' }
+            }
+            $result = Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md')
+            $result.summary | Should -Be 'Mapped current evidence'
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'awaiting_review'
+            Test-Path (Join-Path $Repo ".local-ai\$TaskId\findings.json") | Should -BeTrue
+            Should -Invoke Invoke-OpenWebUiChat -Times 1
+        }
+    }
+
+    It 'accepts one surrounding JSON Markdown fence from the model' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = @'
+```json
+{"summary":"Mapped fenced evidence","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}
+```
+'@; ResponseId = 'fenced-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            $result = Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md')
+
+            $result.summary | Should -Be 'Mapped fenced evidence'
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'awaiting_review'
+        }
+    }
+
+    It 'fails closed on invalid model JSON' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat { [pscustomobject]@{ Content = 'not json'; ResponseId = 'r2'; ModelId = 'jacks-assistant' } }
+            { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') } | Should -Throw
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'failed'
+        }
+    }
+
+    It 'fails closed when model evidence cites a file outside the selected context' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"unsupported citation","findings":[],"evidence":[{"path":"docs/IDS.md","detail":"not supplied"}],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'outside-evidence-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') } |
+                Should -Throw '*outside the selected context*'
+            (Get-LocalAiTask -TaskId $TaskId -RepositoryRoot $Repo).State | Should -Be 'failed'
+        }
+    }
+
+    It 'rejects implementation tasks' {
+        $implementation = New-LocalAiTask -Goal 'wrong mode' -Mode implementation -RepositoryRoot $script:Repo
+        { Invoke-LocalAiInvestigation -TaskId $implementation.TaskId -RepositoryRoot $script:Repo -IncludePath @('README.md') } |
+            Should -Throw '*investigation task*'
+    }
+
+    It 'forwards an explicit Open WebUI timeout for slower local models' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'slow-r1'; ModelId = 'jacks-assistant' }
+            }
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') -OpenWebUiTimeoutSec 600 | Out-Null
+            Should -Invoke Invoke-OpenWebUiChat -Times 1 -ParameterFilter { $TimeoutSec -eq 600 }
+        }
+    }
+
+    It 'includes the validated ledger exactly once for an equivalent backslash and case caller path' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                param($Configuration, $Messages)
+                $script:CapturedMessages = $Messages
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'ledger-context-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md','TOOLS\LOCAL-AI\EVALUATION\DECISIONS.JSON') | Out-Null
+
+            $userContent = @($script:CapturedMessages | Where-Object { $_.role -eq 'user' })[0].content
+            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'), [Text.RegularExpressions.RegexOptions]::IgnoreCase)).Count | Should -Be 1
+        }
+    }
+
+    It 'automatically includes the validated ledger when the caller does not supply it' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                param($Configuration, $Messages)
+                $script:CapturedMessages = $Messages
+                [pscustomobject]@{ Content = '{"summary":"ok","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'automatic-ledger-context-r1'; ModelId = 'jacks-assistant' }
+            }
+
+            Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') | Out-Null
+
+            $userContent = @($script:CapturedMessages | Where-Object { $_.role -eq 'user' })[0].content
+            ([regex]::Matches($userContent, [regex]::Escape('--- FILE: tools/local-ai/evaluation/decisions.json ---'))).Count | Should -Be 1
+        }
+    }
+
+    It 'counts the validated ledger toward the context byte limit before HTTP' {
+        InModuleScope LocalAiBridge -Parameters @{ Repo = $script:Repo; TaskId = $script:Task.TaskId } {
+            Mock Invoke-OpenWebUiChat {
+                [pscustomobject]@{ Content = '{"summary":"unexpected","findings":[],"evidence":[],"uncertainties":[],"recommended_next_steps":[]}'; ResponseId = 'unexpected'; ModelId = 'jacks-assistant' }
+            }
+            $readmeBytes = [Text.Encoding]::UTF8.GetByteCount([IO.File]::ReadAllText((Join-Path $Repo 'README.md'), [Text.Encoding]::UTF8))
+            $ledgerBytes = [Text.Encoding]::UTF8.GetByteCount([IO.File]::ReadAllText((Join-Path $Repo 'tools/local-ai/evaluation/decisions.json'), [Text.Encoding]::UTF8))
+
+            { Invoke-LocalAiInvestigation -TaskId $TaskId -RepositoryRoot $Repo -IncludePath @('README.md') -MaxBytes ($readmeBytes + $ledgerBytes - 1) } |
+                Should -Throw '*byte limit*'
+            Should -Invoke Invoke-OpenWebUiChat -Times 0
+        }
+    }
+}

@@ -118,6 +118,10 @@ Physical reward sources and meaningful trades may become AP locations. Receiving
 | Level 21 — Locker Room | `Level_14` / `GameRoom_14` | Royal Corridor | Requires Violance and Weed Killer during play. A separate `LevelEntranceDoor_14_DevilMode` exists. |
 | Level 22 — King Ferdinand I | `Level_28` | Royal Corridor | Boss completion sets `OVERALL_PROGRESS_BEAT_KING_ONE`, unlocks King Ferdinand as a character, and awards the Bunker Keycard. |
 
+Fresh-save testing on 2026-08-21 completed `Level_28` for one Star at 102 points without any abilities. This proves that neither Note Pad nor Data Stick is required for basic Level 22 completion; their possible effect is limited to results above one Star until further testing. Client v0.67.60 captured the result but did not send an AP check because `Level_28` was missing from its level-name mapping.
+
+The same fresh-save session confirmed that orange construction barriers remain active inside the Music Lab and prevent physical access to substantial groups of cassette machines. Registering all 30 cassette medal sets as AP locations does not make them reachable; the native barrier unlock conditions and affected machine groups still require targeted mapping before final solver logic.
+
 ### Roots item chain
 
 Log-confirmed Roots evidence already promoted into `docs/PROGRESSION.md` includes:
@@ -128,10 +132,19 @@ Log-confirmed Roots evidence already promoted into `docs/PROGRESSION.md` include
 - Plant Pipes source/story marker: `LEVEL_07_WK_ABILITY_EARNED`.
 - Level 4: `Level_08`.
 - Lift Quest: `Level_09`.
+- Hip Glasses held item: `HIP_GLASSES_BAG_ITEM`.
+- Hip Glasses source marker: `LEVEL_08_GLASSES_COLLECTED`.
+- Bucket Minion trade marker: `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`.
+- Bucket Minion dialogue marker: `ROOTS_HUB_BUCKET_MINION_DIALOGUE_PROGRESSION`.
+- Bucket Minion blockade marker: `ROOTS_HUB_BUCKET_MINION_BLOCKADE_REMOVED`.
+- King lift conversation marker: `ROOTS_HUB_KING_LIFT_CHAT_WITNESSED`.
+- Chicken Bucket held item: `CHICKEN_BUCKET_BAG_ITEM`.
 - Combo Bucket ability: `COMBO_BUCKET_ABILITY`.
 - Combo Bucket award marker: `LEVEL_09_COMBO_ABILITY_EARNED`.
+- Lift Quest completion marker: `LEVEL_09_COMPLETED`.
+- Lobby arrival marker: `OVERALL_PROGRESS_REACHED_LOBBY_HUB`.
 
-The exact native Hip Glasses pickup flag and a distinct Bucket Minion trade flag were not recovered into tracked documentation. Do not invent them.
+The 2026-08-21 focused trace confirmed each flag above transitioning from false to true, plus `HIP_GLASSES_BAG_ITEM` transitioning true to false at the trade and `CHICKEN_BUCKET_BAG_ITEM` transitioning true to false when converted into Combo Bucket. The game then transitioned directly to `GameRoom_Hub1A` for the Lobby arrival cutscene.
 
 The confirmed order is:
 
@@ -168,6 +181,8 @@ After Lift Quest, the playthrough recorded a deliberately branching lobby rather
 - Approaching the final Vault-related blocker sets `LOBBY_HUB_HEIST_VAULT_BLOCKER_CLEARED`; it is proximity-triggered rather than immediate on Vault completion.
 
 The Plunger/Star Eater route into the Meat Dimension is separate from the three-hand route. The later King scene starts the Fish Tears quest and records `LOBBY_HUB_FISH_TEARS_KING_WITNESSED`. These paths converge without being the same prerequisite.
+
+Fresh-save Area Access testing on 2026-08-21 confirmed that the Royal Corridor phone arrives on the Level 22 side of the broken bridge. From that spawn the player could use the Level 22 entrance but could not get close enough to the Royal Star Eater to feed Stars and complete the bridge back toward Level 21. Treat Royal phone-side Level 22 access, the Star Eater interaction, and the Level 21 side as distinct routing states in AP logic.
 
 ## Meat Dimension evidence
 
@@ -369,8 +384,7 @@ The corresponding `AP_LEVEL_N_ACCESS` flags, hotkeys, and per-level item design 
 
 Before implementing the next progression change:
 
-1. Recover the exact Hip Glasses and Bucket Minion trade flags from the historical logs if present.
-2. Recover the native source, ownership, trade, consumption, reload, and reconnection mappings required to implement the approved Hip Glasses → Chicken Bucket source/item/trade flow.
+1. Design and validate reload, reconnect, and received-item-history reconciliation for the now-mapped Hip Glasses → Chicken Bucket source/item/trade flow.
 3. Reconcile meaningful items across later areas, including Hypno Pan, Fish Tears, Super Nectar, Violance, Bunker Keycard, Demon Key, cassettes, cartridges, and characters.
 4. Decide which vanilla Star Eater thresholds remain, become generated AP Star requirements, or are replaced by Area Access routing.
 5. Confirm exact flags for the Loneliness shield, Devil Seals, demon cartridge, later Music Lab chests, and any postgame completion goal.

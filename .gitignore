@@ -35,6 +35,9 @@ __pycache__/
 .env.*
 secrets.*
 *.local
+.local-ai/
+.worktrees/
+tools/local-ai/config.local.psd1
 
 # OS clutter
 .DS_Store

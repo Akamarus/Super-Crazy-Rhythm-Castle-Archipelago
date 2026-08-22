@@ -7,8 +7,9 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Playable now: Roots-first APWorld v0.15 with Area Access routing, randomized Game Garage cartridges, Weed Killer, Plant Pipes, campaign checks for Levels 1–3, Music Lab cassette medal checks, and nine Music Lab chest checks.
-- Not finished: full-game logic, generated AP Stars, randomized cassettes/quest items, victory, balanced item pool, verified local co-op, and release packaging.
+- Playable development baseline: APWorld v0.18 preserves the v0.17 Roots-first Area Access and bucket-chain systems while the repair release is completed. Client v0.67.61 now restores AP-owned Plant Pipes after save load and full restart without requiring another delivery.
+- Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
+- Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
@@ -16,10 +17,11 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## Simplified roadmap
 
-1. Current playable prototype — Roots routing, Weed Killer, Plant Pipes, Garage/cassette/chest checks.
-2. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
-3. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
-4. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
+1. Current playable prototype — Roots routing through Hip Glasses, the Bucket Minion trade, Chicken Bucket, and native Combo Bucket conversion, plus Garage/cassette/chest checks.
+2. Generation foundation — options and deterministic previews are implemented; live Star placement and filtering wait for location capacity and solver logic.
+3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
+4. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
+5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
 
 See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
 
@@ -34,11 +36,13 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.59` | Current tested baseline |
-| APWorld | `0.15` | Current tested baseline; Roots forced starter |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15` | Current slot-data implementation |
+| Client | `0.67.61` | Plant Pipes history/restart reconciliation verified; full repaired-route acceptance remains pending |
+| APWorld | `0.18` | Repair contract active; Roots bucket chain preserved; random currently resolves only to validated Roots |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18` | Preserves prior client feature gates and advertises the fail-closed v0.18 repair contract |
 
-Current Roots progression includes randomized **Weed Killer** and **Plant Pipes**, plus the Frog/Hippo in-level AP check. The first Roots arrival cutscene is bypassed for AP routing, and the campaign-order Star Eater blockade / FirstAreaGate are normalized while Roots Access is owned.
+Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
+
+Plant Pipes restart reconciliation passed live testing on save slot 4: received-item history restored the native ability after the selected save became readable, and the ability remained usable after a full close/relaunch. The complete receive → Level 3 → Hub2 → Level 4 route still requires a fresh end-to-end replay before the broader durability blocker is closed. See [Next release bug-fix gate](docs/NEXT_RELEASE_BUG_FIXES.md).
 
 ## Development disclaimer
 
@@ -87,6 +91,20 @@ python .\tools\validate-repo.py
 
 This validates the APWorld Python syntax, metadata, committed ID frontier, key progression mappings, and repository layout without requiring an Archipelago installation.
 
+## Evaluate the local AI profiles
+
+Contributors with both allowlisted Open WebUI profiles can run the manual comparison from the repository root:
+
+```powershell
+Import-Module .\tools\local-ai\LocalAiBridge.psd1 -Force
+Invoke-LocalAiModelEvaluation `
+    -RepositoryRoot $PWD `
+    -ModelId @('jacks-assistant','jacks-assistant-fast') `
+    -OpenWebUiTimeoutSec 600
+```
+
+The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.psd1` may manually select `jacks-assistant-fast`. Reports are written beneath ignored `.local-ai/evaluations/<evaluation-id>/` directories and never change configuration automatically. Scoring is deterministic but intentionally narrow, so its recommendation is advisory: human review remains mandatory, and local model evaluation does not validate APWorld generation, the client runtime, or gameplay. See [`tools/local-ai/README.md`](tools/local-ai/README.md) for setup, report, and selection details.
+
 ## Repository rules
 
 1. Never reuse an existing or historical Archipelago item/location ID. See [`docs/IDS.md`](docs/IDS.md).
@@ -97,6 +115,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-Roots is intentionally forced as the starter while its progression chain is being implemented and audited. The next work is to reconcile the historically observed **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket** chain with the current Area Access design; it is not implemented randomizer logic. Randomized Star requirements come after the meaningful item/story prerequisites are mapped correctly.
+The default random starter conservatively samples only validated starts, currently Roots. v0.17 still generates provisional Star requirements without enforcing them. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation now requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.
