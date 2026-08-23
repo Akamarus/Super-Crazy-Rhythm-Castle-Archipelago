@@ -185,6 +185,15 @@ ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
 LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
 
+LEVEL_22_ORDINARY_LOCATIONS = (
+    "Level 22 - Completion",
+    "Level 22 - 1 Star",
+    "Level 22 - 2 Stars",
+    "Level 22 - 3 Stars",
+)
+for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
+    LOCATION_NAME_TO_ID[name] = BASE_ID + 182 + index
+
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
     MUSIC_LAB_10_POINT_CHEST,
@@ -500,6 +509,15 @@ class SCRCWorld(World):
                 safe = required_progression_allowed(name, active_tier_locations)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
+
+        # Royal Access lands on the phone-side Level 22 route. Completion and
+        # one Star are confirmed ability-free. Two/three-Star requirements are
+        # still under investigation, so those tiers remain filler-only.
+        for name in LEVEL_22_ORDINARY_LOCATIONS:
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], royal)
+            if name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}:
+                location.item_rule = lambda item: filler_or_safe_required(item, False)
+            royal.locations.append(location)
 
         # AP core root -> in-game home base. This connection is always free.
         menu.connect(phone_hub, "Menu -> Phone Hub")

@@ -210,6 +210,31 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(world.multiworld.completion_condition[1](State(["Victory"])))
         self.assertFalse(world.multiworld.completion_condition[1](State([])))
 
+    def test_level_22_ordinary_locations_use_new_permanent_ids_without_victory(self):
+        expected = {
+            "Level 22 - Completion": 187256182,
+            "Level 22 - 1 Star": 187256183,
+            "Level 22 - 2 Stars": 187256184,
+            "Level 22 - 3 Stars": 187256185,
+        }
+        for name, location_id in expected.items():
+            self.assertEqual(self.module.LOCATION_NAME_TO_ID[name], location_id)
+
+        world = self.make_world()
+        world.create_regions()
+        royal = next(region for region in world.multiworld.regions if region.name == "Royal Corridor")
+        self.assertEqual(
+            {location.name for location in royal.locations},
+            set(expected),
+        )
+        self.assertNotIn("Victory", {location.name for location in royal.locations})
+
+        progression = world.create_item("Plant Pipes")
+        filler = world.create_item("Stardust")
+        self.assertTrue(world.multiworld.get_location("Level 22 - 1 Star", 1).item_rule(progression))
+        self.assertFalse(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(progression))
+        self.assertTrue(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(filler))
+
     def test_retained_bk_seed_rejects_required_items_at_unsafe_locations(self):
         fixture_path = Path(__file__).parent / "fixtures" / "bk_seed_28223804408101432968.json"
         facts = json.loads(fixture_path.read_text(encoding="utf-8"))

@@ -21,12 +21,13 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+179` | `187256179` | Roots - Level 3 - Frog and Hippo |
 | `+180` | `187256180` | Roots - Level 4 - Hip Glasses |
 | `+181` | `187256181` | Roots - Bucket Minion Trade |
+| `+182..+185` | `187256182..187256185` | Level 22 Completion / 1 Star / 2 Stars / 3 Stars |
 
-**Next safe location offset:** `+182`
-**Next safe location ID:** `187256182`
+**Next safe location offset:** `+186`
+**Next safe location ID:** `187256186`
 
-The v0.17 allocation contains **174** network locations; live generation activates
-the two new Roots checks when Task 2 is complete.
+The v0.18 allocation contains **178** network locations, including four ordinary
+Level 22 checks. Victory remains a separate addressless event.
 
 ## Item IDs
 

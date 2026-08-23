@@ -979,6 +979,7 @@ internal static class LocationMap
             ["Level_08"] = "Level 4 - Completion",
             // Confirmed lift quest / lobby unlock level.
             ["Level_09"] = "Level 5 - Completion",
+            ["Level_28"] = "Level 22 - Completion",
         };
 }
 
@@ -11259,13 +11260,12 @@ internal static class GamePatches
         int? score = ReflectionUtil.ReadInt(request, "ScoreObtained");
         string difficulty = ReflectionUtil.ReadMember(request, "DifficultyMix")?.ToString() ?? "<unknown>";
 
-        Pending[level] = new PendingResult(level, variant, players, score, difficulty);
-
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] RESULT DATA internal={level} variant={variant} score={score?.ToString() ?? "?"} players={players?.ToString() ?? "?"} difficulty={difficulty}");
 
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
-        MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
+        int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
+        Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned);
 
         Level5Discovery.RecordLevelResultApplied(level);
         Level6Discovery.RecordLevelResultApplied(level);
@@ -11366,6 +11366,13 @@ internal static class GamePatches
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] Unmapped internal level '{level}'. It will not be sent to Archipelago yet.");
         }
+
+        foreach (string tierLocation in LevelCompletionPolicy.EarnedTierLocations(
+                     level, result?.StarsEarned ?? 0))
+        {
+            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{tierLocation}'.");
+            Plugin.AP?.QueueLocation(tierLocation);
+        }
     }
 
     private sealed record PendingResult(
@@ -11373,7 +11380,8 @@ internal static class GamePatches
         string Variant,
         int? Players,
         int? Score,
-        string Difficulty);
+        string Difficulty,
+        int? StarsEarned);
 }
 
 
@@ -21159,31 +21167,42 @@ internal static class MusicLabDiscovery
         }
     }
 
-    public static void ProbeNormalLevelStarRating(string level, string variant, int? score)
+    public static int? ProbeNormalLevelStarRating(string level, string variant, int? score)
     {
         if (string.Equals(level, "Level_27", StringComparison.OrdinalIgnoreCase))
-            return;
+            return null;
 
         if (!string.Equals(variant, "LevelVariant_Default", StringComparison.OrdinalIgnoreCase))
-            return;
+            return null;
 
         ResolveScoringProbeMethods();
         if (_getMostRecentStarRatingMethod == null)
-            return;
+            return null;
 
         try
         {
             object? evaluation = _getMostRecentStarRatingMethod.Invoke(null, null);
+            if (evaluation == null)
+                return null;
             string stars = ReadDiagnosticMember(evaluation, "StarsEarned");
             string scoreUsed = ReadDiagnosticMember(evaluation, "ScoreUsed");
+            int? starsEarned = ReflectionUtil.ReadInt(evaluation, "StarsEarned");
+            if (starsEarned == null)
+            {
+                string digits = new(stars.Where(char.IsDigit).ToArray());
+                if (int.TryParse(digits, out int parsed))
+                    starsEarned = parsed;
+            }
 
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] PERFORMANCE STAR EVALUATION internal={level} variant={variant} resultScore={score?.ToString() ?? "?"} stars='{stars}' scoreUsed='{scoreUsed}'.");
+            return starsEarned.HasValue ? Math.Clamp(starsEarned.Value, 0, 3) : null;
         }
         catch (Exception ex)
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] performance star probe failed internal={level}: {ex.GetBaseException().Message}");
+            return null;
         }
     }
 
