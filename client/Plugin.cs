@@ -905,6 +905,13 @@ public sealed class Plugin : BasePlugin
 
         return count;
     }
+
+    public override bool Unload()
+    {
+        AP?.Shutdown();
+        _harmony?.UnpatchSelf();
+        return true;
+    }
 }
 
 internal static class LocationMap
@@ -995,9 +1002,14 @@ internal sealed class ArchipelagoClient
     private readonly ConcurrentQueue<string> _pendingChecks = new();
     private readonly HashSet<string> _queuedOrSent = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
+    private readonly object _connectLock = new();
+    private readonly ReconnectPolicy _reconnectPolicy = new();
+    private readonly CancellationTokenSource _shutdownToken = new();
 
     private ArchipelagoSession? _session;
     private volatile bool _connected;
+    private int _reconnectWorkerActive;
+    private readonly HashSet<int> _processedReceivedItemIndexes = new();
 
     public bool Connected => _connected;
 
@@ -1011,6 +1023,14 @@ internal sealed class ArchipelagoClient
 
     public void Connect()
     {
+        if (!TryConnectOnce())
+            RequestReconnect("initial connection failed");
+    }
+
+    private bool TryConnectOnce()
+    {
+        lock (_connectLock)
+        {
         Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=connect-entered");
 
         try
@@ -1020,29 +1040,49 @@ internal sealed class ArchipelagoClient
                 $"{AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "Archipelago.MultiClient.Net")}");
 
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
-            _session = ArchipelagoSessionFactory.CreateSession(_server);
+            ArchipelagoSession session = ArchipelagoSessionFactory.CreateSession(_server);
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=session-created");
 
-            _session.Socket.SocketOpened += () =>
+            session.Socket.SocketOpened += () =>
                 Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET socket-opened");
 
-            _session.Socket.SocketClosed += reason =>
+            session.Socket.SocketClosed += reason =>
             {
+                if (!IsCurrentSession(session))
+                    return;
                 _connected = false;
                 Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{reason}'");
+                RequestReconnect($"socket closed: {reason}");
             };
 
-            _session.Socket.ErrorReceived += (exception, message) =>
+            session.Socket.ErrorReceived += (exception, message) =>
+            {
                 Plugin.LoggerInstance?.LogError(
                     $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
+                if (IsCurrentSession(session) && !session.Socket.Connected)
+                {
+                    _connected = false;
+                    RequestReconnect($"terminal socket error: {message}");
+                }
+            };
 
-            _session.Items.ItemReceived += helper =>
+            session.Items.ItemReceived += helper =>
             {
                 try
                 {
                     while (helper.Any())
                     {
+                        int itemIndex = helper.Index;
                         var item = helper.DequeueItem();
+                        bool firstProcessing;
+                        lock (_lock)
+                            firstProcessing = _processedReceivedItemIndexes.Add(itemIndex);
+                        if (!firstProcessing)
+                        {
+                            Plugin.LoggerInstance?.LogInfo(
+                                $"[SCRC-AP] ITEM HISTORY REPLAY SKIPPED index={itemIndex} name='{item.ItemName}'.");
+                            continue;
+                        }
                         Plugin.LoggerInstance?.LogInfo(
                             $"[SCRC-AP] ITEM RECEIVED id={item.ItemId} name='{item.ItemName}' from='{item.Player?.Name ?? "unknown"}'");
 
@@ -1063,6 +1103,8 @@ internal sealed class ArchipelagoClient
                         }
                         catch (Exception ex)
                         {
+                            lock (_lock)
+                                _processedReceivedItemIndexes.Remove(itemIndex);
                             Plugin.LoggerInstance?.LogError(
                                 $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
                         }
@@ -1074,10 +1116,19 @@ internal sealed class ArchipelagoClient
                 }
             };
 
+            ArchipelagoSession? previous;
+            lock (_lock)
+            {
+                previous = _session;
+                _session = session;
+            }
+            if (previous != null && !ReferenceEquals(previous, session))
+                _ = previous.Socket.DisconnectAsync();
+
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] NET stage=login-begin server='{_server}' slot='{_slot}' game='{Plugin.GameName}'");
 
-            LoginResult result = _session.TryConnectAndLogin(
+            LoginResult result = session.TryConnectAndLogin(
                 Plugin.GameName,
                 _slot,
                 ItemsHandlingFlags.AllItems,
@@ -1095,7 +1146,7 @@ internal sealed class ArchipelagoClient
                         $"[SCRC-AP] Archipelago login failed: {string.Join("; ", failure.Errors)}");
                 else
                     Plugin.LoggerInstance?.LogError("[SCRC-AP] Archipelago login failed.");
-                return;
+                return false;
             }
 
             if (result is LoginSuccessful loginSuccess)
@@ -1119,16 +1170,84 @@ internal sealed class ArchipelagoClient
             }
 
             _connected = true;
+            _reconnectPolicy.OnConnected();
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
 
             FlushPendingChecks();
+            PreviewAbilityRandomization.OnLifecyclePoint("Archipelago connected");
+            return true;
         }
         catch (Exception ex)
         {
             _connected = false;
             Plugin.LoggerInstance?.LogError(
                 $"[SCRC-AP] NET inner exception type={ex.GetType().FullName}: {ex}");
+            return false;
+        }
+        }
+    }
+
+    public void Shutdown()
+    {
+        _connected = false;
+        _reconnectPolicy.OnDeliberateShutdown();
+        _shutdownToken.Cancel();
+        ArchipelagoSession? session;
+        lock (_lock)
+        {
+            session = _session;
+            _session = null;
+        }
+        if (session != null)
+            _ = session.Socket.DisconnectAsync();
+    }
+
+    private bool IsCurrentSession(ArchipelagoSession session)
+    {
+        lock (_lock)
+            return ReferenceEquals(_session, session);
+    }
+
+    private void RequestReconnect(string reason)
+    {
+        _reconnectPolicy.OnUnexpectedDisconnect();
+        if (Interlocked.CompareExchange(ref _reconnectWorkerActive, 1, 0) != 0)
+            return;
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET reconnect requested reason='{reason}'.");
+        _ = Task.Run(ReconnectLoopAsync);
+    }
+
+    private async Task ReconnectLoopAsync()
+    {
+        try
+        {
+            while (true)
+            {
+                TimeSpan? delay = _reconnectPolicy.NextDelay();
+                if (delay == null)
+                    return;
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] NET reconnect waiting seconds={delay.Value.TotalSeconds:0}.");
+                await Task.Delay(delay.Value, _shutdownToken.Token).ConfigureAwait(false);
+                if (TryConnectOnce())
+                {
+                    Plugin.LoggerInstance?.LogWarning("[SCRC-AP] NET reconnect succeeded.");
+                    return;
+                }
+                Plugin.LoggerInstance?.LogWarning(
+                    "[SCRC-AP] NET reconnect attempt failed; retry remains scheduled.");
+            }
+        }
+        catch (OperationCanceledException) when (_shutdownToken.IsCancellationRequested)
+        {
+            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET reconnect canceled by deliberate shutdown.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reconnectWorkerActive, 0);
+            if (_reconnectPolicy.ReconnectRequested)
+                RequestReconnect("disconnect raced with reconnect worker completion");
         }
     }
 
@@ -1152,13 +1271,17 @@ internal sealed class ArchipelagoClient
 
     private void FlushPendingChecks()
     {
-        if (!_connected || _session == null) return;
+        ArchipelagoSession? session;
+        lock (_lock)
+            session = _session;
+        if (!_connected || session == null)
+            return;
 
         while (_pendingChecks.TryDequeue(out string? locationName))
         {
             try
             {
-                long id = _session.Locations.GetLocationIdFromName(Plugin.GameName, locationName);
+                long id = session.Locations.GetLocationIdFromName(Plugin.GameName, locationName);
                 if (id < 0)
                 {
                     Plugin.LoggerInstance?.LogWarning(
@@ -1166,14 +1289,18 @@ internal sealed class ArchipelagoClient
                     continue;
                 }
 
-                _session.Locations.CompleteLocationChecks(id);
+                session.Locations.CompleteLocationChecks(id);
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SENT CHECK '{locationName}' ({id}).");
             }
             catch (Exception ex)
             {
                 Plugin.LoggerInstance?.LogError($"[SCRC-AP] Failed to send '{locationName}': {ex.GetBaseException().Message}");
                 _pendingChecks.Enqueue(locationName);
-                _connected = false;
+                if (IsCurrentSession(session))
+                {
+                    _connected = false;
+                    RequestReconnect("location check send failed");
+                }
                 break;
             }
         }

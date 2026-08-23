@@ -16,6 +16,15 @@ internal sealed class ReconnectPolicy
     private bool _reconnectRequested;
     private bool _shutdown;
 
+    internal bool ReconnectRequested
+    {
+        get
+        {
+            lock (_sync)
+                return _reconnectRequested && !_shutdown;
+        }
+    }
+
     internal void OnUnexpectedDisconnect()
     {
         lock (_sync)
