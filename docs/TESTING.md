@@ -35,6 +35,8 @@ Client-only fixes that do not change the APWorld can usually reuse an existing c
 
 ## Current Roots regression checklist
 
+For the active v0.67.63 acceptance run, consult [the acceptance evidence ledger](testing/2026-08-23-v06763-acceptance-ledger.md) before requesting gameplay. Verified items must not be repeated unless an overlapping change or a reported regression invalidates that evidence.
+
 Before accepting a Roots milestone, confirm:
 
 - Roots is the precollected starter in the seed.

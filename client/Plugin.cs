@@ -11356,7 +11356,25 @@ internal static class GamePatches
                 $"[SCRC-AP] SAVE PROBE failed for {level}: {ex.GetBaseException().Message}");
         }
 
-        if (LocationMap.InternalToLocationName.TryGetValue(level, out string? locationName))
+        bool level22 = string.Equals(level, "Level_28", StringComparison.OrdinalIgnoreCase);
+        if (level22)
+        {
+            IReadOnlyList<string> locations = LevelCompletionPolicy.LocationsForPersistedResult(
+                level,
+                result?.StarsEarned);
+            if (locations.Count == 0)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] LEVEL 22 RESULT SUPPRESSED: persisted event had no verified successful Star result (stars={result?.StarsEarned.ToString() ?? "<missing>"}).");
+            }
+
+            foreach (string location in locations)
+            {
+                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{location}'.");
+                Plugin.AP?.QueueLocation(location);
+            }
+        }
+        else if (LocationMap.InternalToLocationName.TryGetValue(level, out string? locationName))
         {
             Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{locationName}'.");
             Plugin.AP?.QueueLocation(locationName);
@@ -11365,13 +11383,6 @@ internal static class GamePatches
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] Unmapped internal level '{level}'. It will not be sent to Archipelago yet.");
-        }
-
-        foreach (string tierLocation in LevelCompletionPolicy.EarnedTierLocations(
-                     level, result?.StarsEarned ?? 0))
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{tierLocation}'.");
-            Plugin.AP?.QueueLocation(tierLocation);
         }
     }
 
