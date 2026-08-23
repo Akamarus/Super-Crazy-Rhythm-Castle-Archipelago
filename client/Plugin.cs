@@ -143,6 +143,7 @@ public sealed class Plugin : BasePlugin
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
         PreviewAbilityRandomization.Configure();
+        BottomHudDiagnostic.Configure();
         RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
         RootsStartupBootstrap.Configure();
@@ -162,6 +163,8 @@ public sealed class Plugin : BasePlugin
             AddComponent<PlantPipesReconciliationKeeper>();
         if (enabled.Value)
             AddComponent<PreviewAbilityReconciliationKeeper>();
+        if (enabled.Value)
+            AddComponent<BottomHudDiagnosticKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
@@ -1160,6 +1163,7 @@ internal sealed class ArchipelagoClient
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
                     PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
+                    BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                     RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
                 }
                 catch (Exception ex)
@@ -11447,6 +11451,7 @@ internal static class GamePatches
         Level8Discovery.RecordLevelPersisted(level);
         EarlySequenceBlockerPatches.RecordLevelPersisted(level);
         PlantPipesRandomization.OnLevelResultPersisted(level);
+        BottomHudDiagnostic.OnLevelResultPersisted(level);
 
         if (result != null)
         {
@@ -14525,6 +14530,7 @@ internal static class DeveloperHarness
             else if (string.Equals(observedRoom, Level4RoomId, StringComparison.Ordinal))
                 _level4ProxyTransitionRequested = true;
         }
+        BottomHudDiagnostic.OnRoomTransition(observedRoom);
 
         // IsInteractionEnabled() is patched at the native machine-code level
         // while the player stands on the Level 4 mat. Restore it synchronously
@@ -17105,7 +17111,6 @@ internal static class RootsIntroCutsceneBypass
             retryCount = _retryCount;
             submissionOutstanding = _submissionOutstanding;
         }
-
         RootsIntroDecision decision = RootsPresentationPolicy.DecideIntro(
             new RootsIntroSnapshot(
                 enabled,
@@ -18181,6 +18186,196 @@ internal static class RootsBucketRandomization
         if (raw is bool value)
             return value;
         return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+}
+
+internal static class BottomHudDiagnostic
+{
+    private const string RoomId = "GameRoom_Hub2";
+    private const string ControlPath =
+        "Root/GameRoom_Hub2_Logic/Objects/AmProContainer/AmProRobot";
+    private const string NativeControlType = "DifficultyToggler";
+
+    private static readonly object Sync = new();
+    private static readonly Queue<string> PendingLifecycles = new();
+    private static readonly HashSet<string> PendingKeys = new(StringComparer.OrdinalIgnoreCase);
+    private static BottomHudDiagnosticPolicy _policy = new();
+    private static bool _enabled;
+
+    internal static void Configure()
+    {
+        lock (Sync)
+        {
+            _policy = new BottomHudDiagnosticPolicy();
+            PendingLifecycles.Clear();
+            PendingKeys.Clear();
+            _enabled = false;
+            EnqueueLocked("after-restart");
+        }
+    }
+
+    internal static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        string implementation = slotData != null &&
+                                slotData.TryGetValue("implementation_version", out object? raw)
+            ? raw?.ToString() ?? string.Empty
+            : string.Empty;
+        lock (Sync)
+        {
+            _enabled = implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+            if (_enabled)
+                EnqueueLocked("direct-start");
+        }
+    }
+
+    internal static void OnLevelResultPersisted(string level)
+    {
+        if (string.Equals(level, "Level_05", StringComparison.OrdinalIgnoreCase))
+            Enqueue("after-level-1");
+    }
+
+    internal static void OnRoomTransition(string roomId)
+    {
+        if (string.Equals(roomId, RoomId, StringComparison.OrdinalIgnoreCase))
+            Enqueue("after-reload");
+    }
+
+    internal static void Tick()
+    {
+        lock (Sync)
+        {
+            if (!_enabled || PendingLifecycles.Count == 0)
+                return;
+        }
+        if (!string.Equals(DeveloperHarness.CurrentRoomId, RoomId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        GameObject? controlObject = GameObject.Find(ControlPath);
+        string lifecycle;
+        lock (Sync)
+            lifecycle = PendingLifecycles.Peek();
+        BottomHudDiagnosticDecision decision;
+        lock (Sync)
+            decision = _policy.Decide(RoomId, lifecycle, controlObject != null);
+        if (decision == BottomHudDiagnosticDecision.SkipDuplicate)
+        {
+            lock (Sync)
+            {
+                PendingLifecycles.Dequeue();
+                PendingKeys.Remove(lifecycle);
+            }
+            return;
+        }
+        if (decision != BottomHudDiagnosticDecision.Emit || controlObject == null)
+            return;
+
+        Component? control = null;
+        string[] componentTypes;
+        try
+        {
+            Component[] components = controlObject.GetComponents<Component>();
+            componentTypes = components
+                .Where(component => component != null)
+                .Select(component => component.GetType().FullName ?? component.GetType().Name)
+                .ToArray();
+            control = components.FirstOrDefault(component =>
+                component != null &&
+                (component.GetType().Name.Contains(NativeControlType, StringComparison.OrdinalIgnoreCase) ||
+                 component.GetType().FullName?.Contains(NativeControlType, StringComparison.OrdinalIgnoreCase) == true));
+        }
+        catch
+        {
+            componentTypes = Array.Empty<string>();
+        }
+
+        string interaction = ReadBoolResult(control, "IsInteractionEnabled", "InteractionEnabled");
+        object? required = control == null ? null : ReflectionUtil.ReadMember(control, "RequiredCondition");
+        object? blocked = control == null ? null : ReflectionUtil.ReadMember(control, "BlockCondition");
+        string phase = control == null
+            ? "<unavailable>"
+            : ReflectionUtil.ReadMember(control, "Phase")?.ToString() ?? "<unavailable>";
+        bool gateReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            RootsStartupBootstrap.GateOpenedFlag, out bool gateOwned);
+        bool difficultyReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            RootsStartupBootstrap.DifficultyCompleteFlag, out bool difficultyOwned);
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] BOTTOM HUD SNAPSHOT lifecycle='{lifecycle}' room='{RoomId}' " +
+            $"nativeControlType='{NativeControlType}' path='{ControlPath}' " +
+            $"managedProxy='{control?.GetType().FullName ?? "<unresolved>"}' " +
+            $"components='{string.Join("|", componentTypes)}' interactionEnabled={interaction} phase={phase} " +
+            $"requiredCondition={DescribeCondition(required)} blockCondition={DescribeCondition(blocked)} " +
+            $"{RootsStartupBootstrap.GateOpenedFlag}={(gateReadable ? gateOwned.ToString() : "<unavailable>")} " +
+            $"{RootsStartupBootstrap.DifficultyCompleteFlag}={(difficultyReadable ? difficultyOwned.ToString() : "<unavailable>")} " +
+            "readOnly=True mutationRequested=False.");
+
+        lock (Sync)
+        {
+            PendingLifecycles.Dequeue();
+            PendingKeys.Remove(lifecycle);
+        }
+    }
+
+    private static void Enqueue(string lifecycle)
+    {
+        lock (Sync)
+        {
+            if (_enabled)
+                EnqueueLocked(lifecycle);
+        }
+    }
+
+    private static void EnqueueLocked(string lifecycle)
+    {
+        if (PendingKeys.Add(lifecycle))
+            PendingLifecycles.Enqueue(lifecycle);
+    }
+
+    private static string ReadBoolResult(object? target, string methodName, string memberName)
+    {
+        if (target == null)
+            return "<unavailable>";
+        try
+        {
+            MethodInfo? method = target.GetType().GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                null,
+                Type.EmptyTypes,
+                null);
+            if (method?.Invoke(target, null) is bool result)
+                return result.ToString();
+        }
+        catch { }
+        return ReflectionUtil.ReadMember(target, memberName)?.ToString() ?? "<unavailable>";
+    }
+
+    private static string DescribeCondition(object? condition)
+    {
+        if (condition == null)
+            return "<null>";
+        string type = condition.GetType().FullName ?? condition.GetType().Name;
+        string result = ReadBoolResult(condition, "IsConditionMet", "ConditionMet");
+        if (string.Equals(result, "<unavailable>", StringComparison.Ordinal))
+            result = ReadBoolResult(condition, "GetValue", "Value");
+        return $"'{type}:{result}'";
+    }
+}
+
+internal sealed class BottomHudDiagnosticKeeper : MonoBehaviour
+{
+    private int _cooldown;
+
+    public BottomHudDiagnosticKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 60;
+        BottomHudDiagnostic.Tick();
     }
 }
 
