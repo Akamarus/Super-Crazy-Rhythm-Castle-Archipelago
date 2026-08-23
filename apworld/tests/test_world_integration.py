@@ -57,6 +57,21 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(len(world.multiworld.itempool), len(self.module.LOCATION_NAME_TO_ID))
         self.assertNotIn("Star", [item.name for item in world.multiworld.itempool])
+        self.assertNotIn("Hypno Pan", [item.name for item in world.multiworld.itempool])
+        self.assertNotIn("Violance", [item.name for item in world.multiworld.itempool])
+
+    def test_preview_abilities_are_registered_but_not_generated(self):
+        world = self.make_world()
+        world.generate_early()
+        world.create_items()
+
+        self.assertEqual(world.create_item("Hypno Pan").code, 187256121)
+        self.assertEqual(world.create_item("Hypno Pan").classification, "progression")
+        self.assertEqual(world.create_item("Violance").code, 187256122)
+        self.assertEqual(world.create_item("Violance").classification, "progression")
+        generated_names = [item.name for item in world.multiworld.itempool]
+        self.assertNotIn("Hypno Pan", generated_names)
+        self.assertNotIn("Violance", generated_names)
 
     def test_roots_bucket_progression_has_permanent_unique_ids(self):
         self.assertEqual(self.module.ITEM_NAME_TO_ID[self.module.HIP_GLASSES_ITEM], 187256119)

@@ -53,9 +53,11 @@ Level 22 checks. Victory remains a separate addressless event.
 | `+118` | `187256118` | Star — registered for the generation foundation; not yet active in the live item pool |
 | `+119` | `187256119` | Hip Glasses |
 | `+120` | `187256120` | Chicken Bucket |
+| `+121` | `187256121` | Hypno Pan — registered preview; excluded from generated pools |
+| `+122` | `187256122` | Violance — registered preview; excluded from generated pools |
 
-**Next safe item offset:** `+121`
-**Next safe item ID:** `187256121`
+**Next safe item offset:** `+123`
+**Next safe item ID:** `187256123`
 
 ## Rule for changes
 

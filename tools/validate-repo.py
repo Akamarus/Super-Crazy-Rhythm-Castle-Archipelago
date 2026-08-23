@@ -66,9 +66,11 @@ EXPECTED = {
     "star_item_id": 187256118,
     "hip_glasses_item_id": 187256119,
     "chicken_bucket_item_id": 187256120,
+    "hypno_pan_item_id": 187256121,
+    "violance_item_id": 187256122,
     "hip_glasses_location_id": 187256180,
     "bucket_trade_location_id": 187256181,
-    "next_item_id": 187256121,
+    "next_item_id": 187256123,
     "next_location_id": 187256186,
 }
 
@@ -237,6 +239,17 @@ star_id = 187256000 + int(star_match.group(1))
 if star_id != EXPECTED["star_item_id"]:
     fail(f"Star ID changed: expected {EXPECTED['star_item_id']}, got {star_id}")
 
+for label, expected_id, symbol in (
+    ("Hypno Pan", EXPECTED["hypno_pan_item_id"], "HYPNO_PAN_ITEM_NAME"),
+    ("Violance", EXPECTED["violance_item_id"], "VIOLANCE_ITEM_NAME"),
+):
+    match = re.search(rf'{symbol}\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
+    if not match:
+        fail(f"could not locate {label} preview item ID assignment")
+    absolute = 187256000 + int(match.group(1))
+    if absolute != expected_id:
+        fail(f"{label} item ID changed: expected {expected_id}, got {absolute}")
+
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
 if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
@@ -293,6 +306,8 @@ print(json.dumps({
     "star_item_id": EXPECTED["star_item_id"],
     "hip_glasses_item_id": EXPECTED["hip_glasses_item_id"],
     "chicken_bucket_item_id": EXPECTED["chicken_bucket_item_id"],
+    "hypno_pan_item_id": EXPECTED["hypno_pan_item_id"],
+    "violance_item_id": EXPECTED["violance_item_id"],
     "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "next_item_id": EXPECTED["next_item_id"],

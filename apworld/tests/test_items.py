@@ -26,7 +26,14 @@ class ItemPlanningTests(unittest.TestCase):
     def test_plans_66_individual_stars_with_one_network_id(self):
         self.assertEqual(self.items.STAR_ITEM_NAME, "Star")
         self.assertEqual(self.items.STAR_ITEM_COUNT, 66)
-        self.assertEqual(self.items.NEW_ITEM_NAME_TO_ID, {"Star": 187256118})
+        self.assertEqual(
+            self.items.NEW_ITEM_NAME_TO_ID,
+            {
+                "Star": 187256118,
+                "Hypno Pan": 187256121,
+                "Violance": 187256122,
+            },
+        )
         self.assertEqual(self.items.planned_star_names(), ("Star",) * 66)
 
     def test_each_pool_plan_is_new_and_immutable(self):
@@ -35,6 +42,12 @@ class ItemPlanningTests(unittest.TestCase):
 
         self.assertIsNot(first, second)
         self.assertIsInstance(first, tuple)
+
+    def test_preview_abilities_have_stable_names_and_progression_classification(self):
+        self.assertEqual(self.items.HYPNO_PAN_ITEM_NAME, "Hypno Pan")
+        self.assertEqual(self.items.VIOLANCE_ITEM_NAME, "Violance")
+        self.assertEqual(self.items.NEW_ITEM_CLASSIFICATIONS["Hypno Pan"], "progression")
+        self.assertEqual(self.items.NEW_ITEM_CLASSIFICATIONS["Violance"], "progression")
 
     def test_capacity_accepts_exact_fit(self):
         self.items.validate_planned_item_capacity(79, 13)
