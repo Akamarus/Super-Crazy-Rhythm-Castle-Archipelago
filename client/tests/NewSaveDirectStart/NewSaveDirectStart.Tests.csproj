@@ -4,9 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefaultItemExcludes>$(DefaultItemExcludes);RootsBucketRandomization\**;RepairCompatibility\**;PlantPipesReconciler\**;NewSaveDirectStart\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\DiagnosticHotkeyRouting.cs" Link="DiagnosticHotkeyRouting.cs" />
+    <Compile Include="..\..\NewSaveDirectStartPolicy.cs" Link="NewSaveDirectStartPolicy.cs" />
   </ItemGroup>
 </Project>

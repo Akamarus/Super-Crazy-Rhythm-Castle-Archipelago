@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.61";
+    public const string PluginVersion = "0.67.62";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -100,7 +100,7 @@ public sealed class Plugin : BasePlugin
         LocationMap.GarageMedalLocationFormat = garageMedalLocationFormat.Value;
         LocationMap.CassetteMedalLocationFormat = cassetteMedalLocationFormat.Value;
 
-        Log.LogInfo("[SCRC-AP] v0.67.61 loading.");
+        Log.LogInfo($"[SCRC-AP] v{PluginVersion} loading.");
 
         _harmony = new Harmony(PluginGuid);
         int patched = 0;
@@ -118,6 +118,10 @@ public sealed class Plugin : BasePlugin
         patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
+        patched += PatchMethodsByParameter(
+            "ProcessRequest",
+            "CreateNewPlayerSaveFileInSlotRequest",
+            nameof(IntroRoomToHubRedirectPatches.NewSaveCreatedPostfix));
         patched += PatchIntroRoomToHubRedirect();
         patched += PatchDifficultyAssignmentRequest();
         patched += PatchEarlyUnlockSequenceSteps();
@@ -18986,6 +18990,16 @@ internal static class IntroHubSkip
 internal static class IntroRoomToHubRedirectPatches
 {
     private const string IntroRoomId = "GameRoom_04A";
+    private static bool _freshSavePending;
+    private static bool _freshSaveRedirected;
+
+    public static void NewSaveCreatedPostfix()
+    {
+        _freshSavePending = true;
+        _freshSaveRedirected = false;
+        Plugin.LoggerInstance?.LogWarning(
+            "[SCRC-AP] NEW SAVE DIRECT START ARMED: the first game-room transition will be redirected to the configured start hub.");
+    }
 
     public static bool Prefix(object? __instance, object[]? __args)
     {
@@ -19027,7 +19041,13 @@ internal static class IntroRoomToHubRedirectPatches
         if (!IntroHubSkip.Enabled)
             return true;
 
-        if (!string.Equals(roomId, IntroRoomId, StringComparison.Ordinal))
+        bool redirectFreshSave = NewSaveDirectStartPolicy.Decide(
+            IntroHubSkip.Enabled,
+            _freshSavePending,
+            _freshSaveRedirected) == NewSaveDirectStartDecision.Redirect;
+        bool redirectLegacyIntro = string.Equals(roomId, IntroRoomId, StringComparison.Ordinal);
+
+        if (!redirectFreshSave && !redirectLegacyIntro)
             return true;
 
         Type roomType = room!.GetType();
@@ -19056,8 +19076,14 @@ internal static class IntroRoomToHubRedirectPatches
 
         DeveloperHarness.SetCurrentRoomForRedirect(IntroHubSkip.TargetRoomId);
 
+        if (redirectFreshSave)
+        {
+            _freshSaveRedirected = true;
+            _freshSavePending = false;
+        }
+
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] INTRO SKIP: redirected room {IntroRoomId} -> {IntroHubSkip.TargetRoomId} (fresh/new-game load safe).");
+            $"[SCRC-AP] INTRO SKIP: redirected room {roomId ?? "<unknown>"} -> {IntroHubSkip.TargetRoomId} source='{(redirectFreshSave ? "new-save" : "legacy-intro")}'.");
 
         return true;
     }

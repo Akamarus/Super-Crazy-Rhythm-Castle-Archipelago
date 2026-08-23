@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.61 client / v0.18 APWorld repair prototype from the approved future randomizer design. Testers should use matching source builds and a fresh v0.18 seed/save.
+This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.62 client / v0.18 APWorld repair prototype from the approved future randomizer design. Testers should use matching source builds and a fresh v0.18 seed/save.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -16,14 +16,14 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 ## Current implementation
 
-| Work | Status | Current v0.67.61 / v0.18 boundary |
+| Work | Status | Current v0.67.62 / v0.18 boundary |
 | --- | --- | --- |
-| Hub6 home with Area Access phone routing | Implemented / needs more testing | Random start currently selects only validated Roots Access; the five other Area Access items are randomized. Unsupported fixed starts fail generation. |
+| Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50), difficulty, and starting area are exported with deterministic Level 1–22 requirements and a cumulative location preview. These previews do not alter live gameplay. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
-| Plant Pipes source and item | Implemented / needs more testing | Frog/Hippo is reachable after Weed Killer; Plant Pipes is required to finish Level 3. Menu exit before receiving it is intentional. |
+| Plant Pipes source and item | Implemented / needs more testing | Fresh testing verified Frog/Hippo AP delivery plus Plant Pipes use across Level 3, Hub2/Level 4 scene changes, restart, and save load. Completed-Level-4 persistence remains pending. |
 | Hip Glasses and Chicken Bucket chain | Implemented / needs gameplay acceptance | Level 4 and the Bucket Minion trade are AP checks. AP delivers both held items; native interactions consume them and produce non-network Combo Bucket. |
 | Levels 1–3 campaign completion checks | Implemented / needs more testing | These are the only current campaign completion checks. |
 | Game Garage cartridges and sticker checks | Implemented / needs more testing | Six cartridges are AP items and each has cumulative Bronze through Platinum checks. |

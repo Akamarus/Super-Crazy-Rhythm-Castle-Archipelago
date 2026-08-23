@@ -18,6 +18,8 @@ The failed regression seed is `AP_28223804408101432968`. It is useful for reprod
 
 - [ ] Unlock both Normal and Pro difficulty choices when an AP seed starts; do not force either choice.
 - [ ] Suppress the redundant Roots post-Level 1 gate/difficulty cutscene by completing only its introductory bookkeeping. Preserve Level 1's AP check and all later Roots quests.
+- [ ] **Fix first Roots arrival timing.** Client v0.67.62 can reach Hub2 before `PlayerSaveRequestProcessor` is available, causing the `ROOTS_HUB_INTRO_WITNESSED` write to occur after the arrival cutscene has already started. Queue and verify the flag before the transition completes.
+- [ ] **Restore the AP Star HUD.** Fresh v0.18 testing lost the visible Star counter after Level 3 returned to Roots. Identify whether fresh-save direct start, level-result persistence, or AP Star synchronization hides the counter, and keep the AP-owned Star total visible.
 
 ## Required regression run
 
@@ -38,3 +40,4 @@ The release notes must list only the items whose acceptance tests passed. Any re
 ## Verified repair evidence
 
 - **Plant Pipes timing/restart reconciliation:** passed on 2026-08-21 with Client v0.67.61 against the retained v0.17 seed and save slot 4. The selected save already contained the completed Level 3 source marker and previously completed Level 4 route. On load, the client verified `LEVEL_07_WK_ABILITY_EARNED=True`, restored `WEED_KILLER_ABILITY=True` from AP ownership, reached Music Lab normally, and Plant Pipes were usable in Roots. After a normal close and full relaunch, the same save again reached Music Lab and Plant Pipes remained usable. The broader durability blocker remains open until the complete receive -> Level 3 -> Hub2 -> Level 4 sequence is replayed end to end on the repaired build.
+- **Fresh Plant Pipes route:** passed through Level 4 entry/exit on 2026-08-22 with Client v0.67.62 and a fresh v0.18 seed/save. Frog/Hippo sent the AP source check while the vanilla ability grant stayed suppressed; one admin-routed AP Plant Pipes receipt set `WEED_KILLER_ABILITY=True`; the ability remained usable through Hub2 -> Level 4 -> Hub2, normal shutdown, reconnect, and save load. Completing Level 4 and persisting its result remains the final unchecked durability step.

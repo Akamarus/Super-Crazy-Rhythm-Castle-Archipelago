@@ -72,6 +72,16 @@ The next client release must reconcile AP-owned Plant Pipes after level completi
 
 Client v0.67.61 now contains a verified repair candidate. Live slot-4 testing on 2026-08-21 restored `WEED_KILLER_ABILITY=True` from received-item history after the selected save became readable, preserved `LEVEL_07_WK_ABILITY_EARNED=True`, and kept Plant Pipes usable in Roots across a full close/relaunch without another AP delivery. The implementation also prevents native save access from the AP background thread and guards native grant submission against progression-hook re-entry. The complete fresh receive -> Level 3 -> Hub2 -> Level 4 route must still be replayed before the broader durability issue is closed.
 
+Client v0.67.62 fresh-seed testing on 2026-08-22 verified the Frog/Hippo AP source, one AP Plant Pipes receipt, immediate use, Hub2 -> Level 4 -> Hub2 transitions, clean shutdown/reconnect, and restored use after loading the same save. The remaining acceptance step is to complete Level 4 and verify that its persisted result does not clear the ability.
+
+### Roots arrival cutscene can outrun its bypass
+
+On the first Roots visit in Client v0.67.62, the pre-transition bypass found `PlayerSaveRequestProcessor` unavailable. The game entered `GameRoom_Hub2` and started the arrival cutscene before the client later captured a processor and wrote `ROOTS_HUB_INTRO_WITNESSED=True`. The fix must queue and verify this one flag before the Hub2 transition completes without spoofing unrelated Roots quest state.
+
+### Star counter disappears after Level 3
+
+During the same fresh v0.18 run, the visible Star total disappeared after Level 3 returned to Roots. Expected AP behavior is a persistent HUD counter backed by synchronized AP Stars. Capture the HUD/native progression state before and after the level result to distinguish a fresh-save bootstrap issue from an AP Star synchronization issue.
+
 ## Optional Combo Bucket feasibility testing
 
 Combo Bucket increases score and objective effects in later campaign levels and provides a 5× effect in Music Lab. Area Access may eventually allow some of this content before Lift Quest grants Combo Bucket, so reports about what can be achieved without it are valuable for future solver logic.
