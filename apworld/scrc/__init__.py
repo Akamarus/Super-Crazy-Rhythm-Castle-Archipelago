@@ -6,6 +6,7 @@ from .difficulty import DIFFICULTY_NAMES, filter_locations_for_difficulty
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
 from .items import STAR_ITEM_COUNT, STAR_ITEM_NAME
 from .options import SCRCOptions
+from .placement import filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
 from .starting_areas import (
     STARTING_AREA_NAMES,
@@ -314,6 +315,9 @@ class SCRCWorld(World):
         self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
     def create_regions(self) -> None:
+        active_tier_locations = frozenset(
+            getattr(self, "difficulty_preview_locations", LOCATION_NAME_TO_ID)
+        )
         # Archipelago core begins reachability sweeps from a region literally
         # named "Menu". Keep that logical root even though the in-game start
         # is Hub6 / Phone Hub.
@@ -464,21 +468,23 @@ class SCRCWorld(World):
         # real AP-driven area unlocks. Cassette/point/full world prerequisites
         # will be modeled in a later logic milestone.
         for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
-            music_lab.locations.append(
-                SCRCLocation(
-                    self.player,
-                    chest_name,
-                    LOCATION_NAME_TO_ID[chest_name],
-                    music_lab,
-                )
+            location = SCRCLocation(
+                self.player,
+                chest_name,
+                LOCATION_NAME_TO_ID[chest_name],
+                music_lab,
             )
+            safe = required_progression_allowed(chest_name, active_tier_locations)
+            location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
+            music_lab.locations.append(location)
 
         for song in CASSETTE_SONGS:
             for tier in CASSETTE_MEDAL_TIERS:
                 name = f"Music Lab Cassette - {song} - {tier}"
-                music_lab.locations.append(
-                    SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
-                )
+                location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
+                safe = required_progression_allowed(name, active_tier_locations)
+                location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
+                music_lab.locations.append(location)
 
         for song in GARAGE_SONGS:
             cartridge_item = GARAGE_CARTRIDGE_ITEMS[song]
@@ -491,6 +497,8 @@ class SCRCWorld(World):
                     location,
                     lambda state, item=cartridge_item: state.has(item, self.player),
                 )
+                safe = required_progression_allowed(name, active_tier_locations)
+                location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
 
         # AP core root -> in-game home base. This connection is always free.

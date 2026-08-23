@@ -1,0 +1,9 @@
+{
+  "seed": 28223804408101432968,
+  "unsafe_placements": [
+    {"item": "Lobby Access", "location": "Music Lab Cassette - Lets Go - Platinum"},
+    {"item": "Weed Killer", "location": "Game Garage - Vampire Killer - Platinum"},
+    {"item": "Plant Pipes", "location": "Music Lab - 64 Point Chest"}
+  ],
+  "reason": "Retained test seed exhausted all reasonable reachable checks before required progression."
+}

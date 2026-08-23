@@ -148,6 +148,7 @@ public sealed class Plugin : BasePlugin
         if (enabled.Value)
         {
             AddComponent<GarageCartridgeAccessKeeper>();
+            AddComponent<MusicLabBarrierKeeper>();
             Log.LogWarning(
                 "[SCRC-AP] RANDOMIZED GAME GARAGE CARTRIDGE ROUTING READY: waits for APWorld slot data. APWorld v0.13+ randomizes cartridge sources as AP checks: vanilla cartridge collected markers are retained, vanilla bag grants are suppressed outside Game Garage, and only AP-owned cartridges are released in GameRoom_27.");
         }
@@ -17186,6 +17187,65 @@ internal static class RootsStartupBootstrap
             _attempts++;
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] ROOTS STARTUP BOOTSTRAP SUBMITTED attempt={attempts + 1} success={submitted} gateOwned={gateOwned} difficultyOwned={difficultyOwned}; Music Lab Points HUD remains untouched and no difficulty was selected.");
+    }
+}
+
+internal sealed class MusicLabBarrierKeeper : MonoBehaviour
+{
+    private readonly Dictionary<string, (GameObject Object, bool ActiveSelf)> _baseline =
+        new(StringComparer.Ordinal);
+    private int _cooldown;
+
+    public MusicLabBarrierKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 30;
+
+        string roomId = DeveloperHarness.CurrentRoomId;
+        bool active = AreaAccessPrototype.Enabled && IntroHubSkip.Compatible &&
+                      string.Equals(roomId, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase);
+        if (!active)
+        {
+            RestoreVanillaState();
+            return;
+        }
+
+        foreach (string exactPath in MusicLabBarrierPolicy.KnownBarrierPaths)
+        {
+            if (!MusicLabBarrierPolicy.ShouldDisable(true, true, roomId, exactPath))
+                continue;
+
+            if (!_baseline.TryGetValue(exactPath, out var state))
+            {
+                GameObject? obj = GameObject.Find(exactPath);
+                if (obj == null)
+                    continue;
+                state = (obj, obj.activeSelf);
+                _baseline[exactPath] = state;
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MUSIC LAB BARRIER BYPASS bound exactPath='{exactPath}' vanillaActive={state.ActiveSelf}.");
+            }
+
+            if (state.Object != null && state.Object.activeSelf)
+                state.Object.SetActive(false);
+        }
+    }
+
+    private void OnDestroy() => RestoreVanillaState();
+
+    private void RestoreVanillaState()
+    {
+        foreach (var state in _baseline.Values)
+        {
+            if (state.Object != null && state.Object.activeSelf != state.ActiveSelf)
+                state.Object.SetActive(state.ActiveSelf);
+        }
+        _baseline.Clear();
     }
 }
 

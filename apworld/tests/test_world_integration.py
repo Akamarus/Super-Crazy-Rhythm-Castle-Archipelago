@@ -1,4 +1,6 @@
 import random
+import json
+from pathlib import Path
 import types
 import unittest
 
@@ -207,6 +209,36 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertFalse(rule(State(self.module.AREA_ACCESS_ITEMS[:-1])))
         self.assertTrue(world.multiworld.completion_condition[1](State(["Victory"])))
         self.assertFalse(world.multiworld.completion_condition[1](State([])))
+
+    def test_retained_bk_seed_rejects_required_items_at_unsafe_locations(self):
+        fixture_path = Path(__file__).parent / "fixtures" / "bk_seed_28223804408101432968.json"
+        facts = json.loads(fixture_path.read_text(encoding="utf-8"))
+        world = self.make_world(seed=facts["seed"], difficulty=0)
+        world.generate_early()
+        active = frozenset(world.difficulty_preview_locations)
+
+        for placement in facts["unsafe_placements"]:
+            with self.subTest(**placement):
+                self.assertFalse(
+                    self.module.required_progression_allowed(placement["location"], active)
+                )
+
+    def test_safe_location_rules_allow_filler_but_reject_progression(self):
+        world = self.make_world(difficulty=0)
+        world.generate_early()
+        world.create_regions()
+        progression = world.create_item("Plant Pipes")
+        filler = world.create_item("Stardust")
+
+        chest = world.multiworld.get_location("Music Lab - 64 Point Chest", 1)
+        platinum = world.multiworld.get_location("Music Lab Cassette - Lets Go - Platinum", 1)
+        bronze = world.multiworld.get_location("Music Lab Cassette - Lets Go - Bronze", 1)
+
+        self.assertFalse(chest.item_rule(progression))
+        self.assertTrue(chest.item_rule(filler))
+        self.assertFalse(platinum.item_rule(progression))
+        self.assertTrue(platinum.item_rule(filler))
+        self.assertTrue(bronze.item_rule(progression))
 
 
 if __name__ == "__main__":
