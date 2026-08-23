@@ -142,6 +142,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
+        PreviewAbilityRandomization.Configure();
         RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
         RootsStartupBootstrap.Configure();
@@ -159,6 +160,8 @@ public sealed class Plugin : BasePlugin
             "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
         if (enabled.Value)
             AddComponent<PlantPipesReconciliationKeeper>();
+        if (enabled.Value)
+            AddComponent<PreviewAbilityReconciliationKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
@@ -1052,9 +1055,10 @@ internal sealed class ArchipelagoClient
                             bool handledGarageCartridge = GarageCartridgeAccess.TryApplyItem(item.ItemName);
                             bool handledWeedKiller = WeedKillerRandomization.TryApplyItem(item.ItemName);
                             bool handledPlantPipes = PlantPipesRandomization.TryApplyItem(item.ItemName);
+                            bool handledPreviewAbility = PreviewAbilityRandomization.TryApplyItem(item.ItemName);
                             bool handledRootsBucket = RootsBucketRandomization.TryApplyItem(item.ItemName);
 
-                            if (!handledAreaAccess && !handledGarageCartridge && !handledWeedKiller && !handledPlantPipes && !handledRootsBucket && _applyReceivedProgression)
+                            if (!handledAreaAccess && !handledGarageCartridge && !handledWeedKiller && !handledPlantPipes && !handledPreviewAbility && !handledRootsBucket && _applyReceivedProgression)
                                 NativeProgression.ApplyArchipelagoItem(item.ItemName);
                         }
                         catch (Exception ex)
@@ -1104,6 +1108,7 @@ internal sealed class ArchipelagoClient
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
+                    PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                     RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
                 }
                 catch (Exception ex)
@@ -18047,6 +18052,191 @@ internal static class RootsBucketRandomization
     }
 }
 
+internal static class PreviewAbilityRandomization
+{
+    private static readonly object Sync = new();
+    private static object? _playerSaveRequestProcessor;
+    private static HypnoPanReconciler _hypnoPan = new(new NativeAdapter());
+    private static ViolanceReconciler _violance = new(new NativeAdapter());
+    private static int _hypnoPanReceived;
+    private static int _violanceReceived;
+    private static string _lastHypnoOutcome = string.Empty;
+    private static string _lastViolanceOutcome = string.Empty;
+    private static bool _compatible;
+
+    [ThreadStatic]
+    private static bool _applyingNativeGrant;
+
+    internal static void Configure()
+    {
+        lock (Sync)
+        {
+            _playerSaveRequestProcessor = null;
+            _hypnoPan = new HypnoPanReconciler(new NativeAdapter());
+            _violance = new ViolanceReconciler(new NativeAdapter());
+            _hypnoPanReceived = 0;
+            _violanceReceived = 0;
+            _lastHypnoOutcome = string.Empty;
+            _lastViolanceOutcome = string.Empty;
+            _compatible = false;
+        }
+    }
+
+    internal static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        string implementation = slotData != null &&
+                                slotData.TryGetValue("implementation_version", out object? raw)
+            ? raw?.ToString() ?? string.Empty
+            : string.Empty;
+        bool compatible = implementation.StartsWith(
+            "area-routing-plant-pipes-0.15",
+            StringComparison.OrdinalIgnoreCase);
+        lock (Sync)
+        {
+            _compatible = compatible;
+            _hypnoPan.Configure(compatible);
+            _violance.Configure(compatible);
+        }
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] PREVIEW ABILITIES configured compatible={compatible} implementation='{implementation}'. Items remain excluded from generated seeds.");
+    }
+
+    internal static bool TryApplyItem(string itemName)
+    {
+        bool hypno = string.Equals(itemName, HypnoPanReconciler.ItemName, StringComparison.OrdinalIgnoreCase);
+        bool violance = string.Equals(itemName, ViolanceReconciler.ItemName, StringComparison.OrdinalIgnoreCase);
+        if (!hypno && !violance)
+            return false;
+
+        int count;
+        lock (Sync)
+        {
+            if (hypno)
+            {
+                count = ++_hypnoPanReceived;
+                _hypnoPan.NoteReceivedCount(count);
+            }
+            else
+            {
+                count = ++_violanceReceived;
+                _violance.NoteReceivedCount(count);
+            }
+        }
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] PREVIEW ABILITY RECEIVED item='{itemName}' receivedCount={count}; native reconciliation queued for the Unity thread.");
+        return true;
+    }
+
+    internal static void CapturePlayerSaveRequestProcessor(object? instance)
+    {
+        if (instance == null ||
+            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
+            return;
+        lock (Sync)
+            _playerSaveRequestProcessor = instance;
+    }
+
+    internal static void OnLifecyclePoint(string reason)
+    {
+        if (_applyingNativeGrant)
+            return;
+        lock (Sync)
+        {
+            _hypnoPan.Configure(_compatible);
+            _violance.Configure(_compatible);
+            _hypnoPan.NoteReceivedCount(_hypnoPanReceived);
+            _violance.NoteReceivedCount(_violanceReceived);
+            _hypnoPan.OnLifecyclePoint(reason);
+            _violance.OnLifecyclePoint(reason);
+            LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, reason);
+            LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, reason);
+        }
+    }
+
+    internal static void TickPending(TimeSpan elapsed)
+    {
+        if (_applyingNativeGrant)
+            return;
+        lock (Sync)
+        {
+            _hypnoPan.TickPending(elapsed);
+            _violance.TickPending(elapsed);
+            LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, "pending tick");
+            LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, "pending tick");
+        }
+    }
+
+    private static void LogOutcome(string itemName, string outcome, ref string previous, string reason)
+    {
+        if (string.Equals(previous, outcome, StringComparison.Ordinal))
+            return;
+        previous = outcome;
+        if (string.Equals(outcome, "verified-owned", StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] PREVIEW ABILITY VERIFIED item='{itemName}' reason='{reason}'.");
+        }
+        else if (!string.Equals(outcome, "not-owned", StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] PREVIEW ABILITY state item='{itemName}' outcome={outcome} reason='{reason}'.");
+        }
+    }
+
+    private sealed class NativeAdapter : IPreviewAbilityNativeAdapter
+    {
+        public bool SaveAvailable =>
+            RootsBucketRandomization.TryReadProgressionFlag(HypnoPanReconciler.AbilityFlag, out _);
+
+        public bool TryRead(string nativeFlag, out bool owned) =>
+            RootsBucketRandomization.TryReadProgressionFlag(nativeFlag, out owned);
+
+        public bool TrySubmit(string nativeFlag, out string detail)
+        {
+            object? processor;
+            lock (Sync)
+                processor = _playerSaveRequestProcessor;
+            if (processor == null)
+            {
+                detail = "PlayerSaveRequestProcessor unavailable.";
+                return false;
+            }
+
+            _applyingNativeGrant = true;
+            try
+            {
+                return WeedKillerRandomization.TrySubmitProgressionFlag(
+                    processor,
+                    nativeFlag,
+                    true,
+                    out detail);
+            }
+            finally
+            {
+                _applyingNativeGrant = false;
+            }
+        }
+    }
+}
+
+internal sealed class PreviewAbilityReconciliationKeeper : MonoBehaviour
+{
+    private int _cooldown;
+
+    public PreviewAbilityReconciliationKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 60;
+        PreviewAbilityRandomization.OnLifecyclePoint("Unity lifecycle");
+        PreviewAbilityRandomization.TickPending(TimeSpan.FromSeconds(1));
+    }
+}
+
 internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 {
     private int _cooldown;
@@ -23204,6 +23394,8 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
+        PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        PreviewAbilityRandomization.OnLifecyclePoint("progression request prefix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
         RootsBucketRandomization.TryFlushPendingNativeGrants();
 
@@ -23251,6 +23443,8 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
+        PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
         RootsBucketRandomization.TryFlushPendingNativeGrants();
 
