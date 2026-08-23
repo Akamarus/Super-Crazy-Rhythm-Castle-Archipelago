@@ -144,6 +144,7 @@ public sealed class Plugin : BasePlugin
         PlantPipesRandomization.Configure();
         RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
+        RootsStartupBootstrap.Configure();
         if (enabled.Value)
         {
             AddComponent<GarageCartridgeAccessKeeper>();
@@ -1097,6 +1098,7 @@ internal sealed class ArchipelagoClient
                 {
                     AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
                     IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
+                    RootsStartupBootstrap.ApplySlotData(loginSuccess.SlotData);
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
@@ -11706,6 +11708,9 @@ internal static class EarlyRuntimeUnlockPatches
 
     public static bool DifficultyRequestPrefix(object? __instance, object[]? __args)
     {
+        if (AreaAccessPrototype.Enabled && IntroHubSkip.Compatible)
+            return true;
+
         if (_replaying ||
             !NativeProgression.RandomizeEarlyProgression ||
             NativeProgression.HasLevel2Access)
@@ -17077,6 +17082,113 @@ internal static class RootsIntroCutsceneBypass
     }
 }
 
+internal static class RootsStartupBootstrap
+{
+    internal const string GateOpenedFlag = "ROOTS_HUB_GATE_OPENED";
+    internal const string DifficultyCompleteFlag = "ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE";
+
+    private static readonly object Sync = new();
+    private static object? _processor;
+    private static bool _compatible;
+    private static bool _complete;
+    private static int _attempts;
+    private static int _cooldown;
+
+    public static void Configure()
+    {
+        lock (Sync)
+        {
+            _processor = null;
+            _compatible = false;
+            _complete = false;
+            _attempts = 0;
+            _cooldown = 0;
+        }
+    }
+
+    public static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        string implementation = slotData != null &&
+                                slotData.TryGetValue("implementation_version", out object? raw)
+            ? raw?.ToString() ?? string.Empty
+            : string.Empty;
+        lock (Sync)
+        {
+            _compatible = AreaAccessPrototype.Enabled &&
+                          implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+            _complete = false;
+            _attempts = 0;
+            _cooldown = 0;
+        }
+    }
+
+    public static void CapturePlayerSaveRequestProcessor(object? instance)
+    {
+        if (instance == null ||
+            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
+            return;
+        lock (Sync)
+            _processor = instance;
+    }
+
+    public static void Tick()
+    {
+        object? processor;
+        int attempts;
+        lock (Sync)
+        {
+            if (!_compatible || _complete || _cooldown-- > 0)
+                return;
+            _cooldown = 60;
+            processor = _processor;
+            attempts = _attempts;
+        }
+
+        bool gateReadable = RootsBucketRandomization.TryReadProgressionFlag(GateOpenedFlag, out bool gateOwned);
+        bool difficultyReadable = RootsBucketRandomization.TryReadProgressionFlag(DifficultyCompleteFlag, out bool difficultyOwned);
+        if (!gateReadable || !difficultyReadable || processor == null)
+            return;
+
+        StarHudDecision hudDecision = StarHudPolicy.Decide(
+            enabled: true,
+            compatible: true,
+            liveApStarsActive: false,
+            roomId: DeveloperHarness.CurrentRoomId,
+            bootstrapFlagsOwned: gateOwned && difficultyOwned);
+
+        if (hudDecision == StarHudDecision.NativeReady)
+        {
+            lock (Sync)
+                _complete = true;
+            Plugin.LoggerInstance?.LogInfo(
+                "[SCRC-AP] ROOTS STARTUP BOOTSTRAP VERIFIED: native campaign HUD and difficulty bookkeeping are ready.");
+            return;
+        }
+
+        if (attempts >= 4)
+        {
+            lock (Sync)
+                _complete = true;
+            Plugin.LoggerInstance?.LogWarning(
+                "[SCRC-AP] ROOTS STARTUP BOOTSTRAP FALLBACK: exact flags could not be verified after four submissions; preserving current native state.");
+            return;
+        }
+
+        bool submitted = true;
+        if (!gateOwned)
+            submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
+                processor, GateOpenedFlag, true, out _);
+        if (!difficultyOwned)
+            submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
+                processor, DifficultyCompleteFlag, true, out _);
+
+        lock (Sync)
+            _attempts++;
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] ROOTS STARTUP BOOTSTRAP SUBMITTED attempt={attempts + 1} success={submitted} gateOwned={gateOwned} difficultyOwned={difficultyOwned}; Music Lab Points HUD remains untouched and no difficulty was selected.");
+    }
+}
+
 
 internal static class PlantPipesRandomization
 {
@@ -18267,6 +18379,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
     private void LateUpdate()
     {
         RootsIntroCutsceneBypass.TickPending();
+        RootsStartupBootstrap.Tick();
 
         bool shouldOwnRootsBaseline =
             AreaAccessPrototype.Enabled &&
@@ -22972,6 +23085,7 @@ internal static class ProgressionPatches
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
+        RootsStartupBootstrap.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
@@ -23018,6 +23132,7 @@ internal static class ProgressionPatches
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
+        RootsStartupBootstrap.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
