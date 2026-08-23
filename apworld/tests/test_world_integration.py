@@ -32,6 +32,24 @@ class WorldIntegrationTests(unittest.TestCase):
         )
         return world
 
+    @staticmethod
+    def reachable_regions(world, state):
+        reachable = {"Menu"}
+        changed = True
+        while changed:
+            changed = False
+            for region in world.multiworld.regions:
+                if region.name not in reachable:
+                    continue
+                for connection in region.connections:
+                    if (
+                        connection.connected_region.name not in reachable
+                        and connection.access_rule(state)
+                    ):
+                        reachable.add(connection.connected_region.name)
+                        changed = True
+        return reachable
+
     def test_generate_early_resolves_start_and_builds_previews(self):
         world = self.make_world()
         world.generate_early()
@@ -249,6 +267,97 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(world.multiworld.get_location("Level 22 - 1 Star", 1).item_rule(progression))
         self.assertFalse(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(progression))
         self.assertTrue(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(filler))
+
+    def test_royal_access_reaches_only_phone_side_level_22_route(self):
+        world = self.make_world()
+        world.create_regions()
+        world.set_rules()
+        state = State(["Royal Corridor Access"])
+        reachable = self.reachable_regions(world, state)
+
+        self.assertIn("Royal Corridor", reachable)
+        for name in self.module.LEVEL_22_ORDINARY_LOCATIONS:
+            location = world.multiworld.get_location(name, 1)
+            self.assertIn(location.parent_region.name, reachable)
+            self.assertTrue(location.access_rule(state))
+
+        exposed_names = {
+            location.name
+            for region in world.multiworld.regions
+            if region.name in reachable
+            for location in region.locations
+        }
+        self.assertFalse(any(name.startswith("Level 21 -") for name in exposed_names))
+        self.assertNotIn("Royal Corridor - Star Eater", exposed_names)
+        self.assertNotIn("Royal Corridor - Bridge Complete", exposed_names)
+
+    def test_seed_matrix_has_reachable_safe_slots_for_every_required_item(self):
+        supported_starts = (0, 1)  # Random currently resolves only to validated Roots; Roots is explicit.
+        supported_difficulties = range(4)
+
+        for seed in range(100):
+            for difficulty in supported_difficulties:
+                for starting_area in supported_starts:
+                    with self.subTest(seed=seed, difficulty=difficulty, starting_area=starting_area):
+                        world = self.make_world(
+                            seed=seed,
+                            difficulty=difficulty,
+                            starting_area=starting_area,
+                        )
+                        world.generate_early()
+                        world.create_regions()
+                        world.create_items()
+                        world.set_rules()
+
+                        state = State(item.name for item in world.multiworld.precollected)
+                        required = [
+                            item
+                            for item in world.multiworld.itempool
+                            if item.classification == "progression"
+                        ]
+                        world.random.shuffle(required)
+                        used_locations = set()
+
+                        while required:
+                            reachable = self.reachable_regions(world, state)
+                            selected = None
+                            for item in required:
+                                safe_location = next(
+                                    (
+                                        location
+                                        for region in world.multiworld.regions
+                                        if region.name in reachable
+                                        for location in region.locations
+                                        if location.address is not None
+                                        and location.name not in used_locations
+                                        and location.access_rule(state)
+                                        and location.item_rule(item)
+                                    ),
+                                    None,
+                                )
+                                if safe_location is not None:
+                                    selected = (item, safe_location)
+                                    break
+
+                            self.assertIsNotNone(selected, f"stranded required items: {[item.name for item in required]}")
+                            item, location = selected
+                            used_locations.add(location.name)
+                            state.owned.add(item.name)
+                            required.remove(item)
+
+                        progression_probe = world.create_item("Plant Pipes")
+                        for region in world.multiworld.regions:
+                            for location in region.locations:
+                                unsafe = (
+                                    (location.name.startswith("Music Lab - ") and location.name.endswith(" Point Chest"))
+                                    or (
+                                        location.name.startswith(("Game Garage - ", "Music Lab Cassette - "))
+                                        and location.name not in world.difficulty_preview_locations
+                                    )
+                                    or location.name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}
+                                )
+                                if unsafe:
+                                    self.assertFalse(location.item_rule(progression_probe), location.name)
 
     def test_retained_bk_seed_rejects_required_items_at_unsafe_locations(self):
         fixture_path = Path(__file__).parent / "fixtures" / "bk_seed_28223804408101432968.json"
