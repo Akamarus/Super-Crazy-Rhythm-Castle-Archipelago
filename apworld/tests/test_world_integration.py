@@ -163,10 +163,10 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 9)
+        self.assertEqual(data["schema_version"], 10)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -187,6 +187,9 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
         self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
+        self.assertEqual(data["consolidated_preview_version"], "consolidated-preview-0.19")
+        self.assertEqual(data["preview_ability_items_registered"], ["Hypno Pan", "Violance"])
+        self.assertFalse(data["preview_ability_items_generated"])
         self.assertTrue(data["plant_pipes_durable_reconciliation"])
         self.assertEqual(data["music_lab_safe_location_classification"], "conservative-v1")
         self.assertEqual(data["garage_routing_mode"], "interaction-gated")

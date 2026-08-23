@@ -7,15 +7,15 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-The v0.67.63 repair candidate has passed automated policy and APWorld checks. The blocking-bug sections below retain their original reproduction evidence until the combined gameplay acceptance confirms each repair in the game.
+The v0.67.64 / v0.19 consolidated preview has passed automated policy and APWorld checks. The blocking-bug sections below retain their original reproduction evidence until combined gameplay acceptance confirms each candidate in the game.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.67.63`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.63 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.18`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18`.
+- Client: `0.67.64`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.64 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- APWorld: `0.19`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
 - For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.

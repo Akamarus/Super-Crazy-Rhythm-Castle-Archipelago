@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current repair baseline: **v0.18** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18`) with client **v0.67.61**. The retained prefix preserves existing live systems while the final suffix activates the fail-closed repair contract.
+Current consolidated preview: **v0.19** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19`) with client **v0.67.64**. The retained prefix preserves existing live systems and the v0.18 fail-closed repair contract.
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 
@@ -28,4 +28,4 @@ The v0.17 YAML retains the v0.16 `required_stars`, `difficulty`, and `starting_a
 
 These are foundations only. Stars are not placed in the live item pool; difficulty does not remove live locations; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
 
-The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.67.61** and generate a fresh seed for v0.18 or after any later APWorld update.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.67.64** and generate a fresh v0.19 seed.

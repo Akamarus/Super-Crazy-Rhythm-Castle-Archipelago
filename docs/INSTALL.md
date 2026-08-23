@@ -38,12 +38,12 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.67.63 loading.
+[SCRC-AP] v0.67.64 loading.
 ```
 
 ## Configure the current development client
 
-After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.18 development flow, use these values and replace the server and slot placeholders with the room's connection values:
+After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.19 development flow, use these values and replace the server and slot placeholders with the room's connection values:
 
 ```ini
 [Archipelago]

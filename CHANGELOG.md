@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased — APWorld v0.18 / Client v0.67.63 repair candidate
+## Unreleased — APWorld v0.19 / Client v0.67.64 consolidated preview candidate
+
+- Added bounded automatic AP reconnection with session replacement, queued-check retention, received-history deduplication, and deliberate-shutdown cancellation.
+- Registered permanent preview items `Hypno Pan` (`187256121`) and `Violance` (`187256122`) without adding either to generated seeds; manual AP delivery reconciles and verifies their native abilities.
+- Rejected failed or zero-Star Level 22 results so ordinary completion tiers are emitted only for successful one-to-three-Star clears and never imply Victory.
+- Separated campaign Star HUD initialization from the Music Lab Points HUD context.
+- Removed the failed bottom character/difficulty phase-forcing experiment and added exact-path, read-only lifecycle snapshots for later manual diagnosis.
+- Added explicit Royal phone-side routing assertions plus an 800-case seed/difficulty/start reachability matrix.
+- All entries remain development candidates until the consolidated manual acceptance passes; no release claim is made.
+
+## APWorld v0.18 / Client v0.67.63 repair candidate
 
 - Hardened fresh-save direct start so only a synchronized compatible AP slot and exact intro-room transition can redirect to Music Lab.
 - Added verified-before-entry Roots intro suppression and exact post-Level-1 presentation suppression.

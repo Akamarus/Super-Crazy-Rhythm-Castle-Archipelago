@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.63 client / v0.18 APWorld repair candidate from the approved future randomizer design. Testers should use matching source builds and a fresh v0.18 seed/save.
+This is an unofficial, experimental development build rather than a release. The tables below distinguish the current v0.67.64 client / v0.19 APWorld consolidated preview from the approved future randomizer design. Testers should use matching source builds and a fresh v0.19 seed/save.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -16,7 +16,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 ## Current implementation
 
-| Work | Status | Current v0.67.63 / v0.18 boundary |
+| Work | Status | Current v0.67.64 / v0.19 boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50), difficulty, and starting area are exported with deterministic Level 1–22 requirements and a cumulative location preview. These previews do not alter live gameplay. |

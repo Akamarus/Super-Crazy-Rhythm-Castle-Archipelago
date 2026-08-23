@@ -4,7 +4,12 @@ from worlds.generic.Rules import set_rule
 
 from .difficulty import DIFFICULTY_NAMES, filter_locations_for_difficulty
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
-from .items import STAR_ITEM_COUNT, STAR_ITEM_NAME
+from .items import (
+    HYPNO_PAN_ITEM_NAME,
+    STAR_ITEM_COUNT,
+    STAR_ITEM_NAME,
+    VIOLANCE_ITEM_NAME,
+)
 from .options import SCRCOptions
 from .placement import filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
@@ -639,9 +644,9 @@ class SCRCWorld(World):
         generated_requirements = getattr(self, "generated_star_requirements", {})
         difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 9,
+            "schema_version": 10,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -688,6 +693,9 @@ class SCRCWorld(World):
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
             "repair_schema_version": "next-release-repair-0.18",
+            "consolidated_preview_version": "consolidated-preview-0.19",
+            "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],
+            "preview_ability_items_generated": False,
             "plant_pipes_durable_reconciliation": True,
             "music_lab_safe_location_classification": "conservative-v1",
             "garage_routing_mode": "interaction-gated",

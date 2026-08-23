@@ -2,7 +2,7 @@
 
 This checklist records release-blocking defects confirmed during the v0.17 / Client v0.67.60 fresh-save run. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.
 
-Client v0.67.63 / APWorld v0.18 now contains automated repair candidates for every item below. The boxes intentionally remain open until the combined fresh-seed gameplay acceptance passes.
+Client v0.67.64 / APWorld v0.19 now contains the consolidated automated candidates below. The boxes intentionally remain open until the combined fresh-seed gameplay acceptance passes.
 
 The failed regression seed is `AP_28223804408101432968`. It is useful for reproducing solver mistakes but must not be presented as playable.
 
