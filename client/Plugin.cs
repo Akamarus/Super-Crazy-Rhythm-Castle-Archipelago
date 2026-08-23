@@ -1096,6 +1096,7 @@ internal sealed class ArchipelagoClient
                 try
                 {
                     AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
+                    IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
@@ -18804,6 +18805,9 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
+            if (!control && !alt && !shift)
+                MusicLabDiscovery.ScanNativeIdentityCandidates();
+
             if (control)
                 DeveloperHarness.GrantLevel12Locally();
             else if (alt)
@@ -18971,10 +18975,13 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
 internal static class IntroHubSkip
 {
     public static bool Enabled { get; private set; }
+    public static bool Compatible { get; private set; }
     public static string TargetRoomId { get; private set; } = "GameRoom_Hub2";
 
     public static void Configure(bool directStartAtPhoneHub, bool legacyDirectStartAtLevelOne)
     {
+        Compatible = false;
+
         if (directStartAtPhoneHub)
         {
             Enabled = true;
@@ -18985,20 +18992,36 @@ internal static class IntroHubSkip
         Enabled = legacyDirectStartAtLevelOne;
         TargetRoomId = "GameRoom_Hub2";
     }
+
+    public static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        string implementation = slotData != null &&
+                                slotData.TryGetValue("implementation_version", out object? rawVersion)
+            ? rawVersion?.ToString() ?? string.Empty
+            : string.Empty;
+
+        Compatible = Enabled &&
+                     implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] INTRO DIRECT START SLOT CONTRACT synchronized=True enabled={Enabled} compatible={Compatible} implementation='{implementation}'.");
+    }
 }
 
 internal static class IntroRoomToHubRedirectPatches
 {
-    private const string IntroRoomId = "GameRoom_04A";
     private static bool _freshSavePending;
     private static bool _freshSaveRedirected;
 
     public static void NewSaveCreatedPostfix()
     {
-        _freshSavePending = true;
+        _freshSavePending = IntroHubSkip.Enabled && IntroHubSkip.Compatible;
         _freshSaveRedirected = false;
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] NEW SAVE DIRECT START ARMED: the first game-room transition will be redirected to the configured start hub.");
+        if (_freshSavePending)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                "[SCRC-AP] NEW SAVE DIRECT START ARMED: compatible slot data is synchronized; the exact intro-room transition will be redirected to the configured start hub.");
+        }
     }
 
     public static bool Prefix(object? __instance, object[]? __args)
@@ -19043,9 +19066,14 @@ internal static class IntroRoomToHubRedirectPatches
 
         bool redirectFreshSave = NewSaveDirectStartPolicy.Decide(
             IntroHubSkip.Enabled,
+            IntroHubSkip.Compatible,
             _freshSavePending,
-            _freshSaveRedirected) == NewSaveDirectStartDecision.Redirect;
-        bool redirectLegacyIntro = string.Equals(roomId, IntroRoomId, StringComparison.Ordinal);
+            _freshSaveRedirected,
+            roomId) == NewSaveDirectStartDecision.Redirect;
+        bool redirectLegacyIntro = NewSaveDirectStartPolicy.ShouldUseLegacyFallback(
+            IntroHubSkip.Enabled,
+            IntroHubSkip.Compatible,
+            roomId);
 
         if (!redirectFreshSave && !redirectLegacyIntro)
             return true;
@@ -20922,6 +20950,92 @@ internal static class MusicLabDiscovery
 
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] MUSIC LAB REWARD CHEST STATUS thresholds=5/10/20/32/46/64/89/111/140 mappedNativeFlags={mapped}/9 reconcileComplete={reconciled}. F5 is read-only except for queuing AP checks for rewards the native save already says are collected.");
+
+        ScanNativeIdentityCandidates();
+    }
+
+    public static void ScanNativeIdentityCandidates()
+    {
+        Plugin.LoggerInstance?.LogWarning(
+            "[SCRC-AP] ===== V06763 NATIVE IDENTITY DIAGNOSTIC BEGIN ===== readOnly=True.");
+
+        int hubCandidates = 0;
+        foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
+        {
+            if (tr == null)
+                continue;
+
+            string path = BuildHierarchy(tr);
+            GameObject go;
+            try { go = tr.gameObject; }
+            catch { continue; }
+            if (go == null)
+                continue;
+
+            string[] componentTypes;
+            try
+            {
+                componentTypes = go.GetComponents<Component>()
+                    .Where(component => component != null)
+                    .Select(component => component.GetType().FullName ?? component.GetType().Name)
+                    .ToArray();
+            }
+            catch
+            {
+                componentTypes = Array.Empty<string>();
+            }
+
+            if (!NativeIdentityDiagnosticPolicy.IsHub6Candidate(path, componentTypes))
+                continue;
+
+            bool activeSelf = false;
+            bool activeInHierarchy = false;
+            try
+            {
+                activeSelf = go.activeSelf;
+                activeInHierarchy = go.activeInHierarchy;
+            }
+            catch { }
+
+            hubCandidates++;
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] V06763 HUB6 CANDIDATE path='{path}' activeSelf={activeSelf} activeInHierarchy={activeInHierarchy} managedComponents='{string.Join("|", componentTypes)}'.");
+            DumpExactObjectComponents(path, "V06763 HUB6 CANDIDATE");
+        }
+
+        int difficultyTypes = 0;
+        Type[] gameTypes;
+        try { gameTypes = ReflectionUtil.GameAssembly?.GetTypes() ?? Array.Empty<Type>(); }
+        catch { gameTypes = Array.Empty<Type>(); }
+
+        foreach (Type type in gameTypes
+                     .Where(type => NativeIdentityDiagnosticPolicy.IsDifficultyType(type.FullName ?? type.Name))
+                     .OrderBy(type => type.FullName, StringComparer.Ordinal))
+        {
+            string[] members;
+            try
+            {
+                members = type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+                    .Select(member => $"{member.MemberType}:{member.Name}")
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .ToArray();
+            }
+            catch
+            {
+                members = Array.Empty<string>();
+            }
+
+            if (members.Length == 0)
+                continue;
+
+            difficultyTypes++;
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] V06763 DIFFICULTY TYPE fullName='{type.FullName}' members='{string.Join("|", members)}'.");
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] ===== V06763 NATIVE IDENTITY DIAGNOSTIC END ===== hubCandidates={hubCandidates} difficultyTypes={difficultyTypes} readOnly=True.");
     }
 
     private static void ScanGarage()
