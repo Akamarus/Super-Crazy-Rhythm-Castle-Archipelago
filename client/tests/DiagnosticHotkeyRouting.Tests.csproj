@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefaultItemExcludes>$(DefaultItemExcludes);RootsBucketRandomization\**;RepairCompatibility\**;PlantPipesReconciler\**;NewSaveDirectStart\**;NativeIdentityDiagnostic\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);RootsBucketRandomization\**;RepairCompatibility\**;PlantPipesReconciler\**;NewSaveDirectStart\**;NativeIdentityDiagnostic\**;RootsPresentation\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\DiagnosticHotkeyRouting.cs" Link="DiagnosticHotkeyRouting.cs" />

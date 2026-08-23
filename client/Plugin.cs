@@ -11309,6 +11309,7 @@ internal static class GamePatches
         Level5Discovery.RecordLevelPersisted(level);
         Level6Discovery.RecordLevelPersisted(level);
         Level8Discovery.RecordLevelPersisted(level);
+        EarlySequenceBlockerPatches.RecordLevelPersisted(level);
 
         if (result != null)
         {
@@ -11401,11 +11402,41 @@ internal static class EarlySequenceBlockerPatches
     [ThreadStatic]
     private static bool _replaying;
 
+    private static bool _levelOnePersisted;
+
+    public static void RecordLevelPersisted(string level)
+    {
+        if (string.Equals(level, "Level_05", StringComparison.OrdinalIgnoreCase))
+            _levelOnePersisted = true;
+    }
+
+    public static void NewSaveCreated() => _levelOnePersisted = false;
+
     public static bool Prefix(
         MethodBase __originalMethod,
         object? __instance,
         object[]? __args)
     {
+        string typeName = __originalMethod.DeclaringType?.Name ?? "";
+        string methodName = __originalMethod.Name;
+
+        if (!_replaying &&
+            __instance != null &&
+            methodName == "Begin" &&
+            RootsPresentationPolicy.ShouldSuppressPostLevelOne(
+                AreaAccessPrototype.Enabled,
+                IntroHubSkip.Compatible,
+                typeName,
+                _levelOnePersisted))
+        {
+            bool markedComplete = TryMarkSequenceComplete(__instance);
+            Plugin.LoggerInstance?.LogWarning(
+                markedComplete
+                    ? "[SCRC-AP] REDUNDANT POST-LEVEL-1 ROOTS DIFFICULTY PRESENTATION SUPPRESSED and marked complete."
+                    : "[SCRC-AP] REDUNDANT POST-LEVEL-1 ROOTS DIFFICULTY PRESENTATION SUPPRESSED but completion could not be marked.");
+            return false;
+        }
+
         if (_replaying ||
             !NativeProgression.RandomizeEarlyProgression ||
             NativeProgression.HasLevel2Access ||
@@ -11413,9 +11444,6 @@ internal static class EarlySequenceBlockerPatches
         {
             return true;
         }
-
-        string typeName = __originalMethod.DeclaringType?.Name ?? "";
-        string methodName = __originalMethod.Name;
 
         string? key = null;
         string? label = null;
@@ -16856,16 +16884,32 @@ internal static class RootsIntroCutsceneBypass
 
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
-    private static bool _appliedThisProcess;
     private static bool _missingProcessorLogged;
+    private static PendingTransition? _pendingTransition;
+    private static int _retryCount;
+    private static bool _submissionOutstanding;
+    private static DateTime _nextAttemptUtc;
+
+    [ThreadStatic]
+    private static bool _replaying;
+
+    private sealed class PendingTransition
+    {
+        public object Instance = null!;
+        public MethodBase Method = null!;
+        public object[] Args = Array.Empty<object>();
+    }
 
     public static void Configure()
     {
         lock (Sync)
         {
             _playerSaveRequestProcessor = null;
-            _appliedThisProcess = false;
             _missingProcessorLogged = false;
+            _pendingTransition = null;
+            _retryCount = 0;
+            _submissionOutstanding = false;
+            _nextAttemptUtc = DateTime.MinValue;
         }
     }
 
@@ -16879,52 +16923,157 @@ internal static class RootsIntroCutsceneBypass
             _playerSaveRequestProcessor = instance;
     }
 
-    public static void TryApplyBeforeRootsTransition()
+    public static bool ShouldAllowTransition(
+        object instance,
+        MethodBase method,
+        object[]? args,
+        string? roomId)
     {
-        if (!AreaAccessPrototype.Enabled || !AreaAccessPrototype.HasArea("Roots"))
-            return;
+        if (_replaying)
+            return true;
+
+        bool enabled = AreaAccessPrototype.Enabled && AreaAccessPrototype.HasArea("Roots");
+        bool enteringRoots = string.Equals(roomId, RootsRoomId, StringComparison.Ordinal);
+        bool readable = RootsBucketRandomization.TryReadProgressionFlag(
+            NativeIntroWitnessedFlag, out bool nativeFlagOwned);
 
         object? processor;
+        int retryCount;
+        bool submissionOutstanding;
         lock (Sync)
         {
-            if (_appliedThisProcess)
-                return;
             processor = _playerSaveRequestProcessor;
+            retryCount = _retryCount;
+            submissionOutstanding = _submissionOutstanding;
         }
 
-        if (processor == null)
+        RootsIntroDecision decision = RootsPresentationPolicy.DecideIntro(
+            new RootsIntroSnapshot(
+                enabled,
+                IntroHubSkip.Compatible,
+                enteringRoots,
+                readable && nativeFlagOwned,
+                processor != null,
+                submissionOutstanding,
+                retryCount));
+
+        if (decision is RootsIntroDecision.Vanilla or RootsIntroDecision.FallbackVanilla)
+            return true;
+        if (decision == RootsIntroDecision.AllowTransition)
         {
-            bool shouldLog;
             lock (Sync)
             {
-                shouldLog = !_missingProcessorLogged;
-                _missingProcessorLogged = true;
+                _pendingTransition = null;
             }
-
-            if (shouldLog)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS pending: PlayerSaveRequestProcessor was unavailable immediately before transition to {RootsRoomId}; vanilla intro behavior may occur on this entry.");
-            }
-            return;
-        }
-
-        if (!WeedKillerRandomization.TrySubmitProgressionFlag(
-                processor,
-                NativeIntroWitnessedFlag,
-                true,
-                out string detail))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS failed safely: could not set '{NativeIntroWitnessedFlag}' before transition to {RootsRoomId}. {detail}");
-            return;
+            return true;
         }
 
         lock (Sync)
-            _appliedThisProcess = true;
+        {
+            _pendingTransition ??= new PendingTransition
+            {
+                Instance = instance,
+                Method = method,
+                Args = args?.ToArray() ?? Array.Empty<object>(),
+            };
+        }
 
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASSED flag='{NativeIntroWitnessedFlag}' value=True timing='before {RootsRoomId} transition'. This skips only the one-time Roots arrival presentation so the player does not spawn away from a movement-locking cutscene; no other Roots quest flags were changed. {detail}");
+        TryAdvancePending();
+        return false;
+    }
+
+    public static void TickPending() => TryAdvancePending();
+
+    private static void TryAdvancePending()
+    {
+        PendingTransition? pending;
+        object? processor;
+        int retryCount;
+        bool outstanding;
+        DateTime nextAttempt;
+        lock (Sync)
+        {
+            pending = _pendingTransition;
+            processor = _playerSaveRequestProcessor;
+            retryCount = _retryCount;
+            outstanding = _submissionOutstanding;
+            nextAttempt = _nextAttemptUtc;
+        }
+        if (pending == null)
+            return;
+
+        bool readable = RootsBucketRandomization.TryReadProgressionFlag(
+            NativeIntroWitnessedFlag, out bool owned);
+        if (readable && owned)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASSED flag='{NativeIntroWitnessedFlag}' value=True timing='verified before {RootsRoomId} transition'.");
+            ReplayPending();
+            return;
+        }
+
+        if (DateTime.UtcNow < nextAttempt)
+            return;
+
+        TimeSpan? retryDelay = RootsPresentationPolicy.RetryDelay(retryCount);
+        if (retryDelay == null)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                "[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS FALLBACK: native flag could not be verified within the bounded retry schedule; replaying vanilla transition.");
+            ReplayPending();
+            return;
+        }
+
+        if (processor != null && !outstanding)
+        {
+            bool submitted = WeedKillerRandomization.TrySubmitProgressionFlag(
+                processor, NativeIntroWitnessedFlag, true, out string detail);
+            lock (Sync)
+                _submissionOutstanding = submitted;
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS submission submitted={submitted} retry={retryCount}. {detail}");
+        }
+        else if (processor == null && !_missingProcessorLogged)
+        {
+            _missingProcessorLogged = true;
+            Plugin.LoggerInstance?.LogInfo(
+                "[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS waiting for PlayerSaveRequestProcessor before entry.");
+        }
+
+        lock (Sync)
+        {
+            _retryCount++;
+            _submissionOutstanding = false;
+            _nextAttemptUtc = DateTime.UtcNow + retryDelay.Value;
+        }
+    }
+
+    private static void ReplayPending()
+    {
+        PendingTransition? pending;
+        lock (Sync)
+        {
+            pending = _pendingTransition;
+            _pendingTransition = null;
+            _submissionOutstanding = false;
+        }
+        if (pending == null)
+            return;
+
+        try
+        {
+            _replaying = true;
+            pending.Method.Invoke(pending.Instance, pending.Args);
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogError(
+                $"[SCRC-AP] ROOTS deferred transition replay failed: {ex.GetBaseException().Message}");
+        }
+        finally
+        {
+            _replaying = false;
+        }
     }
 }
 
@@ -18117,6 +18266,8 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
+        RootsIntroCutsceneBypass.TickPending();
+
         bool shouldOwnRootsBaseline =
             AreaAccessPrototype.Enabled &&
             AreaAccessPrototype.HasArea("Roots") &&
@@ -19015,6 +19166,7 @@ internal static class IntroRoomToHubRedirectPatches
 
     public static void NewSaveCreatedPostfix()
     {
+        EarlySequenceBlockerPatches.NewSaveCreated();
         _freshSavePending = IntroHubSkip.Enabled && IntroHubSkip.Compatible;
         _freshSaveRedirected = false;
         if (_freshSavePending)
@@ -19024,7 +19176,7 @@ internal static class IntroRoomToHubRedirectPatches
         }
     }
 
-    public static bool Prefix(object? __instance, object[]? __args)
+    public static bool Prefix(MethodBase __originalMethod, object? __instance, object[]? __args)
     {
         object? request = __args?.FirstOrDefault(a =>
             a != null && a.GetType().Name == "TransitionToGameRoomRequest");
@@ -19056,8 +19208,13 @@ internal static class IntroRoomToHubRedirectPatches
             return false;
         }
 
-        if (string.Equals(roomId, RootsIntroCutsceneBypass.RootsRoomId, StringComparison.Ordinal))
-            RootsIntroCutsceneBypass.TryApplyBeforeRootsTransition();
+        if (string.Equals(roomId, RootsIntroCutsceneBypass.RootsRoomId, StringComparison.Ordinal) &&
+            __instance != null &&
+            !RootsIntroCutsceneBypass.ShouldAllowTransition(
+                __instance, __originalMethod, __args, roomId))
+        {
+            return false;
+        }
 
         DeveloperHarness.CaptureGameFlow(__instance, request);
 
