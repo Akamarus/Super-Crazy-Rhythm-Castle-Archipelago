@@ -17244,6 +17244,7 @@ internal static class RootsStartupBootstrap
     private static readonly object Sync = new();
     private static object? _processor;
     private static bool _compatible;
+    private static bool _synchronized;
     private static bool _complete;
     private static int _attempts;
     private static int _cooldown;
@@ -17254,6 +17255,7 @@ internal static class RootsStartupBootstrap
         {
             _processor = null;
             _compatible = false;
+            _synchronized = false;
             _complete = false;
             _attempts = 0;
             _cooldown = 0;
@@ -17270,6 +17272,7 @@ internal static class RootsStartupBootstrap
         {
             _compatible = AreaAccessPrototype.Enabled &&
                           implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+            _synchronized = true;
             _complete = false;
             _attempts = 0;
             _cooldown = 0;
@@ -17305,12 +17308,14 @@ internal static class RootsStartupBootstrap
 
         StarHudDecision hudDecision = StarHudPolicy.Decide(
             enabled: true,
-            compatible: true,
-            liveApStarsActive: false,
-            roomId: DeveloperHarness.CurrentRoomId,
-            bootstrapFlagsOwned: gateOwned && difficultyOwned);
+            compatible: _compatible,
+            synchronized: _synchronized,
+            roomId: DeveloperHarness.CurrentRoomId);
 
-        if (hudDecision == StarHudDecision.NativeReady)
+        if (hudDecision != StarHudDecision.ShowCampaignStars)
+            return;
+
+        if (gateOwned && difficultyOwned)
         {
             lock (Sync)
                 _complete = true;
