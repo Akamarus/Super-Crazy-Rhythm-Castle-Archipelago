@@ -18281,13 +18281,19 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 continue;
 
             bool owned = GarageCartridgeAccess.HasCartridge(cartridge.Song);
-            if (!owned)
+            GarageObjectDecision decision = GarageAvailabilityPolicy.Decide(
+                enabled: true,
+                compatible: true,
+                ownsCartridge: owned,
+                role: GarageObjectRole.SongCartridge);
+            if (decision == GarageObjectDecision.Inactive)
             {
                 if (obj.activeSelf)
                     obj.SetActive(false);
                 _releasedThisVisit.Remove(cartridge.Song);
             }
-            else if (!_releasedThisVisit.Contains(cartridge.Song))
+            else if (decision == GarageObjectDecision.Active &&
+                     !_releasedThisVisit.Contains(cartridge.Song))
             {
                 // Release the real Garage cartridge exactly once per room visit.
                 // After this, vanilla may reparent/deactivate it while the player
