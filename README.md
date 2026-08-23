@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Playable development baseline: APWorld v0.18 preserves the v0.17 Roots-first Area Access and bucket-chain systems while the repair release is completed. Client v0.67.62 starts new AP saves in Music Lab and restores AP-owned Plant Pipes after save load and full restart without requiring another delivery.
+- Playable development baseline: APWorld v0.18 preserves the v0.17 Roots-first Area Access and bucket-chain systems while Client v0.67.63 is undergoing combined gameplay acceptance. The candidate hardens direct start, Roots presentation, native difficulty/HUD startup, Music Lab barriers, Garage cartridge boundaries, Level 22 ordinary checks, and completed-Level-4 Plant Pipes reconciliation.
 - Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
 - Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -36,7 +36,7 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.62` | New-save Music Lab start and Plant Pipes Level 3/transition/restart reconciliation verified; completed-Level-4 persistence remains pending |
+| Client | `0.67.63` | Automated repair gate complete; combined fresh-seed gameplay acceptance pending |
 | APWorld | `0.18` | Repair contract active; Roots bucket chain preserved; random currently resolves only to validated Roots |
 | Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18` | Preserves prior client feature gates and advertises the fail-closed v0.18 repair contract |
 

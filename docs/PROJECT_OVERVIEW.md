@@ -597,11 +597,11 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.15:
+Current frontier at APWorld v0.18:
 
 ```text
-Next safe item ID:     187256118
-Next safe location ID: 187256180
+Next safe item ID:     187256121
+Next safe location ID: 187256186
 ```
 
 ---

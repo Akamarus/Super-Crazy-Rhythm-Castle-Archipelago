@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased — APWorld v0.18 / Client v0.67.62 repair work
+## Unreleased — APWorld v0.18 / Client v0.67.63 repair candidate
+
+- Hardened fresh-save direct start so only a synchronized compatible AP slot and exact intro-room transition can redirect to Music Lab.
+- Added verified-before-entry Roots intro suppression and exact post-Level-1 presentation suppression.
+- Restored native Normal/Pro selection and campaign Star HUD bootstrap while preserving the Music Lab Points HUD.
+- Bypassed only the two verified Music Lab construction-barrier roots in compatible AP sessions.
+- Preserved the required physical Game Garage entrance pickup and holder/play initialization; AP ownership controls only song-cartridge children.
+- Added ordinary Level 22 completion and cumulative one-to-three-Star checks at permanent IDs `187256182..187256185`; Victory remains inactive.
+- Added completed-Level-4 Plant Pipes result reconciliation and conservative required-item placement rules for unmodeled point/tier checks.
+- Automated verification is complete; combined gameplay acceptance remains pending.
 
 - Added fail-closed v0.18 repair-contract metadata while preserving the existing v0.15–v0.17 implementation prefix and live systems.
 - Reworked Plant Pipes delivery into received-history reconciliation after the selected save becomes readable. Native save access now runs only on Unity's main thread, uses bounded verified retries, rejects progression-hook re-entry, and does not require an unrelated native save request.
