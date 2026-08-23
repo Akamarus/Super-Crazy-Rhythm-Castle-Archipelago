@@ -11270,6 +11270,7 @@ internal static class GamePatches
         Level5Discovery.RecordLevelResultApplied(level);
         Level6Discovery.RecordLevelResultApplied(level);
         Level8Discovery.RecordLevelResultApplied(level);
+        PlantPipesRandomization.OnLevelResultApplied(level);
     }
 
     public static void ResultPersistedEventPostfix(object[]? __args)
@@ -11313,6 +11314,7 @@ internal static class GamePatches
         Level6Discovery.RecordLevelPersisted(level);
         Level8Discovery.RecordLevelPersisted(level);
         EarlySequenceBlockerPatches.RecordLevelPersisted(level);
+        PlantPipesRandomization.OnLevelResultPersisted(level);
 
         if (result != null)
         {
@@ -17375,6 +17377,22 @@ internal static class PlantPipesRandomization
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] ROOTS PLANT PIPES reconciliation result={current} receivedCount={_receivedCount} room='{DeveloperHarness.CurrentRoomId}'.");
         }
+    }
+
+    public static void OnLevelResultApplied(string level)
+    {
+        if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
+            return;
+        lock (Sync)
+            _runtime.OnLifecyclePoint("level-result-applied:Level_08");
+    }
+
+    public static void OnLevelResultPersisted(string level)
+    {
+        if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
+            return;
+        lock (Sync)
+            _runtime.OnLifecyclePoint("level-result-persisted:Level_08");
     }
 
     internal static void TickPending(TimeSpan elapsed)
