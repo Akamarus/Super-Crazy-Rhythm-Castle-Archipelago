@@ -55,7 +55,7 @@ A compatible AP save exposes both native Normal and Pro choices from the beginni
 
 ### Star HUD
 
-APWorld v0.18 does not place or synchronize live AP Star items. Client v0.67.63 therefore keeps the native Star counter visible and displays the save's native earned-Star total. Skipped startup presentations must not hide or destroy the HUD state that owns this counter.
+APWorld v0.18 does not place or synchronize live AP Star items. Client v0.67.63 therefore preserves the native Music Lab Points HUD in Music Lab and the native Star counter in campaign hubs. A compatible AP save reconciles only `ROOTS_HUB_GATE_OPENED` and `ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE` so skipped startup presentations still initialize the campaign HUD and expose the normal difficulty choice. The client does not fabricate or directly activate a Star HUD object.
 
 When live AP Stars are implemented in a later release, the display source will change under a separate approved design. This repair must not partially implement AP Stars or Victory.
 
@@ -67,7 +67,7 @@ Cassette machines, cassette ownership, medal thresholds, reward chests, Music La
 
 ### Game Garage availability
 
-The Game Garage must complete native initialization even when the player owns zero AP cartridges. Native cartridge and song objects required for room loading remain alive. AP ownership controls whether each song can be selected or started, rather than whether its native initialization object exists.
+The physical cartridge placed in front of the Game Garage remains the required vanilla entrance trigger and is never bypassed or suppressed. After that pickup, the Game Garage must complete native initialization even when the player owns zero AP song cartridges. Native holder and play-sequence objects required for room loading remain alive. AP ownership controls only whether each matching song cartridge can be selected or started.
 
 With zero cartridges, the room loads visibly, all six songs remain unavailable, and normal menu or hub exit works. With one cartridge, only its matching song becomes usable. Multiple cartridges expose exactly their corresponding songs. Vanilla behavior is retained outside compatible AP sessions.
 

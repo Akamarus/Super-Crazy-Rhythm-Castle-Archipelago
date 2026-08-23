@@ -65,12 +65,12 @@
 - Read: retained screenshots and evidence referenced by `docs/TESTING_AND_ISSUES.md`
 
 **Interfaces:**
-- Produces: exact full type/member for Normal/Pro availability, exact Hub6 Star HUD path/component, exact orange-barrier paths, and the exact Garage selection component that can be disabled without deactivating cartridge roots.
+- Produces: exact Normal/Pro request/bootstrap flow, exact campaign-HUD bootstrap flags, exact orange-barrier paths, and exact Garage holder/cartridge-child boundaries.
 - Consumed by: Tasks 3–6. Those tasks may not substitute guesses or broad scene scans.
 
 - [ ] **Step 1: Run existing read-only diagnostics in the relevant rooms**
 
-In Hub6, run the focused hierarchy/save probe and capture the visible Star HUD plus every orange construction barrier. In Game Garage, run the cartridge/component probe with zero owned cartridges. At the difficulty choice, capture the exact condition/enquiry and request types used to show and select Normal/Pro.
+In Hub6, run the focused hierarchy/save probe and confirm the native Music Lab Points HUD plus every orange construction barrier. In a campaign hub, confirm whether the native Star HUD was instantiated. In Game Garage, run the cartridge/component probe with zero AP-owned cartridges after using the required physical entrance pickup. At the difficulty choice, capture the exact condition/enquiry and request types used to show and select Normal/Pro.
 
 - [ ] **Step 2: Correlate logs with visible objects**
 
@@ -285,12 +285,12 @@ git commit -m "fix: expose AP difficulty choices at startup"
 - Modify: `client/tests/DiagnosticHotkeyRouting.Tests.csproj`
 
 **Interfaces:**
-- Produces: `StarHudDecision Decide(bool enabled, bool compatible, bool liveApStarsActive, bool isHubRoom, bool nativeHudVisible)`.
-- v0.18 output is `ShowNative` only when AP is compatible, live AP Stars are inactive, and the player is in a hub room.
+- Produces: `StarHudDecision Decide(bool enabled, bool compatible, bool liveApStarsActive, string roomId, bool bootstrapFlagsOwned)`.
+- v0.18 output is `PreserveMusicLabPoints` in Hub6, `ReconcileCampaignBootstrap` in campaign hubs when either exact flag is absent, and `NativeReady` when both are owned.
 
 - [ ] **Step 1: Write failing visibility/source tests**
 
-Cover compatible v0.18 hub, incompatible slot, non-hub room, already-visible HUD, and a future `liveApStarsActive=true` case that must return `DeferToApStars` rather than native normalization.
+Cover compatible Hub6, compatible Roots with missing bootstrap flags, Roots with both flags owned, incompatible slot, and a future `liveApStarsActive=true` case that must return `DeferToApStars`.
 
 - [ ] **Step 2: Run and verify failure**
 
@@ -300,7 +300,7 @@ Expected: FAIL because the policy is absent.
 
 - [ ] **Step 3: Implement policy and exact HUD integration**
 
-Keep only the accepted Task 0 Star HUD object/component active after fresh-save and level-result transitions. Read the native earned-Star total; do not synthesize or mutate saved Stars. Limit changes to compatible v0.18 sessions and that exact identity.
+Preserve Hub6's native Music Lab Points HUD. In compatible v0.18 campaign startup, submit and verify only `ROOTS_HUB_GATE_OPENED=True` and `ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE=True` through the existing main-thread save seam. Do not synthesize Stars or activate guessed UI objects; let native campaign HUD initialization follow the verified bookkeeping.
 
 - [ ] **Step 4: Run focused test**
 
@@ -634,10 +634,10 @@ Launch `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle.exe`. Confirm local
 Verify in order:
 
 1. fresh save enters Music Lab without tutorial;
-2. native Star counter is visible;
+2. Music Lab shows its native Music Lab Points HUD, while Roots and other campaign hubs show the native Star counter;
 3. Normal and Pro are selectable;
 4. every orange-barrier cassette path is physically open;
-5. Garage visibly loads and exits with zero cartridges;
+5. after collecting the required physical entrance cartridge, Garage visibly loads and exits with zero AP-owned song cartridges;
 6. `/send Jack <one cartridge name>` enables exactly that song;
 7. first Roots arrival cutscene does not play;
 8. post-Level-1 gate/difficulty presentation does not play;
