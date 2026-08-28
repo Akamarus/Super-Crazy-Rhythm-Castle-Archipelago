@@ -36,3 +36,9 @@ Retain `BepInEx/LogOutput.log` from startup through the final Lobby check.
 ## Follow-up diagnosis
 
 The run emitted no `AREA ARRIVAL CONDITION BYPASSED` line because the reused save already reported the targeted native flags as true. The transition scoping and both observed no-cutscene arrivals passed, but fresh-state proof remains pending. Bottom-HUD snapshots resolved the object path but not its managed proxy and showed both previously suspected Roots bookkeeping flags already true. Treat the bottom control as a separate native `DifficultyToggler` initialization/interaction defect rather than extending the progression-flag override by guesswork.
+
+### Failed native phase experiment
+
+A separately versioned v0.67.66 diagnostic candidate read the exact Roots `DifficultyToggler` through its native `BuildState().CurrentPhase` path and confirmed phase `INVALID(0)`. This explains the unavailable control and its later recovery after broader vanilla progression. Direct native `SetPhase(IDLE)` was then rejected by an IL2CPP exception; subsequent verification continued to report phase `0`. The game remained running, but the candidate retried and was immediately withdrawn. The installed client and branch were restored to v0.67.65, and the v0.67.66 implementation was reverted so it cannot ship accidentally.
+
+Future work must use the game's normal state-transition/request pipeline that owns `DifficultyToggler.SetPhase`, not direct native invocation. Do not repeat this experiment or ask the player to replay levels for it.
