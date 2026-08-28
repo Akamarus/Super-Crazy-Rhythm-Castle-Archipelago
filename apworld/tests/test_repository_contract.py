@@ -41,7 +41,7 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_roots_bucket_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('"world_version": "0.19"', result.stdout)
+        self.assertIn('"world_version": "0.19.0"', result.stdout)
         self.assertIn(
             '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19"',
             result.stdout,
@@ -388,6 +388,7 @@ comment-internal newlines are not root-entry separators
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             with zipfile.ZipFile(Path(output_dir) / "scrc.apworld") as archive:
                 names = set(archive.namelist())
+                manifest = json.loads(archive.read("scrc/archipelago.json"))
 
         required = {
             "scrc/__init__.py",
@@ -400,6 +401,9 @@ comment-internal newlines are not root-entry separators
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
+        self.assertEqual(manifest["world_version"], "0.19.0")
+        self.assertEqual(manifest["version"], 7)
+        self.assertEqual(manifest["compatible_version"], 7)
 
     def test_example_yaml_selects_the_validated_roots_start(self):
         example = (REPO_ROOT / "apworld/examples/SCRC-AreaRouting-PlantPipes.yaml").read_text(

@@ -1,11 +1,11 @@
 {
   "game": "Super Crazy Rhythm Castle",
   "minimum_ap_version": "0.6.7",
-  "world_version": "0.19",
+  "world_version": "0.19.0",
   "authors": [
     "Jack",
     "OpenAI"
   ],
-  "version": 11,
-  "compatible_version": 11
+  "version": 7,
+  "compatible_version": 7
 }
