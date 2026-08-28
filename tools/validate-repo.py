@@ -55,7 +55,7 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.65",
+    "client_version": "0.67.94",
     "world_version": "0.19.0",
     "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19",
     "generation_foundation_version": "generation-foundation-0.16",

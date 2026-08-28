@@ -35,7 +35,7 @@ Client-only fixes that do not change the APWorld can usually reuse an existing c
 
 ## Current Roots regression checklist
 
-For the next focused run, use [the v0.67.65 / v0.19 area-arrival repair acceptance](testing/2026-08-27-area-arrival-repair-acceptance.md). The completed [v0.67.64 consolidated preview record](testing/2026-08-23-consolidated-preview-acceptance.md) remains the evidence baseline; verified items must not be repeated unless this overlapping arrival/HUD change could invalidate them.
+For the accepted Roots repair evidence, use [the v0.67.94 / v0.19 area-arrival repair acceptance](testing/2026-08-27-area-arrival-repair-acceptance.md). The completed [v0.67.64 consolidated preview record](testing/2026-08-23-consolidated-preview-acceptance.md) remains the broader gameplay evidence baseline; verified items must not be repeated unless overlapping changes could invalidate them.
 
 Before accepting a Roots milestone, confirm:
 

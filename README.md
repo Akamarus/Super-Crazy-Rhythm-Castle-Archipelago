@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Focused repair candidate: APWorld v0.19 preserves the consolidated systems while Client v0.67.65 scopes first-arrival and campaign-HUD conditions to AP-phone entry without changing native save flags or vanilla story-route arrivals. Focused gameplay acceptance is pending.
+- Focused repair candidate: APWorld v0.19 preserves the consolidated systems while Client v0.67.94 suppresses the redundant Roots arrival presentation and exposes the in-world Sophisticated Computer without awarding a Star or AP check. Live Roots acceptance passed; the separate bottom character/difficulty shortcut remains a known issue.
 - Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
 - Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -36,7 +36,7 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.65` | Area-arrival repair candidate; automated gate complete and focused gameplay acceptance pending |
+| Client | `0.67.94` | Roots arrival presentation accepted; bottom shortcut remains a known issue |
 | APWorld | `0.19` | v0.18 repair contract retained; preview abilities registered but excluded from generated seeds |
 | Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19` | Preserves prior gates and advertises the matching consolidated preview |
 
