@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.65";
+    public const string PluginVersion = "0.67.94";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -127,6 +127,8 @@ public sealed class Plugin : BasePlugin
         patched += PatchEarlyUnlockSequenceSteps();
         patched += PatchMusicLabMedalScoreOverride();
         patched += PatchHub6AreaPhoneProgressionConditions();
+        patched += PatchRootsOwnerDiagnostic();
+        patched += PatchRootsComputerNormalization();
 
         Log.LogInfo($"[SCRC-AP] Game hooks installed: {patched}.");
 
@@ -772,6 +774,74 @@ public sealed class Plugin : BasePlugin
             }
         }
 
+        return count;
+    }
+
+    private int PatchRootsOwnerDiagnostic()
+    {
+        Assembly? asm = ReflectionUtil.GameAssembly;
+        Type? type = asm == null
+            ? null
+            : ReflectionUtil.SafeGetTypes(asm).FirstOrDefault(t =>
+                string.Equals(t.Name, "OneTimeGameProgressionLogic", StringComparison.Ordinal));
+        MethodInfo? target = type?.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(m => string.Equals(m.Name, "HandleEvent", StringComparison.Ordinal) &&
+                                 m.GetParameters().Length == 1 &&
+                                 string.Equals(m.GetParameters()[0].ParameterType.Name, "GameRoomReadyToRunEvent", StringComparison.Ordinal));
+        MethodInfo? postfix = AccessTools.Method(typeof(RootsOwnerDiagnostic), nameof(RootsOwnerDiagnostic.Postfix));
+        if (target == null || postfix == null || _harmony == null)
+        {
+            Log.LogWarning("[SCRC-AP] ROOTS OWNER READ hook unavailable.");
+            return 0;
+        }
+        _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
+        Log.LogInfo("[SCRC-AP] ROOTS OWNER READ hook installed (read-only).");
+        return 1;
+    }
+
+    private int PatchRootsComputerNormalization()
+    {
+        Assembly? asm = ReflectionUtil.GameAssembly;
+        MethodInfo? postfixFactory = AccessTools.Method(
+            typeof(RootsComputerNormalization),
+            nameof(RootsComputerNormalization.CurrentPhasePostfixFactory));
+        if (asm == null || postfixFactory == null || _harmony == null)
+        {
+            Log.LogWarning($"[SCRC-AP] ROOTS COMPUTER STATE normalization hook unavailable: assembly={asm != null} factory={postfixFactory != null} harmony={_harmony != null}.");
+            return 0;
+        }
+
+        int count = 0;
+        foreach (Type type in ReflectionUtil.SafeGetTypes(asm).Where(t =>
+                     string.Equals(t.Name, "DifficultyTogglerState", StringComparison.Ordinal)))
+        {
+            foreach (MethodInfo target in type.GetMethods(
+                         BindingFlags.Public | BindingFlags.NonPublic |
+                         BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                     .Where(m => string.Equals(m.Name, "get_CurrentPhase", StringComparison.Ordinal) &&
+                                 m.GetParameters().Length == 0))
+            {
+                try
+                {
+                    Type phaseType = target.ReturnType;
+                    if (!phaseType.IsEnum || Enum.GetUnderlyingType(phaseType) != typeof(int))
+                    {
+                        Log.LogWarning($"[SCRC-AP] ROOTS COMPUTER STATE normalization skipped unexpected return type {phaseType.FullName}.");
+                        continue;
+                    }
+
+                    _harmony.Patch(target, postfix: new HarmonyMethod(postfixFactory));
+                    Log.LogInfo($"[SCRC-AP] ROOTS COMPUTER STATE normalization hooked {type.FullName}.{target.Name} return={target.ReturnType.FullName}.");
+                    count++;
+                }
+                catch (Exception ex)
+                {
+                    Log.LogError($"[SCRC-AP] ROOTS COMPUTER STATE normalization hook failed safely for {type.FullName}.{target.Name}: {ex.GetBaseException().Message}");
+                }
+            }
+        }
+        if (count == 0)
+            Log.LogWarning("[SCRC-AP] ROOTS COMPUTER STATE normalization found no declared DifficultyTogglerState.get_CurrentPhase candidate.");
         return count;
     }
 
@@ -17045,6 +17115,8 @@ internal static class WeedKillerRandomization
 internal static class RootsIntroCutsceneBypass
 {
     public const string NativeIntroWitnessedFlag = "ROOTS_HUB_INTRO_WITNESSED";
+    public const string NativeGateOpenedFlag = "ROOTS_HUB_GATE_OPENED";
+    public const string NativeDifficultyCompleteFlag = "ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE";
     public const string RootsRoomId = "GameRoom_Hub2";
 
     private static readonly object Sync = new();
@@ -17099,8 +17171,8 @@ internal static class RootsIntroCutsceneBypass
 
         bool enabled = AreaAccessPrototype.Enabled && AreaAccessPrototype.HasArea("Roots");
         bool enteringRoots = string.Equals(roomId, RootsRoomId, StringComparison.Ordinal);
-        bool readable = RootsBucketRandomization.TryReadProgressionFlag(
-            NativeIntroWitnessedFlag, out bool nativeFlagOwned);
+        bool bootstrapOwned = TryReadBootstrapState(
+            out _, out _, out _);
 
         object? processor;
         int retryCount;
@@ -17116,7 +17188,7 @@ internal static class RootsIntroCutsceneBypass
                 enabled,
                 IntroHubSkip.Compatible,
                 enteringRoots,
-                readable && nativeFlagOwned,
+                bootstrapOwned,
                 processor != null,
                 submissionOutstanding,
                 retryCount));
@@ -17166,12 +17238,14 @@ internal static class RootsIntroCutsceneBypass
         if (pending == null)
             return;
 
-        bool readable = RootsBucketRandomization.TryReadProgressionFlag(
-            NativeIntroWitnessedFlag, out bool owned);
-        if (readable && owned)
+        bool bootstrapOwned = TryReadBootstrapState(
+            out bool introOwned,
+            out bool gateOwned,
+            out bool difficultyOwned);
+        if (bootstrapOwned)
         {
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASSED flag='{NativeIntroWitnessedFlag}' value=True timing='verified before {RootsRoomId} transition'.");
+                $"[SCRC-AP] ROOTS PRE-ENTRY BOOTSTRAP VERIFIED timing='before {RootsRoomId} transition' intro=True gate=True difficulty=True; native PlayGateAndDifficultyScene will take its skip path without granting Level 1 completion, Stars, or AP checks.");
             ReplayPending();
             return;
         }
@@ -17183,19 +17257,37 @@ internal static class RootsIntroCutsceneBypass
         if (retryDelay == null)
         {
             Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS FALLBACK: native flag could not be verified within the bounded retry schedule; replaying vanilla transition.");
+                "[SCRC-AP] ROOTS PRE-ENTRY BOOTSTRAP FALLBACK: exact native flags could not be verified within the bounded retry schedule; replaying vanilla transition.");
             ReplayPending();
             return;
         }
 
         if (processor != null && !outstanding)
         {
-            bool submitted = WeedKillerRandomization.TrySubmitProgressionFlag(
-                processor, NativeIntroWitnessedFlag, true, out string detail);
+            bool submitted = true;
+            var details = new List<string>();
+            if (!introOwned)
+            {
+                submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
+                    processor, NativeIntroWitnessedFlag, true, out string detail);
+                details.Add(detail);
+            }
+            if (!gateOwned)
+            {
+                submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
+                    processor, NativeGateOpenedFlag, true, out string detail);
+                details.Add(detail);
+            }
+            if (!difficultyOwned)
+            {
+                submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
+                    processor, NativeDifficultyCompleteFlag, true, out string detail);
+                details.Add(detail);
+            }
             lock (Sync)
                 _submissionOutstanding = submitted;
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] ROOTS INTRO CUTSCENE BYPASS submission submitted={submitted} retry={retryCount}. {detail}");
+                $"[SCRC-AP] ROOTS PRE-ENTRY BOOTSTRAP submission submitted={submitted} retry={retryCount} introOwned={introOwned} gateOwned={gateOwned} difficultyOwned={difficultyOwned}. {string.Join(" | ", details)}");
         }
         else if (processor == null && !_missingProcessorLogged)
         {
@@ -17210,6 +17302,21 @@ internal static class RootsIntroCutsceneBypass
             _submissionOutstanding = false;
             _nextAttemptUtc = DateTime.UtcNow + retryDelay.Value;
         }
+    }
+
+    private static bool TryReadBootstrapState(
+        out bool introOwned,
+        out bool gateOwned,
+        out bool difficultyOwned)
+    {
+        bool introReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            NativeIntroWitnessedFlag, out introOwned);
+        bool gateReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            NativeGateOpenedFlag, out gateOwned);
+        bool difficultyReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            NativeDifficultyCompleteFlag, out difficultyOwned);
+        return introReadable && gateReadable && difficultyReadable &&
+               introOwned && gateOwned && difficultyOwned;
     }
 
     private static void ReplayPending()
@@ -17665,6 +17772,7 @@ internal static class PlantPipesRandomization
 
             lock (Sync)
                 _playerSaveRequestProcessor = processor;
+            RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(processor);
             Plugin.LoggerInstance?.LogInfo(
                 "[SCRC-AP] ROOTS PLANT PIPES constructed stateless PlayerSaveRequestProcessor after selected-save enquiries became readable.");
             return true;
@@ -18188,6 +18296,264 @@ internal static class RootsBucketRandomization
         return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
     }
 }
+
+#if false // Retained only as historical diagnostic source; excluded from shipped builds.
+internal static class BottomHudInputDiagnostic
+{
+    [ThreadStatic]
+    private static bool _nativeHandledInput;
+    [ThreadStatic]
+    private static bool _nativeProcessedHold;
+
+    private static int _runUpdateRootLogged;
+    private static int _runUpdateLogged;
+    private static int _obtainStateLogged;
+    private static int _obtainStateResultLogged;
+    private static int _obtainPlayerStateLogged;
+    private static int _registrationLogged;
+    private static int _handleInputLogged;
+    private static int _startEditingLogged;
+    private static int _fallbackLogged;
+    private static int _playerStateLogged;
+    private static int _nativeHoldFallbackLogged;
+    private static int _nativeHoldTriggeredLogged;
+    private static readonly HashSet<string> NativeHoldProgressResults = new(StringComparer.Ordinal);
+    private static readonly object HoldTraceSync = new();
+    private static readonly HashSet<string> HoldTraceResults = new(StringComparer.Ordinal);
+    private static IntPtr _editHoldButtonPointer;
+    private static int _editHoldButtonCaptured;
+
+    public static void RunUpdatePrefix() =>
+        LogOnce(ref _runUpdateRootLogged, "RunUpdate reached");
+
+    public static void RunUpdateForPlayerPrefix(object? __instance)
+    {
+        _nativeHandledInput = false;
+        _nativeProcessedHold = false;
+        if (__instance != null)
+            CaptureEditHoldButton(__instance);
+        LogOnce(ref _runUpdateLogged, "RunUpdateForPlayer reached");
+    }
+
+    public static void RunUpdateForPlayerPostfix(object? __instance, object[]? __args)
+    {
+        if (__instance == null || __args == null || __args.Length == 0)
+            return;
+
+        object? player = __args[0];
+        if (player == null)
+            return;
+
+        try
+        {
+            CaptureEditHoldButton(__instance);
+            MethodInfo? obtainPlayerState = __instance.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(m => string.Equals(m.Name, "ObtainPlayerDetailsState", StringComparison.Ordinal) &&
+                                     m.GetParameters().Length == 1);
+            object? playerState = obtainPlayerState?.Invoke(__instance, new[] { player });
+            if (playerState != null && ShouldLog(ref _playerStateLogged))
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] BOTTOM HUD PLAYER STATE editMode={ReflectionUtil.ReadMember(playerState, "EditMode")?.ToString() ?? "<unavailable>"} " +
+                    $"isNotEditing={ReflectionUtil.ReadMember(playerState, "IsNotEditing")?.ToString() ?? "<unavailable>"} " +
+                    $"isEditing={ReflectionUtil.ReadMember(playerState, "IsEditing")?.ToString() ?? "<unavailable>"} " +
+                    $"holdButtonStateAvailable={ReflectionUtil.ReadMember(playerState, "HoldButtonState") != null} " +
+                    "readOnly=True mutationRequested=False.");
+            }
+            if (!BottomHudInputPolicy.ShouldRunFallback(
+                    AreaAccessPrototype.Enabled,
+                    IntroHubSkip.Compatible,
+                    AreaAccessPrototype.HasArea("Roots"),
+                    DeveloperHarness.CurrentRoomId,
+                    playerState != null,
+                    _nativeHandledInput))
+                return;
+
+            MethodInfo? handlePlayerInput = __instance.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(m => string.Equals(m.Name, "HandlePlayerInput", StringComparison.Ordinal) &&
+                                     m.GetParameters().Length == 2);
+            if (handlePlayerInput == null)
+                return;
+
+            handlePlayerInput.Invoke(__instance, new[] { player, playerState });
+            LogOnce(ref _fallbackLogged,
+                "fallback supplied existing player state to native HandlePlayerInput; no selection synthesized");
+
+            DriveNativeHoldIfNeeded(__instance, __args, player, playerState);
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogError(
+                $"[SCRC-AP] BOTTOM HUD INPUT fallback failed safely: {ex.GetBaseException().Message}");
+        }
+    }
+
+    public static void HoldCheckPostfix(object? __instance, MethodBase? __originalMethod, ref bool __result)
+    {
+        if (__instance == null || __originalMethod == null ||
+            NativePointer(__instance) == IntPtr.Zero ||
+            NativePointer(__instance) != _editHoldButtonPointer)
+            return;
+
+        _nativeProcessedHold = true;
+
+        string key = $"{__originalMethod.Name}={__result}";
+        lock (HoldTraceSync)
+        {
+            if (!HoldTraceResults.Add(key))
+                return;
+        }
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] BOTTOM HUD HOLD {key} room='{DeveloperHarness.CurrentRoomId}' readOnly=True mutationRequested=False.");
+    }
+
+    private static void DriveNativeHoldIfNeeded(
+        object controller,
+        object[] runUpdateArgs,
+        object player,
+        object playerState)
+    {
+        bool isNotEditing = ReflectionUtil.ReadMember(playerState, "IsNotEditing") is bool value && value;
+        if (!BottomHudInputPolicy.ShouldDriveNativeHold(
+                AreaAccessPrototype.Enabled,
+                IntroHubSkip.Compatible,
+                AreaAccessPrototype.HasArea("Roots"),
+                DeveloperHarness.CurrentRoomId,
+                isNotEditing,
+                _nativeProcessedHold))
+            return;
+
+        object? holdLogic = ReflectionUtil.ReadMember(controller, "editHoldButtonLogic");
+        object? holdState = ReflectionUtil.ReadMember(playerState, "HoldButtonState");
+        if (holdLogic == null || holdState == null || runUpdateArgs.Length < 2)
+            return;
+
+        MethodInfo? runHold = holdLogic.GetType().GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(m => string.Equals(m.Name, "RunUpdateForPlayer", StringComparison.Ordinal) &&
+                                 m.GetParameters().Length == 6);
+        if (runHold == null)
+            return;
+
+        float deltaTime = Convert.ToSingle(runUpdateArgs[1]);
+        object?[] holdArgs = { deltaTime, player, holdState, true, false, 0f };
+        runHold.Invoke(holdLogic, holdArgs);
+        LogOnce(ref _nativeHoldFallbackLogged,
+            "fallback advanced the existing native edit hold state because vanilla skipped it");
+
+        bool didTrigger = holdArgs[4] is bool triggerValue && triggerValue;
+        float fill = holdArgs[5] == null ? -1f : Convert.ToSingle(holdArgs[5]);
+        int fillPercent = fill < 0f ? -1 : Math.Clamp((int)Math.Round(fill * 100f), 0, 100);
+        string progressKey = $"triggered={didTrigger} fillPercent={fillPercent}";
+        lock (HoldTraceSync)
+        {
+            if (NativeHoldProgressResults.Add(progressKey))
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] BOTTOM HUD NATIVE HOLD {progressKey} readOnly=True mutationRequested=False.");
+            }
+        }
+
+        if (!didTrigger)
+            return;
+
+        MethodInfo? startEditing = controller.GetType().GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(m => string.Equals(m.Name, "StartEditing", StringComparison.Ordinal) &&
+                                 m.GetParameters().Length == 1);
+        if (startEditing == null)
+            return;
+        startEditing.Invoke(controller, new[] { player });
+        LogOnce(ref _nativeHoldTriggeredLogged,
+            "native edit hold completed and controller StartEditing was invoked");
+    }
+
+    private static void CaptureEditHoldButton(object controller)
+    {
+        if (_editHoldButtonPointer != IntPtr.Zero)
+            return;
+        object? hold = ReflectionUtil.ReadMember(controller, "editHoldButtonLogic");
+        IntPtr pointer = hold == null ? IntPtr.Zero : NativePointer(hold);
+        if (pointer == IntPtr.Zero)
+            return;
+        _editHoldButtonPointer = pointer;
+        if (Interlocked.Exchange(ref _editHoldButtonCaptured, 1) != 0)
+            return;
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] BOTTOM HUD HOLD captured rewiredActionId={ReflectionUtil.ReadMember(hold, "rewiredActionId")?.ToString() ?? "<unavailable>"} " +
+            $"actionForBlockChecks={ReflectionUtil.ReadMember(hold, "actionForBlockChecks")?.ToString() ?? "<unavailable>"} " +
+            $"holdTimeRequired={ReflectionUtil.ReadMember(hold, "holdTimeRequired")?.ToString() ?? "<unavailable>"} " +
+            $"includeGlobalKeyboard={ReflectionUtil.ReadMember(hold, "includeGlobalKeyboard")?.ToString() ?? "<unavailable>"} " +
+            $"includeGlobalMouse={ReflectionUtil.ReadMember(hold, "includeGlobalMouse")?.ToString() ?? "<unavailable>"} " +
+            "readOnly=True mutationRequested=False.");
+    }
+
+    private static IntPtr NativePointer(object value)
+    {
+        try
+        {
+            return value.GetType().GetProperty(
+                       "Pointer",
+                       BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value) is IntPtr pointer
+                ? pointer
+                : IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    public static void ObtainStatePrefix() =>
+        LogOnce(ref _obtainStateLogged, "ObtainState reached");
+
+    public static void ObtainStatePostfix(object? __result)
+    {
+        if (!ShouldLog(ref _obtainStateResultLogged))
+            return;
+        object? states = __result == null
+            ? null
+            : ReflectionUtil.ReadMember(__result, "PlayerDetailsSwitcherStates") ??
+              ReflectionUtil.ReadMember(__result, "_PlayerDetailsSwitcherStates_k__BackingField");
+        object? count = states == null ? null : ReflectionUtil.ReadMember(states, "Count");
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] BOTTOM HUD INPUT state resultAvailable={__result != null} playerStateDictionaryAvailable={states != null} playerStateCount={count?.ToString() ?? "<unavailable>"} readOnly=True mutationRequested=False.");
+    }
+
+    public static void ObtainPlayerDetailsStatePrefix() =>
+        LogOnce(ref _obtainPlayerStateLogged, "ObtainPlayerDetailsState reached");
+
+    public static void HandlePlayerInputPrefix()
+    {
+        _nativeHandledInput = true;
+        LogOnce(ref _handleInputLogged, "HandlePlayerInput reached");
+    }
+
+    public static void StartEditingPrefix() =>
+        LogOnce(ref _startEditingLogged, "StartEditing reached");
+
+    public static void NewPlayerRegisteredPrefix() =>
+        LogOnce(ref _registrationLogged, "NewPlayerWasRegisteredEvent reached");
+
+    private static void LogOnce(ref int gate, string message)
+    {
+        if (!ShouldLog(ref gate))
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] BOTTOM HUD INPUT {message} room='{DeveloperHarness.CurrentRoomId}' readOnly=True mutationRequested=False.");
+    }
+
+    private static bool ShouldLog(ref int gate) =>
+        AreaAccessPrototype.Enabled &&
+        IntroHubSkip.Compatible &&
+        AreaAccessPrototype.HasArea("Roots") &&
+        string.Equals(DeveloperHarness.CurrentRoomId, RootsComputerPolicy.RoomId, StringComparison.OrdinalIgnoreCase) &&
+        Interlocked.Exchange(ref gate, 1) == 0;
+}
+#endif
 
 internal static class BottomHudDiagnostic
 {
@@ -19046,6 +19412,15 @@ internal static class AreaArrivalPresentationOverride
         return AreaArrivalPresentationPolicy.ShouldBypassCondition(
             arrival, currentRoom, progressionFlag);
     }
+
+    internal static bool IsRootsArrivalActive
+    {
+        get
+        {
+            lock (Sync)
+                return _arrival == AreaArrivalKind.RootsPhone;
+        }
+    }
 }
 
 internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
@@ -19060,6 +19435,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
     private int _initialiseDelayFrames;
     private GameObject? _firstAreaGate;
     private GameObject? _starEaterBlockade;
+    private GameObject? _computerCover;
     private bool _reportedGate;
     private bool _reportedBlockade;
     private bool _reportedReady;
@@ -19073,6 +19449,8 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
+        RootsIntroCutsceneBypass.TickPending();
+
         bool shouldOwnRootsBaseline =
             AreaAccessPrototype.Enabled &&
             AreaAccessPrototype.HasArea("Roots") &&
@@ -19093,6 +19471,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
             _initialiseDelayFrames = 12;
             _firstAreaGate = null;
             _starEaterBlockade = null;
+            _computerCover = null;
             _reportedGate = false;
             _reportedBlockade = false;
             _reportedReady = false;
@@ -19123,6 +19502,29 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
             catch { _starEaterBlockade = null; }
             LastBlockadeBound = _starEaterBlockade != null;
         }
+
+        if (_computerCover == null)
+        {
+            try { _computerCover = GameObject.Find(RootsComputerPolicy.CoverPath); }
+            catch { _computerCover = null; }
+        }
+
+        try
+        {
+            if (_computerCover != null &&
+                RootsComputerPolicy.ShouldHideCover(
+                    AreaAccessPrototype.Enabled,
+                    IntroHubSkip.Compatible,
+                    AreaAccessPrototype.HasArea("Roots"),
+                    DeveloperHarness.CurrentRoomId) &&
+                _computerCover.activeSelf)
+            {
+                _computerCover.SetActive(false);
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] ROOTS SOPHISTICATED COMPUTER COVER HIDDEN path='{RootsComputerPolicy.CoverPath}' saveFlagsUnchanged=True.");
+            }
+        }
+        catch { _computerCover = null; }
 
         // Roots Access owns traversal of the full area. These are campaign-order
         // scene barriers only, so disable the scene objects without setting the
@@ -19186,6 +19588,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
         _initialiseDelayFrames = 0;
         _firstAreaGate = null;
         _starEaterBlockade = null;
+        _computerCover = null;
         _reportedGate = false;
         _reportedBlockade = false;
         _reportedReady = false;
@@ -20012,6 +20415,11 @@ internal static class IntroRoomToHubRedirectPatches
                 $"[SCRC-AP] AREA PHONE TRANSITION BLOCKED area='{destinationArea.AreaName}' destination='{roomId}' origin='{originRoom}' reason='Area Access locked'.");
             return false;
         }
+
+        if (__instance != null &&
+            !RootsIntroCutsceneBypass.ShouldAllowTransition(
+                __instance, __originalMethod, __args, roomId))
+            return false;
 
         AreaArrivalPresentationOverride.ObserveTransition(originRoom, roomId);
 
@@ -23781,6 +24189,7 @@ internal static class ProgressionPatches
     public static bool ProgressionRequestPrefix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+        RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
@@ -23828,6 +24237,7 @@ internal static class ProgressionPatches
     public static void ProgressionRequestPostfix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+        RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);

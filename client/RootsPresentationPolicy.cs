@@ -13,7 +13,7 @@ internal readonly record struct RootsIntroSnapshot(
     bool Enabled,
     bool Compatible,
     bool EnteringRoots,
-    bool NativeFlagOwned,
+    bool NativeBootstrapOwned,
     bool ProcessorAvailable,
     bool SubmissionOutstanding,
     int RetryCount);
@@ -27,7 +27,7 @@ internal static class RootsPresentationPolicy
     {
         if (!snapshot.Enabled || !snapshot.Compatible || !snapshot.EnteringRoots)
             return RootsIntroDecision.Vanilla;
-        if (snapshot.NativeFlagOwned)
+        if (snapshot.NativeBootstrapOwned)
             return RootsIntroDecision.AllowTransition;
         if (RetryDelay(snapshot.RetryCount) == null)
             return RootsIntroDecision.FallbackVanilla;

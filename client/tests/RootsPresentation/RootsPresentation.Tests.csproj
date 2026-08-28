@@ -7,5 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\RootsPresentationPolicy.cs" Link="RootsPresentationPolicy.cs" />
+    <Compile Include="..\..\RootsOwnerDiagnosticPolicy.cs" Link="RootsOwnerDiagnosticPolicy.cs" />
+    <Compile Include="..\..\RootsComputerPolicy.cs" Link="RootsComputerPolicy.cs" />
   </ItemGroup>
 </Project>

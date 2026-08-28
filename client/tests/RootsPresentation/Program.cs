@@ -70,4 +70,39 @@ Equal(false,
     AreaArrivalPresentationPolicy.ShouldBypassCondition(AreaArrivalKind.RootsPhone, "GameRoom_Hub6", "ROOTS_HUB_INTRO_WITNESSED"),
     "override is scoped to the destination scene");
 
+string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+Equal(true,
+    pluginSource.Contains("RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance)", StringComparison.Ordinal),
+    "pre-entry bootstrap captures the native save processor");
+Equal(true,
+    pluginSource.Contains("RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(processor)", StringComparison.Ordinal),
+    "pre-entry bootstrap shares the proven stateless processor when ordinary progression has not supplied one");
+Equal(true,
+    pluginSource.Contains("RootsIntroCutsceneBypass.ShouldAllowTransition(", StringComparison.Ordinal),
+    "transition boundary waits for pre-entry bootstrap verification");
+Equal(true,
+    pluginSource.Contains("RootsIntroCutsceneBypass.TickPending();", StringComparison.Ordinal),
+    "Unity update loop advances a held transition");
+Equal(true,
+    pluginSource.Contains("NativeGateOpenedFlag = \"ROOTS_HUB_GATE_OPENED\"", StringComparison.Ordinal) &&
+    pluginSource.Contains("NativeDifficultyCompleteFlag = \"ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE\"", StringComparison.Ordinal),
+    "bootstrap contains only the discovered Roots presentation bookkeeping flags");
+Equal(true,
+    RootsOwnerDiagnosticPolicy.ShouldInspect("GameRoom_Hub2", RootsOwnerDiagnosticPolicy.OwnerPath),
+    "diagnostic targets only the exact discovered owner in Roots");
+Equal(false,
+    RootsOwnerDiagnosticPolicy.ShouldInspect("GameRoom_Hub2", "Root/OtherOwner"),
+    "diagnostic excludes unrelated progression owners");
+Equal(false, RootsOwnerDiagnosticPolicy.RequestsMutation,
+    "owner diagnostic is read-only");
+Equal(true, RootsComputerPolicy.ShouldNormalize(true, true, true, "GameRoom_Hub2", RootsComputerPolicy.ControlPath),
+    "exact AP Roots computer state is normalized");
+Equal(false, RootsComputerPolicy.ShouldNormalize(true, true, true, "GameRoom_Hub2", "Root/OtherControl"),
+    "unrelated controls are untouched");
+Equal(false, RootsComputerPolicy.ShouldNormalize(true, true, false, "GameRoom_Hub2", RootsComputerPolicy.ControlPath),
+    "locked Roots does not receive normalization");
+Equal(true, RootsComputerPolicy.ShouldHideCover(true, true, true, "GameRoom_Hub2"),
+    "Sophisticated Computer cover is hidden for owned AP Roots");
+Equal(true, RootsComputerPolicy.ShouldNormalizeState(true, true, true, "GameRoom_Hub2"),
+    "difficulty toggler state reports idle only in owned AP Roots");
 Console.WriteLine("Roots presentation policy tests passed.");
