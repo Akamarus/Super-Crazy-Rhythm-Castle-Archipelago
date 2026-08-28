@@ -1,13 +1,14 @@
 name: Jack
-description: Super Crazy Rhythm Castle Roots bucket progression v0.17
+description: Super Crazy Rhythm Castle Roots bucket progression v0.20
 game: Super Crazy Rhythm Castle
 
 Super Crazy Rhythm Castle:
   progression_balancing: 50
   accessibility: items
 
-  # Generation-foundation options. In v0.16, Stars, difficulty filtering,
-  # client Star-gate enforcement, and the final Star victory are previews only.
+  # AP performance difficulty choices: normal, hard, expert, perfection.
+  # This filters existing AP locations only; it does not set native REG/PRO.
+  # Stars, client Star-gate enforcement, and final Star victory remain previews.
   required_stars: 50
   difficulty: normal
   # Use the explicit validated start. In Archipelago player YAML, the scalar

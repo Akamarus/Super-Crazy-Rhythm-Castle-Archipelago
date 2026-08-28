@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current repair baseline: **v0.18** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18`) with client **v0.67.61**. The retained prefix preserves existing live systems while the final suffix activates the fail-closed repair contract.
+Current APWorld: **v0.20.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20`) with unchanged client **v0.67.94**. The retained prefix preserves existing client compatibility and the v0.18 fail-closed repair contract. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20 seed to use active filtering.
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 
@@ -22,10 +22,23 @@ For the canonical public build, Launcher installation, YAML generation, hosting,
 
 This deliberately supports entering Level 3, collecting the Frog/Hippo check, and menu-exiting if Plant Pipes has not yet been received.
 
+## AP performance difficulty
+
+`difficulty` filters only existing campaign performance locations. It does not add campaign checks or allocate IDs, and it does not change the player's native REG/PRO choice.
+
+| AP difficulty | Existing campaign tiers | Existing song medal tiers | Addressed locations |
+| --- | --- | --- | ---: |
+| Normal | Completion / 1-Star | Bronze | 68 |
+| Hard | Add 2-Star | Add Silver | 105 |
+| Expert | Add 3-Star | Add Gold | 142 |
+| Perfection | Same campaign tiers as Expert | Add Platinum | 178 |
+
+Inactive checks are absent from a generated seed, not replaced with filler. This v0.20 release filters only existing campaign performance locations. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+
 ## Generation-foundation previews
 
-The v0.17 YAML retains the v0.16 `required_stars`, `difficulty`, and `starting_area` previews. Generation deterministically exports provisional Level 1–22 Star requirements and a cumulative difficulty-location preview. One permanent network ID is registered for `Star`, and the planner represents 66 individual Star items.
+The v0.17 YAML retains the v0.16 `required_stars` and `starting_area` previews. Generation deterministically exports provisional Level 1–22 Star requirements. One permanent network ID is registered for `Star`, and the planner represents 66 individual Star items.
 
-These are foundations only. Stars are not placed in the live item pool; difficulty does not remove live locations; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
+Stars are not placed in the live item pool; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
 
-The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.67.61** and generate a fresh seed for v0.18 or after any later APWorld update.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.67.94** and generate a fresh v0.20 seed.

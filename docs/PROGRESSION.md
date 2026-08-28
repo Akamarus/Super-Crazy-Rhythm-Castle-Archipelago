@@ -20,6 +20,8 @@ Major AP-routed areas:
 - Tower of Fear → `GameRoom_Hub3`
 - Royal Corridor → `GameRoom_Hub7`
 
+`Royal Corridor Access` currently means only the phone-side subregion containing the Level 22 entrance. It does not imply access to Level 21, the Royal Star Eater interaction, or the completed bridge back across the corridor. Those states remain deliberately absent from the AP graph until their native events and requirements are mapped.
+
 During the current Roots-development phase, **Roots Access is forced as the precollected starter**. The other five Area Access items remain randomized.
 
 ## General rule

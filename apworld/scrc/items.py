@@ -4,13 +4,19 @@ from BaseClasses import ItemClassification
 BASE_ID = 187256000
 STAR_ITEM_NAME = "Star"
 STAR_ITEM_COUNT = 66
+HYPNO_PAN_ITEM_NAME = "Hypno Pan"
+VIOLANCE_ITEM_NAME = "Violance"
 
 NEW_ITEM_NAME_TO_ID = {
     STAR_ITEM_NAME: BASE_ID + 118,
+    HYPNO_PAN_ITEM_NAME: BASE_ID + 121,
+    VIOLANCE_ITEM_NAME: BASE_ID + 122,
 }
 
 NEW_ITEM_CLASSIFICATIONS = {
     STAR_ITEM_NAME: ItemClassification.progression,
+    HYPNO_PAN_ITEM_NAME: ItemClassification.progression,
+    VIOLANCE_ITEM_NAME: ItemClassification.progression,
 }
 
 

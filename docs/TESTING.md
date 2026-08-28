@@ -35,6 +35,8 @@ Client-only fixes that do not change the APWorld can usually reuse an existing c
 
 ## Current Roots regression checklist
 
+For the accepted Roots repair evidence, use [the v0.67.94 / v0.19 area-arrival repair acceptance](testing/2026-08-27-area-arrival-repair-acceptance.md). The completed [v0.67.64 consolidated preview record](testing/2026-08-23-consolidated-preview-acceptance.md) remains the broader gameplay evidence baseline; verified items must not be repeated unless overlapping changes could invalidate them.
+
 Before accepting a Roots milestone, confirm:
 
 - Roots is the precollected starter in the seed.
@@ -77,7 +79,8 @@ Bridge tests do not replace the runtime checklist below. Gameplay verification r
 Useful exact log phrases for the current Roots chain include:
 
 ```text
-ROOTS INTRO CUTSCENE BYPASSED
+AREA ARRIVAL OVERRIDE ARMED
+AREA ARRIVAL CONDITION BYPASSED
 ROOTS FIRST AREA GATE SUPPRESSED
 ROOTS STAR EATER BLOCKADE SUPPRESSED
 ROOTS WEED KILLER VANILLA GRANT SUPPRESSED

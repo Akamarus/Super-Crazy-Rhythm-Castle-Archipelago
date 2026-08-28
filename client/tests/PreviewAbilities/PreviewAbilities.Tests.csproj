@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\PreviewAbilityReconcileDispatcher.cs" Link="PreviewAbilityReconcileDispatcher.cs" />
+    <Compile Include="..\..\PreviewAbilityReconcilePolicy.cs" Link="PreviewAbilityReconcilePolicy.cs" />
+    <Compile Include="..\..\HypnoPanReconciler.cs" Link="HypnoPanReconciler.cs" />
+    <Compile Include="..\..\ViolanceReconciler.cs" Link="ViolanceReconciler.cs" />
+  </ItemGroup>
+</Project>

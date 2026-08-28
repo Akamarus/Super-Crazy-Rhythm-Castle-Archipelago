@@ -2,10 +2,22 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
-from .difficulty import DIFFICULTY_NAMES, filter_locations_for_difficulty
+from .difficulty import (
+    DIFFICULTY_NAMES,
+    MEDAL_TIERS,
+    campaign_star_tiers,
+    filter_locations_for_difficulty,
+    medal_tiers,
+)
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
-from .items import STAR_ITEM_COUNT, STAR_ITEM_NAME
+from .items import (
+    HYPNO_PAN_ITEM_NAME,
+    STAR_ITEM_COUNT,
+    STAR_ITEM_NAME,
+    VIOLANCE_ITEM_NAME,
+)
 from .options import SCRCOptions
+from .placement import filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
 from .starting_areas import (
     STARTING_AREA_NAMES,
@@ -184,6 +196,15 @@ ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
 LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
 
+LEVEL_22_ORDINARY_LOCATIONS = (
+    "Level 22 - Completion",
+    "Level 22 - 1 Star",
+    "Level 22 - 2 Stars",
+    "Level 22 - 3 Stars",
+)
+for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
+    LOCATION_NAME_TO_ID[name] = BASE_ID + 182 + index
+
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
     MUSIC_LAB_10_POINT_CHEST,
@@ -302,18 +323,30 @@ class SCRCWorld(World):
     def generate_early(self) -> None:
         requested_start = int(self.options.starting_area.value)
         required_stars = int(self.options.required_stars.value)
-        difficulty = int(self.options.difficulty.value)
+        difficulty = self.options.difficulty.value
+        active_campaign_star_tiers = campaign_star_tiers(difficulty)
+        active_medal_tiers = medal_tiers(difficulty)
 
         self.starting_area_item = resolve_starting_area(requested_start, self.random)
         self.generated_star_requirements = generate_star_requirements(
             required_stars, self.random
         )
-        self.difficulty_preview_locations = filter_locations_for_difficulty(
-            LOCATION_NAME_TO_ID, difficulty
+        self.difficulty_name = DIFFICULTY_NAMES[difficulty]
+        self.active_location_names = frozenset(
+            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
         )
+        self.active_campaign_star_tiers = active_campaign_star_tiers
+        self.active_medal_tiers = active_medal_tiers
         self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
     def create_regions(self) -> None:
+        active_names = getattr(self, "active_location_names", frozenset(LOCATION_NAME_TO_ID))
+
+        def is_active(name: str) -> bool:
+            if name not in LOCATION_NAME_TO_ID:
+                raise ValueError(f"unregistered active location: {name}")
+            return name in active_names
+
         # Archipelago core begins reachability sweeps from a region literally
         # named "Menu". Keep that logical root even though the in-game start
         # is Hub6 / Phone Hub.
@@ -464,26 +497,32 @@ class SCRCWorld(World):
         # real AP-driven area unlocks. Cassette/point/full world prerequisites
         # will be modeled in a later logic milestone.
         for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
-            music_lab.locations.append(
-                SCRCLocation(
-                    self.player,
-                    chest_name,
-                    LOCATION_NAME_TO_ID[chest_name],
-                    music_lab,
-                )
+            location = SCRCLocation(
+                self.player,
+                chest_name,
+                LOCATION_NAME_TO_ID[chest_name],
+                music_lab,
             )
+            safe = required_progression_allowed(chest_name, active_names)
+            location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
+            music_lab.locations.append(location)
 
         for song in CASSETTE_SONGS:
             for tier in CASSETTE_MEDAL_TIERS:
                 name = f"Music Lab Cassette - {song} - {tier}"
-                music_lab.locations.append(
-                    SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
-                )
+                if not is_active(name):
+                    continue
+                location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
+                safe = required_progression_allowed(name, active_names)
+                location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
+                music_lab.locations.append(location)
 
         for song in GARAGE_SONGS:
             cartridge_item = GARAGE_CARTRIDGE_ITEMS[song]
             for tier in GARAGE_STICKER_TIERS:
                 name = f"Game Garage - {song} - {tier}"
+                if not is_active(name):
+                    continue
                 location = SCRCLocation(
                     self.player, name, LOCATION_NAME_TO_ID[name], game_garage
                 )
@@ -491,7 +530,20 @@ class SCRCWorld(World):
                     location,
                     lambda state, item=cartridge_item: state.has(item, self.player),
                 )
+                safe = required_progression_allowed(name, active_names)
+                location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
+
+        # Royal Access lands on the phone-side Level 22 route. Completion and
+        # one Star are confirmed ability-free. Two/three-Star requirements are
+        # still under investigation, so those tiers remain filler-only.
+        for name in LEVEL_22_ORDINARY_LOCATIONS:
+            if not is_active(name):
+                continue
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], royal)
+            if name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}:
+                location.item_rule = lambda item: filler_or_safe_required(item, False)
+            royal.locations.append(location)
 
         # AP core root -> in-game home base. This connection is always free.
         menu.connect(phone_hub, "Menu -> Phone Hub")
@@ -536,6 +588,18 @@ class SCRCWorld(World):
             royal,
         ]
 
+    def _active_unfilled_location_capacity(self) -> int:
+        return sum(
+            1
+            for region in self.multiworld.regions
+            for location in region.locations
+            if (
+                location.player == self.player
+                and location.address is not None
+                and location.item is None
+            )
+        )
+
     def create_items(self) -> None:
         starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
 
@@ -562,10 +626,18 @@ class SCRCWorld(World):
         progression_items.append(HIP_GLASSES_ITEM)
         progression_items.append(CHICKEN_BUCKET_ITEM)
 
+        capacity = self._active_unfilled_location_capacity()
+        required_count = len(progression_items)
+        if required_count > capacity:
+            raise ValueError(
+                f"{required_count} required progression items exceed "
+                f"{capacity} active locations for {self.difficulty_name}"
+            )
+        filler_count = capacity - required_count
+
         for name in progression_items:
             self.multiworld.itempool.append(self.create_item(name))
 
-        filler_count = len(LOCATION_NAME_TO_ID) - len(progression_items)
         for _ in range(filler_count):
             self.multiworld.itempool.append(self.create_item("Stardust"))
 
@@ -604,18 +676,20 @@ class SCRCWorld(World):
         required_stars = int(
             getattr(getattr(options, "required_stars", None), "value", 50)
         )
-        difficulty_value = int(
-            getattr(getattr(options, "difficulty", None), "value", 0)
+        difficulty_value = getattr(getattr(options, "difficulty", None), "value", 0)
+        default_active_location_names = frozenset(
+            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
         )
+        default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
+        default_medal_tiers = medal_tiers(difficulty_value)
         requested_start = int(
             getattr(getattr(options, "starting_area", None), "value", 0)
         )
         generated_requirements = getattr(self, "generated_star_requirements", {})
-        difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 9,
+            "schema_version": 11,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -632,8 +706,18 @@ class SCRCWorld(World):
             "generated_star_requirements": dict(generated_requirements),
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
-            "difficulty_filtering_active": False,
-            "difficulty_preview_location_count": len(difficulty_preview),
+            "difficulty_filtering_active": True,
+            "active_location_count": len(
+                getattr(self, "active_location_names", default_active_location_names)
+            ),
+            "active_campaign_star_tiers": sorted(
+                getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)
+            ),
+            "active_medal_tiers": [
+                tier
+                for tier in MEDAL_TIERS
+                if tier in getattr(self, "active_medal_tiers", default_medal_tiers)
+            ],
             "development_area_access_victory_active": True,
             "logical_root_region": "Menu",
             "home_region": "Phone Hub",
@@ -662,6 +746,9 @@ class SCRCWorld(World):
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
             "repair_schema_version": "next-release-repair-0.18",
+            "consolidated_preview_version": "consolidated-preview-0.19",
+            "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],
+            "preview_ability_items_generated": False,
             "plant_pipes_durable_reconciliation": True,
             "music_lab_safe_location_classification": "conservative-v1",
             "garage_routing_mode": "interaction-gated",
@@ -708,9 +795,9 @@ class SCRCWorld(World):
             },
             "routing_logic_complete": False,
             "routing_logic_note": (
-                "v0.16 retains Roots-first area routing, randomized Weed Killer, "
-                "and split Level 3 Plant Pipes logic while exporting inactive Star "
-                "and difficulty previews. Live Star gates and remaining prerequisites "
-                "are deferred."
+                "APWorld v0.20.0 retains Roots-first area routing, randomized Weed "
+                "Killer, and split Level 3 Plant Pipes logic. Difficulty filtering "
+                "is active; Star requirements remain inactive previews, and live "
+                "Star gates plus remaining full-game prerequisites are deferred."
             ),
         }

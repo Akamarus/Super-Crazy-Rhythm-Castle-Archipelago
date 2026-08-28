@@ -1,10 +1,23 @@
 # Super Crazy Rhythm Castle
 
-v0.15 uses the native Hub6 phone bank as the Archipelago navigation hub. Music Lab and Game Garage are always reachable, and **Roots Access is forced as the precollected starter** during the current Roots development phase. The other five major-area access items are randomized.
+v0.20.0 uses the native Hub6 phone bank as the Archipelago navigation hub. Music Lab and Game Garage are always reachable, and **Roots Access is forced as the precollected starter** during the current Roots development phase. The other five major-area access items are randomized. Client v0.67.94 is unchanged. Existing v0.19 seeds retain their original location sets; create a fresh v0.20 seed for active difficulty filtering.
 
 The six Game Garage cartridges remain randomized items, and each song's Bronze/Silver/Gold/Platinum Garage checks require its matching cartridge.
 
-## Roots progression in v0.15
+## AP performance difficulty
+
+`difficulty` selects existing AP performance locations only; it does not change the player's native REG/PRO choice and does not create campaign checks or IDs.
+
+| AP difficulty | Campaign tiers | Song medal tiers | Addressed locations |
+| --- | --- | --- | ---: |
+| Normal | Completion / 1-Star | Bronze | 68 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
+
+Inactive checks are absent, not filler. This release filters only existing campaign performance locations. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+
+## Roots progression
 
 Gecko's Roots reward is the AP location `Roots - Gecko's Weed Killer`, with randomized item `Weed Killer`.
 

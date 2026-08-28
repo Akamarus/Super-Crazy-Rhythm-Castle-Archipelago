@@ -55,9 +55,13 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.61",
-    "world_version": "0.18",
-    "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18",
+    "client_version": "0.67.94",
+    "world_version": "0.20.0",
+    "implementation_version": (
+        "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
+        "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
+        "consolidated-preview-0.19-difficulty-filtering-0.20"
+    ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
     "plant_pipes_item_id": 187256117,
@@ -66,10 +70,12 @@ EXPECTED = {
     "star_item_id": 187256118,
     "hip_glasses_item_id": 187256119,
     "chicken_bucket_item_id": 187256120,
+    "hypno_pan_item_id": 187256121,
+    "violance_item_id": 187256122,
     "hip_glasses_location_id": 187256180,
     "bucket_trade_location_id": 187256181,
-    "next_item_id": 187256121,
-    "next_location_id": 187256182,
+    "next_item_id": 187256123,
+    "next_location_id": 187256186,
 }
 
 
@@ -237,17 +243,28 @@ star_id = 187256000 + int(star_match.group(1))
 if star_id != EXPECTED["star_item_id"]:
     fail(f"Star ID changed: expected {EXPECTED['star_item_id']}, got {star_id}")
 
+for label, expected_id, symbol in (
+    ("Hypno Pan", EXPECTED["hypno_pan_item_id"], "HYPNO_PAN_ITEM_NAME"),
+    ("Violance", EXPECTED["violance_item_id"], "VIOLANCE_ITEM_NAME"),
+):
+    match = re.search(rf'{symbol}\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
+    if not match:
+        fail(f"could not locate {label} preview item ID assignment")
+    absolute = 187256000 + int(match.group(1))
+    if absolute != expected_id:
+        fail(f"{label} item ID changed: expected {expected_id}, got {absolute}")
+
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
 if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
     fail("generation_foundation_version changed without updating validator/baseline docs")
 
-for inactive_marker in (
+for required_marker in (
     '"star_items_active": False',
-    '"difficulty_filtering_active": False',
+    '"difficulty_filtering_active": True',
 ):
-    if inactive_marker not in world_text:
-        fail(f"missing inactive preview marker: {inactive_marker}")
+    if required_marker not in world_text:
+        fail(f"missing required slot-data marker: {required_marker}")
 
 for label, marker in (
     ("feature flag", '"randomize_hip_glasses_chicken_bucket": True'),
@@ -293,6 +310,8 @@ print(json.dumps({
     "star_item_id": EXPECTED["star_item_id"],
     "hip_glasses_item_id": EXPECTED["hip_glasses_item_id"],
     "chicken_bucket_item_id": EXPECTED["chicken_bucket_item_id"],
+    "hypno_pan_item_id": EXPECTED["hypno_pan_item_id"],
+    "violance_item_id": EXPECTED["violance_item_id"],
     "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "next_item_id": EXPECTED["next_item_id"],
@@ -300,6 +319,6 @@ print(json.dumps({
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,
 }, indent=2))
-print("v0.18 repair contract is active; Star generation foundations remain previews and Area Access remains authoritative.")
+print("v0.20 difficulty filtering is active; the v0.18 repair contract remains enforced, preview abilities stay out of generated seeds, and Area Access remains authoritative.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

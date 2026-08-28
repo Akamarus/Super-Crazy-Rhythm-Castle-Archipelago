@@ -119,6 +119,29 @@ delayedRuntime.TickPending(TimeSpan.FromMilliseconds(1), "bounded retry");
 Equal(2, delayedAdapter.ApplyCount, "retry resubmits after first delay");
 Equal("grant-submitted", delayedRuntime.LastOutcome, "retry reports resubmission");
 
+var completedLevel4Adapter = new FakePlantPipesNativeAdapter
+{
+    SaveAvailable = true,
+    ProcessorAvailable = true,
+    NativeOwned = true,
+};
+var completedLevel4Runtime = new PlantPipesRuntime(completedLevel4Adapter);
+completedLevel4Runtime.Configure(synchronized: true, compatible: true);
+completedLevel4Runtime.NoteReceivedCount(1);
+completedLevel4Runtime.OnLifecyclePoint("pre-result verified");
+Equal("verified-owned", completedLevel4Runtime.LastOutcome, "pre-result ownership verified");
+completedLevel4Adapter.NativeOwned = false;
+completedLevel4Runtime.OnLifecyclePoint("level-result-applied:Level_08");
+Equal("grant-submitted", completedLevel4Runtime.LastOutcome, "completed Level 4 clear is repaired");
+completedLevel4Runtime.OnLifecyclePoint("level-result-persisted:Level_08");
+Equal("verified-owned", completedLevel4Runtime.LastOutcome, "persisted Level 4 verifies repair");
+Equal(1, completedLevel4Adapter.ApplyCount, "result lifecycle submits one restorative grant");
+
+Equal(true, fullPluginSource.Contains("PlantPipesRandomization.OnLevelResultApplied(level)", StringComparison.Ordinal),
+    "result application must trigger Plant Pipes reconciliation");
+Equal(true, fullPluginSource.Contains("PlantPipesRandomization.OnLevelResultPersisted(level)", StringComparison.Ordinal),
+    "result persistence must trigger Plant Pipes verification");
+
 Console.WriteLine("Plant Pipes reconciler policy tests passed.");
 
 internal sealed class FakePlantPipesNativeAdapter : IPlantPipesNativeAdapter

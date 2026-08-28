@@ -41,18 +41,22 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_roots_bucket_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('"world_version": "0.18"', result.stdout)
+        self.assertIn("Client:  v0.67.94", result.stdout)
+        self.assertIn("APWorld: v0.20.0", result.stdout)
+        self.assertIn('"world_version": "0.20.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
         self.assertIn('"star_item_id": 187256118', result.stdout)
         self.assertIn('"hip_glasses_item_id": 187256119', result.stdout)
         self.assertIn('"chicken_bucket_item_id": 187256120', result.stdout)
+        self.assertIn('"hypno_pan_item_id": 187256121', result.stdout)
+        self.assertIn('"violance_item_id": 187256122', result.stdout)
         self.assertIn('"hip_glasses_location_id": 187256180', result.stdout)
         self.assertIn('"bucket_trade_location_id": 187256181', result.stdout)
-        self.assertIn('"next_item_id": 187256121', result.stdout)
+        self.assertIn('"next_item_id": 187256123', result.stdout)
         self.assertIn(
             '"local_ai_allowed_models": [\n    "jacks-assistant",\n    "jacks-assistant-fast"\n  ]',
             result.stdout,
@@ -386,6 +390,7 @@ comment-internal newlines are not root-entry separators
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             with zipfile.ZipFile(Path(output_dir) / "scrc.apworld") as archive:
                 names = set(archive.namelist())
+                manifest = json.loads(archive.read("scrc/archipelago.json"))
 
         required = {
             "scrc/__init__.py",
@@ -398,6 +403,9 @@ comment-internal newlines are not root-entry separators
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
+        self.assertEqual(manifest["world_version"], "0.20.0")
+        self.assertEqual(manifest["version"], 7)
+        self.assertEqual(manifest["compatible_version"], 7)
 
     def test_example_yaml_selects_the_validated_roots_start(self):
         example = (REPO_ROOT / "apworld/examples/SCRC-AreaRouting-PlantPipes.yaml").read_text(
