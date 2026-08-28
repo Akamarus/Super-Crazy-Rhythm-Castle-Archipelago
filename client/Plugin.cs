@@ -1179,7 +1179,7 @@ internal sealed class ArchipelagoClient
                 $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
 
             FlushPendingChecks();
-            PreviewAbilityRandomization.OnLifecyclePoint("Archipelago connected");
+            PreviewAbilityRandomization.RequestUnityReconciliation("Archipelago connected");
             return true;
         }
         catch (Exception ex)
@@ -18382,6 +18382,7 @@ internal sealed class BottomHudDiagnosticKeeper : MonoBehaviour
 internal static class PreviewAbilityRandomization
 {
     private static readonly object Sync = new();
+    private static readonly PreviewAbilityReconcileDispatcher UnityDispatcher = new();
     private static object? _playerSaveRequestProcessor;
     private static HypnoPanReconciler _hypnoPan = new(new NativeAdapter());
     private static ViolanceReconciler _violance = new(new NativeAdapter());
@@ -18406,6 +18407,7 @@ internal static class PreviewAbilityRandomization
             _lastHypnoOutcome = string.Empty;
             _lastViolanceOutcome = string.Empty;
             _compatible = false;
+            UnityDispatcher.Clear();
         }
     }
 
@@ -18478,6 +18480,17 @@ internal static class PreviewAbilityRandomization
             LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, reason);
             LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, reason);
         }
+    }
+
+    internal static void RequestUnityReconciliation(string reason)
+    {
+        UnityDispatcher.Request(reason);
+    }
+
+    internal static void OnUnityLifecycle()
+    {
+        if (!UnityDispatcher.Drain(OnLifecyclePoint))
+            OnLifecyclePoint("Unity lifecycle");
     }
 
     internal static void TickPending(TimeSpan elapsed)
@@ -18559,7 +18572,7 @@ internal sealed class PreviewAbilityReconciliationKeeper : MonoBehaviour
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
-        PreviewAbilityRandomization.OnLifecyclePoint("Unity lifecycle");
+        PreviewAbilityRandomization.OnUnityLifecycle();
         PreviewAbilityRandomization.TickPending(TimeSpan.FromSeconds(1));
     }
 }

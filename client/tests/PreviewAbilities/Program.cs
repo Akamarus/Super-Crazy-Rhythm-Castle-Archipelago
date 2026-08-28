@@ -24,6 +24,7 @@ Equal(PreviewAbilityReconcileDecision.SubmitGrant,
 
 VerifyRuntime(new HypnoPanReconciler(new FakePreviewAbilityNativeAdapter()), "PIED_PIPER_ABILITY", "Hypno Pan");
 VerifyRuntime(new ViolanceReconciler(new FakePreviewAbilityNativeAdapter()), "VIOLIN_ABILITY", "Violance");
+VerifyNetworkRequestsWaitForUnityDrain();
 
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData)", StringComparison.Ordinal),
@@ -34,8 +35,32 @@ Equal(true, pluginSource.Contains("AddComponent<PreviewAbilityReconciliationKeep
     "Unity-thread lifecycle keeper is installed");
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance)", StringComparison.Ordinal),
     "save processor lifecycle is captured");
+Equal(true, pluginSource.Contains("PreviewAbilityRandomization.RequestUnityReconciliation(\"Archipelago connected\")", StringComparison.Ordinal),
+    "network connection queues preview reconciliation");
+Equal(false, pluginSource.Contains("PreviewAbilityRandomization.OnLifecyclePoint(\"Archipelago connected\")", StringComparison.Ordinal),
+    "network connection never performs native reconciliation directly");
 
 Console.WriteLine("Preview ability reconciler tests passed.");
+
+static void VerifyNetworkRequestsWaitForUnityDrain()
+{
+    var dispatcher = new PreviewAbilityReconcileDispatcher();
+    int nativeCalls = 0;
+    string drainedReason = string.Empty;
+
+    Task.Run(() => dispatcher.Request("Archipelago connected")).GetAwaiter().GetResult();
+
+    Equal(0, nativeCalls, "network request performs no Unity/native work");
+    Equal(true, dispatcher.Drain(reason =>
+    {
+        nativeCalls++;
+        drainedReason = reason;
+    }), "Unity lifecycle drains the queued request");
+    Equal(1, nativeCalls, "Unity drain performs reconciliation once");
+    Equal("Archipelago connected", drainedReason, "Unity drain preserves the request reason");
+    Equal(false, dispatcher.Drain(_ => nativeCalls++), "request is consumed once");
+    Equal(1, nativeCalls, "empty drain performs no reconciliation");
+}
 
 static void VerifyRuntime(IPreviewAbilityReconciler reconciler, string expectedFlag, string itemName)
 {
