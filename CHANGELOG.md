@@ -1,5 +1,12 @@
 # Changelog
 
+## APWorld v0.20.0 / Client v0.67.94 — Active difficulty filtering
+
+- Activated cumulative AP performance-location filtering: Normal includes campaign Completion/1-Star and Bronze checks; Hard adds 2-Star/Silver; Expert adds 3-Star/Gold; Perfection adds Platinum.
+- Sized each player's item pool from that player's instantiated, addressed, unfilled locations, preserving exact Normal/Hard/Expert/Perfection capacities of 68/105/142/178 in shared multiworlds.
+- Preserved every permanent item and location ID. Client v0.67.94 remains compatible and unchanged; the native REG/PRO choice remains player-controlled.
+- Completed the four-seed real-generator acceptance matrix (seeds 42001–42004), including exact active tiers/counts, conservative filler placement, Garage reachability, and generated Victory playthroughs.
+
 ## Unreleased — APWorld v0.19 / Client v0.67.64 consolidated preview candidate
 
 - Added bounded automatic AP reconnection with session replacement, queued-check retention, received-history deduplication, and deliberate-shutdown cancellation.

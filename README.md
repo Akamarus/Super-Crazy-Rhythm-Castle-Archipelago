@@ -7,8 +7,8 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.20 activates difficulty-filtered AP performance locations while Client v0.67.94 remains unchanged. Existing v0.19 seeds retain their v0.19 location sets; generate a fresh v0.20 seed to use filtering.
-- Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; a registered 66-Star inventory plan; and difficulty-filtered existing campaign performance locations.
+- Current development build: APWorld v0.20.0 activates difficulty-filtered AP performance locations while Client v0.67.94 remains unchanged. Existing v0.19 seeds retain their v0.19 location sets; generate a fresh v0.20.0 seed to use filtering.
+- Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
@@ -18,7 +18,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 ## Simplified roadmap
 
 1. Current playable prototype — Roots routing through Hip Glasses, the Bucket Minion trade, Chicken Bucket, and native Combo Bucket conversion, plus Garage/cassette/chest checks.
-2. Generation foundation — options and deterministic previews are implemented; live Star placement and filtering wait for location capacity and solver logic.
+2. Generation foundation — options, deterministic Star previews, active difficulty filtering, and the four-seed filtering generator matrix are complete; live Star placement and client Star gates still wait for broader location capacity and solver logic.
 3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
 4. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
 5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
@@ -115,6 +115,6 @@ The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 68, Hard 105, Expert 142, and Perfection 178. Inactive checks are absent from the seed, not filler. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only, and no new campaign checks or IDs were added. v0.17 still generates provisional Star requirements without enforcing them. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation now requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 68, Hard 105, Expert 142, and Perfection 178. Inactive checks are absent from the seed, not filler. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only, and no new campaign checks or IDs were added. APWorld v0.20.0 still exports provisional Star requirements without enforcing them; those inactive Star previews are separate from the active difficulty filtering. The four-seed real-generator filtering matrix is complete. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation still requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

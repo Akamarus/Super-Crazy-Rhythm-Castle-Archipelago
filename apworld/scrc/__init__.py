@@ -323,7 +323,9 @@ class SCRCWorld(World):
     def generate_early(self) -> None:
         requested_start = int(self.options.starting_area.value)
         required_stars = int(self.options.required_stars.value)
-        difficulty = int(self.options.difficulty.value)
+        difficulty = self.options.difficulty.value
+        active_campaign_star_tiers = campaign_star_tiers(difficulty)
+        active_medal_tiers = medal_tiers(difficulty)
 
         self.starting_area_item = resolve_starting_area(requested_start, self.random)
         self.generated_star_requirements = generate_star_requirements(
@@ -333,8 +335,8 @@ class SCRCWorld(World):
         self.active_location_names = frozenset(
             filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
         )
-        self.active_campaign_star_tiers = campaign_star_tiers(difficulty)
-        self.active_medal_tiers = medal_tiers(difficulty)
+        self.active_campaign_star_tiers = active_campaign_star_tiers
+        self.active_medal_tiers = active_medal_tiers
         self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
     def create_regions(self) -> None:
@@ -591,7 +593,11 @@ class SCRCWorld(World):
             1
             for region in self.multiworld.regions
             for location in region.locations
-            if location.address is not None and location.item is None
+            if (
+                location.player == self.player
+                and location.address is not None
+                and location.item is None
+            )
         )
 
     def create_items(self) -> None:
@@ -670,9 +676,12 @@ class SCRCWorld(World):
         required_stars = int(
             getattr(getattr(options, "required_stars", None), "value", 50)
         )
-        difficulty_value = int(
-            getattr(getattr(options, "difficulty", None), "value", 0)
+        difficulty_value = getattr(getattr(options, "difficulty", None), "value", 0)
+        default_active_location_names = frozenset(
+            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
         )
+        default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
+        default_medal_tiers = medal_tiers(difficulty_value)
         requested_start = int(
             getattr(getattr(options, "starting_area", None), "value", 0)
         )
@@ -699,15 +708,15 @@ class SCRCWorld(World):
             "client_star_gate_enforcement_active": False,
             "difficulty_filtering_active": True,
             "active_location_count": len(
-                getattr(self, "active_location_names", LOCATION_NAME_TO_ID)
+                getattr(self, "active_location_names", default_active_location_names)
             ),
             "active_campaign_star_tiers": sorted(
-                getattr(self, "active_campaign_star_tiers", {1})
+                getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)
             ),
             "active_medal_tiers": [
                 tier
                 for tier in MEDAL_TIERS
-                if tier in getattr(self, "active_medal_tiers", {"Bronze"})
+                if tier in getattr(self, "active_medal_tiers", default_medal_tiers)
             ],
             "development_area_access_victory_active": True,
             "logical_root_region": "Menu",
@@ -786,9 +795,9 @@ class SCRCWorld(World):
             },
             "routing_logic_complete": False,
             "routing_logic_note": (
-                "v0.16 retains Roots-first area routing, randomized Weed Killer, "
-                "and split Level 3 Plant Pipes logic while exporting inactive Star "
-                "and difficulty previews. Live Star gates and remaining prerequisites "
-                "are deferred."
+                "APWorld v0.20.0 retains Roots-first area routing, randomized Weed "
+                "Killer, and split Level 3 Plant Pipes logic. Difficulty filtering "
+                "is active; Star requirements remain inactive previews, and live "
+                "Star gates plus remaining full-game prerequisites are deferred."
             ),
         }

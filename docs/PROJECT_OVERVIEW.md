@@ -400,7 +400,7 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The implemented v0.20 APWorld difficulty choices are:
+The implemented APWorld v0.20.0 difficulty choices are:
 
 - **Normal**
 - **Hard**
@@ -420,7 +420,7 @@ A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. v0.20 filters only existing campaign performance locations: it introduces no campaign checks or IDs. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20 seed for filtering. Client v0.67.94 is unchanged.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.20.0 filters only existing campaign performance locations: it introduces no campaign checks or IDs. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20.0 seed for filtering. Client v0.67.94 is unchanged. The Normal/Hard/Expert/Perfection real-generator matrix passed at 68/105/142/178 addressed locations; broader manual gameplay remains pending. Inactive Star-requirement previews and future live Star gates are separate from this completed filtering milestone.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -547,7 +547,7 @@ The client follows several implementation rules developed through testing:
 | Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Implemented / needs gameplay acceptance | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; native REG/PRO remains player-controlled. |
+| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; the four-seed real-generator matrix passed, native REG/PRO remains player-controlled, and broader manual gameplay stays in the prototype smoke test. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 
@@ -597,7 +597,7 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.20:
+Current frontier at APWorld v0.20.0:
 
 ```text
 Next safe item ID:     187256123

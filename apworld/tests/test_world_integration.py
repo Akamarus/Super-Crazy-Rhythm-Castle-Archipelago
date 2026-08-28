@@ -20,11 +20,19 @@ class WorldIntegrationTests(unittest.TestCase):
         self.module, cleanup = load_scrc_world()
         self.addCleanup(cleanup)
 
-    def make_world(self, seed=22, required_stars=50, difficulty=0, starting_area=0):
+    def make_world(
+        self,
+        seed=22,
+        required_stars=50,
+        difficulty=0,
+        starting_area=0,
+        player=1,
+        multiworld=None,
+    ):
         world = object.__new__(self.module.SCRCWorld)
-        world.player = 1
+        world.player = player
         world.random = random.Random(seed)
-        world.multiworld = FakeMultiWorld()
+        world.multiworld = multiworld or FakeMultiWorld()
         world.options = types.SimpleNamespace(
             required_stars=OptionValue(required_stars),
             difficulty=OptionValue(difficulty),
@@ -87,6 +95,14 @@ class WorldIntegrationTests(unittest.TestCase):
             world.generate_early()
         self.assertEqual(world.multiworld.precollected, [])
 
+    def test_generate_early_rejects_invalid_raw_difficulty_values(self):
+        for value in (True, 4):
+            with self.subTest(difficulty=value):
+                world = self.make_world(difficulty=value)
+                with self.assertRaisesRegex(ValueError, "difficulty"):
+                    world.generate_early()
+                self.assertEqual(world.multiworld.precollected, [])
+
     def test_normal_omits_inactive_performance_locations(self):
         names = self.addressed_names(self.build_world(difficulty=0))
         self.assertIn("Level 22 - Completion", names)
@@ -114,6 +130,32 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertNotIn("Star", names)
                 self.assertNotIn("Hypno Pan", names)
                 self.assertNotIn("Violance", names)
+
+    def test_shared_multiworld_capacity_and_pool_are_scoped_per_player(self):
+        multiworld = FakeMultiWorld()
+        worlds = [
+            self.make_world(player=player, multiworld=multiworld)
+            for player in (1, 2)
+        ]
+        for world in worlds:
+            world.generate_early()
+            world.create_regions()
+
+        self.assertEqual(
+            [world._active_unfilled_location_capacity() for world in worlds],
+            [68, 68],
+        )
+
+        for world in worlds:
+            world.create_items()
+
+        self.assertEqual(
+            [
+                sum(item.player == player for item in multiworld.itempool)
+                for player in (1, 2)
+            ],
+            [68, 68],
+        )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
         world = self.build_world()
@@ -260,7 +302,8 @@ class WorldIntegrationTests(unittest.TestCase):
             "LEVEL_09_COMBO_ABILITY_EARNED",
         )
         self.assertFalse(data["starting_area_forced"])
-        self.assertIn("v0.16", data["routing_logic_note"])
+        self.assertIn("v0.20.0", data["routing_logic_note"])
+        self.assertIn("Difficulty filtering is active", data["routing_logic_note"])
         self.assertIn("preview", data["routing_logic_note"])
 
     def test_slot_data_has_safe_defaults_for_direct_construction(self):
@@ -271,6 +314,16 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
+        self.assertEqual(data["active_location_count"], 68)
+        self.assertEqual(data["active_campaign_star_tiers"], [1])
+        self.assertEqual(data["active_medal_tiers"], ["Bronze"])
+
+    def test_fill_slot_data_rejects_invalid_raw_difficulty_values(self):
+        for value in (True, 4):
+            with self.subTest(difficulty=value):
+                world = self.make_world(difficulty=value)
+                with self.assertRaisesRegex(ValueError, "difficulty"):
+                    world.fill_slot_data()
 
     def test_slot_data_reports_active_difficulty_filtering(self):
         world = self.build_world(difficulty=1)
@@ -326,8 +379,8 @@ class WorldIntegrationTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             world.multiworld.get_location("Level 22 - 2 Stars", 1)
 
-        perfection = self.build_world(difficulty=2)
-        two_stars = perfection.multiworld.get_location("Level 22 - 2 Stars", 1)
+        expert = self.build_world(difficulty=2)
+        two_stars = expert.multiworld.get_location("Level 22 - 2 Stars", 1)
         self.assertFalse(two_stars.item_rule(progression))
         self.assertTrue(two_stars.item_rule(filler))
 

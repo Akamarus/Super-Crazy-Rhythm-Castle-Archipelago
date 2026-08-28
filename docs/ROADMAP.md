@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The tables below distinguish the current unchanged v0.67.94 client / v0.20 APWorld boundary from the approved future randomizer design. Testers should use matching source builds and a fresh v0.20 seed/save. Existing v0.19 seeds retain their prior location sets.
+This is an unofficial, experimental development build rather than a release. The tables below distinguish the current unchanged v0.67.94 client / v0.20.0 APWorld boundary from the approved future randomizer design. Testers should use matching source builds and a fresh v0.20.0 seed/save. Existing v0.19 seeds retain their prior location sets.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -16,11 +16,11 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 ## Current implementation
 
-| Work | Status | Current v0.67.94 / v0.20 boundary |
+| Work | Status | Current v0.67.94 / v0.20.0 boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
-| Active AP performance difficulty filtering | Implemented / needs gameplay acceptance | Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled. No campaign checks or IDs were added. |
+| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. The four-seed real-generator matrix passed; inactive checks are absent, native REG/PRO remains player-controlled, and no campaign checks or IDs were added. Broader manual gameplay remains in the smoke-test gate. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
@@ -49,7 +49,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Live individual AP Stars and enforced level requirements | Design approved / not implemented | The v0.16 planner and seed-stable preview exist; pool placement and client gates remain inactive until capacity and solver validation are complete. |
 | Hip Glasses, Bucket Minion trade, and Chicken Bucket | Implemented / needs gameplay acceptance | Hip Glasses are randomized at Level 4; the normal trade is the Chicken Bucket source check; normal Chicken Bucket use produces Combo Bucket. |
 | Music Lab Point AP inventory | Design approved / not implemented | Point items will be separate from native medal score, pending final location-count validation. |
-| Live difficulty-based performance location sets | Implemented / needs gameplay acceptance | Normal, Hard, Expert, and Perfection filter existing campaign performance locations. Active Level-22 2/3-Star and Music Lab point chests remain filler-only. |
+| Live difficulty-based performance location sets | Implemented | Normal, Hard, Expert, and Perfection filter existing campaign performance locations. Four real seeds passed count, tier, placement, reachability, and Victory-playthrough audits. Active Level-22 2/3-Star and Music Lab point chests remain filler-only. |
 | Complete item pool and solver validation | Design approved / not implemented | Generation must prove opening spheres, item capacity, and no self-locks. |
 | Full campaign and meaningful-item logic | Design approved / not implemented | Every later area and level will combine Area Access, Stars, meaningful items, and vanilla story state. |
 
@@ -66,7 +66,8 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 | Work | Status | Acceptance boundary |
 | --- | --- | --- |
-| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.20 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
+| Difficulty-filtering generator matrix | Complete | Normal, Hard, Expert, and Perfection passed real generation at 68/105/142/178 addressed locations. |
+| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.20.0 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
 | Full generated-seed matrix | Design approved / not implemented | Validate every supported start, difficulty, Star goal, and optional-area route. |
 | Level 22 victory | Design approved / not implemented | Victory will require the synchronized AP Star goal and a subsequent Level 22 completion. |
 | Full single-player acceptance run | Design approved / not implemented | Includes a post-threshold Level 22 clear, chest checks, representative difficulty tiers, and optional routes. |
