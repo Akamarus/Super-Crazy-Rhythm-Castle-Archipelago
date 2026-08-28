@@ -4,6 +4,7 @@ from worlds.generic.Rules import set_rule
 
 from .difficulty import (
     DIFFICULTY_NAMES,
+    MEDAL_TIERS,
     campaign_star_tiers,
     filter_locations_for_difficulty,
     medal_tiers,
@@ -676,11 +677,10 @@ class SCRCWorld(World):
             getattr(getattr(options, "starting_area", None), "value", 0)
         )
         generated_requirements = getattr(self, "generated_star_requirements", {})
-        difficulty_preview = getattr(self, "difficulty_preview_locations", ())
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 10,
+            "schema_version": 11,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -697,8 +697,18 @@ class SCRCWorld(World):
             "generated_star_requirements": dict(generated_requirements),
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
-            "difficulty_filtering_active": False,
-            "difficulty_preview_location_count": len(difficulty_preview),
+            "difficulty_filtering_active": True,
+            "active_location_count": len(
+                getattr(self, "active_location_names", LOCATION_NAME_TO_ID)
+            ),
+            "active_campaign_star_tiers": sorted(
+                getattr(self, "active_campaign_star_tiers", {1})
+            ),
+            "active_medal_tiers": [
+                tier
+                for tier in MEDAL_TIERS
+                if tier in getattr(self, "active_medal_tiers", {"Bronze"})
+            ],
             "development_area_access_victory_active": True,
             "logical_root_region": "Menu",
             "home_region": "Phone Hub",

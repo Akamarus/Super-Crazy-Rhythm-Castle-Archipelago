@@ -206,15 +206,15 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(names.count("Chicken Bucket"), 1)
         self.assertEqual(len(names), len(self.addressed_names(world)))
 
-    def test_slot_data_labels_preview_features_as_inactive(self):
+    def test_slot_data_labels_active_difficulty_filtering(self):
         world = self.make_world()
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 10)
+        self.assertEqual(data["schema_version"], 11)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -230,8 +230,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["generated_star_requirements"], world.generated_star_requirements)
         self.assertEqual(data["generated_star_requirements_depth_model"], "provisional-linear-level-order")
         self.assertFalse(data["client_star_gate_enforcement_active"])
-        self.assertFalse(data["difficulty_filtering_active"])
-        self.assertEqual(data["difficulty_preview_location_count"], 0)
+        self.assertTrue(data["difficulty_filtering_active"])
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
         self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
@@ -272,7 +271,16 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["difficulty_preview_location_count"], 0)
+
+    def test_slot_data_reports_active_difficulty_filtering(self):
+        world = self.build_world(difficulty=1)
+        data = world.fill_slot_data()
+
+        self.assertTrue(data["difficulty_filtering_active"])
+        self.assertEqual(data["active_location_count"], 105)
+        self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
+        self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
+        self.assertTrue(data["implementation_version"].endswith("difficulty-filtering-0.20"))
 
     def test_equal_seed_and_options_are_reproducible(self):
         first = self.make_world(seed=77, difficulty=2)
