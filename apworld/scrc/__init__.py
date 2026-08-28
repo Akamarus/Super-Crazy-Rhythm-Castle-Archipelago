@@ -2,7 +2,12 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
-from .difficulty import DIFFICULTY_NAMES, filter_locations_for_difficulty
+from .difficulty import (
+    DIFFICULTY_NAMES,
+    campaign_star_tiers,
+    filter_locations_for_difficulty,
+    medal_tiers,
+)
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
 from .items import (
     HYPNO_PAN_ITEM_NAME,
@@ -323,15 +328,22 @@ class SCRCWorld(World):
         self.generated_star_requirements = generate_star_requirements(
             required_stars, self.random
         )
-        self.difficulty_preview_locations = filter_locations_for_difficulty(
-            LOCATION_NAME_TO_ID, difficulty
+        self.difficulty_name = DIFFICULTY_NAMES[difficulty]
+        self.active_location_names = frozenset(
+            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
         )
+        self.active_campaign_star_tiers = campaign_star_tiers(difficulty)
+        self.active_medal_tiers = medal_tiers(difficulty)
         self.multiworld.push_precollected(self.create_item(self.starting_area_item))
 
     def create_regions(self) -> None:
-        active_tier_locations = frozenset(
-            getattr(self, "difficulty_preview_locations", LOCATION_NAME_TO_ID)
-        )
+        active_names = getattr(self, "active_location_names", frozenset(LOCATION_NAME_TO_ID))
+
+        def is_active(name: str) -> bool:
+            if name not in LOCATION_NAME_TO_ID:
+                raise ValueError(f"unregistered active location: {name}")
+            return name in active_names
+
         # Archipelago core begins reachability sweeps from a region literally
         # named "Menu". Keep that logical root even though the in-game start
         # is Hub6 / Phone Hub.
@@ -488,15 +500,17 @@ class SCRCWorld(World):
                 LOCATION_NAME_TO_ID[chest_name],
                 music_lab,
             )
-            safe = required_progression_allowed(chest_name, active_tier_locations)
+            safe = required_progression_allowed(chest_name, active_names)
             location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
             music_lab.locations.append(location)
 
         for song in CASSETTE_SONGS:
             for tier in CASSETTE_MEDAL_TIERS:
                 name = f"Music Lab Cassette - {song} - {tier}"
+                if not is_active(name):
+                    continue
                 location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
-                safe = required_progression_allowed(name, active_tier_locations)
+                safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 music_lab.locations.append(location)
 
@@ -504,6 +518,8 @@ class SCRCWorld(World):
             cartridge_item = GARAGE_CARTRIDGE_ITEMS[song]
             for tier in GARAGE_STICKER_TIERS:
                 name = f"Game Garage - {song} - {tier}"
+                if not is_active(name):
+                    continue
                 location = SCRCLocation(
                     self.player, name, LOCATION_NAME_TO_ID[name], game_garage
                 )
@@ -511,7 +527,7 @@ class SCRCWorld(World):
                     location,
                     lambda state, item=cartridge_item: state.has(item, self.player),
                 )
-                safe = required_progression_allowed(name, active_tier_locations)
+                safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
 
@@ -519,6 +535,8 @@ class SCRCWorld(World):
         # one Star are confirmed ability-free. Two/three-Star requirements are
         # still under investigation, so those tiers remain filler-only.
         for name in LEVEL_22_ORDINARY_LOCATIONS:
+            if not is_active(name):
+                continue
             location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], royal)
             if name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}:
                 location.item_rule = lambda item: filler_or_safe_required(item, False)
@@ -567,6 +585,14 @@ class SCRCWorld(World):
             royal,
         ]
 
+    def _active_unfilled_location_capacity(self) -> int:
+        return sum(
+            1
+            for region in self.multiworld.regions
+            for location in region.locations
+            if location.address is not None and location.item is None
+        )
+
     def create_items(self) -> None:
         starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
 
@@ -593,10 +619,18 @@ class SCRCWorld(World):
         progression_items.append(HIP_GLASSES_ITEM)
         progression_items.append(CHICKEN_BUCKET_ITEM)
 
+        capacity = self._active_unfilled_location_capacity()
+        required_count = len(progression_items)
+        if required_count > capacity:
+            raise ValueError(
+                f"{required_count} required progression items exceed "
+                f"{capacity} active locations for {self.difficulty_name}"
+            )
+        filler_count = capacity - required_count
+
         for name in progression_items:
             self.multiworld.itempool.append(self.create_item(name))
 
-        filler_count = len(LOCATION_NAME_TO_ID) - len(progression_items)
         for _ in range(filler_count):
             self.multiworld.itempool.append(self.create_item("Stardust"))
 

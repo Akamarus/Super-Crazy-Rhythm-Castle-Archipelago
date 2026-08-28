@@ -53,6 +53,11 @@ Item-pool size is derived from the count of instantiated, addressed, unfilled lo
 
 The complete name-to-ID registry remains available to preserve the permanent network contract and allow clients to report known IDs safely.
 
+The registry-derived addressed-location totals are 68 for Normal, 105 for Hard,
+142 for Expert, and 178 for Perfection. Earlier draft totals were eight too high:
+`BASE_ID + 0` and the documented reserved `BASE_ID + 4..+10` range are not
+registered locations and must not be instantiated.
+
 ## Placement Safety
 
 Existing access and placement rules remain authoritative:

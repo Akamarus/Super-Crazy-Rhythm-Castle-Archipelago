@@ -22,6 +22,11 @@
 - Existing v0.19 generated seeds remain client-compatible; new filtered seeds require APWorld v0.20.
 - Do not merge, push, publish, install, or create a release without explicit project-owner approval.
 
+**Registry-count correction:** The active addressed-location totals are 68/105/142/178
+for Normal/Hard/Expert/Perfection. The earlier 76/113/150/186 draft figures counted
+eight unregistered values: `BASE_ID + 0` and the intentional reserved gap at
+`BASE_ID + 4..+10`. Do not add locations or IDs to reach those obsolete figures.
+
 ---
 
 ## File Structure
@@ -230,7 +235,7 @@ def test_normal_omits_inactive_performance_locations(self):
     self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
 def test_active_location_counts_are_exact(self):
-    expected = {0: 76, 1: 113, 2: 150, 3: 186}
+    expected = {0: 68, 1: 105, 2: 142, 3: 178}
     for value, count in expected.items():
         with self.subTest(difficulty=value):
             self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
@@ -242,7 +247,7 @@ Replace `test_live_pool_size_and_contents_remain_unchanged` with:
 
 ```python
 def test_item_pool_matches_active_unfilled_capacity(self):
-    expected = {0: 76, 1: 113, 2: 150, 3: 186}
+    expected = {0: 68, 1: 105, 2: 142, 3: 178}
     for value, count in expected.items():
         with self.subTest(difficulty=value):
             world = self.build_world(difficulty=value)
@@ -373,7 +378,7 @@ def test_slot_data_reports_active_difficulty_filtering(self):
     world = self.build_world(difficulty=1)
     data = world.fill_slot_data()
     self.assertTrue(data["difficulty_filtering_active"])
-    self.assertEqual(data["active_location_count"], 113)
+    self.assertEqual(data["active_location_count"], 105)
     self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
     self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
     self.assertTrue(data["implementation_version"].endswith("difficulty-filtering-0.20"))
@@ -489,10 +494,10 @@ Create `docs/testing/2026-08-28-difficulty-filtering-acceptance.md` with uncheck
 ```markdown
 | Difficulty | Expected addressed locations | Campaign tiers | Medal tiers | Generated |
 | --- | ---: | --- | --- | --- |
-| Normal | 76 | 1 | Bronze | [ ] |
-| Hard | 113 | 1–2 | Bronze–Silver | [ ] |
-| Expert | 150 | 1–3 | Bronze–Gold | [ ] |
-| Perfection | 186 | 1–3 | Bronze–Platinum | [ ] |
+| Normal | 68 | 1 | Bronze | [ ] |
+| Hard | 105 | 1–2 | Bronze–Silver | [ ] |
+| Expert | 142 | 1–3 | Bronze–Gold | [ ] |
+| Perfection | 178 | 1–3 | Bronze–Platinum | [ ] |
 ```
 
 Include commands, seed numbers, output archive names, spoiler findings, and an explicit progression-placement result field. Do not mark rows complete until Task 5 runs the real generator.
@@ -588,7 +593,7 @@ Expected: exit code 0 and one output ZIP per difficulty.
 
 For every seed, verify:
 
-- addressed-location count equals 76/113/150/186;
+- addressed-location count equals 68/105/142/178;
 - only the expected campaign and medal tiers appear;
 - inactive tiers are absent, not populated with Stardust;
 - point chests contain only Stardust;

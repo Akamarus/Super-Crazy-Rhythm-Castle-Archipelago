@@ -32,6 +32,25 @@ class WorldIntegrationTests(unittest.TestCase):
         )
         return world
 
+    def build_world(self, difficulty=0, seed=22, starting_area=0):
+        world = self.make_world(
+            seed=seed,
+            difficulty=difficulty,
+            starting_area=starting_area,
+        )
+        world.generate_early()
+        world.create_regions()
+        return world
+
+    @staticmethod
+    def addressed_names(world):
+        return {
+            location.name
+            for region in world.multiworld.regions
+            for location in region.locations
+            if location.address is not None
+        }
+
     @staticmethod
     def reachable_regions(world, state):
         reachable = {"Menu"}
@@ -59,8 +78,8 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(tuple(world.generated_star_requirements), tuple(f"Level {i}" for i in range(1, 23)))
         self.assertTrue(all(0 <= value < 50 for value in world.generated_star_requirements.values()))
         self.assertEqual(tuple(world.generated_star_requirements.values()), tuple(sorted(world.generated_star_requirements.values())))
-        self.assertTrue(world.difficulty_preview_locations)
-        self.assertNotIn("Game Garage - Bloody Tears - Silver", world.difficulty_preview_locations)
+        self.assertTrue(world.active_location_names)
+        self.assertNotIn("Game Garage - Bloody Tears - Silver", world.active_location_names)
 
     def test_unsupported_fixed_start_stops_before_precollect(self):
         world = self.make_world(starting_area=2)
@@ -68,19 +87,49 @@ class WorldIntegrationTests(unittest.TestCase):
             world.generate_early()
         self.assertEqual(world.multiworld.precollected, [])
 
-    def test_live_pool_size_and_contents_remain_unchanged(self):
-        world = self.make_world()
-        world.generate_early()
-        world.create_items()
+    def test_normal_omits_inactive_performance_locations(self):
+        names = self.addressed_names(self.build_world(difficulty=0))
+        self.assertIn("Level 22 - Completion", names)
+        self.assertIn("Level 22 - 1 Star", names)
+        self.assertNotIn("Level 22 - 2 Stars", names)
+        self.assertNotIn("Level 22 - 3 Stars", names)
+        self.assertIn("Music Lab Cassette - Zen - Bronze", names)
+        self.assertNotIn("Music Lab Cassette - Zen - Silver", names)
+        self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
-        self.assertEqual(len(world.multiworld.itempool), len(self.module.LOCATION_NAME_TO_ID))
-        self.assertNotIn("Star", [item.name for item in world.multiworld.itempool])
-        self.assertNotIn("Hypno Pan", [item.name for item in world.multiworld.itempool])
-        self.assertNotIn("Violance", [item.name for item in world.multiworld.itempool])
+    def test_active_location_counts_are_exact(self):
+        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        for value, count in expected.items():
+            with self.subTest(difficulty=value):
+                self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
+
+    def test_item_pool_matches_active_unfilled_capacity(self):
+        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        for value, count in expected.items():
+            with self.subTest(difficulty=value):
+                world = self.build_world(difficulty=value)
+                world.create_items()
+                self.assertEqual(len(world.multiworld.itempool), count)
+                names = [item.name for item in world.multiworld.itempool]
+                self.assertNotIn("Star", names)
+                self.assertNotIn("Hypno Pan", names)
+                self.assertNotIn("Violance", names)
+
+    def test_item_pool_rejects_insufficient_active_locations(self):
+        world = self.build_world()
+        retained_names = set(sorted(self.addressed_names(world))[:14])
+        for region in world.multiworld.regions:
+            region.locations[:] = [
+                location
+                for location in region.locations
+                if location.address is None or location.name in retained_names
+            ]
+
+        with self.assertRaisesRegex(ValueError, "required progression items.*active locations"):
+            world.create_items()
 
     def test_preview_abilities_are_registered_but_not_generated(self):
-        world = self.make_world()
-        world.generate_early()
+        world = self.build_world()
         world.create_items()
 
         self.assertEqual(world.create_item("Hypno Pan").code, 187256121)
@@ -149,14 +198,13 @@ class WorldIntegrationTests(unittest.TestCase):
         )
 
     def test_live_pool_contains_one_of_each_roots_bucket_item(self):
-        world = self.make_world()
-        world.generate_early()
+        world = self.build_world()
         world.create_items()
         names = [item.name for item in world.multiworld.itempool]
 
         self.assertEqual(names.count("Hip Glasses"), 1)
         self.assertEqual(names.count("Chicken Bucket"), 1)
-        self.assertEqual(len(names), len(self.module.LOCATION_NAME_TO_ID))
+        self.assertEqual(len(names), len(self.addressed_names(world)))
 
     def test_slot_data_labels_preview_features_as_inactive(self):
         world = self.make_world()
@@ -183,7 +231,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["generated_star_requirements_depth_model"], "provisional-linear-level-order")
         self.assertFalse(data["client_star_gate_enforcement_active"])
         self.assertFalse(data["difficulty_filtering_active"])
-        self.assertEqual(data["difficulty_preview_location_count"], len(world.difficulty_preview_locations))
+        self.assertEqual(data["difficulty_preview_location_count"], 0)
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
         self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
@@ -233,7 +281,7 @@ class WorldIntegrationTests(unittest.TestCase):
         second.generate_early()
 
         self.assertEqual(first.generated_star_requirements, second.generated_star_requirements)
-        self.assertEqual(len(first.difficulty_preview_locations), len(second.difficulty_preview_locations))
+        self.assertEqual(len(first.active_location_names), len(second.active_location_names))
 
     def test_existing_area_access_victory_rule_is_unchanged(self):
         world = self.make_world()
@@ -256,30 +304,33 @@ class WorldIntegrationTests(unittest.TestCase):
         for name, location_id in expected.items():
             self.assertEqual(self.module.LOCATION_NAME_TO_ID[name], location_id)
 
-        world = self.make_world()
-        world.create_regions()
+        world = self.build_world()
         royal = next(region for region in world.multiworld.regions if region.name == "Royal Corridor")
         self.assertEqual(
             {location.name for location in royal.locations},
-            set(expected),
+            {"Level 22 - Completion", "Level 22 - 1 Star"},
         )
         self.assertNotIn("Victory", {location.name for location in royal.locations})
 
         progression = world.create_item("Plant Pipes")
         filler = world.create_item("Stardust")
         self.assertTrue(world.multiworld.get_location("Level 22 - 1 Star", 1).item_rule(progression))
-        self.assertFalse(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(progression))
-        self.assertTrue(world.multiworld.get_location("Level 22 - 2 Stars", 1).item_rule(filler))
+        with self.assertRaises(KeyError):
+            world.multiworld.get_location("Level 22 - 2 Stars", 1)
+
+        perfection = self.build_world(difficulty=2)
+        two_stars = perfection.multiworld.get_location("Level 22 - 2 Stars", 1)
+        self.assertFalse(two_stars.item_rule(progression))
+        self.assertTrue(two_stars.item_rule(filler))
 
     def test_royal_access_reaches_only_phone_side_level_22_route(self):
-        world = self.make_world()
-        world.create_regions()
+        world = self.build_world()
         world.set_rules()
         state = State(["Royal Corridor Access"])
         reachable = self.reachable_regions(world, state)
 
         self.assertIn("Royal Corridor", reachable)
-        for name in self.module.LEVEL_22_ORDINARY_LOCATIONS:
+        for name in ("Level 22 - Completion", "Level 22 - 1 Star"):
             location = world.multiworld.get_location(name, 1)
             self.assertIn(location.parent_region.name, reachable)
             self.assertTrue(location.access_rule(state))
@@ -355,7 +406,7 @@ class WorldIntegrationTests(unittest.TestCase):
                                     (location.name.startswith("Music Lab - ") and location.name.endswith(" Point Chest"))
                                     or (
                                         location.name.startswith(("Game Garage - ", "Music Lab Cassette - "))
-                                        and location.name not in world.difficulty_preview_locations
+                                        and location.name not in world.active_location_names
                                     )
                                     or location.name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}
                                 )
@@ -367,7 +418,7 @@ class WorldIntegrationTests(unittest.TestCase):
         facts = json.loads(fixture_path.read_text(encoding="utf-8"))
         world = self.make_world(seed=facts["seed"], difficulty=0)
         world.generate_early()
-        active = frozenset(world.difficulty_preview_locations)
+        active = world.active_location_names
 
         for placement in facts["unsafe_placements"]:
             with self.subTest(**placement):
@@ -376,21 +427,23 @@ class WorldIntegrationTests(unittest.TestCase):
                 )
 
     def test_safe_location_rules_allow_filler_but_reject_progression(self):
-        world = self.make_world(difficulty=0)
-        world.generate_early()
-        world.create_regions()
+        world = self.build_world(difficulty=0)
         progression = world.create_item("Plant Pipes")
         filler = world.create_item("Stardust")
 
         chest = world.multiworld.get_location("Music Lab - 64 Point Chest", 1)
-        platinum = world.multiworld.get_location("Music Lab Cassette - Lets Go - Platinum", 1)
         bronze = world.multiworld.get_location("Music Lab Cassette - Lets Go - Bronze", 1)
 
         self.assertFalse(chest.item_rule(progression))
         self.assertTrue(chest.item_rule(filler))
-        self.assertFalse(platinum.item_rule(progression))
-        self.assertTrue(platinum.item_rule(filler))
         self.assertTrue(bronze.item_rule(progression))
+        with self.assertRaises(KeyError):
+            world.multiworld.get_location("Music Lab Cassette - Lets Go - Platinum", 1)
+
+        perfection = self.build_world(difficulty=3)
+        platinum = perfection.multiworld.get_location("Music Lab Cassette - Lets Go - Platinum", 1)
+        self.assertTrue(platinum.item_rule(filler))
+        self.assertTrue(platinum.item_rule(progression))
 
 
 if __name__ == "__main__":
