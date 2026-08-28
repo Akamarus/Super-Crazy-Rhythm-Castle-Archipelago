@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.94";
+    public const string PluginVersion = "0.67.95";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -18990,18 +18990,21 @@ internal static class GarageCartridgeAccess
 
     private static readonly object Sync = new();
     private static readonly HashSet<string> OwnedSongs = new(StringComparer.OrdinalIgnoreCase);
-
     public static bool Enabled { get; private set; }
     public static bool SourceRandomizationEnabled { get; private set; }
+    public static bool VanillaEntranceEnabled { get; private set; }
     public static string ImplementationVersion { get; private set; } = string.Empty;
 
     public static void Configure()
     {
         Enabled = false;
         SourceRandomizationEnabled = false;
+        VanillaEntranceEnabled = false;
         ImplementationVersion = string.Empty;
         lock (Sync)
+        {
             OwnedSongs.Clear();
+        }
     }
 
     public static bool TryApplyItem(string itemName)
@@ -19060,6 +19063,19 @@ internal static class GarageCartridgeAccess
         }
         SourceRandomizationEnabled = Enabled && sourceRequested;
 
+        string vanillaSong = slotData.TryGetValue("vanilla_game_garage_cartridge", out object? rawVanillaSong)
+            ? rawVanillaSong?.ToString() ?? string.Empty
+            : string.Empty;
+        VanillaEntranceEnabled = Enabled &&
+            GarageVanillaEntrancePolicy.IsEnabled(ImplementationVersion, vanillaSong);
+        if (VanillaEntranceEnabled)
+        {
+            lock (Sync)
+            {
+                OwnedSongs.Add(GarageVanillaEntrancePolicy.Song);
+            }
+        }
+
         if (!Enabled)
         {
             Plugin.LoggerInstance?.LogWarning(
@@ -19072,7 +19088,9 @@ internal static class GarageCartridgeAccess
             owned = OwnedSongs.Count == 0 ? "<none>" : string.Join(", ", OwnedSongs.OrderBy(x => x));
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Six Garage songs require their corresponding AP Cartridge item.");
+            VanillaEntranceEnabled
+                ? $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Vampire Killer uses its physical vanilla pickup and normal Garage entrance sequence; the other five songs require AP Cartridge items."
+                : $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Six Garage songs require their corresponding AP Cartridge item.");
     }
 
     public static bool ShouldSuppressVanillaSourceGrant(object request, string flag)
@@ -19085,6 +19103,9 @@ internal static class GarageCartridgeAccess
             return false;
 
         if (!string.Equals(kind, "BAG_ITEM", StringComparison.Ordinal))
+            return false;
+
+        if (!GarageVanillaEntrancePolicy.ShouldSuppressSourceGrant(VanillaEntranceEnabled, song))
             return false;
 
         Plugin.LoggerInstance?.LogWarning(
@@ -19103,6 +19124,8 @@ internal static class GarageCartridgeAccess
             return;
 
         string? location = GetVanillaSourceLocation(song);
+        if (!GarageVanillaEntrancePolicy.ShouldRandomizeSong(VanillaEntranceEnabled, song))
+            return;
         if (string.IsNullOrWhiteSpace(location))
         {
             Plugin.LoggerInstance?.LogWarning(

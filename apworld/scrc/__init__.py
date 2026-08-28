@@ -54,6 +54,14 @@ GARAGE_CARTRIDGE_ITEMS = {
     "Wag the Dog": "Wag the Dog Cartridge",
 }
 
+VANILLA_GARAGE_CARTRIDGE_SONG = "Vampire Killer"
+VANILLA_GARAGE_CARTRIDGE_ITEM = GARAGE_CARTRIDGE_ITEMS[VANILLA_GARAGE_CARTRIDGE_SONG]
+RANDOMIZED_GARAGE_CARTRIDGE_ITEMS = {
+    song: item
+    for song, item in GARAGE_CARTRIDGE_ITEMS.items()
+    if song != VANILLA_GARAGE_CARTRIDGE_SONG
+}
+
 CASSETTE_SONGS = (
     "The Little Things",
     "No Plan B",
@@ -176,6 +184,11 @@ CARTRIDGE_SOURCE_LOCATIONS = {
     "Superstar": "Cartridge Pickup - Superstar",
     "Vampire Killer": "Cartridge Pickup - Vampire Killer",
     "Wag the Dog": "Cartridge Pickup - Wag the Dog",
+}
+RANDOMIZED_CARTRIDGE_SOURCE_LOCATIONS = {
+    song: location
+    for song, location in CARTRIDGE_SOURCE_LOCATIONS.items()
+    if song != VANILLA_GARAGE_CARTRIDGE_SONG
 }
 for index, name in enumerate(CARTRIDGE_SOURCE_LOCATIONS.values()):
     LOCATION_NAME_TO_ID[name] = BASE_ID + 174 + index
@@ -333,7 +346,9 @@ class SCRCWorld(World):
         )
         self.difficulty_name = DIFFICULTY_NAMES[difficulty]
         self.active_location_names = frozenset(
-            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
+            name
+            for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
+            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
         )
         self.active_campaign_star_tiers = active_campaign_star_tiers
         self.active_medal_tiers = active_medal_tiers
@@ -487,7 +502,7 @@ class SCRCWorld(World):
         # represented by Music Lab reward chests. Their exact physical-region
         # logic is intentionally not modeled yet, so keep these checks filler-only:
         # generation may never strand progression on an inaccurately modeled source.
-        for name in CARTRIDGE_SOURCE_LOCATIONS.values():
+        for name in RANDOMIZED_CARTRIDGE_SOURCE_LOCATIONS.values():
             location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
             location.item_rule = lambda item: item.name == "Stardust"
             phone_hub.locations.append(location)
@@ -526,10 +541,11 @@ class SCRCWorld(World):
                 location = SCRCLocation(
                     self.player, name, LOCATION_NAME_TO_ID[name], game_garage
                 )
-                set_rule(
-                    location,
-                    lambda state, item=cartridge_item: state.has(item, self.player),
-                )
+                if song != VANILLA_GARAGE_CARTRIDGE_SONG:
+                    set_rule(
+                        location,
+                        lambda state, item=cartridge_item: state.has(item, self.player),
+                    )
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
@@ -610,8 +626,9 @@ class SCRCWorld(World):
             if name != starter:
                 progression_items.append(name)
 
-        # All six Game Garage cartridges remain true randomized items in v0.14.
-        progression_items.extend(GARAGE_CARTRIDGE_ITEMS.values())
+        # Vampire Killer remains a permanent datapackage item for old seeds, but
+        # v0.21 grants it natively so the Garage entrance sequence is always valid.
+        progression_items.extend(RANDOMIZED_GARAGE_CARTRIDGE_ITEMS.values())
 
         # First meaningful vanilla quest item randomized by the area-routing world.
         # Gecko's source is reachable with Roots Access alone, so Weed Killer can
@@ -678,7 +695,9 @@ class SCRCWorld(World):
         )
         difficulty_value = getattr(getattr(options, "difficulty", None), "value", 0)
         default_active_location_names = frozenset(
-            filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
+            name
+            for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
+            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
         )
         default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
         default_medal_tiers = medal_tiers(difficulty_value)
@@ -687,9 +706,9 @@ class SCRCWorld(World):
         )
         generated_requirements = getattr(self, "generated_star_requirements", {})
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 11,
+            "schema_version": 12,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -730,9 +749,12 @@ class SCRCWorld(World):
             "development_caches_filler_only": True,
             "game_garage_song_count": len(GARAGE_SONGS),
             "randomize_game_garage_cartridges": True,
-            "game_garage_cartridge_items": dict(GARAGE_CARTRIDGE_ITEMS),
+            "game_garage_cartridge_items": dict(RANDOMIZED_GARAGE_CARTRIDGE_ITEMS),
             "randomize_vanilla_cartridge_sources": True,
-            "cartridge_source_locations": dict(CARTRIDGE_SOURCE_LOCATIONS),
+            "cartridge_source_locations": dict(RANDOMIZED_CARTRIDGE_SOURCE_LOCATIONS),
+            "vanilla_game_garage_cartridge": VANILLA_GARAGE_CARTRIDGE_SONG,
+            "vanilla_game_garage_cartridge_item": VANILLA_GARAGE_CARTRIDGE_ITEM,
+            "game_garage_vanilla_entrance_pickup_required": True,
             "randomize_weed_killer": True,
             "weed_killer_item": "Weed Killer",
             "weed_killer_source_location": ROOTS_GECKO_WEED_KILLER,
@@ -795,9 +817,10 @@ class SCRCWorld(World):
             },
             "routing_logic_complete": False,
             "routing_logic_note": (
-                "APWorld v0.20.0 retains Roots-first area routing, randomized Weed "
-                "Killer, and split Level 3 Plant Pipes logic. Difficulty filtering "
-                "is active; Star requirements remain inactive previews, and live "
+                "APWorld v0.21.0 retains Roots-first area routing, randomized Weed "
+                "Killer, and split Level 3 Plant Pipes logic. Vampire Killer is "
+                "native for immediate Garage access. Difficulty filtering is active. "
+                "Star requirements remain inactive previews, and live "
                 "Star gates plus remaining full-game prerequisites are deferred."
             ),
         }

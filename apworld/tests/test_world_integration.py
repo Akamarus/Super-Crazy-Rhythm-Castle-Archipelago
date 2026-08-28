@@ -114,13 +114,13 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
     def test_active_location_counts_are_exact(self):
-        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        expected = {0: 67, 1: 104, 2: 141, 3: 177}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
 
     def test_item_pool_matches_active_unfilled_capacity(self):
-        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        expected = {0: 67, 1: 104, 2: 141, 3: 177}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 world = self.build_world(difficulty=value)
@@ -143,7 +143,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(
             [world._active_unfilled_location_capacity() for world in worlds],
-            [68, 68],
+            [67, 67],
         )
 
         for world in worlds:
@@ -154,12 +154,12 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [68, 68],
+            [67, 67],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
         world = self.build_world()
-        retained_names = set(sorted(self.addressed_names(world))[:14])
+        retained_names = set(sorted(self.addressed_names(world))[:12])
         for region in world.multiworld.regions:
             region.locations[:] = [
                 location
@@ -253,10 +253,10 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 11)
+        self.assertEqual(data["schema_version"], 12)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -275,6 +275,14 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(data["difficulty_filtering_active"])
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
+        self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
+        self.assertEqual(
+            data["vanilla_game_garage_cartridge_item"],
+            "Vampire Killer Cartridge",
+        )
+        self.assertTrue(data["game_garage_vanilla_entrance_pickup_required"])
+        self.assertNotIn("Vampire Killer", data["game_garage_cartridge_items"])
+        self.assertNotIn("Vampire Killer", data["cartridge_source_locations"])
         self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
         self.assertEqual(data["consolidated_preview_version"], "consolidated-preview-0.19")
         self.assertEqual(data["preview_ability_items_registered"], ["Hypno Pan", "Violance"])
@@ -302,7 +310,7 @@ class WorldIntegrationTests(unittest.TestCase):
             "LEVEL_09_COMBO_ABILITY_EARNED",
         )
         self.assertFalse(data["starting_area_forced"])
-        self.assertIn("v0.20.0", data["routing_logic_note"])
+        self.assertIn("v0.21.0", data["routing_logic_note"])
         self.assertIn("Difficulty filtering is active", data["routing_logic_note"])
         self.assertIn("preview", data["routing_logic_note"])
 
@@ -314,7 +322,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 68)
+        self.assertEqual(data["active_location_count"], 67)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -330,10 +338,32 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 105)
+        self.assertEqual(data["active_location_count"], 104)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
-        self.assertTrue(data["implementation_version"].endswith("difficulty-filtering-0.20"))
+        self.assertTrue(data["implementation_version"].endswith("vanilla-vampire-garage-0.21"))
+
+    def test_vampire_killer_is_vanilla_but_permanent_ids_are_preserved(self):
+        world = self.build_world(difficulty=0)
+        names = self.addressed_names(world)
+        item_names = [item.name for item in world.multiworld.itempool]
+
+        self.assertNotIn("Cartridge Pickup - Vampire Killer", names)
+        self.assertNotIn("Vampire Killer Cartridge", item_names)
+        self.assertEqual(
+            self.module.LOCATION_NAME_TO_ID["Cartridge Pickup - Vampire Killer"],
+            187256176,
+        )
+        self.assertEqual(
+            self.module.ITEM_NAME_TO_ID["Vampire Killer Cartridge"],
+            187256114,
+        )
+
+        vampire = world.multiworld.get_location("Game Garage - Vampire Killer - Bronze", 1)
+        smooch = world.multiworld.get_location("Game Garage - Smooch - Bronze", 1)
+        self.assertTrue(vampire.access_rule(State([])))
+        self.assertFalse(smooch.access_rule(State([])))
+        self.assertTrue(smooch.access_rule(State(["Smooch Cartridge"])))
 
     def test_equal_seed_and_options_are_reproducible(self):
         first = self.make_world(seed=77, difficulty=2)

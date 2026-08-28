@@ -87,7 +87,7 @@ This table lists the item names currently known to the APWorld. Permanent networ
 | **Gradius Remix Cartridge** | Progression/useful | Required to use the Gradius Remix song in Game Garage. |
 | **Smooch Cartridge** | Progression/useful | Required to use the Smooch song in Game Garage. |
 | **Superstar Cartridge** | Progression/useful | Required to use the Superstar song in Game Garage. |
-| **Vampire Killer Cartridge** | Progression/useful | Required to use the Vampire Killer song in Game Garage. |
+| **Vampire Killer Cartridge** | Compatibility-only | Permanent AP ID retained for old seeds; fresh v0.21 seeds use the physical vanilla pickup and do not generate this AP item. |
 | **Wag the Dog Cartridge** | Progression/useful | Required to use the Wag the Dog song in Game Garage. |
 | **Weed Killer** | Progression | Native consumable quest item from Gecko. AP delivery grants `WEED_KILLER_BAG_ITEM`; vanilla later consumes it to reveal/access Level 3. |
 | **Plant Pipes** | Progression | Permanent usable ability obtained from Frog and Hippo in Level 3. AP delivery grants `WEED_KILLER_ABILITY`. Required to complete Level 3. |
@@ -257,7 +257,7 @@ This prevents the AP Area Access item from being defeated by campaign-order assu
 
 ## 6. Game Garage system
 
-Game Garage currently has **six randomized cartridge items** and **24 sticker checks**.
+Game Garage currently has **five randomized cartridge items**, the physical vanilla **Vampire Killer** pickup, and **24 sticker checks**.
 
 ### Songs
 
@@ -289,7 +289,7 @@ If a run earns a higher tier, all lower cumulative tiers are considered satisfie
 
 ### Cartridge source behavior
 
-The six cartridges are AP items. Native cartridge grants outside Game Garage are suppressed, while the native **collected/source marker** is kept so the physical pickup can become an AP location.
+Five cartridges are AP items. Their native grants outside Game Garage are suppressed while their native **collected/source markers** become AP locations. Vampire Killer is excluded: v0.21 preserves its physical vanilla pickup, and the player carries it through the normal Garage entrance sequence.
 
 Known source checks include:
 
@@ -297,12 +297,12 @@ Known source checks include:
 - Music Lab reward chest source for **Bloody Tears**
 - `Cartridge Pickup - Smooch`
 - `Cartridge Pickup - Superstar`
-- `Cartridge Pickup - Vampire Killer`
+- `Cartridge Pickup - Vampire Killer` *(permanent ID retained, inactive in fresh v0.21 seeds)*
 - `Cartridge Pickup - Wag the Dog`
 
 Inside Game Garage, only AP-owned cartridges are released through the normal game insertion/use path.
 
-APWorld Garage sticker reachability requires the corresponding cartridge item.
+APWorld Garage sticker reachability requires the corresponding cartridge item for five randomized songs. Vampire Killer sticker checks have no AP-item gate.
 
 ---
 
@@ -400,7 +400,7 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The implemented APWorld v0.20.0 difficulty choices are:
+The implemented APWorld v0.21.0 difficulty choices are:
 
 - **Normal**
 - **Hard**
@@ -411,16 +411,16 @@ This controls which existing performance-based checks a seed contains without ch
 
 | AP difficulty | Campaign levels | Music Lab and Game Garage | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 68 |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
+| Normal | Completion / 1-Star | Bronze | 67 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 104 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 141 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 177 |
 
 A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.20.0 filters only existing campaign performance locations: it introduces no campaign checks or IDs. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20.0 seed for filtering. Client v0.67.94 is unchanged. The Normal/Hard/Expert/Perfection real-generator matrix passed at 68/105/142/178 addressed locations; broader manual gameplay remains pending. Inactive Star-requirement previews and future live Star gates are separate from this completed filtering milestone.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.21.0 retains v0.20 difficulty filtering while retiring the Vampire Killer source check, producing 67/104/141/177 addressed locations. Existing v0.20 seeds retain their old location sets and six-cartridge behavior. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -542,12 +542,12 @@ The client follows several implementation rules developed through testing:
 | Bucket Minion glasses trade | Native mapping verified / not implemented | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, grants Chicken Bucket, removes the blockade, and unlocks the King conversation. |
 | Chicken Bucket | Native mapping verified / not implemented | Held item `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
-| Garage cartridges | Implemented | 6 AP items; source pickups/chests randomized. |
+| Garage cartridges | Implemented | 5 AP items; Vampire Killer remains a physical vanilla pickup required for Garage entry. |
 | Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers; cassette items are not randomized in the current APWorld. |
 | Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; the four-seed real-generator matrix passed, native REG/PRO remains player-controlled, and broader manual gameplay stays in the prototype smoke test. |
+| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 67/104/141/177 addressed locations; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 
@@ -597,7 +597,7 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.20.0:
+Current frontier at APWorld v0.21.0:
 
 ```text
 Next safe item ID:     187256123

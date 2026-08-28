@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The tables below distinguish the current unchanged v0.67.94 client / v0.20.0 APWorld boundary from the approved future randomizer design. Testers should use matching source builds and a fresh v0.20.0 seed/save. Existing v0.19 seeds retain their prior location sets.
+This is an unofficial, experimental development build rather than a release. The current boundary is Client v0.67.95 / APWorld v0.21.0. Testers should use matching builds and a fresh v0.21 seed/save; existing v0.20 seeds retain six-cartridge Garage behavior.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -16,18 +16,18 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 ## Current implementation
 
-| Work | Status | Current v0.67.94 / v0.20.0 boundary |
+| Work | Status | Current v0.67.95 / v0.21.0 boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
-| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. The four-seed real-generator matrix passed; inactive checks are absent, native REG/PRO remains player-controlled, and no campaign checks or IDs were added. Broader manual gameplay remains in the smoke-test gate. |
+| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 67/104/141/177 locations after retiring the Vampire Killer source from fresh generation. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
 | Plant Pipes source and item | Implemented / needs more testing | Fresh testing verified Frog/Hippo AP delivery plus Plant Pipes use across Level 3, Hub2/Level 4 scene changes, restart, and save load. Completed-Level-4 persistence remains pending. |
 | Hip Glasses and Chicken Bucket chain | Implemented / needs gameplay acceptance | Level 4 and the Bucket Minion trade are AP checks. AP delivers both held items; native interactions consume them and produce non-network Combo Bucket. |
 | Levels 1–3 campaign completion checks | Implemented / needs more testing | These are the only current campaign completion checks. |
-| Game Garage cartridges and sticker checks | Implemented / needs more testing | Six cartridges are AP items and each has cumulative Bronze through Platinum checks. |
+| Game Garage cartridges and sticker checks | Implemented / live entrance accepted | Vampire Killer remains a physical vanilla pickup; five cartridges are AP items. All six songs retain cumulative Bronze through Platinum checks. |
 | Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks; cassette items are not randomized yet. |
 | Music Lab reward chests | Implemented / needs more testing | Nine native point-threshold chests are AP checks and are reconciled from the save. Native medal score remains the current currency. |
 | Current development completion condition | Implemented / needs more testing | The APWorld currently validates the Area Access routing milestone; it is not the approved Level 22 victory design. |

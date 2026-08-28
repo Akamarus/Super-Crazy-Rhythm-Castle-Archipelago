@@ -55,12 +55,13 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.94",
-    "world_version": "0.20.0",
+    "client_version": "0.67.95",
+    "world_version": "0.21.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
-        "consolidated-preview-0.19-difficulty-filtering-0.20"
+        "consolidated-preview-0.19-difficulty-filtering-0.20-"
+        "vanilla-vampire-garage-0.21"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -319,6 +320,6 @@ print(json.dumps({
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,
 }, indent=2))
-print("v0.20 difficulty filtering is active; the v0.18 repair contract remains enforced, preview abilities stay out of generated seeds, and Area Access remains authoritative.")
+print("v0.21 physical vanilla Vampire Killer Garage entry is active; the v0.20 difficulty filters and v0.18 repair contract remain enforced.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

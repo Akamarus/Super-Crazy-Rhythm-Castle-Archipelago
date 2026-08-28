@@ -1,5 +1,13 @@
 # Changelog
 
+## APWorld v0.21.0 / Client v0.67.95 — Reliable Game Garage entrance
+
+- Made Vampire Killer the native Game Garage entrance cartridge instead of a randomized AP item. Fresh v0.21 seeds preserve its physical vanilla pickup and normal insertion/entrance sequence, preventing unsupported zero-cartridge Garage entry.
+- Kept the other five Game Garage cartridges randomized and kept all 24 cumulative medal checks. Vampire Killer medal checks are immediately reachable; the other songs still require their matching AP cartridge.
+- Retired `Cartridge Pickup - Vampire Killer` from v0.21 generation and removed `Vampire Killer Cartridge` from the v0.21 item pool while preserving both permanent datapackage IDs for compatibility.
+- Reduced active Normal/Hard/Expert/Perfection location totals to 67/104/141/177. Existing v0.20 seeds retain the prior six-cartridge behavior when used with Client v0.67.95.
+- The client never writes Vampire Killer save flags; live acceptance confirmed that its physical pickup, Garage entry, and playable song all work normally.
+
 ## APWorld v0.20.0 / Client v0.67.94 — Active difficulty filtering
 
 - Activated cumulative AP performance-location filtering: Normal includes campaign Completion/1-Star and Bronze checks; Hard adds 2-Star/Silver; Expert adds 3-Star/Gold; Perfection adds Platinum.

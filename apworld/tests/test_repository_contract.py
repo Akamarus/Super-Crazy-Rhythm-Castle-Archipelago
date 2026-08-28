@@ -41,11 +41,11 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_roots_bucket_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.67.94", result.stdout)
-        self.assertIn("APWorld: v0.20.0", result.stdout)
-        self.assertIn('"world_version": "0.20.0"', result.stdout)
+        self.assertIn("Client:  v0.67.95", result.stdout)
+        self.assertIn("APWorld: v0.21.0", result.stdout)
+        self.assertIn('"world_version": "0.21.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
@@ -403,7 +403,7 @@ comment-internal newlines are not root-entry separators
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.20.0")
+        self.assertEqual(manifest["world_version"], "0.21.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

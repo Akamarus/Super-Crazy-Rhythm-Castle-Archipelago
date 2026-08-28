@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\GarageAvailabilityPolicy.cs" Link="GarageAvailabilityPolicy.cs" />
+    <Compile Include="..\..\GarageVanillaEntrancePolicy.cs" Link="GarageVanillaEntrancePolicy.cs" />
   </ItemGroup>
 </Project>

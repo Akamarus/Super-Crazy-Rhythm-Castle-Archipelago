@@ -1,8 +1,8 @@
 # Super Crazy Rhythm Castle
 
-v0.20.0 uses the native Hub6 phone bank as the Archipelago navigation hub. Music Lab and Game Garage are always reachable, and **Roots Access is forced as the precollected starter** during the current Roots development phase. The other five major-area access items are randomized. Client v0.67.94 is unchanged. Existing v0.19 seeds retain their original location sets; create a fresh v0.20 seed for active difficulty filtering.
+v0.21.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. Vampire Killer remains a physical vanilla pickup required for normal Game Garage entry; the other five Garage cartridges remain randomized. Existing v0.20 seeds retain six-cartridge behavior.
 
-The six Game Garage cartridges remain randomized items, and each song's Bronze/Silver/Gold/Platinum Garage checks require its matching cartridge.
+Five Game Garage cartridges remain randomized items and require their matching AP item. Vampire Killer is native and its Bronze/Silver/Gold/Platinum checks have no AP-item gate.
 
 ## AP performance difficulty
 

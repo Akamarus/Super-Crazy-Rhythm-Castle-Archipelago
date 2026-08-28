@@ -38,12 +38,12 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.67.94 loading.
+[SCRC-AP] v0.67.95 loading.
 ```
 
 ## Configure the current development client
 
-After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.20 development flow, use these values and replace the server and slot placeholders with the room's connection values. Client v0.67.94 is unchanged.
+After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.21 development flow, use these values and replace the server and slot placeholders with the room's connection values.
 
 ```ini
 [Archipelago]
@@ -81,11 +81,11 @@ Use one of these YAML starting points: click **Generate Template Options** in Ar
 
 In Archipelago Launcher, click **Generate**. On success, take the generated archive from `<Archipelago>\output\AP_XXXXX.zip`. Custom worlds generate locally, and the resulting zip can be uploaded to a compatible hosting website afterward.
 
-Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.20.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20`; it forces Roots as the starter area.
+Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.21.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`; it forces Roots as the starter area and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
 
-Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. Normal addresses 68 locations (campaign Completion/1-Star and Bronze songs); Hard 105 (adds 2-Star and Silver); Expert 142 (adds 3-Star and Gold); Perfection 178 (same campaign tiers as Expert, plus Platinum). Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice. The active Level-22 2/3-Star and Music Lab point-chest locations remain filler-only, and no campaign checks or IDs were added.
+Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. Normal addresses 67 locations; Hard 104; Expert 141; Perfection 177. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
-Existing v0.19 seeds retain their original location sets and remain usable with Client v0.67.94; install v0.20 and generate a fresh seed to use filtering.
+Existing v0.20 seeds remain usable with Client v0.67.95 and retain six-cartridge randomization. Install v0.21 and generate a fresh seed for native Vampire Killer Garage access.
 
 ## Updating or uninstalling
 

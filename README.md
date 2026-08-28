@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.20.0 activates difficulty-filtered AP performance locations while Client v0.67.94 remains unchanged. Existing v0.19 seeds retain their v0.19 location sets; generate a fresh v0.20.0 seed to use filtering.
+- Current development build: APWorld v0.21.0 and Client v0.67.95 make Vampire Killer the native Game Garage entrance cartridge while the other five cartridges remain randomized. Generate a fresh v0.21 seed for this behavior; existing v0.20 seeds retain six-cartridge randomization.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -36,9 +36,9 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.94` | Roots arrival presentation accepted; bottom shortcut remains a known issue |
-| APWorld | `0.20.0` | Filters the existing campaign performance location registry; no campaign checks or IDs were added |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20` | Preserves the client-recognized compatibility prefix and adds the v0.20 filtering marker |
+| Client | `0.67.95` | Preserves the physical vanilla Vampire Killer pickup and Garage entrance |
+| APWorld | `0.21.0` | Randomizes five Garage cartridges; Vampire Killer remains vanilla |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21` | Preserves earlier compatibility markers and adds the Garage entrance contract |
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
 
@@ -115,6 +115,6 @@ The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 68, Hard 105, Expert 142, and Perfection 178. Inactive checks are absent from the seed, not filler. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only, and no new campaign checks or IDs were added. APWorld v0.20.0 still exports provisional Star requirements without enforcing them; those inactive Star previews are separate from the active difficulty filtering. The four-seed real-generator filtering matrix is complete. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation still requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 67, Hard 104, Expert 141, and Perfection 177. Inactive checks are absent from the seed, not filler. Vampire Killer remains a physical vanilla pickup required for the normal Game Garage entrance; the other five Garage cartridges remain randomized. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. APWorld v0.21.0 still exports provisional Star requirements without enforcing them.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.
