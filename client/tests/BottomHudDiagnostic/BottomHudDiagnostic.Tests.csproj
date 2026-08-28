@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\BottomHudDiagnosticPolicy.cs" Link="BottomHudDiagnosticPolicy.cs" />
+    <Compile Include="..\..\BottomHudPhasePolicy.cs" Link="BottomHudPhasePolicy.cs" />
   </ItemGroup>
 </Project>

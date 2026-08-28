@@ -28,6 +28,42 @@ Equal(BottomHudDiagnosticDecision.IgnoreRoom,
     "Music Lab is not the Roots combined control");
 Equal(false, BottomHudDiagnosticPolicy.RequestsMutation, "diagnostic is read-only");
 
+string phaseSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "BottomHudPhaseNormalization.cs"));
+Equal(true, phaseSource.Contains("SetPhase", StringComparison.Ordinal),
+    "phase repair uses the exact native phase method");
+Equal(true, phaseSource.Contains("phase != 0", StringComparison.Ordinal) ||
+            File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "BottomHudPhasePolicy.cs"))
+                .Contains("currentPhase != 0", StringComparison.Ordinal),
+    "phase repair is limited to INVALID(0)");
+Equal(false, phaseSource.Contains("SetPlayerTrackingDifficultyRequest", StringComparison.Ordinal),
+    "phase repair never selects a difficulty");
+Equal(false, phaseSource.Contains("TrySubmitProgressionFlag", StringComparison.Ordinal),
+    "phase repair never writes progression flags");
+Equal(false, phaseSource.Contains("SetActive(", StringComparison.Ordinal),
+    "phase repair does not alter object activation");
+
+foreach (string room in new[] { "GameRoom_Hub1", "GameRoom_Hub1A", "GameRoom_Hub2", "GameRoom_Hub3", "GameRoom_Hub4", "GameRoom_Hub5", "GameRoom_Hub6", "GameRoom_Hub7" })
+{
+    Equal(BottomHudPhaseDecision.NormalizeToIdle,
+        BottomHudPhasePolicy.Decide(true, true, room, currentPhase: 0),
+        $"{room} normalizes only INVALID phase");
+}
+Equal(BottomHudPhaseDecision.Preserve,
+    BottomHudPhasePolicy.Decide(true, true, "GameRoom_Hub2", currentPhase: 1),
+    "IDLE phase remains native");
+Equal(BottomHudPhaseDecision.Preserve,
+    BottomHudPhasePolicy.Decide(true, true, "GameRoom_Hub2", currentPhase: 2),
+    "CALCULATING phase is never interrupted");
+Equal(BottomHudPhaseDecision.Preserve,
+    BottomHudPhasePolicy.Decide(false, true, "GameRoom_Hub2", currentPhase: 0),
+    "disabled AP preserves vanilla");
+Equal(BottomHudPhaseDecision.Preserve,
+    BottomHudPhasePolicy.Decide(true, false, "GameRoom_Hub2", currentPhase: 0),
+    "incompatible slot preserves vanilla");
+Equal(BottomHudPhaseDecision.Preserve,
+    BottomHudPhasePolicy.Decide(true, true, "GameRoom_05", currentPhase: 0),
+    "gameplay room preserves native state");
+
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 int diagnosticStart = pluginSource.IndexOf("internal static class BottomHudDiagnostic", StringComparison.Ordinal);
 int diagnosticEnd = pluginSource.IndexOf("internal static class PreviewAbilityRandomization", diagnosticStart, StringComparison.Ordinal);

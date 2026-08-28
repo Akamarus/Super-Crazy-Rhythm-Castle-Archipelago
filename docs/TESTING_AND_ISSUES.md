@@ -7,13 +7,13 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-The v0.67.65 / v0.19 focused repair candidate has passed automated policy and APWorld checks. The v0.67.64 consolidated run remains the gameplay evidence baseline; the arrival/HUD repair still requires its short in-game acceptance route.
+The v0.67.66 / v0.19 focused repair candidate adds native bottom-HUD phase initialization to the exercised v0.67.65 arrival repair. The v0.67.64 consolidated run remains the broader gameplay evidence baseline.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.67.65`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.65 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- Client: `0.67.66`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.66 loading.` (the first `[SCRC-AP]` version line should identify this client version).
 - APWorld: `0.19`.
 - Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.

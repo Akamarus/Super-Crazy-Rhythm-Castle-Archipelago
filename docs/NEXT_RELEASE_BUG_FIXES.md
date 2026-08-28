@@ -2,7 +2,7 @@
 
 This checklist records release-blocking defects confirmed during the v0.17 / Client v0.67.60 fresh-save run. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.
 
-Client v0.67.65 / APWorld v0.19 contains the focused area-arrival/HUD repair on top of the manually exercised v0.67.64 candidate. Remaining boxes stay open until their applicable gameplay acceptance passes.
+Client v0.67.66 / APWorld v0.19 contains the focused bottom-HUD phase repair on top of the exercised v0.67.65 area-arrival candidate. Remaining boxes stay open until their applicable gameplay acceptance passes.
 
 The failed regression seed is `AP_28223804408101432968`. It is useful for reproducing solver mistakes but must not be presented as playable.
 

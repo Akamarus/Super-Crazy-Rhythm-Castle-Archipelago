@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.65";
+    public const string PluginVersion = "0.67.66";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -165,6 +165,8 @@ public sealed class Plugin : BasePlugin
             AddComponent<PreviewAbilityReconciliationKeeper>();
         if (enabled.Value)
             AddComponent<BottomHudDiagnosticKeeper>();
+        if (enabled.Value)
+            AddComponent<BottomHudPhaseKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)

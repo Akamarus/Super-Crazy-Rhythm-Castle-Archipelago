@@ -38,7 +38,7 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.67.65 loading.
+[SCRC-AP] v0.67.66 loading.
 ```
 
 ## Configure the current development client
