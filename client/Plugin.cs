@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.64";
+    public const string PluginVersion = "0.67.65";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -174,7 +174,7 @@ public sealed class Plugin : BasePlugin
             Log.LogWarning(
                 $"[SCRC-AP] AREA ACCESS ROUTING ENABLED: startingSource='{AreaAccessPrototype.StartingArea}'. Hub6/Music Lab + Game Garage remain available. With PrototypeStartingArea=AP, all six major-area phones begin locked until the AP server supplies the seed starter. Locked PhoneBox interactions are disabled; known Hub6 cloth covers follow Area Access; unlocked late-area phones bypass only their local vanilla visited/open condition without changing its save flag; Hub6->area TransitionToGameRoomRequest calls remain safety-gated. PAGE UP remains a developer grant; PAGE DOWN is disabled in AP-driven mode; END prints status.");
             Log.LogWarning(
-                "[SCRC-AP] ROOTS AREA BASELINE READY: exact-path, scan-free Hub2 normalization. Roots Access suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider; immediately before the first permitted Hub2 transition, ROOTS_HUB_INTRO_WITNESSED is set so the displaced arrival cutscene does not lock player movement. No other Roots quest flags are spoofed. HOME in Hub2 prints compact status only.");
+                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. HOME in Hub2 prints compact status only.");
         }
 
         Log.LogWarning(
@@ -18926,8 +18926,24 @@ internal static class AreaPhoneConditionPatches
     {
         try
         {
-            if (!AreaAccessPrototype.Enabled || __instance == null ||
-                !string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub6", StringComparison.Ordinal))
+            if (!AreaAccessPrototype.Enabled || __instance == null)
+                return true;
+
+            string currentRoom = DeveloperHarness.CurrentRoomId;
+            string? flag = ReadProgressionFlag(__instance);
+            if (AreaArrivalPresentationOverride.ShouldBypass(currentRoom, flag))
+            {
+                __result = true;
+                string arrivalKey = $"arrival|{currentRoom}|{flag}";
+                if (Logged.Add(arrivalKey))
+                {
+                    Plugin.LoggerInstance?.LogWarning(
+                        $"[SCRC-AP] AREA ARRIVAL CONDITION BYPASSED room='{currentRoom}' flag='{flag}' method='{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}' result=True saveFlagUnchanged=True.");
+                }
+                return false;
+            }
+
+            if (!string.Equals(currentRoom, "GameRoom_Hub6", StringComparison.Ordinal))
                 return true;
 
             if (__instance is not Component component || component.gameObject == null)
@@ -18965,6 +18981,18 @@ internal static class AreaPhoneConditionPatches
         return true;
     }
 
+    private static string? ReadProgressionFlag(object condition)
+    {
+        object? raw = ReflectionUtil.ReadMember(condition, "ProgressionFlag")
+                      ?? ReflectionUtil.ReadMember(condition, "Flag")
+                      ?? ReflectionUtil.ReadMember(condition, "_ProgressionFlag")
+                      ?? ReflectionUtil.ReadMember(condition, "_ProgressionFlag_k__BackingField")
+                      ?? ReflectionUtil.ReadMember(condition, "_Flag_k__BackingField");
+        return raw == null
+            ? null
+            : ReflectionUtil.ExtractIdentifier(raw) ?? raw.ToString();
+    }
+
     private static string BuildPath(Transform tr)
     {
         try
@@ -18983,6 +19011,40 @@ internal static class AreaPhoneConditionPatches
         {
             return tr.name ?? "<unavailable>";
         }
+    }
+}
+
+internal static class AreaArrivalPresentationOverride
+{
+    private static readonly object Sync = new();
+    private static AreaArrivalKind _arrival;
+
+    internal static void ObserveTransition(string? originRoom, string? destinationRoom)
+    {
+        AreaArrivalKind next = AreaArrivalPresentationPolicy.DecideTransition(
+            AreaAccessPrototype.Enabled,
+            IntroHubSkip.Compatible,
+            originRoom,
+            destinationRoom,
+            AreaAccessPrototype.HasArea("Roots"),
+            AreaAccessPrototype.HasArea("Lobby"));
+        lock (Sync)
+            _arrival = next;
+
+        if (next != AreaArrivalKind.None)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] AREA ARRIVAL OVERRIDE ARMED kind='{next}' origin='{originRoom}' destination='{destinationRoom}'; exact presentation/HUD conditions only, save flags unchanged.");
+        }
+    }
+
+    internal static bool ShouldBypass(string? currentRoom, string? progressionFlag)
+    {
+        AreaArrivalKind arrival;
+        lock (Sync)
+            arrival = _arrival;
+        return AreaArrivalPresentationPolicy.ShouldBypassCondition(
+            arrival, currentRoom, progressionFlag);
     }
 }
 
@@ -19011,9 +19073,6 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
-        RootsIntroCutsceneBypass.TickPending();
-        RootsStartupBootstrap.Tick();
-
         bool shouldOwnRootsBaseline =
             AreaAccessPrototype.Enabled &&
             AreaAccessPrototype.HasArea("Roots") &&
@@ -19954,13 +20013,7 @@ internal static class IntroRoomToHubRedirectPatches
             return false;
         }
 
-        if (string.Equals(roomId, RootsIntroCutsceneBypass.RootsRoomId, StringComparison.Ordinal) &&
-            __instance != null &&
-            !RootsIntroCutsceneBypass.ShouldAllowTransition(
-                __instance, __originalMethod, __args, roomId))
-        {
-            return false;
-        }
+        AreaArrivalPresentationOverride.ObserveTransition(originRoom, roomId);
 
         DeveloperHarness.CaptureGameFlow(__instance, request);
 
@@ -23728,8 +23781,6 @@ internal static class ProgressionPatches
     public static bool ProgressionRequestPrefix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
-        RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        RootsStartupBootstrap.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
@@ -23777,8 +23828,6 @@ internal static class ProgressionPatches
     public static void ProgressionRequestPostfix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
-        RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        RootsStartupBootstrap.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);

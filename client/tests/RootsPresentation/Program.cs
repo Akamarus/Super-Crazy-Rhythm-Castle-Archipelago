@@ -36,4 +36,38 @@ Equal(false, RootsPresentationPolicy.ShouldSuppressPostLevelOne(true, true, "Ass
 Equal(false, RootsPresentationPolicy.ShouldSuppressPostLevelOne(true, true, "UnrelatedSequenceStep", true), "unrelated sequence is preserved");
 Equal(false, RootsPresentationPolicy.ShouldSuppressPostLevelOne(true, false, "AssignAndCommentOnMusicDifficultySequenceStep", true), "incompatible slot preserves sequence");
 
+Equal(AreaArrivalKind.RootsPhone,
+    AreaArrivalPresentationPolicy.DecideTransition(true, true, "GameRoom_Hub6", "GameRoom_Hub2", true, false),
+    "AP phone arrival arms Roots presentation overrides");
+Equal(AreaArrivalKind.LobbyPhone,
+    AreaArrivalPresentationPolicy.DecideTransition(true, true, "GameRoom_Hub6", "GameRoom_Hub1A", false, true),
+    "AP phone arrival arms Lobby presentation override");
+Equal(AreaArrivalKind.None,
+    AreaArrivalPresentationPolicy.DecideTransition(true, true, "GameRoom_Hub2", "GameRoom_Hub1A", true, true),
+    "vanilla Lift Quest arrival is preserved");
+Equal(AreaArrivalKind.None,
+    AreaArrivalPresentationPolicy.DecideTransition(true, true, "GameRoom_05", "GameRoom_Hub2", true, true),
+    "returning from a level does not arm first-arrival overrides");
+
+foreach (string flag in new[]
+         {
+             "ROOTS_HUB_INTRO_WITNESSED",
+             "ROOTS_HUB_GATE_OPENED",
+             "ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE",
+         })
+{
+    Equal(true,
+        AreaArrivalPresentationPolicy.ShouldBypassCondition(AreaArrivalKind.RootsPhone, "GameRoom_Hub2", flag),
+        $"Roots AP-phone arrival satisfies {flag} during scene initialization");
+}
+Equal(true,
+    AreaArrivalPresentationPolicy.ShouldBypassCondition(AreaArrivalKind.LobbyPhone, "GameRoom_Hub1A", "OVERALL_PROGRESS_REACHED_LOBBY_HUB"),
+    "Lobby AP-phone arrival suppresses only its first-arrival presentation");
+Equal(false,
+    AreaArrivalPresentationPolicy.ShouldBypassCondition(AreaArrivalKind.LobbyPhone, "GameRoom_Hub1A", "LOBBY_HUB_HEIST_KING_WITNESSED"),
+    "unrelated Lobby story conditions remain native");
+Equal(false,
+    AreaArrivalPresentationPolicy.ShouldBypassCondition(AreaArrivalKind.RootsPhone, "GameRoom_Hub6", "ROOTS_HUB_INTRO_WITNESSED"),
+    "override is scoped to the destination scene");
+
 Console.WriteLine("Roots presentation policy tests passed.");

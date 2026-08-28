@@ -53,3 +53,57 @@ internal static class RootsPresentationPolicy
         enabled && compatible && levelOnePersisted &&
         string.Equals(sequenceType, DifficultySequenceType, StringComparison.Ordinal);
 }
+
+internal enum AreaArrivalKind
+{
+    None,
+    RootsPhone,
+    LobbyPhone,
+}
+
+internal static class AreaArrivalPresentationPolicy
+{
+    internal static AreaArrivalKind DecideTransition(
+        bool enabled,
+        bool compatible,
+        string? originRoom,
+        string? destinationRoom,
+        bool ownsRoots,
+        bool ownsLobby)
+    {
+        if (!enabled || !compatible ||
+            !string.Equals(originRoom, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase))
+            return AreaArrivalKind.None;
+        if (ownsRoots && string.Equals(destinationRoom, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase))
+            return AreaArrivalKind.RootsPhone;
+        if (ownsLobby &&
+            (string.Equals(destinationRoom, "GameRoom_Hub1A", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(destinationRoom, "GameRoom_Hub1B", StringComparison.OrdinalIgnoreCase)))
+            return AreaArrivalKind.LobbyPhone;
+        return AreaArrivalKind.None;
+    }
+
+    internal static bool ShouldBypassCondition(
+        AreaArrivalKind arrival,
+        string? currentRoom,
+        string? progressionFlag)
+    {
+        if (arrival == AreaArrivalKind.RootsPhone &&
+            string.Equals(currentRoom, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase))
+        {
+            return progressionFlag is not null && RootsFlags.Contains(progressionFlag);
+        }
+
+        return arrival == AreaArrivalKind.LobbyPhone &&
+               (string.Equals(currentRoom, "GameRoom_Hub1A", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRoom, "GameRoom_Hub1B", StringComparison.OrdinalIgnoreCase)) &&
+               string.Equals(progressionFlag, "OVERALL_PROGRESS_REACHED_LOBBY_HUB", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly HashSet<string> RootsFlags = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ROOTS_HUB_INTRO_WITNESSED",
+        "ROOTS_HUB_GATE_OPENED",
+        "ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE",
+    };
+}
