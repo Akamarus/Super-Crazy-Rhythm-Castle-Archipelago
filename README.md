@@ -7,9 +7,9 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Focused repair candidate: APWorld v0.19 preserves the consolidated systems while Client v0.67.94 suppresses the redundant Roots arrival presentation and exposes the in-world Sophisticated Computer without awarding a Star or AP check. Live Roots acceptance passed; the separate bottom character/difficulty shortcut remains a known issue.
-- Foundation now: configurable Star goal, difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; and a registered 66-Star inventory plan.
-- Not active yet: live AP Stars, difficulty-filtered locations, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
+- Current development build: APWorld v0.20 activates difficulty-filtered AP performance locations while Client v0.67.94 remains unchanged. Existing v0.19 seeds retain their v0.19 location sets; generate a fresh v0.20 seed to use filtering.
+- Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 requirement previews; a registered 66-Star inventory plan; and difficulty-filtered existing campaign performance locations.
+- Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
@@ -37,8 +37,8 @@ This repository contains both halves of the implementation:
 | Component | Version | Status |
 | --- | --- | --- |
 | Client | `0.67.94` | Roots arrival presentation accepted; bottom shortcut remains a known issue |
-| APWorld | `0.19` | v0.18 repair contract retained; preview abilities registered but excluded from generated seeds |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19` | Preserves prior gates and advertises the matching consolidated preview |
+| APWorld | `0.20.0` | Filters the existing campaign performance location registry; no campaign checks or IDs were added |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20` | Preserves the client-recognized compatibility prefix and adds the v0.20 filtering marker |
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
 
@@ -115,6 +115,6 @@ The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. v0.17 still generates provisional Star requirements without enforcing them. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation now requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 68, Hard 105, Expert 142, and Perfection 178. Inactive checks are absent from the seed, not filler. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only, and no new campaign checks or IDs were added. v0.17 still generates provisional Star requirements without enforcing them. The **Level 4 Hip Glasses → Bucket Minion trade → Chicken Bucket → native Combo Bucket** implementation now requires fresh-seed, fresh-save gameplay acceptance. Live Stars remain deferred until enough validated locations exist for the 66 planned items plus existing required progression and the solver can prove the pool beatable.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

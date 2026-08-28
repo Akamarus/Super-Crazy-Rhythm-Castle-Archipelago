@@ -7,17 +7,18 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-The v0.67.94 / v0.19 focused repair candidate has passed automated checks and live Roots arrival/computer acceptance. The separate bottom character/difficulty shortcut remains non-interactive and is tracked as an open issue.
+The unchanged v0.67.94 client / v0.20 APWorld development build has active difficulty filtering. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20 seed for this feature. The separate bottom character/difficulty shortcut remains non-interactive and is tracked as an open issue.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
 - Client: `0.67.94`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.94 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.19`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19`.
+- APWorld: `0.20.0`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
+- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled. Active Level-22 2/3-Star and Music Lab point chests remain filler-only.
 - For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.
 
 Follow the [installation guide](INSTALL.md) to build and install both components, generate the seed, and configure the client. Use the room's real host, port, slot name, and password locally; do not publish a password or a complete config file.
@@ -27,14 +28,14 @@ Follow the [installation guide](INSTALL.md) to build and install both components
 Run these steps in order where the seed allows. A received progression item may belong to a different player or be placed later in your own world, so a source check need not deliver its matching item immediately. Record the exact step, level, or song at which a result differs from the expectation.
 
 1. **Start and connect.** Launch the game with the new save and connect to the room. Confirm the client version line above, normal connection/login lines, and the `area-routing-plant-pipes-0.15` slot-data implementation in `LogOutput.log`.
-2. **Confirm the Hub6 start.** Verify that the save starts at the Hub6 / Music Lab phone hub and that Music Lab and Game Garage are usable. APWorld v0.17 random currently selects only validated Roots Access.
+2. **Confirm the Hub6 start.** Verify that the save starts at the Hub6 / Music Lab phone hub and that Music Lab and Game Garage are usable. APWorld v0.20 random currently selects only validated Roots Access.
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
 6. **Test the Level 3 partial route.** Enter Level 3 and reach Frog/Hippo. Their interaction should send `Roots - Level 3 - Frog and Hippo`, without directly granting Plant Pipes. If `Plant Pipes` has not arrived yet, use the normal menu exit: leaving the level at this point is intentional and is the expected partial-level behavior.
 7. **Test Plant Pipes and Level 3 completion.** After the room delivers `Plant Pipes`, verify `ROOTS PLANT PIPES NATIVE GRANT APPLIED`, return to Level 3, and complete it. This confirms that Plant Pipes is required for completion, not for reaching the Frog/Hippo source.
 8. **Test one Game Garage cartridge.** When you own one of the six AP cartridge items, insert its matching cartridge in Game Garage and complete that song at least at Bronze. Confirm the matching `Game Garage - {song} - Bronze` check; a higher sticker should also satisfy its lower cumulative tiers. Record the exact cartridge, song, and sticker tier.
-9. **Test one Music Lab cassette medal.** Play one cassette song that is already natively unlocked on the save and earn a medal. Confirm the matching cumulative `Music Lab Cassette - {song} - {tier}` check and the `MUSIC LAB CASSETTE MEDAL` log line. Cassettes themselves are not randomized in the current v0.15 APWorld.
+9. **Test one Music Lab cassette medal.** Play one cassette song that is already natively unlocked on the save and earn a medal. Confirm the matching cumulative `Music Lab Cassette - {song} - {tier}` check and the `MUSIC LAB CASSETTE MEDAL` log line. Cassettes themselves are not randomized in the current v0.20 APWorld.
 10. **Test one Music Lab reward chest and its reconciliation.** Keep `EnableTestHarness = true` for all parts of this check.
    - **Initial collection event:** Open one native Music Lab reward chest that the save qualifies for (the 5-point chest is the first threshold). The initial progression request/event may queue `Music Lab - {threshold} Point Chest`; confirm the `MUSIC LAB {threshold}-POINT CHEST COLLECTED` and `QUEUED CHECK` lines.
    - **Same-session duplicate suppression:** Without restarting the game process, return to Hub6 and wait for its reconciliation pass, or press plain `F5` in Hub6. The log should show `MUSIC LAB REWARD CHEST RECONCILE collected` for the saved chest and `Duplicate local check ignored` for the already queued/sent AP location. This is expected: the client prevents a second local submission in the same session.
@@ -124,7 +125,7 @@ Use this optional report block in addition to the general issue template below:
 - Generated AP Stars and randomized Music Lab Point inventory are design-only. Current Music Lab reward chests use the game's native medal-score currency.
 - Fresh-save Music Lab access is incomplete: native orange construction barriers physically block substantial groups of cassette machines, while the current AP graph treats all 30 cassette medal sets as reachable from Music Lab. Those barrier conditions must be mapped and represented in logic, or safely normalized by an explicit AP rule, before all cassette checks can be considered reachable.
 - Cassette-item randomization and most remaining quest-item chains are not implemented. Hip Glasses and Chicken Bucket are implemented but still require fresh-save gameplay acceptance.
-- Native difficulty-toggle changes and the approved Normal/Hard/Expert/Perfection location model are not implemented.
+- AP performance difficulty filtering is active in v0.20; it filters only existing campaign performance locations and does not change native REG/PRO. Real-generator acceptance remains pending in the difficulty-filtering acceptance record.
 - Local co-op is unverified. Online co-op, DeathLink, and an integrated overlay/text client are deferred.
 - Developer diagnostics and hotkeys may exist in development builds. Do not rely on them for normal play, and say exactly which one you used in a report.
 

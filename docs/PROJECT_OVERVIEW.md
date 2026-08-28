@@ -400,27 +400,27 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The approved future randomizer difficulty choices are:
+The implemented v0.20 APWorld difficulty choices are:
 
 - **Normal**
 - **Hard**
 - **Expert**
 - **Perfection**
 
-This is approved design, not current v0.15 generation behavior. It controls which performance-based checks a seed contains without changing the fundamental AP item graph:
+This controls which existing performance-based checks a seed contains without changing the fundamental AP item graph or the player's native REG/PRO choice:
 
-| AP difficulty | Campaign levels | Music Lab and Game Garage |
-| --- | --- | --- |
-| Normal | Completion / 1-Star | Bronze |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum |
+| AP difficulty | Campaign levels | Music Lab and Game Garage | Addressed locations |
+| --- | --- | --- | ---: |
+| Normal | Completion / 1-Star | Bronze | 68 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
 
 A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. The table is approved; native mapping, generation, and gameplay validation are still required before it becomes stable generation behavior.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. v0.20 filters only existing campaign performance locations: it introduces no campaign checks or IDs. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. Existing v0.19 seeds retain their old location sets; generate a fresh v0.20 seed for filtering. Client v0.67.94 is unchanged.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -428,7 +428,7 @@ This is distinct from AP **Star requirements** used to open progression. Perform
 
 ## 11. Approved future AP Star gating
 
-Randomized Star gates are approved future design, not a current v0.15 feature. They should not create a simple linear campaign.
+Randomized Star gates are approved future design, not a current v0.20 feature. They should not create a simple linear campaign.
 
 Design goals:
 
@@ -547,7 +547,7 @@ The client follows several implementation rules developed through testing:
 | Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Design approved / not implemented | Normal/Hard/Expert/Perfection cumulative table is approved; generation and native mapping remain unimplemented. |
+| Difficulty options | Implemented / needs gameplay acceptance | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 
@@ -597,7 +597,7 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.19:
+Current frontier at APWorld v0.20:
 
 ```text
 Next safe item ID:     187256123
