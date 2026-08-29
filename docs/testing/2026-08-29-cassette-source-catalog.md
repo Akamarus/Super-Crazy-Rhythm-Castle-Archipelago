@@ -82,6 +82,37 @@ inspection.  These results do not establish that the data is absent; they
 establish that its values are not recoverable under the task's no-install,
 no-launch constraints.
 
+### Portable AssetRipper follow-up
+
+The approved portable reader
+`C:\Users\Jack\AppData\Local\Temp\scrc-assetripper-2.0.0\AssetRipper.GUI.Free.exe`
+(AssetRipper 2.0.0 x64) was then run headlessly against the same game folder.
+Its localhost API was used to load that folder and inspect decoded records;
+the only export destinations were temporary directories under
+`C:\Users\Jack\AppData\Local\Temp`.
+
+- The reader loaded all 118 installed Addressables UnityFS bundles and
+  recovered the IL2CPP application model.  Its `Assets/Yaml` endpoint decoded
+  ordinary custom Unity component fields, establishing that this was a
+  field-level inspection rather than a raw byte search.
+- Its targeted collection scan covered 159 bundle collections and all 94,062
+  decoded `MonoBehaviour` records.  No record exposed a `LevelData` script
+  reference or a `levelKey`, `variants`, or `songCassettes` field.  The
+  reader therefore did not surface a decodable
+  `LevelData.variants[*].songCassettes` definition.
+- Its `Assets/Text` scan covered all 143 decoded `TextAsset` records and
+  found no `songCassettes`, `LevelData`, `I_GOT_MONEY`, `MONEY_DUB`, or
+  `QUICKSAND` source definition.
+- A broad primary-content export was stopped after it started enumerating
+  727,895 unrelated assets.  It wrote only to the temporary partial-export
+  directory and never wrote to the game.  The focused scans above saved only
+  matching results to temporary directories; each had zero matches.
+
+This reader proves that the installed data is parseable at a general Unity
+record level, but it does not recover the missing cassette-source definitions.
+It must not be treated as evidence for an inferred level, variant, source, or
+replay rule.
+
 The retained attached logs searched in full were:
 
 - `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-rxS4ra\LogOutput(20260819-181239).log`
