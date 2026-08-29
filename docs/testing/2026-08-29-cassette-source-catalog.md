@@ -137,17 +137,19 @@ replay behavior before allocating a source ID.
 ## Prepared read-only runtime evidence probe
 
 `client/CassetteCatalogDiagnostic.cs` is wired to a dedicated INSERT action in
-the existing developer harness while in Hub6.  It reads the global
+the existing developer harness.  In every room, including the tutorial, it
+reads the global
 `LevelDataProvider.GetAllLevelsData()` catalog and enumerates every variant's
-`SongCassettes` collection.  It also enumerates loaded instances of the two
-native non-level award component types,
+`SongCassettes` collection.  Only in Hub6 does it additionally enumerate loaded
+instances of the two native non-level award component types,
 `ObstainSongCassetteSequenceStep` and `ObtainSongCassetteOnTrigger`, recording
 their hierarchy paths, songs, and optional extra progression flag.
 
 The diagnostic has been built with installation skipped.  It has not been
-installed and the game has not been launched.  After explicit approval, one
-Hub6 launch and one INSERT press can produce the remaining mapping evidence;
-the completion marker requires all 30 approved native songs with no missing,
-unexpected, or multiply sourced identity.  Exact commands and expected log
-markers are recorded in
+reinstalled after the tutorial result and the game has been closed.  After
+explicit approval, one tutorial launch and one INSERT press can produce the 25
+level-earned mappings, including the 24 unresolved rows.  Separate global,
+room-local, and overall summaries prevent tutorial output from claiming that
+all 30 physical sources were scanned; the five Hub6 chest mappings remain
+independently proven.  Exact commands and expected log markers are recorded in
 `.superpowers/sdd/2026-08-29-full-cassette-randomization/task-1-report.md`.

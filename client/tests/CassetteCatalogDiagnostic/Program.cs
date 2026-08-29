@@ -116,4 +116,54 @@ Equal(30, approvedSnapshot.UniqueSongCount,
 Equal(true, approvedSnapshot.IsComplete,
     "the exact approved native catalog satisfies built-in coverage");
 
+var tutorialScope = CassetteCatalogDiagnosticPolicy.DecideScope("GameRoom_04A");
+Equal(true, tutorialScope.ScanGlobalLevels,
+    "tutorial INSERT scans the global level provider");
+Equal(false, tutorialScope.ScanRoomLocalNonLevelSources,
+    "tutorial INSERT does not mislabel unloaded non-level components as globally scanned");
+
+string[] hub6ChestSongs =
+{
+    "QUICKSAND", "FLAMENCO", "TEN_FOUR_GOOD_BUDDY", "ZEN", "WIGGLE",
+};
+var globalLevelSources = approvedNativeSongs
+    .Except(hub6ChestSongs, StringComparer.Ordinal)
+    .Select((song, index) => new CassetteCatalogDiagnosticSource(
+        "level", $"Level_{index + 1:00}", "LevelVariant_Default", song,
+        $"global-level-{index + 1:00}"))
+    .ToArray();
+
+var tutorialCoverage = CassetteCatalogDiagnosticPolicy.CreateCoverage(
+    globalLevelSources,
+    Array.Empty<CassetteCatalogDiagnosticSource>(),
+    tutorialScope,
+    levelCount: 25,
+    variantCount: 25);
+
+Equal(true, tutorialCoverage.GlobalLevels.IsComplete,
+    "tutorial scan can prove all 25 level-earned cassette sources");
+Equal(false, tutorialCoverage.RoomLocalNonLevelScanned,
+    "tutorial scan records that room-local non-level sources were not observed");
+Equal(false, tutorialCoverage.AllPhysicalSourcesProven,
+    "global level completeness alone never claims all 30 physical sources");
+
+var hub6Scope = CassetteCatalogDiagnosticPolicy.DecideScope("GameRoom_Hub6");
+Equal(true, hub6Scope.ScanGlobalLevels,
+    "Hub6 INSERT still scans the global level provider");
+Equal(true, hub6Scope.ScanRoomLocalNonLevelSources,
+    "Hub6 INSERT also scans room-local non-level award components");
+
+var hub6Coverage = CassetteCatalogDiagnosticPolicy.CreateCoverage(
+    globalLevelSources,
+    hub6ChestSongs.Select((song, index) => new CassetteCatalogDiagnosticSource(
+        "sequence-step", "", "", song, $"hub6-chest-{index + 1}")),
+    hub6Scope,
+    levelCount: 25,
+    variantCount: 25);
+
+Equal(true, hub6Coverage.RoomLocalNonLevel.IsComplete,
+    "Hub6 scan can prove all five independently established non-level chest songs");
+Equal(true, hub6Coverage.AllPhysicalSourcesProven,
+    "all 30 physical sources are proven only when global and room-local scopes are complete");
+
 Console.WriteLine("Cassette catalog diagnostic policy tests passed.");

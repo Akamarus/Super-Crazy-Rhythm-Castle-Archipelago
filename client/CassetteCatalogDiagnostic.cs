@@ -8,23 +8,20 @@ internal static class CassetteCatalogDiagnostic
 {
     internal static void ScanLoadedCatalog()
     {
-        if (!string.Equals(
-                DeveloperHarness.CurrentRoomId,
-                MusicLabDiscovery.Hub6RoomId,
-                StringComparison.Ordinal))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] CASSETTE CATALOG DIAGNOSTIC ignored outside Hub6; " +
-                $"currentRoom='{Clean(DeveloperHarness.CurrentRoomId)}' readOnly=True mutationRequested=False.");
-            return;
-        }
+        string room = DeveloperHarness.CurrentRoomId;
+        CassetteCatalogDiagnosticScope scope =
+            CassetteCatalogDiagnosticPolicy.DecideScope(room);
 
         Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== CASSETTE CATALOG DIAGNOSTIC BEGIN ===== schema=1 readOnly=True mutationRequested=False.");
+            $"[SCRC-AP] ===== CASSETTE CATALOG DIAGNOSTIC BEGIN ===== schema=2 " +
+            $"room='{Clean(room)}' globalLevelScan={scope.ScanGlobalLevels} " +
+            $"roomLocalNonLevelScan={scope.ScanRoomLocalNonLevelSources} " +
+            $"readOnly=True mutationRequested=False.");
 
         try
         {
-            var sources = new List<CassetteCatalogDiagnosticSource>();
+            var globalLevelSources = new List<CassetteCatalogDiagnosticSource>();
+            var roomLocalNonLevelSources = new List<CassetteCatalogDiagnosticSource>();
             var levels = new HashSet<string>(StringComparer.Ordinal);
             var variants = new HashSet<string>(StringComparer.Ordinal);
 
@@ -77,7 +74,7 @@ internal static class CassetteCatalogDiagnostic
                                 $".Variants[{variantIndex}].SongCassettes[{songIndex}]=" +
                                 $"{numericSong?.ToString() ?? "?"}:{song}";
 
-                            sources.Add(new CassetteCatalogDiagnosticSource(
+                            globalLevelSources.Add(new CassetteCatalogDiagnosticSource(
                                 "level", level, variant, song, nativeIdentity));
                             songIndex++;
                         }
@@ -89,53 +86,87 @@ internal static class CassetteCatalogDiagnostic
                 }
             }
 
-            foreach (object step in FindLoadedObjects(FindGameType("ObstainSongCassetteSequenceStep")))
+            if (scope.ScanRoomLocalNonLevelSources)
             {
-                string song = ReadIdentifier(step, "songCassette");
-                string path = BuildPath((step as Component)?.transform);
-                object? rawExtraFlag = ReflectionUtil.ReadMember(step, "extraFlagToSet");
-                string extraFlag = ReflectionUtil.ExtractIdentifier(rawExtraFlag)
-                                   ?? rawExtraFlag?.ToString()
-                                   ?? "<unreadable>";
-                sources.Add(new CassetteCatalogDiagnosticSource(
-                    "sequence-step", string.Empty, string.Empty, song,
-                    $"ObstainSongCassetteSequenceStep@{path}|extraFlag={extraFlag}"));
+                foreach (object step in FindLoadedObjects(FindGameType("ObstainSongCassetteSequenceStep")))
+                {
+                    string song = ReadIdentifier(step, "songCassette");
+                    string path = BuildPath((step as Component)?.transform);
+                    object? rawExtraFlag = ReflectionUtil.ReadMember(step, "extraFlagToSet");
+                    string extraFlag = ReflectionUtil.ExtractIdentifier(rawExtraFlag)
+                                       ?? rawExtraFlag?.ToString()
+                                       ?? "<unreadable>";
+                    roomLocalNonLevelSources.Add(new CassetteCatalogDiagnosticSource(
+                        "sequence-step", string.Empty, string.Empty, song,
+                        $"ObstainSongCassetteSequenceStep@{path}|extraFlag={extraFlag}"));
+                }
+
+                foreach (object trigger in FindLoadedObjects(FindGameType("ObtainSongCassetteOnTrigger")))
+                {
+                    string song = ReadIdentifier(trigger, "song");
+                    string path = BuildPath((trigger as Component)?.transform);
+                    roomLocalNonLevelSources.Add(new CassetteCatalogDiagnosticSource(
+                        "trigger", string.Empty, string.Empty, song,
+                        $"ObtainSongCassetteOnTrigger@{path}"));
+                }
             }
 
-            foreach (object trigger in FindLoadedObjects(FindGameType("ObtainSongCassetteOnTrigger")))
-            {
-                string song = ReadIdentifier(trigger, "song");
-                string path = BuildPath((trigger as Component)?.transform);
-                sources.Add(new CassetteCatalogDiagnosticSource(
-                    "trigger", string.Empty, string.Empty, song,
-                    $"ObtainSongCassetteOnTrigger@{path}"));
-            }
-
-            CassetteCatalogDiagnosticSnapshot snapshot =
-                CassetteCatalogDiagnosticPolicy.CreateSnapshot(
-                    sources,
+            CassetteCatalogDiagnosticCoverage coverage =
+                CassetteCatalogDiagnosticPolicy.CreateCoverage(
+                    globalLevelSources,
+                    roomLocalNonLevelSources,
+                    scope,
                     levels.Count,
                     variants.Count);
 
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] CASSETTE CATALOG PROVIDERS count={providers.Length} " +
-                $"levels={snapshot.LevelCount} variants={snapshot.VariantCount}.");
+                $"levels={coverage.GlobalLevels.LevelCount} variants={coverage.GlobalLevels.VariantCount}.");
 
-            foreach (CassetteCatalogDiagnosticSource source in snapshot.Sources)
+            foreach (CassetteCatalogDiagnosticSource source in coverage.GlobalLevels.Sources)
             {
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] CASSETTE CATALOG SOURCE sourceType='{Clean(source.SourceType)}' " +
+                    $"[SCRC-AP] CASSETTE CATALOG GLOBAL LEVEL SOURCE sourceType='{Clean(source.SourceType)}' " +
                     $"level='{Clean(source.Level)}' variant='{Clean(source.Variant)}' " +
                     $"song='{Clean(source.Song)}' nativeIdentity='{Clean(source.NativeIdentity)}'.");
             }
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] CASSETTE CATALOG SUMMARY sourceCount={snapshot.Sources.Count} " +
-                $"uniqueSongs={snapshot.UniqueSongCount} expectedSongs={CassetteCatalogDiagnosticPolicy.ApprovedNativeSongs.Count} " +
-                $"missing='{Clean(string.Join("|", snapshot.MissingSongs))}' " +
-                $"unexpected='{Clean(string.Join("|", snapshot.UnexpectedSongs))}' " +
-                $"duplicate='{Clean(string.Join("|", snapshot.DuplicateSongs))}' " +
-                $"complete={snapshot.IsComplete} readOnly=True mutationRequested=False.");
+                $"[SCRC-AP] CASSETTE CATALOG GLOBAL LEVEL SUMMARY sourceCount={coverage.GlobalLevels.Sources.Count} " +
+                $"uniqueSongs={coverage.GlobalLevels.UniqueSongCount} " +
+                $"expectedSongs={CassetteCatalogDiagnosticPolicy.ApprovedLevelEarnedNativeSongs.Count} " +
+                $"missing='{Clean(string.Join("|", coverage.GlobalLevels.MissingSongs))}' " +
+                $"unexpected='{Clean(string.Join("|", coverage.GlobalLevels.UnexpectedSongs))}' " +
+                $"duplicate='{Clean(string.Join("|", coverage.GlobalLevels.DuplicateSongs))}' " +
+                $"complete={coverage.GlobalLevels.IsComplete} readOnly=True mutationRequested=False.");
+
+            foreach (CassetteCatalogDiagnosticSource source in coverage.RoomLocalNonLevel.Sources)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] CASSETTE CATALOG ROOM LOCAL NONLEVEL SOURCE room='{Clean(room)}' " +
+                    $"sourceType='{Clean(source.SourceType)}' song='{Clean(source.Song)}' " +
+                    $"nativeIdentity='{Clean(source.NativeIdentity)}'.");
+            }
+
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE CATALOG ROOM LOCAL NONLEVEL SUMMARY room='{Clean(room)}' " +
+                $"scanned={coverage.RoomLocalNonLevelScanned} " +
+                $"sourceCount={coverage.RoomLocalNonLevel.Sources.Count} " +
+                $"uniqueSongs={coverage.RoomLocalNonLevel.UniqueSongCount} " +
+                $"expectedHub6Songs={CassetteCatalogDiagnosticPolicy.ApprovedHub6NonLevelNativeSongs.Count} " +
+                $"missing='{Clean(string.Join("|", coverage.RoomLocalNonLevel.MissingSongs))}' " +
+                $"unexpected='{Clean(string.Join("|", coverage.RoomLocalNonLevel.UnexpectedSongs))}' " +
+                $"duplicate='{Clean(string.Join("|", coverage.RoomLocalNonLevel.DuplicateSongs))}' " +
+                $"complete={coverage.RoomLocalNonLevel.IsComplete} readOnly=True mutationRequested=False.");
+
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE CATALOG OVERALL SUMMARY " +
+                $"globalLevelComplete={coverage.GlobalLevels.IsComplete} " +
+                $"roomLocalNonLevelScanned={coverage.RoomLocalNonLevelScanned} " +
+                $"roomLocalNonLevelComplete={coverage.RoomLocalNonLevel.IsComplete} " +
+                $"approvedPhysicalSources={CassetteCatalogDiagnosticPolicy.ApprovedNativeSongs.Count} " +
+                $"allPhysicalSourcesProven={coverage.AllPhysicalSourcesProven} " +
+                $"readOnly=True mutationRequested=False.");
         }
         catch (Exception ex)
         {

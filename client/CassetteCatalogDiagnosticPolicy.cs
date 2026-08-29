@@ -17,17 +17,26 @@ internal sealed record CassetteCatalogDiagnosticSnapshot(
     int VariantCount,
     bool IsComplete);
 
+internal sealed record CassetteCatalogDiagnosticScope(
+    bool ScanGlobalLevels,
+    bool ScanRoomLocalNonLevelSources);
+
+internal sealed record CassetteCatalogDiagnosticCoverage(
+    CassetteCatalogDiagnosticSnapshot GlobalLevels,
+    CassetteCatalogDiagnosticSnapshot RoomLocalNonLevel,
+    bool RoomLocalNonLevelScanned,
+    bool AllPhysicalSourcesProven);
+
 internal static class CassetteCatalogDiagnosticPolicy
 {
     internal static bool RequestsMutation => false;
 
-    internal static IReadOnlyList<string> ApprovedNativeSongs { get; } = new[]
+    internal static IReadOnlyList<string> ApprovedLevelEarnedNativeSongs { get; } = new[]
     {
         "THE_LITTLE_THINGS",
         "NO_PLAN_B",
         "JOLT_CITY",
         "QUIERES_BAILAR",
-        "QUICKSAND",
         "GOLD",
         "I_GOT_MONEY",
         "HIPPO_AND_FROG",
@@ -49,11 +58,59 @@ internal static class CassetteCatalogDiagnosticPolicy
         "PARTY_NON_STOP",
         "KEEP_ON_HUSTLIN",
         "ANOTHER_DAY_IN_PARADISE",
+    };
+
+    internal static IReadOnlyList<string> ApprovedHub6NonLevelNativeSongs { get; } = new[]
+    {
+        "QUICKSAND",
         "FLAMENCO",
         "TEN_FOUR_GOOD_BUDDY",
         "ZEN",
         "WIGGLE",
     };
+
+    internal static IReadOnlyList<string> ApprovedNativeSongs { get; } =
+        ApprovedLevelEarnedNativeSongs
+            .Concat(ApprovedHub6NonLevelNativeSongs)
+            .ToArray();
+
+    internal static CassetteCatalogDiagnosticScope DecideScope(string? roomId) =>
+        new(
+            ScanGlobalLevels: true,
+            ScanRoomLocalNonLevelSources: string.Equals(
+                roomId,
+                "GameRoom_Hub6",
+                StringComparison.OrdinalIgnoreCase));
+
+    internal static CassetteCatalogDiagnosticCoverage CreateCoverage(
+        IEnumerable<CassetteCatalogDiagnosticSource> globalLevelSources,
+        IEnumerable<CassetteCatalogDiagnosticSource> roomLocalNonLevelSources,
+        CassetteCatalogDiagnosticScope scope,
+        int levelCount,
+        int variantCount)
+    {
+        CassetteCatalogDiagnosticSnapshot globalLevels = CreateSnapshot(
+            globalLevelSources,
+            ApprovedLevelEarnedNativeSongs,
+            levelCount,
+            variantCount);
+        CassetteCatalogDiagnosticSnapshot roomLocalNonLevel = CreateSnapshot(
+            scope.ScanRoomLocalNonLevelSources
+                ? roomLocalNonLevelSources
+                : Array.Empty<CassetteCatalogDiagnosticSource>(),
+            ApprovedHub6NonLevelNativeSongs,
+            levelCount: 0,
+            variantCount: 0);
+
+        return new CassetteCatalogDiagnosticCoverage(
+            globalLevels,
+            roomLocalNonLevel,
+            scope.ScanRoomLocalNonLevelSources,
+            scope.ScanGlobalLevels &&
+            globalLevels.IsComplete &&
+            scope.ScanRoomLocalNonLevelSources &&
+            roomLocalNonLevel.IsComplete);
+    }
 
     internal static CassetteCatalogDiagnosticSnapshot CreateSnapshot(
         IEnumerable<CassetteCatalogDiagnosticSource> sources,
