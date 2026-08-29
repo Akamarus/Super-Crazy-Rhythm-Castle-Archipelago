@@ -811,9 +811,9 @@ class SCRCWorld(World):
             default_active_location_names,
         )
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 12,
+            "schema_version": 13,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -871,6 +871,20 @@ class SCRCWorld(World):
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
             "randomize_level_2_money_cassette": True,
+            "cassette_schema": 1,
+            "full_cassette_randomization": True,
+            "cassette_count": len(CASSETTES),
+            "cassette_items": {
+                cassette.display_song: cassette.item_name for cassette in CASSETTES
+            },
+            "cassette_sources": {
+                cassette.display_song: cassette.source_name for cassette in CASSETTES
+            },
+            "cassette_reused_locations": {
+                cassette.display_song: cassette.source_name
+                for cassette in CASSETTES
+                if cassette.reused_location
+            },
             "repair_schema_version": "next-release-repair-0.18",
             "consolidated_preview_version": "consolidated-preview-0.19",
             "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],

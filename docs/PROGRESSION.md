@@ -2,6 +2,12 @@
 
 Historical gameplay and native mapping evidence from the full discovery playthrough is indexed in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Use that evidence as a starting point, while treating its former individual-level access design as superseded by this document's Area Access model.
 
+## Full Music Lab cassette contract (v0.22)
+
+Each of the 30 Music Lab songs has exactly one cassette item and one idempotent source. Twenty-five sources are earned from successful level results; aliases such as Bee/Devil variants resolve to the same AP location. Quicksand, Flamenco, Ten-Four Good Buddy, Zen, and Wiggle reuse the existing 32/64/89/111/140-point chest locations. An AP receipt requests native `HAVE_IN_BAG`; a native `HAVE_DEPOSITED` state is terminal and is never changed back, so players unlock songs by inserting cassettes normally.
+
+Client v0.68.0 enables this routing only when a fresh seed supplies cassette schema 1, count 30, and exact item/source/reused-location mappings. Any mismatch preserves native behavior. Secret Bunker Devil aliases are cataloged but conservatively inactive in solver reachability until Bunker access is implemented and validated. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending.
+
 ## Hub model
 
 **Home:** Hub6 / Music Lab phone hub.

@@ -1,6 +1,46 @@
 namespace RhythmCastleAP;
 
 internal sealed record CassetteSourceDecision(bool AllowNative, IReadOnlyList<string> SourceLocationsToQueue, IReadOnlyList<string> NativeSongsToSuppress, string Detail);
+internal sealed record CassetteSlotCompatibilityResult(bool Compatible, string Detail);
+
+internal static class CassetteSlotCompatibility
+{
+    internal const int Schema = 1;
+    internal const int Count = 30;
+
+    internal static CassetteSlotCompatibilityResult Validate(
+        int schema,
+        bool enabled,
+        int count,
+        IReadOnlyDictionary<string,string> items,
+        IReadOnlyDictionary<string,string> sources,
+        IReadOnlyDictionary<string,string> reusedLocations)
+    {
+        if (schema != Schema) return Fail("cassette_schema", Schema.ToString(), schema.ToString());
+        if (!enabled) return Fail("full_cassette_randomization", "True", "False");
+        if (count != Count) return Fail("cassette_count", Count.ToString(), count.ToString());
+
+        foreach (CassetteDefinition entry in CassetteCatalog.All)
+        {
+            if (!items.TryGetValue(entry.DisplaySong, out string? item) || !string.Equals(item, entry.ItemName, StringComparison.Ordinal))
+                return Fail($"cassette_items.{entry.DisplaySong}", entry.ItemName, item ?? "<missing>");
+            if (!sources.TryGetValue(entry.DisplaySong, out string? source) || !string.Equals(source, entry.SourceName, StringComparison.Ordinal))
+                return Fail($"cassette_sources.{entry.DisplaySong}", entry.SourceName, source ?? "<missing>");
+            if (entry.ReusesExistingLocation &&
+                (!reusedLocations.TryGetValue(entry.DisplaySong, out string? reused) || !string.Equals(reused, entry.SourceName, StringComparison.Ordinal)))
+                return Fail($"cassette_reused_locations.{entry.DisplaySong}", entry.SourceName, reused ?? "<missing>");
+        }
+
+        if (items.Count != Count) return Fail("cassette_items.count", Count.ToString(), items.Count.ToString());
+        if (sources.Count != Count) return Fail("cassette_sources.count", Count.ToString(), sources.Count.ToString());
+        int expectedReused = CassetteCatalog.All.Count(x => x.ReusesExistingLocation);
+        if (reusedLocations.Count != expectedReused) return Fail("cassette_reused_locations.count", expectedReused.ToString(), reusedLocations.Count.ToString());
+        return new(true, "compatible");
+    }
+
+    private static CassetteSlotCompatibilityResult Fail(string key, string expected, string actual) =>
+        new(false, $"{key} expected='{expected}' actual='{actual}'");
+}
 
 internal static class CassetteRandomizationPolicy
 {

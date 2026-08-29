@@ -15,6 +15,7 @@ WORLD_DIR = WORLD.parent
 ITEMS = WORLD_DIR / "items.py"
 META = ROOT / "apworld" / "scrc" / "archipelago.json"
 CLIENT = ROOT / "client" / "Plugin.cs"
+CASSETTE_POLICY = ROOT / "client" / "CassetteRandomizationPolicy.cs"
 IDS = ROOT / "docs" / "IDS.md"
 LOCAL_AI_DECISIONS = ROOT / "tools" / "local-ai" / "evaluation" / "decisions.json"
 LOCAL_AI_CASES = ROOT / "tools" / "local-ai" / "evaluation" / "cases.json"
@@ -55,13 +56,13 @@ REQUIRED_LOCAL_AI_CASE_QUESTIONS = {
 }
 
 EXPECTED = {
-    "client_version": "0.67.95",
-    "world_version": "0.21.0",
+    "client_version": "0.68.0",
+    "world_version": "0.22.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
         "consolidated-preview-0.19-difficulty-filtering-0.20-"
-        "vanilla-vampire-garage-0.21"
+        "vanilla-vampire-garage-0.21-full-cassettes-0.22"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -96,6 +97,7 @@ for path in (
     ITEMS,
     META,
     CLIENT,
+    CASSETTE_POLICY,
     IDS,
     LOCAL_AI_DECISIONS,
     LOCAL_AI_CASES,
@@ -108,6 +110,7 @@ for path in (
 
 world_text = WORLD.read_text(encoding="utf-8")
 client_text = CLIENT.read_text(encoding="utf-8")
+cassette_policy_text = CASSETTE_POLICY.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
 items_text = ITEMS.read_text(encoding="utf-8")
 local_ai_config_text = LOCAL_AI_CONFIG.read_text(encoding="utf-8")
@@ -279,6 +282,9 @@ if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"
 for required_marker in (
     '"star_items_active": False',
     '"difficulty_filtering_active": True',
+    '"cassette_schema": 1',
+    '"full_cassette_randomization": True',
+    '"cassette_count": len(CASSETTES)',
 ):
     if required_marker not in world_text:
         fail(f"missing required slot-data marker: {required_marker}")
@@ -289,6 +295,9 @@ for label, marker in (
     ("Chicken Bucket slot-data item", '"chicken_bucket_item": CHICKEN_BUCKET_ITEM'),
     ("Level 4 slot-data source", '"hip_glasses_source_location": ROOTS_LEVEL4_HIP_GLASSES'),
     ("Bucket trade slot-data source", '"bucket_minion_trade_location": ROOTS_BUCKET_MINION_TRADE'),
+    ("cassette item mapping", '"cassette_items": {'),
+    ("cassette source mapping", '"cassette_sources": {'),
+    ("cassette reused-location mapping", '"cassette_reused_locations": {'),
 ):
     if marker not in world_text:
         fail(f"{label} contract is missing or changed")
@@ -301,6 +310,13 @@ for label, marker in (
     ("native consumed marker", 'internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";'),
 ):
     if marker not in client_text:
+        fail(f"{label} contract is missing or changed")
+
+for label, marker in (
+    ("cassette schema compatibility", "internal const int Schema = 1;"),
+    ("cassette count compatibility", "internal const int Count = 30;"),
+):
+    if marker not in cassette_policy_text:
         fail(f"{label} contract is missing or changed")
 
 for required in (
@@ -339,6 +355,6 @@ print(json.dumps({
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,
 }, indent=2))
-print("v0.21 physical vanilla Vampire Killer Garage entry is active; the v0.20 difficulty filters and v0.18 repair contract remain enforced.")
+print("v0.22 full Music Lab cassette routing is active; physical vanilla Vampire Killer Garage entry and earlier repair contracts remain enforced.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

@@ -1,5 +1,14 @@
 # Changelog
 
+## APWorld v0.22.0 / Client v0.68.0 — Full Music Lab cassette testing
+
+- Activated 30 Music Lab cassette items and 30 idempotent sources. Five point-chest songs reuse their existing 32/64/89/111/140-point chest locations.
+- Added exact schema/count/item/source/reused-location compatibility. Any mismatch logs the differing key and leaves native cassette behavior enabled.
+- AP receipts persist `HAVE_IN_BAG`; `HAVE_DEPOSITED` remains terminal, so insertion stays a normal player action.
+- Requires a fresh v0.22 seed. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending; no individual live verification is claimed without evidence.
+- Removed the temporary INSERT cassette-catalog diagnostic binding from runtime release behavior. The evidence report and extraction tooling remain available to maintainers.
+- The separate Game Garage cartridge native-inventory blocker remains open.
+
 ## APWorld v0.21.0 / Client v0.67.95 — Reliable Game Garage entrance
 
 - Made Vampire Killer the native Game Garage entrance cartridge instead of a randomized AP item. Fresh v0.21 seeds preserve its physical vanilla pickup and normal insertion/entrance sequence, preventing unsupported zero-cartridge Garage entry.

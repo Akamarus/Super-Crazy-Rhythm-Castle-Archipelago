@@ -38,12 +38,12 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.67.95 loading.
+[SCRC-AP] v0.68.0 loading.
 ```
 
 ## Configure the current development client
 
-After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.21 development flow, use these values and replace the server and slot placeholders with the room's connection values.
+After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.22 development flow, use these values and replace the server and slot placeholders with the room's connection values.
 
 ```ini
 [Archipelago]
@@ -81,11 +81,11 @@ Use one of these YAML starting points: click **Generate Template Options** in Ar
 
 In Archipelago Launcher, click **Generate**. On success, take the generated archive from `<Archipelago>\output\AP_XXXXX.zip`. Custom worlds generate locally, and the resulting zip can be uploaded to a compatible hosting website afterward.
 
-Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.21.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`; it forces Roots as the starter area and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
+Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.22.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`; it forces Roots as the starter area, activates all 30 Music Lab cassette mappings, and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
 
 Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. Normal addresses 68 locations; Hard 105; Expert 142; Perfection 178. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
-Existing v0.20 seeds remain usable with Client v0.67.95 and retain six-cartridge randomization. Install v0.21 and generate a fresh seed for native Vampire Killer Garage access.
+Install APWorld v0.22 and generate a fresh seed for full cassette randomization. Client v0.68.0 rejects incomplete or mismatched cassette slot data and preserves vanilla cassette awards; it never partially enables the feature. Receiving a cassette puts it in the native bag, but the player must use its Music Lab machine to deposit/unlock the song.
 
 ## Updating or uninstalling
 

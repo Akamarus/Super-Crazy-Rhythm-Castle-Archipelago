@@ -18,7 +18,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.67.95";
+    public const string PluginVersion = "0.68.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -314,7 +314,7 @@ public sealed class Plugin : BasePlugin
             Log.LogWarning(
                 "[SCRC-AP] MUSIC LAB DIAGNOSTIC ENABLED: Hub6/GameRoom_27 plus live cassette-start enquiry probing. v0.67.60 keeps the solved Garage cartridge-state identity path, sends cumulative Garage sticker AP checks on real results, and tracks all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from the live native Hub6 chest metadata; Hub6 F5 forces reconciliation and prints the discovered mapping/status.");
             Log.LogWarning(
-                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED: INSERT prints the read-only global level cassette catalog in any room and adds room-local non-level observations in Hub6; F1 grants Level 6; Shift+F1 resets Level 6; Ctrl+F1 grants Level 7; Ctrl+Shift+F1 resets Level 7; Alt+F1 grants Level 8; Alt+Shift+F1 resets Level 8; Ctrl+F2 grants Level 9; Ctrl+Shift+F2 resets Level 9; Alt+F2 grants Level 10; Alt+Shift+F2 resets Level 10; plain F2 resets Level 5; Ctrl+F4 grants Level 5; Shift+F4 cycles the temporary Music Lab point override through the next reward thresholds (89/111/140/OFF); Ctrl+F3 grants Level 11; plain F3 resets Level 11; Ctrl+F5 grants Level 12; Alt+F5 resets Level 12; Ctrl+F6 grants Level 13; Alt+F6 resets Level 13; Ctrl+F7 grants Level 14; Alt+F7 resets Level 14; Ctrl+F8 grants Level 15; Alt+F8 resets Level 15; Ctrl+F9 grants Level 16; Alt+F9 resets Level 16; Ctrl+F10 grants Level 17; Alt+F10 resets Level 17; Ctrl+Shift+F10 grants Level 22; Alt+Shift+F10 resets Level 22; Ctrl+F11 grants Level 18; Alt+F11 resets Level 18; Ctrl+F12 grants Level 19; Alt+F12 resets Level 19; Ctrl+Shift+F12 grants Level 20; Alt+Shift+F12 resets Level 20; Ctrl+Shift+F11 grants Level 21; Alt+Shift+F11 resets Level 21; plain F4 starts/restarts the Level 4 -> Lift Quest trace in GameRoom_08/Hub2/GameRoom_09 and keeps the existing discovery elsewhere; plain F5 scans the focused Level 4 -> Lift Quest route in those rooms and keeps the existing context-aware scan elsewhere; Shift+F5 forces one 20-second Secret Bunker requirement + interaction patch test; plain F6 direct Level 4 transition; plain F7 resets Level 4; F8 resets Level 2 + reloads; F9 grants Level 2; F10 grants Level 3; F11 resets Level 3; F12 grants Level 4; HOME prints compact Roots baseline status in Hub2 (no probe), otherwise runs the read-only Phone Booth/fast-travel scan and arms the next transition for 30 seconds; when Area Access routing is enabled, PAGE UP grants the next locked area; PAGE DOWN resets only in fixed-start developer mode and is ignored in AP-driven mode; END prints Area Access status.");
+                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED. Release builds do not bind the cassette-catalog INSERT diagnostic; retained gameplay diagnostics are documented for maintainer-directed testing only.");
         }
 
         if (IntroHubSkip.Enabled)
@@ -17656,10 +17656,11 @@ internal static class CassetteSourceRandomization
     internal static void Configure() => _enabled=false;
     internal static void ApplySlotData(Dictionary<string,object>? slotData)
     {
-        _enabled=ReadSlotBool(slotData,"randomize_level_2_money_cassette");
+        CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
+        _enabled=compatibility.Compatible;
         Plugin.LoggerInstance?.LogWarning(_enabled
             ? $"[SCRC-AP] CASSETTE SOURCE RANDOMIZATION ENABLED entries={CassetteCatalog.All.Count} levelSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.LevelEarnedReward)} chestSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.MusicLabPointChest)}."
-            : "[SCRC-AP] CASSETTE SOURCE RANDOMIZATION disabled; native cassette evaluators remain unchanged.");
+            : $"[SCRC-AP] CASSETTE SEED INCOMPATIBLE detail=\"{compatibility.Detail}\". Full cassette routing is disabled and native cassette behavior remains enabled. Generate and host a fresh APWorld v0.22 seed.");
     }
 
     internal static bool AllowLevelCassetteEvaluation(bool? succeeded)
@@ -17738,11 +17739,56 @@ internal static class CassetteSourceRandomization
         catch(Exception ex){detail=ex.GetBaseException().Message;return false;}
     }
 
-    private static bool ReadSlotBool(Dictionary<string,object>? slotData,string key)
+}
+
+internal static class CassetteSlotDataCompatibility
+{
+    internal static CassetteSlotCompatibilityResult Validate(Dictionary<string,object>? slotData)
     {
-        if(slotData==null||!slotData.TryGetValue(key,out object? raw)||raw==null)return false;
+        int schema=ReadInt(slotData,"cassette_schema");
+        int count=ReadInt(slotData,"cassette_count");
+        bool enabled=ReadBool(slotData,"full_cassette_randomization");
+        return CassetteSlotCompatibility.Validate(
+            schema, enabled, count,
+            ReadMap(slotData,"cassette_items"),
+            ReadMap(slotData,"cassette_sources"),
+            ReadMap(slotData,"cassette_reused_locations"));
+    }
+
+    private static bool ReadBool(Dictionary<string,object>? data,string key)
+    {
+        if(data==null||!data.TryGetValue(key,out object? raw)||raw==null)return false;
         if(raw is bool b)return b; if(raw is long l)return l!=0; if(raw is int i)return i!=0;
         return bool.TryParse(raw.ToString(),out bool parsed)&&parsed;
+    }
+    private static int ReadInt(Dictionary<string,object>? data,string key)
+    {
+        if(data==null||!data.TryGetValue(key,out object? raw)||raw==null)return -1;
+        if(raw is int i)return i; if(raw is long l&&l>=int.MinValue&&l<=int.MaxValue)return (int)l;
+        return int.TryParse(raw.ToString(),out int parsed)?parsed:-1;
+    }
+    private static IReadOnlyDictionary<string,string> ReadMap(Dictionary<string,object>? data,string key)
+    {
+        var result=new Dictionary<string,string>(StringComparer.Ordinal);
+        if(data==null||!data.TryGetValue(key,out object? raw)||raw==null)return result;
+        if(raw is System.Collections.IDictionary dictionary)
+        {
+            foreach(System.Collections.DictionaryEntry entry in dictionary)
+                if(entry.Key?.ToString() is string mapKey && entry.Value?.ToString() is string value)result[mapKey]=value;
+            return result;
+        }
+        if(raw is System.Collections.IEnumerable entries)
+        {
+            foreach(object? entry in entries)
+            {
+                if(entry==null)continue;
+                Type type=entry.GetType();
+                object? mapKey=type.GetProperty("Key")?.GetValue(entry);
+                object? value=type.GetProperty("Value")?.GetValue(entry);
+                if(mapKey?.ToString() is string keyText&&value?.ToString() is string valueText)result[keyText]=valueText;
+            }
+        }
+        return result;
     }
 }
 
@@ -18143,11 +18189,12 @@ internal static class CassetteReceiptRandomization
 
     internal static void ApplySlotData(Dictionary<string, object>? slotData)
     {
-        bool enabled = ReadSlotBool(slotData, "randomize_level_2_money_cassette");
+        CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
+        bool enabled = compatibility.Compatible;
         lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; _scheduler.Configure(enabled); }
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be persisted as HAVE_IN_BAG; deposited cassettes remain deposited."
-            : "[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled; native cassette inventory remains vanilla.");
+            : $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled detail=\"{compatibility.Detail}\"; native cassette inventory remains vanilla.");
         if (enabled) OnLifecyclePoint("slot data synchronized");
     }
 
@@ -20846,9 +20893,6 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 PhoneBoothDiagnostic.ScanCurrentSceneAndArm();
             }
         }
-
-        if (Input.GetKeyDown(KeyCode.Insert))
-            CassetteCatalogDiagnostic.ScanLoadedCatalog();
 
         if (Input.GetKeyDown(KeyCode.F1))
         {

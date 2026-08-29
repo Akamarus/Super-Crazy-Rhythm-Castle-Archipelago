@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.21.0 and Client v0.67.95 make Vampire Killer the native Game Garage entrance cartridge while the other five cartridges remain randomized. Generate a fresh v0.21 seed for this behavior; existing v0.20 seeds retain six-cartridge randomization.
+- Current development build: APWorld v0.22.0 and Client v0.68.0 activate all 30 Music Lab cassette items and sources. Generate a fresh v0.22 seed; older seeds deliberately fall back to native cassette behavior.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -36,9 +36,9 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.67.95` | Preserves the physical vanilla Vampire Killer pickup and Garage entrance |
-| APWorld | `0.21.0` | Randomizes five Garage cartridges; Vampire Killer remains vanilla |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21` | Preserves earlier compatibility markers and adds the Garage entrance contract |
+| Client | `0.68.0` | Full Music Lab cassette routing with strict v0.22 slot compatibility |
+| APWorld | `0.22.0` | Thirty cassette items and thirty idempotent cassette sources |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22` | Preserves every historical marker and adds the full-cassette contract |
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
 
@@ -115,6 +115,6 @@ The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 68, Hard 105, Expert 142, and Perfection 178. Inactive checks are absent from the seed, not filler. Vampire Killer remains a physical vanilla pickup required for the normal Game Garage entrance; the other five Garage cartridges remain randomized. The native REG/PRO choice remains player-controlled. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only. APWorld v0.21.0 still exports provisional Star requirements without enforcing them.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. All 30 Music Lab cassettes are randomized: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. APWorld v0.22.0 requires a fresh seed.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

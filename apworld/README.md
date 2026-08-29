@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current APWorld: **v0.21.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`) with client **v0.67.95**. Vampire Killer remains a physical vanilla pickup for the normal Garage entrance; the other five cartridges remain randomized. Existing v0.20 seeds retain six-cartridge behavior.
+Current APWorld: **v0.22.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`) with client **v0.68.0**. It activates all 30 Music Lab cassette items and sources. Use a fresh v0.22 seed; older cassette schemas safely retain native behavior.
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 
@@ -41,4 +41,4 @@ The v0.17 YAML retains the v0.16 `required_stars` and `starting_area` previews. 
 
 Stars are not placed in the live item pool; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
 
-The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.67.95** and generate a fresh v0.21 seed.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.68.0** and generate a fresh v0.22 seed.

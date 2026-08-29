@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The current boundary is Client v0.67.95 / APWorld v0.21.0. Testers should use matching builds and a fresh v0.21 seed/save; existing v0.20 seeds retain six-cartridge Garage behavior.
+This is an unofficial, experimental development build rather than a release. The current boundary is Client v0.68.0 / APWorld v0.22.0. Testers should use matching builds and a fresh v0.22 seed/save.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -16,11 +16,11 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 ## Current implementation
 
-| Work | Status | Current v0.67.95 / v0.21.0 boundary |
+| Work | Status | Current v0.68.0 / v0.22.0 boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
-| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 68/105/142/178 locations after retiring the Vampire Killer source from fresh generation. |
+| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 92/129/166/202 locations after adding 24 cassette sources. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
@@ -40,7 +40,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
 | Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Implemented / needs gameplay acceptance | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival mappings are implemented. Fresh-save reload/reconnect acceptance remains required. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
-| Remaining cassette sources and native inventory mappings | Discovery required | The one-cassette Level 2 Money pilot is implemented; source-to-item randomization for every other cassette remains unmapped. The separate `MONEY_DUB=128` entry is not the `Level_06 -> 110 -> I_GOT_MONEY` source. |
+| Full Music Lab cassette randomization | Implemented / broad manual verification pending | All 30 items and sources are active. Five point-chest songs reuse their chest checks; 25 level-earned songs use evidence-backed trigger mappings. I Got Money's default route is live verified, its Bee alias and 24 newly mapped songs remain manual verification pending. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |
 
 ## Generation gate
@@ -67,7 +67,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 | Work | Status | Acceptance boundary |
 | --- | --- | --- |
-| Difficulty-filtering generator matrix | Complete | Normal, Hard, Expert, and Perfection passed real generation at 68/105/142/178 addressed locations. |
+| Difficulty-filtering generator matrix | Complete for v0.22 automated matrix | Normal, Hard, Expert, and Perfection pass the eight-option cassette/solver matrix at 92/129/166/202 addressed locations; representative gameplay remains pending. |
 | Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.20.0 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
 | Full generated-seed matrix | Design approved / not implemented | Validate every supported start, difficulty, Star goal, and optional-area route. |
 | Level 22 victory | Design approved / not implemented | Victory will require the synchronized AP Star goal and a subsequent Level 22 completion. |

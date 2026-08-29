@@ -1,6 +1,6 @@
 # Super Crazy Rhythm Castle
 
-v0.21.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. Vampire Killer remains a physical vanilla pickup required for normal Game Garage entry; the other five Garage cartridges remain randomized. Existing v0.20 seeds retain six-cartridge behavior.
+v0.22.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. All 30 Music Lab cassettes are randomized. Their source check sends once; the received cassette enters the native bag and must still be inserted normally. Five cassette rewards reuse the 32/64/89/111/140-point chest locations. A fresh v0.22 seed and Client v0.68.0 are required.
 
 Five Game Garage cartridges remain randomized items and require their matching AP item. Vampire Killer is native and its Bronze/Silver/Gold/Platinum checks have no AP-item gate.
 
@@ -10,10 +10,10 @@ Five Game Garage cartridges remain randomized items and require their matching A
 
 | AP difficulty | Campaign tiers | Song medal tiers | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 68 |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
+| Normal | Completion / 1-Star | Bronze | 92 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 129 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 166 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 202 |
 
 Inactive checks are absent, not filler. This release filters only existing campaign performance locations. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 

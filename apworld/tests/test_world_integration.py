@@ -471,10 +471,10 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 12)
+        self.assertEqual(data["schema_version"], 13)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -494,6 +494,16 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
         self.assertTrue(data["randomize_level_2_money_cassette"])
+        self.assertEqual(data["cassette_schema"], 1)
+        self.assertTrue(data["full_cassette_randomization"])
+        self.assertEqual(data["cassette_count"], 30)
+        self.assertEqual(len(data["cassette_items"]), 30)
+        self.assertEqual(len(data["cassette_sources"]), 30)
+        self.assertEqual(
+            data["cassette_reused_locations"]["Quicksand"],
+            "Music Lab - 32 Point Chest",
+        )
+        self.assertTrue(data["implementation_version"].endswith("full-cassettes-0.22"))
         self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
         self.assertEqual(
             data["vanilla_game_garage_cartridge_item"],
@@ -560,7 +570,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["active_location_count"], 129)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
-        self.assertTrue(data["implementation_version"].endswith("vanilla-vampire-garage-0.21"))
+        self.assertTrue(data["implementation_version"].endswith("full-cassettes-0.22"))
 
     def test_vampire_killer_is_vanilla_but_permanent_ids_are_preserved(self):
         world = self.build_world(difficulty=0)

@@ -7,18 +7,18 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-Client v0.67.95 / APWorld v0.21.0 preserves the physical vanilla Vampire Killer pickup and normal Game Garage entrance while keeping the other five cartridges randomized. Existing v0.20 seeds retain their old six-cartridge behavior.
+Client v0.68.0 / APWorld v0.22.0 activates all 30 Music Lab cassette items and sources while preserving the physical vanilla Vampire Killer pickup and normal Game Garage entrance. Use a fresh v0.22 seed.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.67.95`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.67.95 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- Client: `0.68.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.68.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
 - APWorld: `0.21.0`.
 - Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
-- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
+- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 92/129/166/202 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
 - For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.
 
 Follow the [installation guide](INSTALL.md) to build and install both components, generate the seed, and configure the client. Use the room's real host, port, slot name, and password locally; do not publish a password or a complete config file.
@@ -28,7 +28,7 @@ Follow the [installation guide](INSTALL.md) to build and install both components
 Run these steps in order where the seed allows. A received progression item may belong to a different player or be placed later in your own world, so a source check need not deliver its matching item immediately. Record the exact step, level, or song at which a result differs from the expectation.
 
 1. **Start and connect.** Launch the game with the new save and connect to the room. Confirm the client version line above, normal connection/login lines, and the `area-routing-plant-pipes-0.15` slot-data implementation in `LogOutput.log`.
-2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.21.0 random currently selects only validated Roots Access.
+2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.22.0 random currently selects only validated Roots Access.
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
@@ -124,11 +124,49 @@ Use this optional report block in addition to the general issue template below:
 - Royal Corridor routing is incomplete. The Hub6 phone lands on the Level 22 side; fresh-save testing confirmed the player cannot approach the Royal Star Eater from that spawn to feed Stars and complete the bridge back toward Level 21. Until the bridge route and logic are implemented, `Royal Corridor Access` exposes only the phone-side Level 22 route and must not make Level 21 or the Royal Star Eater check logically reachable.
 - Full-game logic and the final victory condition are incomplete. The approved 66-Star / Level 22 victory design is not implemented.
 - Generated AP Stars and randomized Music Lab Point inventory are design-only. Current Music Lab reward chests use the game's native medal-score currency.
-- Fresh-save Music Lab access is incomplete: native orange construction barriers physically block substantial groups of cassette machines, while the current AP graph treats all 30 cassette medal sets as reachable from Music Lab. Those barrier conditions must be mapped and represented in logic, or safely normalized by an explicit AP rule, before all cassette checks can be considered reachable.
-- Only the Level 2 Money Cassette pilot is implemented; all other cassette-item randomization and most remaining quest-item chains are not implemented. The pilot still requires fresh-save and save-switch IL2CPP gameplay acceptance. Hip Glasses and Chicken Bucket are implemented but still require fresh-save gameplay acceptance.
+- Music Lab construction barriers are bypassed in compatible AP sessions, but most full-cassette source routes still require individual manual verification.
+- The 24 newly mapped cassette songs and the I Got Money Bee alias are manual-verification pending. Secret Bunker Devil aliases remain conservatively inactive in solver reachability.
+- The separate Game Garage cartridge native-inventory blocker remains open; Music Lab cassette receipt reconciliation does not fix it.
 - AP performance difficulty filtering is active in APWorld v0.20.0; it filters only existing campaign performance locations and does not change native REG/PRO. The four-seed real-generator acceptance matrix is complete. Manual gameplay remains part of the broader prototype smoke test; inactive Star previews and live Star gates are separate, unfinished systems.
 - Local co-op is unverified. Online co-op, DeathLink, and an integrated overlay/text client are deferred.
 - Developer diagnostics and hotkeys may exist in development builds. Do not rely on them for normal play, and say exactly which one you used in a report.
+
+## Full cassette manual status (v0.22)
+
+“Live verified” is reserved for a song with its own recorded gameplay evidence. Point-chest routes use the previously established chest interaction as a representative path. I Got Money's default Level 2 route is live verified; its Bee alias is still manual verification pending.
+
+| Song | Source type | Source location | Status |
+| --- | --- | --- | --- |
+| The Little Things | Level-earned | Cassette Source - The Little Things | mapped; manual verification pending |
+| No Plan B | Level-earned | Cassette Source - No Plan B | mapped; manual verification pending |
+| Jolt City | Level-earned | Cassette Source - Jolt City | mapped; manual verification pending |
+| Quieres Bailar | Level-earned | Cassette Source - Quieres Bailar | mapped; manual verification pending |
+| Quicksand | Point chest | Music Lab - 32 Point Chest | mapped; representative path verified |
+| Gold | Level-earned aliases | Cassette Source - Gold | mapped; manual verification pending |
+| I Got Money | Level-earned aliases | Level 2 - Money Cassette | live verified |
+| Hippo and Frog | Level-earned | Cassette Source - Hippo and Frog | mapped; manual verification pending |
+| On the Way | Level-earned aliases | Cassette Source - On the Way | mapped; manual verification pending |
+| Badass | Level-earned | Cassette Source - Badass | mapped; manual verification pending |
+| Heavy Metal | Level-earned | Cassette Source - Heavy Metal | mapped; manual verification pending |
+| AOK | Level-earned aliases | Cassette Source - AOK | mapped; manual verification pending |
+| Rainbow Melodies | Level-earned aliases | Cassette Source - Rainbow Melodies | mapped; manual verification pending |
+| Sneaking | Level-earned aliases | Cassette Source - Sneaking | mapped; manual verification pending |
+| The Heist | Level-earned | Cassette Source - The Heist | mapped; manual verification pending |
+| Money | Level-earned | Cassette Source - Money | mapped; manual verification pending |
+| Lets Go | Level-earned aliases | Cassette Source - Lets Go | mapped; manual verification pending |
+| Bounce | Level-earned | Cassette Source - Bounce | mapped; manual verification pending |
+| Epical | Level-earned | Cassette Source - Epical | mapped; manual verification pending |
+| Hollywood Trailer | Level-earned | Cassette Source - Hollywood Trailer | mapped; manual verification pending |
+| False Data | Level-earned | Cassette Source - False Data | mapped; manual verification pending |
+| Gotta Get Up | Level-earned | Cassette Source - Gotta Get Up | mapped; manual verification pending |
+| Fumblin Around | Level-earned aliases | Cassette Source - Fumblin Around | mapped; manual verification pending |
+| Party Non Stop | Level-earned | Cassette Source - Party Non Stop | mapped; manual verification pending |
+| Keep On Hustlin | Level-earned aliases | Cassette Source - Keep On Hustlin | mapped; manual verification pending |
+| Another Day In Paradise | Level-earned | Cassette Source - Another Day In Paradise | mapped; manual verification pending |
+| Flamenco | Point chest | Music Lab - 64 Point Chest | mapped; representative path verified |
+| Ten-Four Good Buddy | Point chest | Music Lab - 89 Point Chest | mapped; representative path verified |
+| Zen | Point chest | Music Lab - 111 Point Chest | mapped; representative path verified |
+| Wiggle | Point chest | Music Lab - 140 Point Chest | mapped; representative path verified |
 
 ## Report a problem safely
 
