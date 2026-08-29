@@ -1,5 +1,9 @@
 namespace RhythmCastleAP;
 
+internal readonly record struct Level2MoneyCassetteSourceDecision(
+    bool QueueLocation,
+    bool ReplacementWasCollected);
+
 internal static class Level2MoneyCassettePolicy
 {
     internal const string HaveInBag = "HAVE_IN_BAG";
@@ -11,6 +15,17 @@ internal static class Level2MoneyCassettePolicy
         return wasCollected &&
             string.Equals(level, "Level_06", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(variant, "LevelVariant_Default", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static Level2MoneyCassetteSourceDecision DecideSourceAward(
+        string? level,
+        string? variant,
+        bool wasCollected)
+    {
+        bool queueLocation = IsSourceAward(level, variant, wasCollected);
+        return new Level2MoneyCassetteSourceDecision(
+            queueLocation,
+            queueLocation ? false : wasCollected);
     }
 }
 

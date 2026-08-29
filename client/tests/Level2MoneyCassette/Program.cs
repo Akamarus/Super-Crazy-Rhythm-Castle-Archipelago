@@ -22,6 +22,40 @@ Equal(true,
     Level2MoneyCassettePolicy.IsSourceAward("level_06", "levelvariant_default", wasCollected: true),
     "source identifiers compare without case sensitivity");
 
+var sourceDecision = Level2MoneyCassettePolicy.DecideSourceAward(
+    "Level_06",
+    "LevelVariant_Default",
+    wasCollected: true);
+Equal(true,
+    sourceDecision.QueueLocation,
+    "first default Level 2 cassette award queues the AP source location");
+Equal(false,
+    sourceDecision.ReplacementWasCollected,
+    "first default Level 2 cassette award suppresses the native cassette");
+
+var excludedSourceDecisions = new[]
+{
+    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
+        "Level_06", "LevelVariant_Default", wasCollected: false), OriginalWasCollected: false,
+        Scenario: "replayed Level 2 result"),
+    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
+        "Level_06", "LevelVariant_BeeMode", wasCollected: true), OriginalWasCollected: true,
+        Scenario: "Bee Mode cassette award"),
+    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
+        "Level_05", "LevelVariant_Default", wasCollected: true), OriginalWasCollected: true,
+        Scenario: "unrelated level cassette award"),
+};
+
+foreach (var excluded in excludedSourceDecisions)
+{
+    Equal(false,
+        excluded.Decision.QueueLocation,
+        $"{excluded.Scenario} does not queue the AP source location");
+    Equal(excluded.OriginalWasCollected,
+        excluded.Decision.ReplacementWasCollected,
+        $"{excluded.Scenario} preserves the original WasCollected value");
+}
+
 var runtime = new Level2MoneyCassetteRuntime();
 runtime.Configure(enabled: true);
 Equal(Level2MoneyCassetteReconcileDecision.NoOwnership,
