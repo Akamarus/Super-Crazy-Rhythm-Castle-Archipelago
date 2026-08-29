@@ -111,8 +111,15 @@ public sealed class Plugin : BasePlugin
             "ApplyLevelResultToSaveDataRequest",
             nameof(GamePatches.ApplyResultPrefix),
             nameof(GamePatches.ApplyResultPostfix));
+        patched += PatchLevel2MoneyCassetteEvaluation();
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
-        patched += PatchMethodsByParameter("HandleEvent", "SelectedPlayerSaveSlotChangedEvent", nameof(GamePatches.SelectedSaveChangedEventPostfix));
+        if (Level2MoneyCassettePolicy.UseSelectedSaveChangedEventHook)
+        {
+            patched += PatchMethodsByParameter(
+                "HandleEvent",
+                "SelectedPlayerSaveSlotChangedEvent",
+                nameof(GamePatches.SelectedSaveChangedEventPostfix));
+        }
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
         patched += PatchMethodsByParameterWithPrefixAndPostfix(
@@ -168,7 +175,7 @@ public sealed class Plugin : BasePlugin
         Log.LogWarning(
             "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
         Log.LogWarning(
-            "[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION READY: waits for slot-data opt-in. The first default Level_06 award sends 'Level 2 - Money Cassette' while native result persistence continues with WasCollected=false; receiving Money Cassette reconciles I_GOT_MONEY to HAVE_IN_BAG in the selected save.");
+            "[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION READY: waits for slot-data opt-in. A successful default Level_06 run with an unowned I_GOT_MONEY cassette suppresses the native evaluator and sends 'Level 2 - Money Cassette'; AP receipt reconciliation grants HAVE_IN_BAG through the native cassette save path.");
         if (enabled.Value)
             AddComponent<PlantPipesReconciliationKeeper>();
         if (enabled.Value)
@@ -413,6 +420,44 @@ public sealed class Plugin : BasePlugin
         }
 
         return count;
+    }
+
+    private int PatchLevel2MoneyCassetteEvaluation()
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? type = gameAssembly == null
+            ? null
+            : ReflectionUtil.SafeGetTypes(gameAssembly).FirstOrDefault(t =>
+                string.Equals(t.Name, "LevelLogic", StringComparison.Ordinal));
+        MethodInfo? target = type?.GetMethod(
+            "EvaluatePlayerLevelSongCassettes",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
+            BindingFlags.DeclaredOnly);
+        MethodInfo? prefix = FindPatchMethod(
+            typeof(GamePatches),
+            nameof(GamePatches.LevelCassetteEvaluationPrefix));
+        if (target == null || prefix == null || _harmony == null)
+        {
+            Log.LogWarning(
+                "[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE hook unavailable.");
+            return 0;
+        }
+
+        try
+        {
+            _harmony.Patch(
+                target,
+                prefix: new HarmonyMethod(prefix));
+            Log.LogInfo(
+                "[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE HOOKED LevelLogic.EvaluatePlayerLevelSongCassettes(bool).");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE hook failed: {ex.GetBaseException().Message}");
+            return 0;
+        }
     }
 
     private int PatchMusicLabMedalScoreOverride()
@@ -11475,10 +11520,13 @@ internal static class GamePatches
         Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(
             __instance,
             reconcileNow: false);
+    }
 
-        object? request = ReflectionUtil.FindArg(__args, "ApplyLevelResultToSaveDataRequest");
-        if (request != null)
-            Level2MoneyCassetteRandomization.HandleSourceAward(request);
+    public static bool LevelCassetteEvaluationPrefix(object[]? __args)
+    {
+        object? rawSucceeded = ReflectionUtil.FindArg(__args, "Boolean");
+        bool? succeeded = rawSucceeded is bool value ? value : null;
+        return Level2MoneyCassetteRandomization.AllowLevelCassetteEvaluation(succeeded);
     }
 
     public static void ApplyResultPostfix(object[]? __args)
@@ -17626,32 +17674,56 @@ internal static class Level2MoneyCassetteRandomization
         return true;
     }
 
-    internal static void HandleSourceAward(object request)
+    internal static bool AllowLevelCassetteEvaluation(bool? succeeded)
     {
         if (!Enabled)
-            return;
+            return true;
 
-        string? level = ReflectionUtil.ExtractIdentifier(
-            ReflectionUtil.ReadMember(request, "LevelIdentifier"));
-        string? variant = ReflectionUtil.ExtractIdentifier(
-            ReflectionUtil.ReadMember(request, "LevelVariantIdentifier"));
-        bool wasCollected = ReflectionUtil.ReadBool(request, "WasCollected") ?? false;
-        Level2MoneyCassetteSourceDecision decision =
-            Level2MoneyCassettePolicy.DecideSourceAward(level, variant, wasCollected);
-        if (!decision.QueueLocation)
-            return;
-
-        if (!TryWriteMember(request, "WasCollected", decision.ReplacementWasCollected) &&
-            !TryWriteMember(request, "_WasCollected_k__BackingField", decision.ReplacementWasCollected))
+        string level = InvokeStaticIdentifier(
+            "LevelEnquiries",
+            "GetCurrentLevelIdentifier");
+        string variant = InvokeStaticIdentifier(
+            "LevelEnquiries",
+            "GetCurrentLevelVariantIdentifier");
+        bool statusReadable = TryReadNativeStatus(out string? nativeStatus, out string statusDetail);
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE TRACE source='LevelLogic.EvaluatePlayerLevelSongCassettes' stage='before' level='{level}' variant='{variant}' succeeded='{succeeded?.ToString() ?? "<null>"}' nativeStatus='{nativeStatus ?? "<null>"}' statusReadable={statusReadable} detail='{statusDetail}'.");
+        if (!Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+                level,
+                variant,
+                succeeded == true,
+                nativeStatus))
         {
-            Plugin.LoggerInstance?.LogError(
-                "[SCRC-AP] LEVEL 2 MONEY CASSETTE source recognized but WasCollected could not be replaced; native cassette remains vanilla and the AP source check was not queued.");
-            return;
+            return true;
         }
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE AP CHECK level='{level}' variant='{variant}' location='{SourceLocationName}'. WasCollected changed from true to false; completion and Star result persistence continue natively.");
+            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE AP CHECK level='{level}' variant='{variant}' nativeStatus='{nativeStatus}' location='{SourceLocationName}'. Native cassette evaluator suppressed before first award.");
         Plugin.AP?.QueueLocation(SourceLocationName);
+        return false;
+    }
+
+    private static string InvokeStaticIdentifier(string typeName, string methodName)
+    {
+        try
+        {
+            Type? type = ReflectionUtil.GameAssembly?.GetType(
+                typeName,
+                throwOnError: false,
+                ignoreCase: false);
+            MethodInfo? method = type?.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            object? raw = method?.Invoke(null, null);
+            object? unwrapped = ReflectionUtil.UnwrapNullable(raw);
+            return ReflectionUtil.ExtractIdentifier(unwrapped) ??
+                unwrapped?.ToString() ??
+                "<null>";
+        }
+        catch (Exception ex)
+        {
+            return $"<error:{ex.GetBaseException().Message}>";
+        }
     }
 
     internal static void CapturePlayerSaveRequestProcessor(

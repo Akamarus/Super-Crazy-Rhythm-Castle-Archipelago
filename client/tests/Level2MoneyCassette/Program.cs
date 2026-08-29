@@ -6,55 +6,30 @@ static void Equal<T>(T expected, T actual, string scenario)
         throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}");
 }
 
-Equal(true,
-    Level2MoneyCassettePolicy.IsSourceAward("Level_06", "LevelVariant_Default", wasCollected: true),
-    "first default Level 2 cassette award is the source");
 Equal(false,
-    Level2MoneyCassettePolicy.IsSourceAward("Level_06", "LevelVariant_Default", wasCollected: false),
-    "replayed Level 2 result is not the source");
-Equal(false,
-    Level2MoneyCassettePolicy.IsSourceAward("Level_06", "LevelVariant_BeeMode", wasCollected: true),
-    "Bee Mode cassette award is not the source");
-Equal(false,
-    Level2MoneyCassettePolicy.IsSourceAward("Level_05", "LevelVariant_Default", wasCollected: true),
-    "unrelated level cassette award is not the source");
-Equal(true,
-    Level2MoneyCassettePolicy.IsSourceAward("level_06", "levelvariant_default", wasCollected: true),
-    "source identifiers compare without case sensitivity");
+    Level2MoneyCassettePolicy.UseSelectedSaveChangedEventHook,
+    "selected-save HandleEvent hook stays disabled because it crashes IL2CPP startup");
 
-var sourceDecision = Level2MoneyCassettePolicy.DecideSourceAward(
-    "Level_06",
-    "LevelVariant_Default",
-    wasCollected: true);
 Equal(true,
-    sourceDecision.QueueLocation,
-    "first default Level 2 cassette award queues the AP source location");
+    Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+        "Level_06", "LevelVariant_Default", succeeded: true, Level2MoneyCassettePolicy.Invalid),
+    "successful default Level 2 with a fresh-save INVALID Money cassette becomes the AP source");
+Equal(true,
+    Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+        "Level_06", "LevelVariant_Default", succeeded: true, Level2MoneyCassettePolicy.HaveNotEarned),
+    "successful default Level 2 with an explicit unearned Money cassette becomes the AP source");
 Equal(false,
-    sourceDecision.ReplacementWasCollected,
-    "first default Level 2 cassette award suppresses the native cassette");
-
-var excludedSourceDecisions = new[]
-{
-    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
-        "Level_06", "LevelVariant_Default", wasCollected: false), OriginalWasCollected: false,
-        Scenario: "replayed Level 2 result"),
-    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
-        "Level_06", "LevelVariant_BeeMode", wasCollected: true), OriginalWasCollected: true,
-        Scenario: "Bee Mode cassette award"),
-    (Decision: Level2MoneyCassettePolicy.DecideSourceAward(
-        "Level_05", "LevelVariant_Default", wasCollected: true), OriginalWasCollected: true,
-        Scenario: "unrelated level cassette award"),
-};
-
-foreach (var excluded in excludedSourceDecisions)
-{
-    Equal(false,
-        excluded.Decision.QueueLocation,
-        $"{excluded.Scenario} does not queue the AP source location");
-    Equal(excluded.OriginalWasCollected,
-        excluded.Decision.ReplacementWasCollected,
-        $"{excluded.Scenario} preserves the original WasCollected value");
-}
+    Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+        "Level_06", "LevelVariant_Default", succeeded: true, Level2MoneyCassettePolicy.HaveInBag),
+    "Level 2 replay with an owned Money cassette remains native");
+Equal(false,
+    Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+        "Level_06", "LevelVariant_Default", succeeded: false, Level2MoneyCassettePolicy.HaveNotEarned),
+    "failed Level 2 attempt never becomes the cassette source");
+Equal(false,
+    Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
+        "Level_05", "LevelVariant_Default", succeeded: true, Level2MoneyCassettePolicy.HaveNotEarned),
+    "other level cassette evaluations remain native");
 
 var runtime = new Level2MoneyCassetteRuntime();
 runtime.Configure(enabled: true);
@@ -63,6 +38,9 @@ Equal(Level2MoneyCassetteReconcileDecision.NoOwnership,
     "zero received Money Cassettes never grant native ownership");
 
 runtime.NoteReceivedCount(1);
+Equal(Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
+    runtime.ObserveNativeStatus(saveAvailable: true, processorAvailable: true, Level2MoneyCassettePolicy.Invalid),
+    "received Money Cassette grants bag ownership from a fresh-save INVALID state");
 Equal(Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
     runtime.ObserveNativeStatus(saveAvailable: true, processorAvailable: true, Level2MoneyCassettePolicy.HaveNotEarned),
     "received Money Cassette requests bag ownership when not earned");

@@ -1,31 +1,33 @@
 namespace RhythmCastleAP;
 
-internal readonly record struct Level2MoneyCassetteSourceDecision(
-    bool QueueLocation,
-    bool ReplacementWasCollected);
-
 internal static class Level2MoneyCassettePolicy
 {
+    // Harmony-patching SelectedPlayerSaveSlotChangedEvent.HandleEvent causes an
+    // IL2CPP value-boxing access violation during startup. Other lifecycle hooks
+    // provide the reconciliation retries without patching that native event.
+    internal static bool UseSelectedSaveChangedEventHook => false;
+
     internal const string HaveInBag = "HAVE_IN_BAG";
     internal const string HaveDeposited = "HAVE_DEPOSITED";
     internal const string HaveNotEarned = "HAVE_NOT_EARNED";
+    internal const string Invalid = "INVALID";
 
-    internal static bool IsSourceAward(string? level, string? variant, bool wasCollected)
-    {
-        return wasCollected &&
-            string.Equals(level, "Level_06", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(variant, "LevelVariant_Default", StringComparison.OrdinalIgnoreCase);
-    }
-
-    internal static Level2MoneyCassetteSourceDecision DecideSourceAward(
+    internal static bool ShouldSuppressEvaluation(
         string? level,
         string? variant,
-        bool wasCollected)
+        bool succeeded,
+        string? nativeStatus)
     {
-        bool queueLocation = IsSourceAward(level, variant, wasCollected);
-        return new Level2MoneyCassetteSourceDecision(
-            queueLocation,
-            queueLocation ? false : wasCollected);
+        return succeeded &&
+            string.Equals(level, "Level_06", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(variant, "LevelVariant_Default", StringComparison.OrdinalIgnoreCase) &&
+            IsUnearned(nativeStatus);
+    }
+
+    internal static bool IsUnearned(string? nativeStatus)
+    {
+        return string.Equals(nativeStatus, Invalid, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(nativeStatus, HaveNotEarned, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -115,7 +117,7 @@ internal sealed class Level2MoneyCassetteRuntime
             CloseRetryWindow();
             return Level2MoneyCassetteReconcileDecision.AlreadyOwned;
         }
-        if (!string.Equals(nativeStatus, Level2MoneyCassettePolicy.HaveNotEarned, StringComparison.OrdinalIgnoreCase))
+        if (!Level2MoneyCassettePolicy.IsUnearned(nativeStatus))
             return Level2MoneyCassetteReconcileDecision.UnknownNativeStatus;
         if (!processorAvailable)
             return Level2MoneyCassetteReconcileDecision.ProcessorUnavailable;
