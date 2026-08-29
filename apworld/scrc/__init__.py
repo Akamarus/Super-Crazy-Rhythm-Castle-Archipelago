@@ -23,7 +23,6 @@ from .items import (
 )
 from .items import (
     HYPNO_PAN_ITEM_NAME,
-    MONEY_CASSETTE_ITEM_NAME,
     STAR_ITEM_COUNT,
     STAR_ITEM_NAME,
     VIOLANCE_ITEM_NAME,
@@ -552,7 +551,6 @@ class SCRCWorld(World):
             "Music Lab": music_lab,
             "Roots": roots,
             "Royal Corridor": royal,
-            "Secret Bunker": phone_hub,
             "Tower of Fear": tower,
         }
         cassette_source_regions = {}
@@ -570,6 +568,16 @@ class SCRCWorld(World):
             if entry.source_type == "Music Lab point chest":
                 continue
 
+            solver_triggers = tuple(
+                trigger
+                for trigger in entry.triggers
+                if trigger.region != "Secret Bunker"
+            )
+            if not solver_triggers:
+                raise ValueError(
+                    f"cassette source has no active non-Bunker route: {entry.source_name}"
+                )
+
             parent = concrete_regions.get(entry.region)
             if parent is None:
                 parent = cassette_source_regions.get(entry.region)
@@ -581,6 +589,7 @@ class SCRCWorld(World):
                         for cassette in CASSETTES
                         if cassette.region == entry.region
                         for trigger in cassette.triggers
+                        if trigger.region != "Secret Bunker"
                     )
                     phone_hub.connect(
                         parent,
@@ -596,7 +605,7 @@ class SCRCWorld(World):
             )
             set_rule(
                 source,
-                lambda state, triggers=entry.triggers: route_is_open(state, triggers),
+                lambda state, triggers=solver_triggers: route_is_open(state, triggers),
             )
             parent.locations.append(source)
 
@@ -730,6 +739,8 @@ class SCRCWorld(World):
 
         progression_items.append(HIP_GLASSES_ITEM)
         progression_items.append(CHICKEN_BUCKET_ITEM)
+        progression_items.append(HYPNO_PAN_ITEM_NAME)
+        progression_items.append(VIOLANCE_ITEM_NAME)
         progression_items.extend(entry.item_name for entry in CASSETTES)
 
         capacity = self._active_unfilled_location_capacity()
@@ -863,7 +874,7 @@ class SCRCWorld(World):
             "repair_schema_version": "next-release-repair-0.18",
             "consolidated_preview_version": "consolidated-preview-0.19",
             "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],
-            "preview_ability_items_generated": False,
+            "preview_ability_items_generated": True,
             "plant_pipes_durable_reconciliation": True,
             "music_lab_safe_location_classification": "conservative-v1",
             "garage_routing_mode": "interaction-gated",

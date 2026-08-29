@@ -78,6 +78,13 @@ class WorldIntegrationTests(unittest.TestCase):
                         changed = True
         return reachable
 
+    @classmethod
+    def location_is_reachable(cls, world, location, state):
+        return (
+            location.parent_region.name in cls.reachable_regions(world, state)
+            and location.access_rule(state)
+        )
+
     def test_generate_early_resolves_start_and_builds_previews(self):
         world = self.make_world()
         world.generate_early()
@@ -137,8 +144,8 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertEqual(len(world.multiworld.itempool), count)
                 names = [item.name for item in world.multiworld.itempool]
                 self.assertNotIn("Star", names)
-                self.assertNotIn("Hypno Pan", names)
-                self.assertNotIn("Violance", names)
+                self.assertEqual(names.count("Hypno Pan"), 1)
+                self.assertEqual(names.count("Violance"), 1)
 
     def test_every_cassette_has_one_live_item_and_one_source(self):
         for difficulty in range(4):
@@ -182,23 +189,73 @@ class WorldIntegrationTests(unittest.TestCase):
                     self.assertFalse(medal.access_rule(State(all_prerequisites | {wrong_item})))
                     self.assertTrue(medal.access_rule(State(all_prerequisites | {entry.item_name})))
 
-    def test_cassette_sources_use_logical_or_across_verified_routes(self):
+    def test_cassette_sources_use_non_bunker_verified_routes_in_the_region_graph(self):
         world = self.build_world(difficulty=3)
 
         for entry in self.catalog.CASSETTES:
-            if entry.reused_location:
+            if entry.source_type == "Music Lab point chest":
                 continue
             source = world.multiworld.get_location(entry.source_name, world.player)
-            has_free_route = any(not trigger.requirements for trigger in entry.triggers)
-            self.assertEqual(
-                source.access_rule(State([])),
-                has_free_route,
+            active_triggers = tuple(
+                trigger for trigger in entry.triggers
+                if trigger.region != "Secret Bunker"
+            )
+            self.assertTrue(active_triggers, entry.source_name)
+            self.assertFalse(
+                self.location_is_reachable(world, source, State([])),
                 entry.source_name,
             )
-            for trigger in entry.triggers:
+            for trigger in active_triggers:
                 with self.subTest(source=entry.source_name, route=(trigger.level, trigger.variant)):
                     route_items = {requirement.item for requirement in trigger.requirements}
-                    self.assertTrue(source.access_rule(State(route_items)))
+                    route_state = State(route_items)
+                    self.assertIn(
+                        source.parent_region.name,
+                        self.reachable_regions(world, route_state),
+                    )
+                    self.assertTrue(self.location_is_reachable(world, source, route_state))
+                    for missing in route_items:
+                        self.assertFalse(
+                            self.location_is_reachable(
+                                world,
+                                source,
+                                State(route_items - {missing}),
+                            ),
+                            f"{entry.source_name} without {missing}",
+                        )
+            route_items = {
+                requirement.item
+                for trigger in active_triggers
+                for requirement in trigger.requirements
+            }
+            wrong_route_item = next(
+                item for item in self.module.AREA_ACCESS_ITEMS
+                if item not in route_items
+            )
+            self.assertFalse(
+                self.location_is_reachable(world, source, State({wrong_route_item})),
+                f"{entry.source_name} through wrong route {wrong_route_item}",
+            )
+
+    def test_secret_bunker_aliases_do_not_open_from_phone_hub(self):
+        world = self.build_world(difficulty=3)
+
+        for entry in self.catalog.CASSETTES:
+            bunker_triggers = tuple(
+                trigger for trigger in entry.triggers
+                if trigger.region == "Secret Bunker"
+            )
+            if not bunker_triggers:
+                continue
+            source = world.multiworld.get_location(entry.source_name, world.player)
+            for trigger in bunker_triggers:
+                with self.subTest(source=entry.source_name, route=(trigger.level, trigger.variant)):
+                    bunker_only_items = {
+                        requirement.item for requirement in trigger.requirements
+                    }
+                    self.assertFalse(
+                        self.location_is_reachable(world, source, State(bunker_only_items))
+                    )
 
     def test_all_music_lab_point_chests_reject_required_progression(self):
         world = self.build_world(difficulty=3)
@@ -228,16 +285,21 @@ class WorldIntegrationTests(unittest.TestCase):
                     for entry in self.catalog.CASSETTES:
                         self.assertEqual(item_names.count(entry.item_name), 1)
 
-                    all_other_progression = {
-                        name
-                        for name, classification in self.module.ITEM_CLASSIFICATIONS.items()
-                        if classification == "progression"
+                    generated_progression = {
+                        item.name
+                        for item in world.multiworld.itempool
+                        if item.classification == "progression"
                     }
-                    all_other_progression.update(item.name for item in world.multiworld.precollected)
+                    generated_progression.update(
+                        item.name for item in world.multiworld.precollected
+                    )
                     for entry in self.catalog.CASSETTES:
-                        all_but_self = all_other_progression - {entry.item_name}
+                        all_but_self = generated_progression - {entry.item_name}
                         source = world.multiworld.get_location(entry.source_name, world.player)
-                        self.assertTrue(source.access_rule(State(all_but_self)), entry.source_name)
+                        self.assertTrue(
+                            self.location_is_reachable(world, source, State(all_but_self)),
+                            entry.source_name,
+                        )
                         bronze = world.multiworld.get_location(
                             f"Music Lab Cassette - {entry.display_song} - Bronze",
                             world.player,
@@ -283,7 +345,7 @@ class WorldIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "required progression items.*active locations"):
             world.create_items()
 
-    def test_preview_abilities_are_registered_but_not_generated(self):
+    def test_cassette_prerequisite_abilities_are_generated_once(self):
         world = self.build_world()
         world.create_items()
 
@@ -292,8 +354,8 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(world.create_item("Violance").code, 187256122)
         self.assertEqual(world.create_item("Violance").classification, "progression")
         generated_names = [item.name for item in world.multiworld.itempool]
-        self.assertNotIn("Hypno Pan", generated_names)
-        self.assertNotIn("Violance", generated_names)
+        self.assertEqual(generated_names.count("Hypno Pan"), 1)
+        self.assertEqual(generated_names.count("Violance"), 1)
 
     def test_roots_bucket_progression_has_permanent_unique_ids(self):
         self.assertEqual(self.module.ITEM_NAME_TO_ID[self.module.HIP_GLASSES_ITEM], 187256119)
@@ -325,7 +387,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
     def test_money_cassette_registers_unique_progression_source_and_pool_item(self):
         self.assertEqual(
-            self.module.ITEM_NAME_TO_ID[self.module.MONEY_CASSETTE_ITEM_NAME],
+            self.module.ITEM_NAME_TO_ID["Money Cassette"],
             187256123,
         )
         self.assertEqual(
@@ -333,7 +395,7 @@ class WorldIntegrationTests(unittest.TestCase):
             187256186,
         )
         self.assertEqual(
-            self.module.ITEM_CLASSIFICATIONS[self.module.MONEY_CASSETTE_ITEM_NAME],
+            self.module.ITEM_CLASSIFICATIONS["Money Cassette"],
             "progression",
         )
         self.assertEqual(len(set(self.module.ITEM_NAME_TO_ID.values())), len(self.module.ITEM_NAME_TO_ID))
@@ -443,7 +505,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["repair_schema_version"], "next-release-repair-0.18")
         self.assertEqual(data["consolidated_preview_version"], "consolidated-preview-0.19")
         self.assertEqual(data["preview_ability_items_registered"], ["Hypno Pan", "Violance"])
-        self.assertFalse(data["preview_ability_items_generated"])
+        self.assertTrue(data["preview_ability_items_generated"])
         self.assertTrue(data["plant_pipes_durable_reconciliation"])
         self.assertEqual(data["music_lab_safe_location_classification"], "conservative-v1")
         self.assertEqual(data["garage_routing_mode"], "interaction-gated")
