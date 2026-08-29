@@ -14,6 +14,19 @@ VALIDATOR = REPO_ROOT / "tools" / "validate-repo.py"
 
 
 class RepositoryContractTests(unittest.TestCase):
+    def test_public_apworld_docs_report_v022_location_totals(self):
+        expected_rows = (
+            "| Normal | Completion / 1-Star | Bronze | 92 |",
+            "| Hard | Add 2-Star | Add Silver | 129 |",
+            "| Expert | Add 3-Star | Add Gold | 166 |",
+            "| Perfection | Same campaign tiers as Expert | Add Platinum | 202 |",
+        )
+        for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(document=relative):
+                for row in expected_rows:
+                    self.assertIn(row, text)
+
     def run_validator(self, root=REPO_ROOT):
         environment = os.environ.copy()
         environment["SCRC_REPO_ROOT"] = str(root)

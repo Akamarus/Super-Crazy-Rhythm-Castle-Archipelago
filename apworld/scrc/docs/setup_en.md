@@ -16,11 +16,11 @@ Set `difficulty` in the YAML to one of `normal`, `hard`, `expert`, or `perfectio
 
 | AP difficulty | Campaign tiers | Song medal tiers | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 67 |
-| Hard | Add 2-Star | Add Silver | 104 |
-| Expert | Add 3-Star | Add Gold | 141 |
-| Perfection | Same campaign tiers as Expert | Add Platinum | 177 |
+| Normal | Completion / 1-Star | Bronze | 92 |
+| Hard | Add 2-Star | Add Silver | 129 |
+| Expert | Add 3-Star | Add Gold | 166 |
+| Perfection | Same campaign tiers as Expert | Add Platinum | 202 |
 
-Inactive checks are absent from the seed, not filler. v0.20 filters only existing campaign performance locations: no campaign checks or IDs are added. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Inactive checks are absent from the seed, not filler. v0.22 retains performance filtering and adds the full cassette source set. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 
 v0.22.0 activates all 30 Music Lab cassette items and sources. Rebuild/replace the APWorld, restart Archipelago, and generate a fresh seed. Client v0.68.0 enables cassette routing only when schema, count, item mappings, source mappings, and reused chest mappings match exactly; otherwise it logs the mismatch and leaves native cassette behavior enabled.
