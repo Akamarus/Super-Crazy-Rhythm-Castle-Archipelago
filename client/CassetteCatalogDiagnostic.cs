@@ -13,7 +13,7 @@ internal static class CassetteCatalogDiagnostic
             CassetteCatalogDiagnosticPolicy.DecideScope(room);
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== CASSETTE CATALOG DIAGNOSTIC BEGIN ===== schema=2 " +
+            $"[SCRC-AP] ===== CASSETTE CATALOG DIAGNOSTIC BEGIN ===== schema=3 " +
             $"room='{Clean(room)}' globalLevelScan={scope.ScanGlobalLevels} " +
             $"roomLocalNonLevelScan={scope.ScanRoomLocalNonLevelSources} " +
             $"readOnly=True mutationRequested=False.");
@@ -75,7 +75,8 @@ internal static class CassetteCatalogDiagnostic
                                 $"{numericSong?.ToString() ?? "?"}:{song}";
 
                             globalLevelSources.Add(new CassetteCatalogDiagnosticSource(
-                                "level", level, variant, song, nativeIdentity));
+                                "level", level, variant, song, nativeIdentity,
+                                $"cassette:{song}"));
                             songIndex++;
                         }
 
@@ -128,7 +129,8 @@ internal static class CassetteCatalogDiagnostic
                 Plugin.LoggerInstance?.LogWarning(
                     $"[SCRC-AP] CASSETTE CATALOG GLOBAL LEVEL SOURCE sourceType='{Clean(source.SourceType)}' " +
                     $"level='{Clean(source.Level)}' variant='{Clean(source.Variant)}' " +
-                    $"song='{Clean(source.Song)}' nativeIdentity='{Clean(source.NativeIdentity)}'.");
+                    $"song='{Clean(source.Song)}' logicalSource='{Clean(source.LogicalSource)}' " +
+                    $"nativeIdentity='{Clean(source.NativeIdentity)}'.");
             }
 
             Plugin.LoggerInstance?.LogWarning(
@@ -137,7 +139,8 @@ internal static class CassetteCatalogDiagnostic
                 $"expectedSongs={CassetteCatalogDiagnosticPolicy.ApprovedLevelEarnedNativeSongs.Count} " +
                 $"missing='{Clean(string.Join("|", coverage.GlobalLevels.MissingSongs))}' " +
                 $"unexpected='{Clean(string.Join("|", coverage.GlobalLevels.UnexpectedSongs))}' " +
-                $"duplicate='{Clean(string.Join("|", coverage.GlobalLevels.DuplicateSongs))}' " +
+                $"aliases='{Clean(string.Join("|", coverage.GlobalLevels.AliasSongs))}' " +
+                $"ambiguous='{Clean(string.Join("|", coverage.GlobalLevels.AmbiguousSongs))}' " +
                 $"complete={coverage.GlobalLevels.IsComplete} readOnly=True mutationRequested=False.");
 
             foreach (CassetteCatalogDiagnosticSource source in coverage.RoomLocalNonLevel.Sources)
@@ -145,6 +148,7 @@ internal static class CassetteCatalogDiagnostic
                 Plugin.LoggerInstance?.LogWarning(
                     $"[SCRC-AP] CASSETTE CATALOG ROOM LOCAL NONLEVEL SOURCE room='{Clean(room)}' " +
                     $"sourceType='{Clean(source.SourceType)}' song='{Clean(source.Song)}' " +
+                    $"logicalSource='{Clean(source.LogicalSource)}' " +
                     $"nativeIdentity='{Clean(source.NativeIdentity)}'.");
             }
 
@@ -156,7 +160,8 @@ internal static class CassetteCatalogDiagnostic
                 $"expectedHub6Songs={CassetteCatalogDiagnosticPolicy.ApprovedHub6NonLevelNativeSongs.Count} " +
                 $"missing='{Clean(string.Join("|", coverage.RoomLocalNonLevel.MissingSongs))}' " +
                 $"unexpected='{Clean(string.Join("|", coverage.RoomLocalNonLevel.UnexpectedSongs))}' " +
-                $"duplicate='{Clean(string.Join("|", coverage.RoomLocalNonLevel.DuplicateSongs))}' " +
+                $"aliases='{Clean(string.Join("|", coverage.RoomLocalNonLevel.AliasSongs))}' " +
+                $"ambiguous='{Clean(string.Join("|", coverage.RoomLocalNonLevel.AmbiguousSongs))}' " +
                 $"complete={coverage.RoomLocalNonLevel.IsComplete} readOnly=True mutationRequested=False.");
 
             Plugin.LoggerInstance?.LogWarning(

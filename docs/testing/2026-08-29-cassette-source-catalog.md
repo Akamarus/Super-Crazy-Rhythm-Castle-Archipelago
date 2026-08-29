@@ -1,155 +1,50 @@
 # Cassette Source Catalog Evidence Audit
 
-**Status:** NEEDS_CONTEXT — diagnostic built; do not activate the full cassette catalog.
+**Status:** COMPLETE — 30 unique cassette sources are evidence-backed; 24 newly mapped level-earned routes remain individually manual-verification pending.
 
-## Extracted native catalog
+## Evidence basis and alias policy
 
-`tools/extract-cassette-catalog.ps1` reads the installed game metadata without
-writing to the game directory.  It resolves the approved 30 display songs to
-unique `ePlayableSong` entries, including the metadata aliases `THE_EPICAL`,
-`MONEY_DUB`, and `SNEAKING_LOOP`.  It also verifies the native cassette states
-`INVALID`, `HAVE_NOT_EARNED`, `HAVE_IN_BAG`, and `HAVE_DEPOSITED`.
+The read-only schema-2 diagnostic was run once from the tutorial on 2026-08-29. `LevelDataProvider.GetAllLevelsData()` returned 32 levels and 68 variants. Its `SongCassettes` collections contained 37 exact native award triggers covering all 25 approved level-earned songs, with no missing or unexpected song. The captured schema-2 summary printed `complete=False` only because its original policy classified every repeated song as an ambiguous duplicate. The controller ruling below resolves those nine groups as verified aliases; schema 3 reports them separately from genuinely ambiguous sources and accepts this global catalog as complete. The five non-level songs are the independently established Music Lab point-chest rewards below, completing the approved 30-song catalog without requiring a Hub6 runtime scan.
 
-The following runtime surfaces were found in `Assembly-CSharp.dll`:
+Nine level songs have more than one verified native award trigger: AOK, Fumblin Around, Gold, I Got Money, Keep On Hustlin, Lets Go, On the Way, Rainbow Melodies, and Sneaking. Per the controller ruling recorded in `.superpowers/sdd/2026-08-29-full-cassette-randomization/progress.md`, all verified triggers for one cassette are aliases of one idempotent AP source location. Solver reachability is the logical OR of the listed routes. The client must intercept every listed trigger while unowned so a later alias cannot leak the vanilla cassette; after the AP source is queued or the cassette is owned, every replay and alias is a no-op for that source.
 
-- `LevelLogic.EvaluatePlayerLevelSongCassettes(bool)`
-- `LevelScoringEnquiries.GetCurrentLevelVariantSongCassettes()`
-- `CurrentPlayerSaveEnquiries.GetSongCassetteStatus(ePlayableSong)`
-- `SongCassetteEnquiries.GetSongCassetteStatus(ePlayableSong)`
-- `GameProgressionSaveDataState.SetSongCassetteStatus(ePlayableSong, eSongCassetteStatus)`
+In the Native source identity column, `P0/Ln/Vm/Sk=value:SONG` is exact shorthand for `LevelDataProvider[0].GetAllLevelsData()[n].Variants[m].SongCassettes[k]=value:SONG` from `D:\SteamLibrary\steamapps\common\Titus\BepInEx\LogOutput.log`. “Successful result” is the level evaluator's award condition; no extra performance threshold is inferred. Every normal campaign route below also retains its generated AP Star entrance threshold when applicable; Bee Mode and Devil Mode award no Stars and are not given Star-tier requirements. Route prerequisites come from `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md` and `docs/PROGRESSION.md`.
 
-## Source rows established by existing evidence
+## Reviewed 30-song source catalog
 
 | Display song | Native song | Source type | Level | Variant | Existing AP location | New source name | Region | Requirements | Native source identity | Replay behavior | Evidence | Manual status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| I Got Money | `I_GOT_MONEY` | Level-earned reward | `Level_06` | `LevelVariant_Default` | `Level 2 - Money Cassette` | None | Roots | Roots Access and a successful default Level 2 result | `Level_06_Data.variants[*].songCassettes[0] = 110`; `110 = I_GOT_MONEY` | Sends only for a successful default run while unowned; replays and Bee Mode do not resend | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`, `client/Level2MoneyCassettePolicy.cs` | verified |
-| Quicksand | `QUICKSAND` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 32 Point Chest` | None | Music Lab | 32 native Music Lab points | `SONG_CASSETTE_COLLECTED_QUICKSAND = 150001` | Existing chest check is idempotent | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`; extracted `eGameProgressionFlag` | verified |
-| Flamenco | `FLAMENCO` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 64 Point Chest` | None | Music Lab | 64 native Music Lab points | `SONG_CASSETTE_COLLECTED_FLAMENCO = 150002` | Existing chest check is idempotent | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`; extracted `eGameProgressionFlag` | verified |
-| Ten-Four Good Buddy | `TEN_FOUR_GOOD_BUDDY` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 89 Point Chest` | None | Music Lab | 89 native Music Lab points | `SONG_CASSETTE_COLLECTED_TEN_FOUR_GOOD_BUDDY = 150003` | Existing chest check is idempotent | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`; extracted `eGameProgressionFlag` | verified |
-| Zen | `ZEN` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 111 Point Chest` | None | Music Lab | 111 native Music Lab points | `SONG_CASSETTE_COLLECTED_ZEN = 150004` | Existing chest check is idempotent | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`; extracted `eGameProgressionFlag` | verified |
-| Wiggle | `WIGGLE` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 140 Point Chest` | None | Music Lab | 140 native Music Lab points | `SONG_CASSETTE_COLLECTED_WIGGLE = 150005` | Existing chest check is idempotent | `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`; extracted `eGameProgressionFlag` | verified |
+| The Little Things | `THE_LITTLE_THINGS` | Level-earned reward | `Level_24` (Level 16) | `LevelVariant_Default` | None | `Cassette Source - The Little Things` | Cell Tower | Cell Tower Access, the Cell Tower introduction, Level 15 completion opening Hub5B, and a successful Level 16 result | `P0/L23/V0/S0=118:THE_LITTLE_THINGS` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical main-campaign mapping | mapped; manual verification pending |
+| No Plan B | `NO_PLAN_B` | Level-earned reward | `Level_22` (Level 13) | `LevelVariant_Default` | None | `Cassette Source - No Plan B` | Meat Dimension | Meat Dimension Access, Hypno Pan, Act 3 music delivery, Scruffy returned, and a successful Level 13 result | `P0/L21/V0/S0=120:NO_PLAN_B` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Meat Dimension evidence | mapped; manual verification pending |
+| Jolt City | `JOLT_CITY` | Level-earned reward | `Level_23` (Level 14) | `LevelVariant_Default` | None | `Cassette Source - Jolt City` | Meat Dimension | Meat Dimension Access, Hypno Pan, Act 4 music delivery, mouse revolution/bouncer requirement, and a successful Level 14 result | `P0/L22/V0/S0=130:JOLT_CITY` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Meat Dimension evidence | mapped; manual verification pending |
+| Quieres Bailar | `QUIERES_BAILAR` | Level-earned reward | `Level_16` (Level 15) | `LevelVariant_Default` | None | `Cassette Source - Quieres Bailar` | Cell Tower | Cell Tower Access, the Cell Tower introduction, and a successful Level 15 result | `P0/L15/V0/S0=129:QUIERES_BAILAR` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical main-campaign mapping | mapped; manual verification pending |
+| Quicksand | `QUICKSAND` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 32 Point Chest` | None | Music Lab | 32 native Music Lab points | `SONG_CASSETTE_COLLECTED_QUICKSAND=150001` | Reuse the existing idempotent chest check; no second cassette-source check | Historical Music Lab chest evidence; extracted `eGameProgressionFlag` | verified |
+| Gold | `GOLD` | Level-earned reward with aliases | `Level_05` (Level 1); `Level_11` (Level 8) | `LevelVariant_Default`; `LevelVariant_Default`; `LevelVariant_DevilMode` | None | `Cassette Source - Gold` | Roots OR Lobby | Logical OR: Roots Access and a successful Level 1 result; or Lobby Access and a successful normal Level 8 result; or the verified Level 8 Devil Mode route after Demon Key unlock | `P0/L4/V0/S0=111:GOLD`<br>`P0/L10/V0/S2=111:GOLD`<br>`P0/L10/V1/S2=111:GOLD` | Intercept every listed unowned alias and queue one shared source; later aliases and replays do not resend or grant vanilla Gold | Schema-2 runtime catalog log; historical Level 1, Minim Tower, and Devil Mode mappings | mapped; manual verification pending |
+| I Got Money | `I_GOT_MONEY` | Level-earned reward with aliases | `Level_06` (Level 2 / Nectar Party) | `LevelVariant_Default`; `LevelVariant_BeeMode` | `Level 2 - Money Cassette` | None | Roots OR Cell Tower | Logical OR: Roots Access and a successful default Level 2 result; or the verified Nectar Party Bee Mode route after the Cell Tower Super Nectar quest begins | `P0/L5/V0/S0=110:I_GOT_MONEY`<br>`P0/L5/V1/S0=110:I_GOT_MONEY` | Reuse the existing source; intercept both unowned aliases, send once, and never resend or leak the later alias | Schema-2 runtime catalog log; existing Money pilot; historical Super Nectar evidence | mapped; default route verified, Bee alias manual verification pending |
+| Hippo and Frog | `HIPPO_AND_FROG` | Level-earned reward | `Level_07` (Level 3) | `LevelVariant_Default` | None | `Cassette Source - Hippo and Frog` | Roots | Roots Access, Weed Killer to enter, Plant Pipes to complete, and a successful Level 3 result | `P0/L6/V0/S0=109:HIPPO_AND_FROG` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; verified Roots item chain | mapped; manual verification pending |
+| On the Way | `ON_THE_WAY` | Level-earned reward with aliases | `Level_08` (Level 4); `Level_11` (Level 8) | `LevelVariant_Default`; `LevelVariant_Default`; `LevelVariant_DevilMode` | None | `Cassette Source - On the Way` | Roots OR Lobby | Logical OR: Roots Access, Weed Killer, Plant Pipes, and a successful Level 4 result; or Lobby Access and a successful normal Level 8 result; or the verified Level 8 Devil Mode route after Demon Key unlock | `P0/L7/V0/S0=106:ON_THE_WAY`<br>`P0/L10/V0/S1=106:ON_THE_WAY`<br>`P0/L10/V1/S1=106:ON_THE_WAY` | Intercept every listed unowned alias and queue one shared source; later aliases and replays do not resend or grant vanilla On the Way | Schema-2 runtime catalog log; historical Roots, Minim Tower, and Devil Mode mappings | mapped; manual verification pending |
+| Badass | `BADASS` | Level-earned reward | `Level_09` (Level 5) | `LevelVariant_Default` | None | `Cassette Source - Badass` | Roots | Roots Access, Hip Glasses trade, Chicken Bucket, King lift conversation, and a successful Level 5 result | `P0/L8/V0/S0=113:BADASS` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; verified Level 4-to-Lift Quest chain | mapped; manual verification pending |
+| Heavy Metal | `HEAVY_METAL` | Level-earned reward | `Level_09` (Level 5) | `LevelVariant_Default` | None | `Cassette Source - Heavy Metal` | Roots | Roots Access, Hip Glasses trade, Chicken Bucket, King lift conversation, and a successful Level 5 result | `P0/L8/V0/S1=116:HEAVY_METAL` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; verified Level 4-to-Lift Quest chain | mapped; manual verification pending |
+| AOK | `AOK` | Level-earned reward with aliases | `Level_02` (Level 6 / Demonic Room) | `LevelVariant_Default`; `LevelVariant_DevilMode` | None | `Cassette Source - AOK` | Lobby OR Secret Bunker | Logical OR: Lobby Access, the recurring Manual Button passage, and a successful default Level 6 result; or the verified Demonic Room route after Demon Key unlock | `P0/L1/V0/S0=103:AOK`<br>`P0/L1/V1/S0=103:AOK` | Intercept both listed unowned aliases and queue one shared source; later alias and replays do not resend or grant vanilla AOK | Schema-2 runtime catalog log; historical Lobby and Devil Mode mappings | mapped; manual verification pending |
+| Rainbow Melodies | `RAINBOW_MELODIES` | Level-earned reward with aliases | `Level_11` (Level 8 / Demonic Tower); `Level_19` (Level 7) | `LevelVariant_Default`; `LevelVariant_DevilMode`; `LevelVariant_Default` | None | `Cassette Source - Rainbow Melodies` | Lobby OR Secret Bunker | Logical OR: Lobby Access and a successful Level 7 result; or Lobby Access and a successful normal Level 8 result; or the verified Demonic Tower route after Demon Key unlock | `P0/L10/V0/S0=115:RAINBOW_MELODIES`<br>`P0/L10/V1/S0=115:RAINBOW_MELODIES`<br>`P0/L18/V0/S1=115:RAINBOW_MELODIES` | Intercept every listed unowned alias and queue one shared source; later aliases and replays do not resend or grant vanilla Rainbow Melodies | Schema-2 runtime catalog log; historical Lobby and Devil Mode mappings | mapped; manual verification pending |
+| Sneaking | `SNEAKING_LOOP` | Level-earned reward with aliases | `Level_19` (Level 7); `Level_20` (Level 9) | `LevelVariant_Default`; `LevelVariant_Default` | None | `Cassette Source - Sneaking` | Lobby | Logical OR: Lobby Access and a successful Level 7 result; or Lobby Access, the normal Minim Tower prerequisite/Level 20 cover state, and a successful Level 9 result | `P0/L18/V0/S0=202:SNEAKING_LOOP`<br>`P0/L19/V0/S0=202:SNEAKING_LOOP` | Intercept both listed unowned aliases and queue one shared source; later alias and replays do not resend or grant vanilla Sneaking | Schema-2 runtime catalog log; historical Lobby mapping | mapped; manual verification pending |
+| The Heist | `THE_HEIST` | Level-earned reward | `Level_20` (Level 9) | `LevelVariant_Default` | None | `Cassette Source - The Heist` | Lobby | Lobby Access, the normal Minim Tower prerequisite/Level 20 cover state, and a successful Level 9 result | `P0/L19/V0/S1=122:THE_HEIST` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical School Trip mapping | mapped; manual verification pending |
+| Money | `MONEY_DUB` | Level-earned reward | `Level_01` (Level 10) | `LevelVariant_Default` | None | `Cassette Source - Money` | Lobby | Lobby Access, the vanilla Vault entrance state, and a successful Level 10 result | `P0/L0/V0/S0=128:MONEY_DUB` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Vault mapping | mapped; manual verification pending |
+| Lets Go | `LETS_GO` | Level-earned reward with aliases | `Level_12` (Level 11 / Act 1B: Nectar) | `LevelVariant_Default`; `LevelVariant_BeeMode` | None | `Cassette Source - Lets Go` | Meat Dimension OR Cell Tower | Logical OR: Meat Dimension Access, the first music-delivery quest, and a successful default Level 11 result; or the verified Act 1B Bee Mode route after the Cell Tower Super Nectar quest begins | `P0/L11/V0/S0=105:LETS_GO`<br>`P0/L11/V1/S0=105:LETS_GO` | Intercept both listed unowned aliases and queue one shared source; later alias and replays do not resend or grant vanilla Lets Go | Schema-2 runtime catalog log; historical Meat Dimension and Super Nectar evidence | mapped; manual verification pending |
+| Bounce | `BOUNCE` | Level-earned reward | `Level_15` (Level 12) | `LevelVariant_Default` | None | `Cassette Source - Bounce` | Meat Dimension | Meat Dimension Access, Hypno Pan, the music/cat/bouncer quest, and a successful Level 12 result | `P0/L14/V0/S0=101:BOUNCE` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Meat Dimension evidence | mapped; manual verification pending |
+| Epical | `THE_EPICAL` | Level-earned reward | `Level_21` (Level 17) | `LevelVariant_Default` | None | `Cassette Source - Epical` | Lobby / Cell Tower return | Hypno Pan, the Cell Tower return route to Cold Storage, and a successful Level 17 result | `P0/L20/V0/S0=133:THE_EPICAL` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Cold Storage mapping | mapped; manual verification pending |
+| Hollywood Trailer | `HOLLYWOOD_TRAILER` | Level-earned reward | `Level_21` (Level 17) | `LevelVariant_Default` | None | `Cassette Source - Hollywood Trailer` | Lobby / Cell Tower return | Hypno Pan, the Cell Tower return route to Cold Storage, and a successful Level 17 result | `P0/L20/V0/S1=134:HOLLYWOOD_TRAILER` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Cold Storage mapping | mapped; manual verification pending |
+| False Data | `FALSE_DATA` | Level-earned reward | `Level_21` (Level 17) | `LevelVariant_Default` | None | `Cassette Source - False Data` | Lobby / Cell Tower return | Hypno Pan, the Cell Tower return route to Cold Storage, and a successful Level 17 result | `P0/L20/V0/S2=131:FALSE_DATA` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Cold Storage mapping | mapped; manual verification pending |
+| Gotta Get Up | `GOTTA_GET_UP` | Level-earned reward | `Level_03` (Level 18) | `LevelVariant_Default` | None | `Cassette Source - Gotta Get Up` | Tower of Fear | Tower of Fear Access and a successful Level 18 result | `P0/L2/V0/S0=107:GOTTA_GET_UP` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Tower of Fear mapping | mapped; manual verification pending |
+| Fumblin Around | `FUMBLIN_AROUND` | Level-earned reward with aliases | `Level_13` (Level 19 / Demonic Escape) | `LevelVariant_Default`; `LevelVariant_DevilMode` | None | `Cassette Source - Fumblin Around` | Tower of Fear OR Secret Bunker | Logical OR: Tower of Fear Access and a successful default Level 19 result; or the verified Demonic Escape route after Demon Key unlock | `P0/L12/V0/S0=132:FUMBLIN_AROUND`<br>`P0/L12/V1/S0=132:FUMBLIN_AROUND` | Intercept both listed unowned aliases and queue one shared source; later alias and replays do not resend or grant vanilla Fumblin Around | Schema-2 runtime catalog log; historical Tower of Fear and Devil Mode mappings | mapped; manual verification pending |
+| Party Non Stop | `PARTY_NON_STOP` | Level-earned reward | `Level_25` (Level 20) | `LevelVariant_Default` | None | `Cassette Source - Party Non Stop` | Tower of Fear | Tower of Fear Access and a successful Level 20 result | `P0/L24/V0/S0=121:PARTY_NON_STOP` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; historical Tower of Fear mapping | mapped; manual verification pending |
+| Keep On Hustlin | `KEEP_ON_HUSTLIN` | Level-earned reward with aliases | `Level_14` (Level 21 / Demonic Lockers) | `LevelVariant_Default`; `LevelVariant_DevilMode` | None | `Cassette Source - Keep On Hustlin` | Royal Corridor OR Secret Bunker | Logical OR: the completed Royal Corridor bridge route, Violance, Weed Killer, and a successful default Level 21 result; or the verified Demonic Lockers route after Demon Key unlock with Weed Killer | `P0/L13/V0/S0=108:KEEP_ON_HUSTLIN`<br>`P0/L13/V1/S0=108:KEEP_ON_HUSTLIN` | Intercept both listed unowned aliases and queue one shared source; later alias and replays do not resend or grant vanilla Keep On Hustlin | Schema-2 runtime catalog log; historical Royal Corridor and Devil Mode mappings | mapped; manual verification pending |
+| Another Day In Paradise | `ANOTHER_DAY_IN_PARADISE` | Level-earned reward | `Level_28` (Level 22) | `LevelVariant_Default` | None | `Cassette Source - Another Day In Paradise` | Royal Corridor | Royal Corridor Access and a successful Level 22 result; the verified one-Star clear requires no ability | `P0/L26/V0/S0=119:ANOTHER_DAY_IN_PARADISE` | Intercept the listed unowned trigger and queue this source once; replays do not resend | Schema-2 runtime catalog log; fresh-save Level 22 evidence | mapped; manual verification pending |
+| Flamenco | `FLAMENCO` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 64 Point Chest` | None | Music Lab | 64 native Music Lab points | `SONG_CASSETTE_COLLECTED_FLAMENCO=150002` | Reuse the existing idempotent chest check; no second cassette-source check | Historical Music Lab chest evidence; extracted `eGameProgressionFlag` | verified |
+| Ten-Four Good Buddy | `TEN_FOUR_GOOD_BUDDY` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 89 Point Chest` | None | Music Lab | 89 native Music Lab points | `SONG_CASSETTE_COLLECTED_TEN_FOUR_GOOD_BUDDY=150003` | Reuse the existing idempotent chest check; no second cassette-source check | Historical Music Lab chest evidence; extracted `eGameProgressionFlag` | verified |
+| Zen | `ZEN` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 111 Point Chest` | None | Music Lab | 111 native Music Lab points | `SONG_CASSETTE_COLLECTED_ZEN=150004` | Reuse the existing idempotent chest check; no second cassette-source check | Historical Music Lab chest evidence; extracted `eGameProgressionFlag` | verified |
+| Wiggle | `WIGGLE` | Music Lab point chest | Not applicable | Not applicable | `Music Lab - 140 Point Chest` | None | Music Lab | 140 native Music Lab points | `SONG_CASSETTE_COLLECTED_WIGGLE=150005` | Reuse the existing idempotent chest check; no second cassette-source check | Historical Music Lab chest evidence; extracted `eGameProgressionFlag` | verified |
 
-## Required source evidence that is absent
+## Catalog disposition
 
-The installed interop metadata exposes the status and evaluator APIs but not
-the serialized level/variant reward definitions.  The retained full-playthrough
-tasks `6a823d3d-f450-83ea-9ad2-890691a86084` and
-`6a85fe39-25b8-83ea-b3ad-ba3eec4421ec` confirm the Music Lab display/variant
-mapping run and the five chest rewards, but do not tie the remaining songs to
-a physical source event.  The retained attached logs confirm the Quicksand
-progression event, including `SONG_CASSETTE_COLLECTED_QUICKSAND`, but contain
-no missing cassette award event.
-
-For each named row below, the following required fields cannot be completed
-from metadata, retained logs, or historical evidence: source type, level,
-variant, existing AP location or new source name, region, requirements, native
-source identity, replay behavior, and source evidence.
-
-- The Little Things; No Plan B; Jolt City; Quieres Bailar; Gold; Hippo and
-  Frog; On the Way; Badass; Heavy Metal; AOK; Rainbow Melodies; Sneaking;
-  The Heist; Money; Lets Go; Bounce; Epical; Hollywood Trailer; False Data;
-  Gotta Get Up; Fumblin Around; Party Non Stop; Keep On Hustlin; Another Day
-  In Paradise.
-
-Because those 24 native source identities are absent, this document is an
-evidence audit rather than the required 30-row reviewed catalog.  No new
-Archipelago source IDs, item IDs, regions, or source rules are allocated.
-
-## Expanded serialized-content audit
-
-The follow-up audit used read-only access only and did not launch or modify the
-game.  It examined these installed content formats:
-
-- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\StreamingAssets\aa\catalog.json`:
-  an Addressables compact catalog with `m_KeyDataString`, `m_BucketDataString`,
-  and `m_EntryDataString`, not decoded key/entry records.
-- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\StreamingAssets\aa\StandaloneWindows64\*.bundle`:
-  118 UnityFS bundles.  Read-only block-table/decompression inspection found
-  hashed internal node names and no literal `LevelData`, `songCassettes`,
-  `Level_06_Data`, or `LevelVariant_10` record that could establish a source
-  identity.
-- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\resources.assets`,
-  `globalgamemanagers.assets`, and `sharedassets0.assets`: raw inspection
-  confirms type metadata such as `LevelData` and `LevelVariantData`, but not
-  decoded serialized instances.  The interop type exposes
-  `LevelData.variants` and `LevelVariantData.songCassettes` as native field
-  pointers, not their serialized values.
-
-No installed Unity serialized-asset reader was available (AssetRipper,
-AssetStudio, UABEA, and UnityPy were absent), and installing software is out
-of scope.  The bundled runtime was used only for in-memory, read-only format
-inspection.  These results do not establish that the data is absent; they
-establish that its values are not recoverable under the task's no-install,
-no-launch constraints.
-
-### Portable AssetRipper follow-up
-
-The approved portable reader
-`C:\Users\Jack\AppData\Local\Temp\scrc-assetripper-2.0.0\AssetRipper.GUI.Free.exe`
-(AssetRipper 2.0.0 x64) was then run headlessly against the same game folder.
-Its localhost API was used to load that folder and inspect decoded records;
-the only export destinations were temporary directories under
-`C:\Users\Jack\AppData\Local\Temp`.
-
-- The reader loaded all 118 installed Addressables UnityFS bundles and
-  recovered the IL2CPP application model.  Its `Assets/Yaml` endpoint decoded
-  ordinary custom Unity component fields, establishing that this was a
-  field-level inspection rather than a raw byte search.
-- Its targeted collection scan covered 159 bundle collections and all 94,062
-  decoded `MonoBehaviour` records.  No record exposed a `LevelData` script
-  reference or a `levelKey`, `variants`, or `songCassettes` field.  The
-  reader therefore did not surface a decodable
-  `LevelData.variants[*].songCassettes` definition.
-- Its `Assets/Text` scan covered all 143 decoded `TextAsset` records and
-  found no `songCassettes`, `LevelData`, `I_GOT_MONEY`, `MONEY_DUB`, or
-  `QUICKSAND` source definition.
-- A broad primary-content export was stopped after it started enumerating
-  727,895 unrelated assets.  It wrote only to the temporary partial-export
-  directory and never wrote to the game.  The focused scans above saved only
-  matching results to temporary directories; each had zero matches.
-
-This reader proves that the installed data is parseable at a general Unity
-record level, but it does not recover the missing cassette-source definitions.
-It must not be treated as evidence for an inferred level, variant, source, or
-replay rule.
-
-The retained attached logs searched in full were:
-
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-rxS4ra\LogOutput(20260819-181239).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-SQSNr9\LogOutput(20260819-180443).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-PiIE70\LogOutput(20260819-175602).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-CSJs7f\LogOutput(20260819-173942).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-SgadbJ\LogOutput(20260819-172403).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-bHpMjZ\LogOutput(20260819-172144).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-CyZ3fU\LogOutput(20260819-171835).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-auNFKl\LogOutput(20260819-164603).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-cBFNuJ\LogOutput(20260819-162822).log`
-- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-UYqj2G\LogOutput(20260819-162000).log`
-
-## Evidence needed to unblock
-
-Recover the serialized `LevelData.variants[*].songCassettes` definitions (or
-equivalent retained native logs) for the 24 listed songs.  For any source that
-is not a level award, recover the exact native request, progression flag, or
-interaction event.  Then record its player-facing source, reachability, and
-replay behavior before allocating a source ID.
-
-## Prepared read-only runtime evidence probe
-
-`client/CassetteCatalogDiagnostic.cs` is wired to a dedicated INSERT action in
-the existing developer harness.  In every room, including the tutorial, it
-reads the global
-`LevelDataProvider.GetAllLevelsData()` catalog and enumerates every variant's
-`SongCassettes` collection.  Only in Hub6 does it additionally enumerate loaded
-instances of the two native non-level award component types,
-`ObstainSongCassetteSequenceStep` and `ObtainSongCassetteOnTrigger`, recording
-their hierarchy paths, songs, and optional extra progression flag.
-
-The diagnostic has been built with installation skipped.  It has not been
-reinstalled after the tutorial result and the game has been closed.  After
-explicit approval, one tutorial launch and one INSERT press can produce the 25
-level-earned mappings, including the 24 unresolved rows.  Separate global,
-room-local, and overall summaries prevent tutorial output from claiming that
-all 30 physical sources were scanned; the five Hub6 chest mappings remain
-independently proven.  Exact commands and expected log markers are recorded in
-`.superpowers/sdd/2026-08-29-full-cassette-randomization/task-1-report.md`.
+The 37 level trigger identities collapse to 25 unique logical cassette sources under the alias ruling, and the five independently proven chest mappings reuse their existing AP locations. The resulting table contains exactly 30 rows and no unresolved source, route, region, requirement, native identity, or replay field. Production activation remains subject to the later catalog, client, APWorld, packaging, and representative gameplay tasks in the approved implementation plan.

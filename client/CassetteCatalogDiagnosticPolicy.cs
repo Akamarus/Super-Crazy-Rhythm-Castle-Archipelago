@@ -5,13 +5,15 @@ internal sealed record CassetteCatalogDiagnosticSource(
     string Level,
     string Variant,
     string Song,
-    string NativeIdentity);
+    string NativeIdentity,
+    string LogicalSource = "");
 
 internal sealed record CassetteCatalogDiagnosticSnapshot(
     IReadOnlyList<CassetteCatalogDiagnosticSource> Sources,
     IReadOnlyList<string> MissingSongs,
     IReadOnlyList<string> UnexpectedSongs,
-    IReadOnlyList<string> DuplicateSongs,
+    IReadOnlyList<string> AliasSongs,
+    IReadOnlyList<string> AmbiguousSongs,
     int UniqueSongCount,
     int LevelCount,
     int VariantCount,
@@ -154,10 +156,24 @@ internal static class CassetteCatalogDiagnosticPolicy
             .OrderBy(song => song, StringComparer.Ordinal)
             .ToArray();
 
-        var duplicateSongs = orderedSources
+        var songGroups = orderedSources
             .Where(source => !string.IsNullOrWhiteSpace(source.Song))
             .GroupBy(source => source.Song, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
+            .ToArray();
+
+        var aliasSongs = songGroups
+            .Where(group =>
+                group.All(source => !string.IsNullOrWhiteSpace(source.LogicalSource)) &&
+                group.Select(source => source.LogicalSource)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count() == 1)
+            .Select(group => group.Key)
+            .OrderBy(song => song, StringComparer.Ordinal)
+            .ToArray();
+
+        var ambiguousSongs = songGroups
+            .Where(group => !aliasSongs.Contains(group.Key, StringComparer.OrdinalIgnoreCase))
             .Select(group => group.Key)
             .OrderBy(song => song, StringComparer.Ordinal)
             .ToArray();
@@ -166,12 +182,13 @@ internal static class CassetteCatalogDiagnosticPolicy
             orderedSources,
             missingSongs,
             unexpectedSongs,
-            duplicateSongs,
+            aliasSongs,
+            ambiguousSongs,
             observedSongs.Length,
             levelCount,
             variantCount,
             missingSongs.Length == 0 &&
             unexpectedSongs.Length == 0 &&
-            duplicateSongs.Length == 0);
+            ambiguousSongs.Length == 0);
     }
 }

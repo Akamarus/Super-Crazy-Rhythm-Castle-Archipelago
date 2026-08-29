@@ -63,10 +63,33 @@ var ambiguous = CassetteCatalogDiagnosticPolicy.CreateSnapshot(
     levelCount: 1,
     variantCount: 1);
 
-SequenceEqual(new[] { "I_GOT_MONEY" }, ambiguous.DuplicateSongs,
+SequenceEqual(new[] { "I_GOT_MONEY" }, ambiguous.AmbiguousSongs,
     "one song mapped to distinct physical sources is reported as ambiguous");
 Equal(false, ambiguous.IsComplete,
     "ambiguous physical sources keep the diagnostic incomplete");
+
+var verifiedAliases = CassetteCatalogDiagnosticPolicy.CreateSnapshot(
+    new[]
+    {
+        new CassetteCatalogDiagnosticSource(
+            "level", "Level_02", "LevelVariant_Default", "AOK",
+            "LevelDataProvider[0].GetAllLevelsData()[1].Variants[0].SongCassettes[0]=103:AOK",
+            "cassette:AOK"),
+        new CassetteCatalogDiagnosticSource(
+            "level", "Level_02", "LevelVariant_DevilMode", "AOK",
+            "LevelDataProvider[0].GetAllLevelsData()[1].Variants[1].SongCassettes[0]=103:AOK",
+            "cassette:AOK"),
+    },
+    new[] { "AOK" },
+    levelCount: 1,
+    variantCount: 2);
+
+SequenceEqual(new[] { "AOK" }, verifiedAliases.AliasSongs,
+    "verified native routes to one logical cassette source are reported as aliases");
+SequenceEqual(Array.Empty<string>(), verifiedAliases.AmbiguousSongs,
+    "verified aliases are not reported as ambiguous physical sources");
+Equal(true, verifiedAliases.IsComplete,
+    "verified aliases preserve complete unique-song coverage");
 
 var unexpected = CassetteCatalogDiagnosticPolicy.CreateSnapshot(
     new[]
@@ -130,7 +153,22 @@ var globalLevelSources = approvedNativeSongs
     .Except(hub6ChestSongs, StringComparer.Ordinal)
     .Select((song, index) => new CassetteCatalogDiagnosticSource(
         "level", $"Level_{index + 1:00}", "LevelVariant_Default", song,
-        $"global-level-{index + 1:00}"))
+        $"global-level-{index + 1:00}", $"cassette:{song}"))
+    .Concat(new[]
+    {
+        new CassetteCatalogDiagnosticSource("level", "Level_02", "LevelVariant_DevilMode", "AOK", "alias-AOK", "cassette:AOK"),
+        new CassetteCatalogDiagnosticSource("level", "Level_13", "LevelVariant_DevilMode", "FUMBLIN_AROUND", "alias-FUMBLIN_AROUND", "cassette:FUMBLIN_AROUND"),
+        new CassetteCatalogDiagnosticSource("level", "Level_11", "LevelVariant_Default", "GOLD", "alias-GOLD-default", "cassette:GOLD"),
+        new CassetteCatalogDiagnosticSource("level", "Level_11", "LevelVariant_DevilMode", "GOLD", "alias-GOLD-devil", "cassette:GOLD"),
+        new CassetteCatalogDiagnosticSource("level", "Level_06", "LevelVariant_BeeMode", "I_GOT_MONEY", "alias-I_GOT_MONEY", "cassette:I_GOT_MONEY"),
+        new CassetteCatalogDiagnosticSource("level", "Level_14", "LevelVariant_DevilMode", "KEEP_ON_HUSTLIN", "alias-KEEP_ON_HUSTLIN", "cassette:KEEP_ON_HUSTLIN"),
+        new CassetteCatalogDiagnosticSource("level", "Level_12", "LevelVariant_BeeMode", "LETS_GO", "alias-LETS_GO", "cassette:LETS_GO"),
+        new CassetteCatalogDiagnosticSource("level", "Level_11", "LevelVariant_Default", "ON_THE_WAY", "alias-ON_THE_WAY-default", "cassette:ON_THE_WAY"),
+        new CassetteCatalogDiagnosticSource("level", "Level_11", "LevelVariant_DevilMode", "ON_THE_WAY", "alias-ON_THE_WAY-devil", "cassette:ON_THE_WAY"),
+        new CassetteCatalogDiagnosticSource("level", "Level_11", "LevelVariant_DevilMode", "RAINBOW_MELODIES", "alias-RAINBOW_MELODIES-devil", "cassette:RAINBOW_MELODIES"),
+        new CassetteCatalogDiagnosticSource("level", "Level_19", "LevelVariant_Default", "RAINBOW_MELODIES", "alias-RAINBOW_MELODIES-level19", "cassette:RAINBOW_MELODIES"),
+        new CassetteCatalogDiagnosticSource("level", "Level_20", "LevelVariant_Default", "SNEAKING_LOOP", "alias-SNEAKING_LOOP", "cassette:SNEAKING_LOOP"),
+    })
     .ToArray();
 
 var tutorialCoverage = CassetteCatalogDiagnosticPolicy.CreateCoverage(
@@ -142,6 +180,18 @@ var tutorialCoverage = CassetteCatalogDiagnosticPolicy.CreateCoverage(
 
 Equal(true, tutorialCoverage.GlobalLevels.IsComplete,
     "tutorial scan can prove all 25 level-earned cassette sources");
+Equal(37, tutorialCoverage.GlobalLevels.Sources.Count,
+    "the runtime trigger count is preserved alongside 25 unique logical sources");
+SequenceEqual(
+    new[]
+    {
+        "AOK", "FUMBLIN_AROUND", "GOLD", "I_GOT_MONEY", "KEEP_ON_HUSTLIN",
+        "LETS_GO", "ON_THE_WAY", "RAINBOW_MELODIES", "SNEAKING_LOOP",
+    },
+    tutorialCoverage.GlobalLevels.AliasSongs,
+    "all nine runtime duplicate-song groups are verified aliases");
+SequenceEqual(Array.Empty<string>(), tutorialCoverage.GlobalLevels.AmbiguousSongs,
+    "the complete runtime catalog has no ambiguous physical source groups");
 Equal(false, tutorialCoverage.RoomLocalNonLevelScanned,
     "tutorial scan records that room-local non-level sources were not observed");
 Equal(false, tutorialCoverage.AllPhysicalSourcesProven,
