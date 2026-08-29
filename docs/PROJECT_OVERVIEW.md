@@ -91,6 +91,7 @@ This table lists the item names currently known to the APWorld. Permanent networ
 | **Wag the Dog Cartridge** | Progression/useful | Required to use the Wag the Dog song in Game Garage. |
 | **Weed Killer** | Progression | Native consumable quest item from Gecko. AP delivery grants `WEED_KILLER_BAG_ITEM`; vanilla later consumes it to reveal/access Level 3. |
 | **Plant Pipes** | Progression | Permanent usable ability obtained from Frog and Hippo in Level 3. AP delivery grants `WEED_KILLER_ABILITY`. Required to complete Level 3. |
+| **Money Cassette** | Progression | The one-cassette pilot: `Level 2 - Money Cassette` is sent from the first default `Level_06` award. AP delivery grants native `I_GOT_MONEY` as `HAVE_IN_BAG`; the player still inserts it in Music Lab normally. |
 
 ### Historical item IDs retained for compatibility
 
@@ -358,6 +359,12 @@ Music Lab Cassette - {song} - {tier}
 
 The client evaluates the real result-time clean-medal tier and sends cumulative checks accordingly.
 
+### Level 2 Money Cassette pilot
+
+The current APWorld randomizes exactly one campaign-earned cassette, not the full cassette set. The verified source mapping is `Level_06 -> 110 -> I_GOT_MONEY`: the first default Level 2 award sends **Level 2 - Money Cassette** and does not retain the native cassette. The progression item is **Money Cassette**. The separate internal `MONEY_DUB = 128` entry belongs to the Music Lab song named **Money** and is not this Level 2 source.
+
+When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG`, never `HAVE_DEPOSITED`; normal Music Lab insertion remains player-driven. Only the four **I Got Money** medal locations require this item. Replays and the Level 2 Bee Mode variant do not send the source check, and **Level 2 - Completion** remains an independent check.
+
 ---
 
 ## 8. Music Lab reward chest system
@@ -411,16 +418,16 @@ This controls which existing performance-based checks a seed contains without ch
 
 | AP difficulty | Campaign levels | Music Lab and Game Garage | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 67 |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 104 |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 141 |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 177 |
+| Normal | Completion / 1-Star | Bronze | 68 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
 
 A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.21.0 retains v0.20 difficulty filtering while retiring the Vampire Killer source check, producing 67/104/141/177 addressed locations. Existing v0.20 seeds retain their old location sets and six-cartridge behavior. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.21.0 retains v0.20 difficulty filtering while retiring the Vampire Killer source check, producing 68/105/142/178 addressed locations. Existing v0.20 seeds retain their old location sets and six-cartridge behavior. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -543,11 +550,12 @@ The client follows several implementation rules developed through testing:
 | Chicken Bucket | Native mapping verified / not implemented | Held item `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
 | Garage cartridges | Implemented | 5 AP items; Vampire Killer remains a physical vanilla pickup required for Garage entry. |
-| Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers; cassette items are not randomized in the current APWorld. |
-| Cassette-item randomization | Design approved / not implemented | Requires source, inventory, insertion, and reconciliation mapping for every cassette. |
+| Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers. The four I Got Money medals require Money Cassette. |
+| Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | `Level_06 -> 110 -> I_GOT_MONEY` is randomized through `Level 2 - Money Cassette`; fresh-save and save-switch IL2CPP acceptance remain pending. |
+| Remaining cassette-item randomization | Design approved / not implemented | Only the Level 2 Money Cassette pilot is implemented; every other cassette still requires source, inventory, insertion, and reconciliation mapping. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 67/104/141/177 addressed locations; native REG/PRO remains player-controlled. |
+| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 

@@ -12,6 +12,7 @@ from .difficulty import (
 from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
 from .items import (
     HYPNO_PAN_ITEM_NAME,
+    MONEY_CASSETTE_ITEM_NAME,
     STAR_ITEM_COUNT,
     STAR_ITEM_NAME,
     VIOLANCE_ITEM_NAME,
@@ -218,6 +219,9 @@ LEVEL_22_ORDINARY_LOCATIONS = (
 for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
     LOCATION_NAME_TO_ID[name] = BASE_ID + 182 + index
 
+LEVEL_2_MONEY_CASSETTE_SOURCE = "Level 2 - Money Cassette"
+LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
+
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
     MUSIC_LAB_10_POINT_CHEST,
@@ -391,6 +395,18 @@ class SCRCWorld(World):
                 )
             roots.locations.append(location)
 
+        money_cassette_source = SCRCLocation(
+            self.player,
+            LEVEL_2_MONEY_CASSETTE_SOURCE,
+            LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE],
+            roots,
+        )
+        set_rule(
+            money_cassette_source,
+            lambda state: state.has("Roots Access", self.player),
+        )
+        roots.locations.append(money_cassette_source)
+
         # Gecko is reachable from the Roots hub once Roots Access is owned.
         # Weed Killer is NOT required to reach this source; it is the reward
         # that vanilla later consumes to unlock entry to Level 3.
@@ -509,8 +525,8 @@ class SCRCWorld(World):
 
         # Hub6 side content is always logically reachable. v0.14 intentionally
         # permits Area Access items here so current-save networking can test
-        # real AP-driven area unlocks. Cassette/point/full world prerequisites
-        # will be modeled in a later logic milestone.
+        # real AP-driven area unlocks. Remaining cassette/point/full world
+        # prerequisites will be modeled in a later logic milestone.
         for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
             location = SCRCLocation(
                 self.player,
@@ -528,6 +544,11 @@ class SCRCWorld(World):
                 if not is_active(name):
                     continue
                 location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
+                if song == "I Got Money":
+                    set_rule(
+                        location,
+                        lambda state: state.has(MONEY_CASSETTE_ITEM_NAME, self.player),
+                    )
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 music_lab.locations.append(location)
@@ -642,6 +663,7 @@ class SCRCWorld(World):
 
         progression_items.append(HIP_GLASSES_ITEM)
         progression_items.append(CHICKEN_BUCKET_ITEM)
+        progression_items.append(MONEY_CASSETTE_ITEM_NAME)
 
         capacity = self._active_unfilled_location_capacity()
         required_count = len(progression_items)
@@ -767,6 +789,7 @@ class SCRCWorld(World):
             "plant_pipes_native_source_marker_flag": "LEVEL_07_WK_ABILITY_EARNED",
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
+            "randomize_level_2_money_cassette": True,
             "repair_schema_version": "next-release-repair-0.18",
             "consolidated_preview_version": "consolidated-preview-0.19",
             "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],

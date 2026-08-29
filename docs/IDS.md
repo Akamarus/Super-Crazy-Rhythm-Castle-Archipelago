@@ -22,12 +22,14 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+180` | `187256180` | Roots - Level 4 - Hip Glasses |
 | `+181` | `187256181` | Roots - Bucket Minion Trade |
 | `+182..+185` | `187256182..187256185` | Level 22 Completion / 1 Star / 2 Stars / 3 Stars |
+| `+186` | `187256186` | Level 2 - Money Cassette |
 
-**Next safe location offset:** `+186`
-**Next safe location ID:** `187256186`
+**Next safe location offset:** `+187`
+**Next safe location ID:** `187256187`
 
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
+The current allocation contains **179** network locations.
 
 ## Item IDs
 
@@ -55,9 +57,10 @@ Level 22 checks. Victory remains a separate addressless event.
 | `+120` | `187256120` | Chicken Bucket |
 | `+121` | `187256121` | Hypno Pan — registered preview; excluded from generated pools |
 | `+122` | `187256122` | Violance — registered preview; excluded from generated pools |
+| `+123` | `187256123` | Money Cassette |
 
-**Next safe item offset:** `+123`
-**Next safe item ID:** `187256123`
+**Next safe item offset:** `+124`
+**Next safe item ID:** `187256124`
 
 ## Rule for changes
 

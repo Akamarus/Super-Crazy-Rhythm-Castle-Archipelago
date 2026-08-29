@@ -106,8 +106,13 @@ public sealed class Plugin : BasePlugin
         int patched = 0;
 
         patched += PatchMethodsByParameter("ProcessRequest", "PersistLevelResultRequest", nameof(GamePatches.PersistResultPostfix));
-        patched += PatchMethodsByParameter("ProcessRequest", "ApplyLevelResultToSaveDataRequest", nameof(GamePatches.ApplyResultPostfix));
+        patched += PatchMethodsByParameterWithPrefixAndPostfix(
+            "ProcessRequest",
+            "ApplyLevelResultToSaveDataRequest",
+            nameof(GamePatches.ApplyResultPrefix),
+            nameof(GamePatches.ApplyResultPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
+        patched += PatchMethodsByParameter("HandleEvent", "SelectedPlayerSaveSlotChangedEvent", nameof(GamePatches.SelectedSaveChangedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
         patched += PatchMethodsByParameterWithPrefixAndPostfix(
@@ -144,6 +149,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
+        Level2MoneyCassetteRandomization.Configure();
         PreviewAbilityRandomization.Configure();
         BottomHudDiagnostic.Configure();
         RootsBucketRandomization.Configure();
@@ -161,8 +167,12 @@ public sealed class Plugin : BasePlugin
             "[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION READY: waits for APWorld v0.14+ slot data. Gecko's WEED_KILLER_BAG_ITEM grant is suppressed, ROOTS_HUB_WEED_KILLER_COLLECTED sends the AP source check, and receiving Weed Killer writes the real native bag-item progression flag so vanilla can consume it for Level 3 access.");
         Log.LogWarning(
             "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
+        Log.LogWarning(
+            "[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION READY: waits for slot-data opt-in. The first default Level_06 award sends 'Level 2 - Money Cassette' while native result persistence continues with WasCollected=false; receiving Money Cassette reconciles I_GOT_MONEY to HAVE_IN_BAG in the selected save.");
         if (enabled.Value)
             AddComponent<PlantPipesReconciliationKeeper>();
+        if (enabled.Value)
+            AddComponent<Level2MoneyCassetteReconciliationKeeper>();
         if (enabled.Value)
             AddComponent<PreviewAbilityReconciliationKeeper>();
         if (enabled.Value)
@@ -1232,6 +1242,7 @@ internal sealed class ArchipelagoClient
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
+                    Level2MoneyCassetteRandomization.ApplySlotData(loginSuccess.SlotData);
                     PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                     BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                     RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
@@ -11453,6 +11464,23 @@ internal static class GamePatches
         MusicLabDiscovery.RecordScoredSongRequest(request);
     }
 
+    public static void SelectedSaveChangedEventPostfix()
+    {
+        Level2MoneyCassetteRandomization.OnLifecyclePoint(
+            "selected player save slot changed");
+    }
+
+    public static void ApplyResultPrefix(object? __instance, object[]? __args)
+    {
+        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(
+            __instance,
+            reconcileNow: false);
+
+        object? request = ReflectionUtil.FindArg(__args, "ApplyLevelResultToSaveDataRequest");
+        if (request != null)
+            Level2MoneyCassetteRandomization.HandleSourceAward(request);
+    }
+
     public static void ApplyResultPostfix(object[]? __args)
     {
         object? request = ReflectionUtil.FindArg(__args, "ApplyLevelResultToSaveDataRequest");
@@ -11477,6 +11505,7 @@ internal static class GamePatches
         Level6Discovery.RecordLevelResultApplied(level);
         Level8Discovery.RecordLevelResultApplied(level);
         PlantPipesRandomization.OnLevelResultApplied(level);
+        Level2MoneyCassetteRandomization.OnLifecyclePoint("level result applied");
     }
 
     public static void ResultPersistedEventPostfix(object[]? __args)
@@ -11521,6 +11550,7 @@ internal static class GamePatches
         Level8Discovery.RecordLevelPersisted(level);
         EarlySequenceBlockerPatches.RecordLevelPersisted(level);
         PlantPipesRandomization.OnLevelResultPersisted(level);
+        Level2MoneyCassetteRandomization.OnLifecyclePoint("level result persisted");
         BottomHudDiagnostic.OnLevelResultPersisted(level);
 
         if (result != null)
@@ -14601,6 +14631,8 @@ internal static class DeveloperHarness
                 _level4ProxyTransitionRequested = true;
         }
         BottomHudDiagnostic.OnRoomTransition(observedRoom);
+        Level2MoneyCassetteRandomization.OnLifecyclePoint(
+            $"room transition to {observedRoom}");
 
         // IsInteractionEnabled() is patched at the native machine-code level
         // while the player stands on the Level 4 mat. Restore it synchronously
@@ -17520,6 +17552,409 @@ internal sealed class MusicLabBarrierKeeper : MonoBehaviour
 }
 
 
+internal static class Level2MoneyCassetteRandomization
+{
+    internal const string ItemName = "Money Cassette";
+    internal const string SourceLocationName = "Level 2 - Money Cassette";
+    internal const string NativeSongName = "I_GOT_MONEY";
+
+    private static readonly object Sync = new();
+    private static object? _playerSaveRequestProcessor;
+    private static bool _slotDataSynchronized;
+    private static int _receivedCount;
+    private static bool _retryExhaustionLogged;
+    private static Level2MoneyCassetteRuntime _runtime = new();
+    private static Level2MoneyCassetteReconcileDecision? _lastDecision;
+
+    internal static bool Enabled { get; private set; }
+
+    internal static void Configure()
+    {
+        lock (Sync)
+        {
+            Enabled = false;
+            _playerSaveRequestProcessor = null;
+            _slotDataSynchronized = false;
+            _receivedCount = 0;
+            _retryExhaustionLogged = false;
+            _runtime = new Level2MoneyCassetteRuntime();
+            _lastDecision = null;
+        }
+    }
+
+    internal static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        bool requested = ReadSlotBool(slotData, "randomize_level_2_money_cassette");
+        int receivedCount;
+        lock (Sync)
+        {
+            Enabled = requested;
+            _slotDataSynchronized = true;
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            _retryExhaustionLogged = false;
+            receivedCount = _receivedCount;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            Enabled
+                ? $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION ENABLED item='{ItemName}' source='{SourceLocationName}' song='{NativeSongName}'."
+                : $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION disabled requested={requested}; Level 2's native cassette reward remains unchanged for this seed.");
+
+        if (Enabled && receivedCount > 0)
+            ArmRetryWindow("slot data synchronized");
+    }
+
+    internal static bool TryApplyItem(string itemName)
+    {
+        if (!string.Equals(itemName, ItemName, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        bool enabled;
+        int count;
+        lock (Sync)
+        {
+            count = ++_receivedCount;
+            _runtime.NoteReceivedCount(count);
+            enabled = Enabled;
+            _runtime.OnSaveLifecyclePoint();
+            _retryExhaustionLogged = false;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RECEIVED item='{ItemName}' receivedCount={count} routingEnabled={enabled}. Native song '{NativeSongName}' will be reconciled against the selected save on the Unity thread.");
+        return true;
+    }
+
+    internal static void HandleSourceAward(object request)
+    {
+        if (!Enabled)
+            return;
+
+        string? level = ReflectionUtil.ExtractIdentifier(
+            ReflectionUtil.ReadMember(request, "LevelIdentifier"));
+        string? variant = ReflectionUtil.ExtractIdentifier(
+            ReflectionUtil.ReadMember(request, "LevelVariantIdentifier"));
+        bool wasCollected = ReflectionUtil.ReadBool(request, "WasCollected") ?? false;
+        Level2MoneyCassetteSourceDecision decision =
+            Level2MoneyCassettePolicy.DecideSourceAward(level, variant, wasCollected);
+        if (!decision.QueueLocation)
+            return;
+
+        if (!TryWriteMember(request, "WasCollected", decision.ReplacementWasCollected) &&
+            !TryWriteMember(request, "_WasCollected_k__BackingField", decision.ReplacementWasCollected))
+        {
+            Plugin.LoggerInstance?.LogError(
+                "[SCRC-AP] LEVEL 2 MONEY CASSETTE source recognized but WasCollected could not be replaced; native cassette remains vanilla and the AP source check was not queued.");
+            return;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE AP CHECK level='{level}' variant='{variant}' location='{SourceLocationName}'. WasCollected changed from true to false; completion and Star result persistence continue natively.");
+        Plugin.AP?.QueueLocation(SourceLocationName);
+    }
+
+    internal static void CapturePlayerSaveRequestProcessor(
+        object? instance,
+        bool reconcileNow = true)
+    {
+        if (instance == null ||
+            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
+            return;
+
+        lock (Sync)
+            _playerSaveRequestProcessor = instance;
+
+        if (reconcileNow)
+            OnLifecyclePoint("player save request processor activity");
+    }
+
+    internal static void OnLifecyclePoint(string reason)
+    {
+        ArmRetryWindow(reason);
+        TryFlushPendingNativeGrant(reason);
+    }
+
+    private static void ArmRetryWindow(string reason)
+    {
+        bool rearmed;
+        lock (Sync)
+        {
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            _runtime.OnSaveLifecyclePoint();
+            rearmed = _slotDataSynchronized && Enabled && _receivedCount > 0;
+            _retryExhaustionLogged = false;
+            _lastDecision = null;
+        }
+
+        if (rearmed)
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation retry budget re-armed reason='{reason}'.");
+        }
+    }
+
+    internal static void TickPendingNativeGrant()
+    {
+        TryFlushPendingNativeGrant("bounded keeper retry");
+    }
+
+    private static void TryFlushPendingNativeGrant(string reason)
+    {
+        object? processor;
+        int attempt;
+        bool attemptAvailable;
+        bool logExhaustion = false;
+        lock (Sync)
+        {
+            if (!_slotDataSynchronized || !Enabled)
+                return;
+
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            if (!_runtime.TryBeginReconcileAttempt())
+            {
+                attemptAvailable = false;
+                if (_runtime.RetryWindowExhausted && !_retryExhaustionLogged)
+                {
+                    _retryExhaustionLogged = true;
+                    logExhaustion = true;
+                }
+                processor = null;
+                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts;
+            }
+            else
+            {
+                attemptAvailable = true;
+                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts -
+                          _runtime.RemainingRetryAttempts;
+                processor = _playerSaveRequestProcessor;
+            }
+        }
+
+        if (logExhaustion)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation paused after {Level2MoneyCassetteRuntime.MaxRetryAttempts} attempts; a later save lifecycle point will retry.");
+            return;
+        }
+        if (!attemptAvailable)
+            return;
+        bool saveAvailable = TryReadNativeStatus(out string? nativeStatus, out string readDetail);
+        Level2MoneyCassetteReconcileDecision decision;
+        bool decisionChanged;
+        lock (Sync)
+        {
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            decision = _runtime.ObserveNativeStatus(
+                saveAvailable,
+                processor != null,
+                nativeStatus);
+            decisionChanged = _lastDecision != decision;
+            _lastDecision = decision;
+        }
+
+        if (decisionChanged)
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation decision={decision} nativeStatus='{nativeStatus ?? "<unavailable>"}' attempt={attempt}/{Level2MoneyCassetteRuntime.MaxRetryAttempts} reason='{reason}' detail='{readDetail}'.");
+        }
+
+        switch (decision)
+        {
+            case Level2MoneyCassetteReconcileDecision.AlreadyOwned:
+                lock (Sync)
+                {
+                    _retryExhaustionLogged = false;
+                }
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT VERIFIED song='{NativeSongName}' status='{nativeStatus}'.");
+                return;
+
+            case Level2MoneyCassetteReconcileDecision.RequestHaveInBag:
+                string submitDetail = "PlayerSaveRequestProcessor unavailable.";
+                if (processor != null && TrySubmitHaveInBag(processor, out submitDetail))
+                {
+                    Plugin.LoggerInstance?.LogWarning(
+                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT SUBMITTED song='{NativeSongName}' status='{Level2MoneyCassettePolicy.HaveInBag}' {submitDetail}; selected-save verification remains pending.");
+                }
+                else
+                {
+                    Plugin.LoggerInstance?.LogWarning(
+                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE native grant could not be submitted: {submitDetail}");
+                }
+                return;
+
+            case Level2MoneyCassetteReconcileDecision.Disabled:
+            case Level2MoneyCassetteReconcileDecision.NoOwnership:
+                return;
+        }
+    }
+
+    private static bool TryReadNativeStatus(out string? status, out string detail)
+    {
+        status = null;
+        detail = string.Empty;
+        try
+        {
+            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+            Type? enquiriesType = gameAssembly?.GetType(
+                "SongCassetteEnquiries", throwOnError: false, ignoreCase: false);
+            Type? songType = gameAssembly?.GetType(
+                "ePlayableSong", throwOnError: false, ignoreCase: false);
+            if (enquiriesType == null || songType == null || !songType.IsEnum)
+            {
+                detail = "SongCassetteEnquiries or ePlayableSong unavailable.";
+                return false;
+            }
+
+            object song = Enum.Parse(songType, NativeSongName, ignoreCase: false);
+            MethodInfo? enquiry = enquiriesType.GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .FirstOrDefault(method =>
+                {
+                    if (!string.Equals(method.Name, "GetSongCassetteStatus", StringComparison.Ordinal))
+                        return false;
+                    ParameterInfo[] parameters;
+                    try { parameters = method.GetParameters(); }
+                    catch { return false; }
+                    return parameters.Length == 1 && parameters[0].ParameterType == songType;
+                });
+            if (enquiry == null)
+            {
+                detail = "SongCassetteEnquiries.GetSongCassetteStatus unavailable.";
+                return false;
+            }
+
+            object? rawStatus = enquiry.Invoke(null, new[] { song });
+            object? unwrapped = ReflectionUtil.UnwrapNullable(rawStatus);
+            if (unwrapped == null)
+            {
+                detail = "selected save cassette status unavailable.";
+                return false;
+            }
+
+            status = unwrapped.ToString();
+            detail = $"selected save returned {status}";
+            return !string.IsNullOrWhiteSpace(status);
+        }
+        catch (Exception ex)
+        {
+            detail = ex.GetBaseException().Message;
+            return false;
+        }
+    }
+
+    private static bool TrySubmitHaveInBag(object processor, out string detail)
+    {
+        detail = string.Empty;
+        try
+        {
+            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+            Type? requestType = gameAssembly?.GetType(
+                "RecordSongCassetteStatusInSaveDataRequest", throwOnError: false, ignoreCase: false);
+            Type? songType = gameAssembly?.GetType(
+                "ePlayableSong", throwOnError: false, ignoreCase: false);
+            Type? statusType = gameAssembly?.GetType(
+                "eSongCassetteStatus", throwOnError: false, ignoreCase: false);
+            if (requestType == null || songType == null || statusType == null ||
+                !songType.IsEnum || !statusType.IsEnum)
+            {
+                detail = "cassette request or enum types unavailable.";
+                return false;
+            }
+
+            object song = Enum.Parse(songType, NativeSongName, ignoreCase: false);
+            object status = Enum.Parse(
+                statusType, Level2MoneyCassettePolicy.HaveInBag, ignoreCase: false);
+            object? request = Activator.CreateInstance(requestType, nonPublic: true);
+            if (request == null)
+            {
+                detail = "RecordSongCassetteStatusInSaveDataRequest could not be constructed.";
+                return false;
+            }
+
+            bool songWritten = TryWriteMember(request, "Song", song) ||
+                               TryWriteMember(request, "_Song_k__BackingField", song);
+            bool statusWritten = TryWriteMember(request, "CassetteStatus", status) ||
+                                 TryWriteMember(request, "_CassetteStatus_k__BackingField", status);
+            if (!songWritten || !statusWritten)
+            {
+                detail = "cassette request members could not be populated.";
+                return false;
+            }
+
+            MethodInfo? process = processor.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(method =>
+                {
+                    if (!string.Equals(method.Name, "ProcessRequest", StringComparison.Ordinal))
+                        return false;
+                    ParameterInfo[] parameters;
+                    try { parameters = method.GetParameters(); }
+                    catch { return false; }
+                    return parameters.Length == 1 && parameters[0].ParameterType.IsInstanceOfType(request);
+                });
+            if (process == null)
+            {
+                detail = "matching PlayerSaveRequestProcessor.ProcessRequest overload unavailable.";
+                return false;
+            }
+
+            process.Invoke(processor, new[] { request });
+            detail = "through RecordSongCassetteStatusInSaveDataRequest";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            detail = ex.GetBaseException().Message;
+            return false;
+        }
+    }
+
+    private static bool TryWriteMember(object obj, string name, object value)
+    {
+        Type type = obj.GetType();
+        try
+        {
+            PropertyInfo? property = type.GetProperty(
+                name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (property != null && property.CanWrite)
+            {
+                property.SetValue(obj, value);
+                return true;
+            }
+        }
+        catch { }
+
+        try
+        {
+            FieldInfo? field = type.GetField(
+                name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (field != null)
+            {
+                field.SetValue(obj, value);
+                return true;
+            }
+        }
+        catch { }
+
+        return false;
+    }
+
+    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
+    {
+        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
+            return false;
+        if (raw is bool value)
+            return value;
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+}
+
+
 internal static class PlantPipesRandomization
 {
     public const string ItemName = "Plant Pipes";
@@ -18971,6 +19406,24 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 }
 
 
+internal sealed class Level2MoneyCassetteReconciliationKeeper : MonoBehaviour
+{
+    private int _cooldown;
+
+    public Level2MoneyCassetteReconciliationKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void Update()
+    {
+        if (_cooldown-- > 0)
+            return;
+        _cooldown = 60;
+        Level2MoneyCassetteRandomization.TickPendingNativeGrant();
+    }
+}
+
+
 internal static class GarageCartridgeAccess
 {
     internal readonly record struct CartridgeDefinition(
@@ -20398,6 +20851,7 @@ internal static class IntroRoomToHubRedirectPatches
     public static void NewSaveCreatedPostfix()
     {
         EarlySequenceBlockerPatches.NewSaveCreated();
+        Level2MoneyCassetteRandomization.OnLifecyclePoint("new player save created");
         _freshSavePending = IntroHubSkip.Enabled && IntroHubSkip.Compatible;
         _freshSaveRedirected = false;
         if (_freshSavePending)
@@ -23971,6 +24425,9 @@ internal static class NativeProgression
         if (AreaAccessPrototype.TryApplyItem(itemName))
             return;
 
+        if (Level2MoneyCassetteRandomization.TryApplyItem(itemName))
+            return;
+
         if (!ItemToFlags.TryGetValue(itemName, out string[]? flags))
         {
             Plugin.LoggerInstance?.LogInfo(
@@ -24265,6 +24722,7 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
+        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
