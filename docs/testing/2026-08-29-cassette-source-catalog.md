@@ -1,6 +1,6 @@
 # Cassette Source Catalog Evidence Audit
 
-**Status:** BLOCKED — do not activate the full cassette catalog.
+**Status:** NEEDS_CONTEXT — diagnostic built; do not activate the full cassette catalog.
 
 ## Extracted native catalog
 
@@ -133,3 +133,21 @@ equivalent retained native logs) for the 24 listed songs.  For any source that
 is not a level award, recover the exact native request, progression flag, or
 interaction event.  Then record its player-facing source, reachability, and
 replay behavior before allocating a source ID.
+
+## Prepared read-only runtime evidence probe
+
+`client/CassetteCatalogDiagnostic.cs` is wired to a dedicated INSERT action in
+the existing developer harness while in Hub6.  It reads the global
+`LevelDataProvider.GetAllLevelsData()` catalog and enumerates every variant's
+`SongCassettes` collection.  It also enumerates loaded instances of the two
+native non-level award component types,
+`ObstainSongCassetteSequenceStep` and `ObtainSongCassetteOnTrigger`, recording
+their hierarchy paths, songs, and optional extra progression flag.
+
+The diagnostic has been built with installation skipped.  It has not been
+installed and the game has not been launched.  After explicit approval, one
+Hub6 launch and one INSERT press can produce the remaining mapping evidence;
+the completion marker requires all 30 approved native songs with no missing,
+unexpected, or multiply sourced identity.  Exact commands and expected log
+markers are recorded in
+`.superpowers/sdd/2026-08-29-full-cassette-randomization/task-1-report.md`.
