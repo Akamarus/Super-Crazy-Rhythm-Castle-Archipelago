@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.22.0 and Client v0.68.0 activate all 30 Music Lab cassette items and sources. Generate a fresh v0.22 seed; older seeds deliberately fall back to native cassette behavior.
+- Current development build: APWorld v0.22.0 and Client v0.68.0 activate all 30 Music Lab cassette items and sources. Generate a new v0.22 seed and use a fresh in-game save. Client v0.68 rejects older cassette schemas and preserves native cassette behavior; a historical v0.21 seed paired with its historical Client v0.67.95 retains the Money-only pilot.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.

@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current APWorld: **v0.22.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`) with client **v0.68.0**. It activates all 30 Music Lab cassette items and sources. Use a fresh v0.22 seed; older cassette schemas safely retain native behavior.
+Current APWorld: **v0.22.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`) with client **v0.68.0**. It activates all 30 Music Lab cassette items and sources. Generate a new v0.22 seed and use a fresh in-game save. Client v0.68 rejects older cassette schemas and preserves native behavior; historical APWorld v0.21 paired with historical Client v0.67.95 retains the Money-only pilot.
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 

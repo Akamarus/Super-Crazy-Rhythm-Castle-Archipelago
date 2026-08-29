@@ -555,6 +555,30 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
+    def test_slot_data_matches_neutral_full_cassette_contract(self):
+        fixture_path = Path(__file__).resolve().parents[2] / "contracts" / "cassette-contract-v1.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        data = self.make_world().fill_slot_data()
+
+        self.assertEqual(fixture["schema"], data["cassette_schema"])
+        self.assertEqual(fixture["count"], data["cassette_count"])
+        self.assertEqual(
+            {entry["display_song"]: entry["item_name"] for entry in fixture["entries"]},
+            data["cassette_items"],
+        )
+        self.assertEqual(
+            {entry["display_song"]: entry["source_name"] for entry in fixture["entries"]},
+            data["cassette_sources"],
+        )
+        self.assertEqual(
+            {
+                entry["display_song"]: entry["source_name"]
+                for entry in fixture["entries"]
+                if entry["reused_location"]
+            },
+            data["cassette_reused_locations"],
+        )
+
     def test_fill_slot_data_rejects_invalid_raw_difficulty_values(self):
         for value in (True, 4):
             with self.subTest(difficulty=value):

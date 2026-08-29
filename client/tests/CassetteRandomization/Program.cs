@@ -1,4 +1,5 @@
 using RhythmCastleAP;
+using System.Text.Json;
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
@@ -38,6 +39,15 @@ string[] expectedCatalog =
 };
 
 Equal(30, CassetteCatalog.All.Count, "catalog count");
+
+using JsonDocument contractDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "cassette-contract-v1.json")));
+JsonElement contractRoot = contractDocument.RootElement;
+Equal(1, contractRoot.GetProperty("schema").GetInt32(), "neutral fixture schema");
+Equal(30, contractRoot.GetProperty("count").GetInt32(), "neutral fixture count");
+string[] fixtureMappings = contractRoot.GetProperty("entries").EnumerateArray().Select(entry =>
+    $"{entry.GetProperty("display_song").GetString()}|{entry.GetProperty("item_name").GetString()}|{entry.GetProperty("source_name").GetString()}|{entry.GetProperty("reused_location").GetBoolean()}").ToArray();
+string[] clientMappings = CassetteCatalog.All.Select(entry => $"{entry.DisplaySong}|{entry.ItemName}|{entry.SourceName}|{entry.ReusesExistingLocation}").ToArray();
+SequenceEqual(fixtureMappings, clientMappings, "neutral fixture matches complete client mapping");
 
 var compatibleItems = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.ItemName, StringComparer.Ordinal);
 var compatibleSources = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.SourceName, StringComparer.Ordinal);
