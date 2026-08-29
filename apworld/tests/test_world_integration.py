@@ -119,6 +119,14 @@ class WorldIntegrationTests(unittest.TestCase):
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
 
+    def test_slot_data_counts_only_instantiated_addressed_locations(self):
+        world = self.build_world(difficulty=0)
+
+        self.assertEqual(
+            world.fill_slot_data()["active_location_count"],
+            len(self.addressed_names(world)),
+        )
+
     def test_item_pool_matches_active_unfilled_capacity(self):
         expected = {0: 68, 1: 105, 2: 142, 3: 178}
         for value, count in expected.items():
@@ -366,7 +374,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 92)
+        self.assertEqual(data["active_location_count"], 68)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -382,7 +390,7 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 129)
+        self.assertEqual(data["active_location_count"], 105)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
         self.assertTrue(data["implementation_version"].endswith("vanilla-vampire-garage-0.21"))

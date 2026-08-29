@@ -741,6 +741,11 @@ class SCRCWorld(World):
             getattr(getattr(options, "starting_area", None), "value", 0)
         )
         generated_requirements = getattr(self, "generated_star_requirements", {})
+        active_location_names = getattr(
+            self,
+            "active_location_names",
+            default_active_location_names,
+        )
         return {
             "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21",
             "generation_foundation_version": "generation-foundation-0.16",
@@ -762,8 +767,10 @@ class SCRCWorld(World):
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
             "difficulty_filtering_active": True,
+            # Task 2 reserves catalog IDs but Task 3 has not yet created their
+            # locations. Do not advertise those future checks in slot data.
             "active_location_count": len(
-                getattr(self, "active_location_names", default_active_location_names)
+                set(active_location_names) - set(NEW_CASSETTE_SOURCE_IDS)
             ),
             "active_campaign_star_tiers": sorted(
                 getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)

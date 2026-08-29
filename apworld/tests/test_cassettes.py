@@ -96,3 +96,41 @@ class CassetteCatalogTests(unittest.TestCase):
                         self.world.LOCATION_NAME_TO_ID,
                         catalog=fixture,
                     )
+
+    def test_validation_rejects_duplicate_new_source_ids_when_registry_matches(self):
+        original = self.catalog.CASSETTES[0]
+        replacement = replace(
+            self.catalog.CASSETTES[1],
+            source_id=original.source_id,
+        )
+        fixture = self.catalog.CASSETTES[:1] + (replacement,) + self.catalog.CASSETTES[2:]
+        registry = dict(self.world.LOCATION_NAME_TO_ID)
+        registry[replacement.source_name] = replacement.source_id
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"{replacement.source_name}.*{replacement.source_id}",
+        ):
+            self.catalog.validate_cassette_catalog(
+                self.world.CASSETTE_SONGS,
+                registry,
+                catalog=fixture,
+            )
+
+    def test_validation_rejects_new_source_id_owned_by_another_location(self):
+        existing_name = "Level 1 - Completion"
+        existing_id = self.world.LOCATION_NAME_TO_ID[existing_name]
+        replacement = replace(self.catalog.CASSETTES[1], source_id=existing_id)
+        fixture = self.catalog.CASSETTES[:1] + (replacement,) + self.catalog.CASSETTES[2:]
+        registry = dict(self.world.LOCATION_NAME_TO_ID)
+        registry[replacement.source_name] = existing_id
+
+        with self.assertRaisesRegex(
+            ValueError,
+            rf"{replacement.source_name}.*{existing_id}",
+        ):
+            self.catalog.validate_cassette_catalog(
+                self.world.CASSETTE_SONGS,
+                registry,
+                catalog=fixture,
+            )

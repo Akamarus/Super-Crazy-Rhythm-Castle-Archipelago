@@ -273,6 +273,28 @@ def validate_cassette_catalog(
     if unexpected:
         raise ValueError(f"cassette catalog has unregistered medal song: {sorted(unexpected)[0]}")
 
+    source_names_by_id: dict[int, str] = {}
+    for entry in catalog:
+        if entry.reused_location:
+            continue
+        if entry.source_id is None:
+            continue
+        original_source = source_names_by_id.get(entry.source_id)
+        if original_source is not None:
+            raise ValueError(
+                f"duplicate new cassette source ID for {entry.source_name}: "
+                f"{entry.source_id} (already assigned to {original_source})"
+            )
+        source_names_by_id[entry.source_id] = entry.source_name
+
+    for source_id, source_name in source_names_by_id.items():
+        for registered_name, registered_id in registered_locations.items():
+            if registered_id == source_id and registered_name != source_name:
+                raise ValueError(
+                    f"new cassette source ID collision for {source_name}: "
+                    f"{source_id} is already assigned to {registered_name}"
+                )
+
     for entry in catalog:
         if not entry.native_song:
             raise ValueError(f"cassette {entry.display_song} is missing native identity")
