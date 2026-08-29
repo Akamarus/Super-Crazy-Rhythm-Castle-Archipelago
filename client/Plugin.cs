@@ -111,9 +111,10 @@ public sealed class Plugin : BasePlugin
             "ApplyLevelResultToSaveDataRequest",
             nameof(GamePatches.ApplyResultPrefix),
             nameof(GamePatches.ApplyResultPostfix));
-        patched += PatchLevel2MoneyCassetteEvaluation();
+        patched += PatchCassetteEvaluation();
+        patched += PatchCassetteStatusRequest();
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
-        if (Level2MoneyCassettePolicy.UseSelectedSaveChangedEventHook)
+        if (CassetteRandomizationPolicy.UseSelectedSaveChangedEventHook)
         {
             patched += PatchMethodsByParameter(
                 "HandleEvent",
@@ -157,6 +158,7 @@ public sealed class Plugin : BasePlugin
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
         Level2MoneyCassetteRandomization.Configure();
+        CassetteSourceRandomization.Configure();
         PreviewAbilityRandomization.Configure();
         BottomHudDiagnostic.Configure();
         RootsBucketRandomization.Configure();
@@ -422,7 +424,7 @@ public sealed class Plugin : BasePlugin
         return count;
     }
 
-    private int PatchLevel2MoneyCassetteEvaluation()
+    private int PatchCassetteEvaluation()
     {
         Assembly? gameAssembly = ReflectionUtil.GameAssembly;
         Type? type = gameAssembly == null
@@ -439,7 +441,7 @@ public sealed class Plugin : BasePlugin
         if (target == null || prefix == null || _harmony == null)
         {
             Log.LogWarning(
-                "[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE hook unavailable.");
+                "[SCRC-AP] CASSETTE SOURCE hook unavailable.");
             return 0;
         }
 
@@ -449,13 +451,45 @@ public sealed class Plugin : BasePlugin
                 target,
                 prefix: new HarmonyMethod(prefix));
             Log.LogInfo(
-                "[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE HOOKED LevelLogic.EvaluatePlayerLevelSongCassettes(bool).");
+                "[SCRC-AP] CASSETTE SOURCE HOOKED LevelLogic.EvaluatePlayerLevelSongCassettes(bool).");
             return 1;
         }
         catch (Exception ex)
         {
             Log.LogWarning(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE hook failed: {ex.GetBaseException().Message}");
+                $"[SCRC-AP] CASSETTE SOURCE hook failed: {ex.GetBaseException().Message}");
+            return 0;
+        }
+    }
+
+    private int PatchCassetteStatusRequest()
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? processor = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
+            .FirstOrDefault(t => string.Equals(t.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal));
+        Type? requestType = gameAssembly?.GetType(
+            "RecordSongCassetteStatusInSaveDataRequest", throwOnError: false, ignoreCase: false);
+        MethodInfo? target = processor?.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(m => m.Name == "ProcessRequest" &&
+                m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == requestType);
+        MethodInfo? prefix = FindPatchMethod(
+            typeof(GamePatches), nameof(GamePatches.CassetteStatusRequestPrefix));
+        if (target == null || prefix == null || _harmony == null)
+        {
+            Log.LogWarning("[SCRC-AP] CASSETTE STATUS SOURCE hook unavailable.");
+            return 0;
+        }
+
+        try
+        {
+            _harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            Log.LogInfo("[SCRC-AP] CASSETTE STATUS SOURCE HOOKED PlayerSaveRequestProcessor.ProcessRequest(RecordSongCassetteStatusInSaveDataRequest).");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning($"[SCRC-AP] CASSETTE STATUS SOURCE hook failed: {ex.GetBaseException().Message}");
             return 0;
         }
     }
@@ -1288,6 +1322,7 @@ internal sealed class ArchipelagoClient
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
                     Level2MoneyCassetteRandomization.ApplySlotData(loginSuccess.SlotData);
+                    CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
                     PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                     BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                     RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
@@ -11526,7 +11561,20 @@ internal static class GamePatches
     {
         object? rawSucceeded = ReflectionUtil.FindArg(__args, "Boolean");
         bool? succeeded = rawSucceeded is bool value ? value : null;
-        return Level2MoneyCassetteRandomization.AllowLevelCassetteEvaluation(succeeded);
+        return CassetteSourceRandomization.AllowLevelCassetteEvaluation(succeeded);
+    }
+
+    public static bool CassetteStatusRequestPrefix(object[]? __args)
+    {
+        object? request = ReflectionUtil.FindArg(__args, "RecordSongCassetteStatusInSaveDataRequest");
+        if (request == null)
+            return true;
+
+        string? song = (ReflectionUtil.ReadMember(request, "Song") ??
+                        ReflectionUtil.ReadMember(request, "_Song_k__BackingField"))?.ToString();
+        string? status = (ReflectionUtil.ReadMember(request, "CassetteStatus") ??
+                          ReflectionUtil.ReadMember(request, "_CassetteStatus_k__BackingField"))?.ToString();
+        return CassetteSourceRandomization.AllowCassetteStatusRequest(song, status);
     }
 
     public static void ApplyResultPostfix(object[]? __args)
@@ -17600,6 +17648,103 @@ internal sealed class MusicLabBarrierKeeper : MonoBehaviour
 }
 
 
+internal static class CassetteSourceRandomization
+{
+    private static bool _enabled;
+
+    internal static void Configure() => _enabled=false;
+    internal static void ApplySlotData(Dictionary<string,object>? slotData)
+    {
+        _enabled=ReadSlotBool(slotData,"randomize_level_2_money_cassette");
+        Plugin.LoggerInstance?.LogWarning(_enabled
+            ? $"[SCRC-AP] CASSETTE SOURCE RANDOMIZATION ENABLED entries={CassetteCatalog.All.Count} levelSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.LevelEarnedReward)} chestSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.MusicLabPointChest)}."
+            : "[SCRC-AP] CASSETTE SOURCE RANDOMIZATION disabled; native cassette evaluators remain unchanged.");
+    }
+
+    internal static bool AllowLevelCassetteEvaluation(bool? succeeded)
+    {
+        if(!_enabled)return true;
+        string level=InvokeStaticIdentifier("LevelEnquiries","GetCurrentLevelIdentifier");
+        string variant=InvokeStaticIdentifier("LevelEnquiries","GetCurrentLevelVariantIdentifier");
+        IReadOnlyList<CassetteDefinition> mapped=CassetteCatalog.ForLevelSource(level,variant);
+        if(mapped.Count==0)return true;
+        var statuses=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+        foreach(CassetteDefinition cassette in mapped)
+        {
+            if(!TryReadNativeStatus(cassette.NativeSong,out string? status,out string detail))
+            {
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SOURCE SAFE FALLBACK level='{level}' variant='{variant}' song='{cassette.NativeSong}' detail='{detail}'. Native evaluator allowed.");
+                return true;
+            }
+            statuses[cassette.NativeSong]=status!;
+        }
+        CassetteSourceDecision decision=CassetteRandomizationPolicy.DecideLevelEvaluation(level,variant,succeeded==true,statuses);
+        if(decision.AllowNative)return true;
+        foreach(string location in decision.SourceLocationsToQueue)
+            QueueCatalogSourceByLocation(location,$"level='{level}' variant='{variant}'");
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE NATIVE EVALUATOR SUPPRESSED level='{level}' variant='{variant}' songs='{string.Join(",",decision.NativeSongsToSuppress)}' detail='{decision.Detail}'.");
+        return false;
+    }
+
+    internal static bool AllowCassetteStatusRequest(string? nativeSong, string? status)
+    {
+        if (!_enabled || !CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant(
+                nativeSong, status, fromArchipelago: false))
+            return true;
+
+        CassetteDefinition entry = CassetteCatalog.ByNativeSong[nativeSong!];
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE POINT-CHEST NATIVE BAG GRANT SUPPRESSED nativeSong='{entry.NativeSong}' location='{entry.SourceName}'. Other chest rewards and collected-state progression remain native.");
+        return false;
+    }
+
+    internal static bool QueueCatalogSourceByLocation(string location,string sourceIdentity)
+    {
+        CassetteDefinition? entry=CassetteCatalog.All.FirstOrDefault(x=>string.Equals(x.SourceName,location,StringComparison.OrdinalIgnoreCase));
+        if(entry==null)return false;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SOURCE AP CHECK nativeSong='{entry.NativeSong}' location='{entry.SourceName}' source='{sourceIdentity}'.");
+        Plugin.AP?.QueueLocation(entry.SourceName);
+        return true;
+    }
+
+    private static string InvokeStaticIdentifier(string typeName,string methodName)
+    {
+        try
+        {
+            Type? type=ReflectionUtil.GameAssembly?.GetType(typeName,false,false);
+            MethodInfo? method=type?.GetMethod(methodName,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static);
+            object? raw=method?.Invoke(null,null); object? value=ReflectionUtil.UnwrapNullable(raw);
+            return ReflectionUtil.ExtractIdentifier(value)??value?.ToString()??"<null>";
+        }
+        catch(Exception ex){return $"<error:{ex.GetBaseException().Message}>";}
+    }
+
+    private static bool TryReadNativeStatus(string nativeSong,out string? status,out string detail)
+    {
+        status=null;detail=string.Empty;
+        try
+        {
+            Assembly? asm=ReflectionUtil.GameAssembly;
+            Type? enquiries=asm?.GetType("SongCassetteEnquiries",false,false);
+            Type? songType=asm?.GetType("ePlayableSong",false,false);
+            if(enquiries==null||songType==null||!songType.IsEnum){detail="cassette enquiries or song enum unavailable";return false;}
+            object song=Enum.Parse(songType,nativeSong,false);
+            MethodInfo? method=enquiries.GetMethods(BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Static).FirstOrDefault(m=>m.Name=="GetSongCassetteStatus"&&m.GetParameters().Length==1&&m.GetParameters()[0].ParameterType==songType);
+            if(method==null){detail="GetSongCassetteStatus unavailable";return false;}
+            object? raw=ReflectionUtil.UnwrapNullable(method.Invoke(null,new[]{song})); status=raw?.ToString();
+            detail=$"selected save returned {status??"<null>"}";return !string.IsNullOrWhiteSpace(status);
+        }
+        catch(Exception ex){detail=ex.GetBaseException().Message;return false;}
+    }
+
+    private static bool ReadSlotBool(Dictionary<string,object>? slotData,string key)
+    {
+        if(slotData==null||!slotData.TryGetValue(key,out object? raw)||raw==null)return false;
+        if(raw is bool b)return b; if(raw is long l)return l!=0; if(raw is int i)return i!=0;
+        return bool.TryParse(raw.ToString(),out bool parsed)&&parsed;
+    }
+}
+
 internal static class Level2MoneyCassetteRandomization
 {
     internal const string ItemName = "Money Cassette";
@@ -17672,58 +17817,6 @@ internal static class Level2MoneyCassetteRandomization
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RECEIVED item='{ItemName}' receivedCount={count} routingEnabled={enabled}. Native song '{NativeSongName}' will be reconciled against the selected save on the Unity thread.");
         return true;
-    }
-
-    internal static bool AllowLevelCassetteEvaluation(bool? succeeded)
-    {
-        if (!Enabled)
-            return true;
-
-        string level = InvokeStaticIdentifier(
-            "LevelEnquiries",
-            "GetCurrentLevelIdentifier");
-        string variant = InvokeStaticIdentifier(
-            "LevelEnquiries",
-            "GetCurrentLevelVariantIdentifier");
-        bool statusReadable = TryReadNativeStatus(out string? nativeStatus, out string statusDetail);
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE TRACE source='LevelLogic.EvaluatePlayerLevelSongCassettes' stage='before' level='{level}' variant='{variant}' succeeded='{succeeded?.ToString() ?? "<null>"}' nativeStatus='{nativeStatus ?? "<null>"}' statusReadable={statusReadable} detail='{statusDetail}'.");
-        if (!Level2MoneyCassettePolicy.ShouldSuppressEvaluation(
-                level,
-                variant,
-                succeeded == true,
-                nativeStatus))
-        {
-            return true;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE SOURCE AP CHECK level='{level}' variant='{variant}' nativeStatus='{nativeStatus}' location='{SourceLocationName}'. Native cassette evaluator suppressed before first award.");
-        Plugin.AP?.QueueLocation(SourceLocationName);
-        return false;
-    }
-
-    private static string InvokeStaticIdentifier(string typeName, string methodName)
-    {
-        try
-        {
-            Type? type = ReflectionUtil.GameAssembly?.GetType(
-                typeName,
-                throwOnError: false,
-                ignoreCase: false);
-            MethodInfo? method = type?.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            object? raw = method?.Invoke(null, null);
-            object? unwrapped = ReflectionUtil.UnwrapNullable(raw);
-            return ReflectionUtil.ExtractIdentifier(unwrapped) ??
-                unwrapped?.ToString() ??
-                "<null>";
-        }
-        catch (Exception ex)
-        {
-            return $"<error:{ex.GetBaseException().Message}>";
-        }
     }
 
     internal static void CapturePlayerSaveRequestProcessor(
@@ -17850,7 +17943,7 @@ internal static class Level2MoneyCassetteRandomization
                 if (processor != null && TrySubmitHaveInBag(processor, out submitDetail))
                 {
                     Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT SUBMITTED song='{NativeSongName}' status='{Level2MoneyCassettePolicy.HaveInBag}' {submitDetail}; selected-save verification remains pending.");
+                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT SUBMITTED song='{NativeSongName}' status='{CassetteRandomizationPolicy.HaveInBag}' {submitDetail}; selected-save verification remains pending.");
                 }
                 else
                 {
@@ -17940,7 +18033,7 @@ internal static class Level2MoneyCassetteRandomization
 
             object song = Enum.Parse(songType, NativeSongName, ignoreCase: false);
             object status = Enum.Parse(
-                statusType, Level2MoneyCassettePolicy.HaveInBag, ignoreCase: false);
+                statusType, CassetteRandomizationPolicy.HaveInBag, ignoreCase: false);
             object? request = Activator.CreateInstance(requestType, nonPublic: true);
             if (request == null)
             {
@@ -21456,7 +21549,12 @@ internal static class MusicLabDiscovery
             $"[SCRC-AP] MUSIC LAB {threshold}-POINT CHEST COLLECTED source='{source}' flag='{flag}' numeric={numericFlag?.ToString() ?? "?"} chest='{chest}'.");
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] AP LOCATION '{locationName}' source='Music Lab {threshold}-point reward chest'.");
-        Plugin.AP?.QueueLocation(locationName);
+        if (!CassetteSourceRandomization.QueueCatalogSourceByLocation(
+                locationName,
+                $"Music Lab {threshold}-point reward chest flag='{flag}' numeric={numericFlag?.ToString() ?? "?"}"))
+        {
+            Plugin.AP?.QueueLocation(locationName);
+        }
     }
 
     private static bool TryDiscoverMusicLabRewardChestFlags()
