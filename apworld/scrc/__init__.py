@@ -9,7 +9,12 @@ from .difficulty import (
     filter_locations_for_difficulty,
     medal_tiers,
 )
-from .cassettes import NEW_CASSETTE_SOURCE_IDS, validate_cassette_catalog
+from .cassettes import (
+    CASSETTES,
+    CASSETTE_BY_ITEM,
+    NEW_CASSETTE_SOURCE_IDS,
+    validate_cassette_catalog,
+)
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
@@ -409,18 +414,6 @@ class SCRCWorld(World):
                 )
             roots.locations.append(location)
 
-        money_cassette_source = SCRCLocation(
-            self.player,
-            LEVEL_2_MONEY_CASSETTE_SOURCE,
-            LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE],
-            roots,
-        )
-        set_rule(
-            money_cassette_source,
-            lambda state: state.has("Roots Access", self.player),
-        )
-        roots.locations.append(money_cassette_source)
-
         # Gecko is reachable from the Roots hub once Roots Access is owned.
         # Weed Killer is NOT required to reach this source; it is the reward
         # that vanilla later consumes to unlock entry to Level 3.
@@ -552,17 +545,76 @@ class SCRCWorld(World):
             location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
             music_lab.locations.append(location)
 
+        concrete_regions = {
+            "Cell Tower": cell,
+            "Lobby": lobby,
+            "Meat Dimension": meat,
+            "Music Lab": music_lab,
+            "Roots": roots,
+            "Royal Corridor": royal,
+            "Secret Bunker": phone_hub,
+            "Tower of Fear": tower,
+        }
+        cassette_source_regions = {}
+
+        def route_is_open(state, triggers):
+            return any(
+                all(
+                    state.has(requirement.item, self.player)
+                    for requirement in trigger.requirements
+                )
+                for trigger in triggers
+            )
+
+        for entry in CASSETTES:
+            if entry.source_type == "Music Lab point chest":
+                continue
+
+            parent = concrete_regions.get(entry.region)
+            if parent is None:
+                parent = cassette_source_regions.get(entry.region)
+                if parent is None:
+                    parent = Region(entry.region, self.player, self.multiworld)
+                    cassette_source_regions[entry.region] = parent
+                    matching_triggers = tuple(
+                        trigger
+                        for cassette in CASSETTES
+                        if cassette.region == entry.region
+                        for trigger in cassette.triggers
+                    )
+                    phone_hub.connect(
+                        parent,
+                        f"Phone Hub -> {entry.region}",
+                        lambda state, triggers=matching_triggers: route_is_open(state, triggers),
+                    )
+
+            source = SCRCLocation(
+                self.player,
+                entry.source_name,
+                LOCATION_NAME_TO_ID[entry.source_name],
+                parent,
+            )
+            set_rule(
+                source,
+                lambda state, triggers=entry.triggers: route_is_open(state, triggers),
+            )
+            parent.locations.append(source)
+
+        cassette_items_by_song = {
+            entry.display_song: item_name
+            for item_name, entry in CASSETTE_BY_ITEM.items()
+        }
         for song in CASSETTE_SONGS:
+            cassette_item = cassette_items_by_song[song]
             for tier in CASSETTE_MEDAL_TIERS:
                 name = f"Music Lab Cassette - {song} - {tier}"
                 if not is_active(name):
                     continue
                 location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
-                if song == "I Got Money":
-                    set_rule(
-                        location,
-                        lambda state: state.has(MONEY_CASSETTE_ITEM_NAME, self.player),
-                    )
+                set_rule(
+                    location,
+                    lambda state, item=cassette_item: state.has(item, self.player),
+                )
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 music_lab.locations.append(location)
@@ -637,6 +689,7 @@ class SCRCWorld(World):
             cell,
             tower,
             royal,
+            *cassette_source_regions.values(),
         ]
 
     def _active_unfilled_location_capacity(self) -> int:
@@ -677,7 +730,7 @@ class SCRCWorld(World):
 
         progression_items.append(HIP_GLASSES_ITEM)
         progression_items.append(CHICKEN_BUCKET_ITEM)
-        progression_items.append(MONEY_CASSETTE_ITEM_NAME)
+        progression_items.extend(entry.item_name for entry in CASSETTES)
 
         capacity = self._active_unfilled_location_capacity()
         required_count = len(progression_items)
@@ -767,11 +820,7 @@ class SCRCWorld(World):
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
             "difficulty_filtering_active": True,
-            # Task 2 reserves catalog IDs but Task 3 has not yet created their
-            # locations. Do not advertise those future checks in slot data.
-            "active_location_count": len(
-                set(active_location_names) - set(NEW_CASSETTE_SOURCE_IDS)
-            ),
+            "active_location_count": len(active_location_names),
             "active_campaign_star_tiers": sorted(
                 getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)
             ),

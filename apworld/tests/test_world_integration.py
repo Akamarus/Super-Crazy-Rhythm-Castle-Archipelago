@@ -4,7 +4,7 @@ from pathlib import Path
 import types
 import unittest
 
-from support import FakeMultiWorld, OptionValue, load_scrc_world
+from support import FakeMultiWorld, OptionValue, load_scrc_module, load_scrc_world
 
 
 class State:
@@ -19,6 +19,7 @@ class WorldIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.module, cleanup = load_scrc_world()
         self.addCleanup(cleanup)
+        self.catalog = load_scrc_module("cassettes")
 
     def make_world(
         self,
@@ -114,7 +115,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
     def test_active_location_counts_are_exact(self):
-        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        expected = {0: 92, 1: 129, 2: 166, 3: 202}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
@@ -128,7 +129,7 @@ class WorldIntegrationTests(unittest.TestCase):
         )
 
     def test_item_pool_matches_active_unfilled_capacity(self):
-        expected = {0: 68, 1: 105, 2: 142, 3: 178}
+        expected = {0: 92, 1: 129, 2: 166, 3: 202}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 world = self.build_world(difficulty=value)
@@ -138,6 +139,110 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertNotIn("Star", names)
                 self.assertNotIn("Hypno Pan", names)
                 self.assertNotIn("Violance", names)
+
+    def test_every_cassette_has_one_live_item_and_one_source(self):
+        for difficulty in range(4):
+            with self.subTest(difficulty=difficulty):
+                world = self.build_world(difficulty=difficulty)
+                world.create_items()
+                item_names = [item.name for item in world.multiworld.itempool]
+                addressed_names = [
+                    location.name
+                    for region in world.multiworld.regions
+                    for location in region.locations
+                    if location.address is not None
+                ]
+
+                for entry in self.catalog.CASSETTES:
+                    self.assertEqual(item_names.count(entry.item_name), 1, entry.item_name)
+                    self.assertEqual(addressed_names.count(entry.source_name), 1, entry.source_name)
+                    source = world.multiworld.get_location(entry.source_name, world.player)
+                    if not entry.reused_location:
+                        self.assertEqual(source.address, entry.source_id)
+                        self.assertEqual(source.parent_region.name, entry.region)
+
+    def test_all_cassette_medals_require_only_the_matching_cassette(self):
+        world = self.build_world(difficulty=3)
+        all_prerequisites = {
+            requirement.item
+            for entry in self.catalog.CASSETTES
+            for trigger in entry.triggers
+            for requirement in trigger.requirements
+        }
+
+        for index, entry in enumerate(self.catalog.CASSETTES):
+            wrong_item = self.catalog.CASSETTES[(index + 1) % len(self.catalog.CASSETTES)].item_name
+            for tier in self.module.CASSETTE_MEDAL_TIERS:
+                with self.subTest(song=entry.display_song, tier=tier):
+                    medal = world.multiworld.get_location(
+                        f"Music Lab Cassette - {entry.display_song} - {tier}",
+                        world.player,
+                    )
+                    self.assertFalse(medal.access_rule(State(all_prerequisites)))
+                    self.assertFalse(medal.access_rule(State(all_prerequisites | {wrong_item})))
+                    self.assertTrue(medal.access_rule(State(all_prerequisites | {entry.item_name})))
+
+    def test_cassette_sources_use_logical_or_across_verified_routes(self):
+        world = self.build_world(difficulty=3)
+
+        for entry in self.catalog.CASSETTES:
+            if entry.reused_location:
+                continue
+            source = world.multiworld.get_location(entry.source_name, world.player)
+            has_free_route = any(not trigger.requirements for trigger in entry.triggers)
+            self.assertEqual(
+                source.access_rule(State([])),
+                has_free_route,
+                entry.source_name,
+            )
+            for trigger in entry.triggers:
+                with self.subTest(source=entry.source_name, route=(trigger.level, trigger.variant)):
+                    route_items = {requirement.item for requirement in trigger.requirements}
+                    self.assertTrue(source.access_rule(State(route_items)))
+
+    def test_all_music_lab_point_chests_reject_required_progression(self):
+        world = self.build_world(difficulty=3)
+        required = world.create_item(self.catalog.CASSETTES[0].item_name)
+
+        self.assertEqual(len(self.module.MUSIC_LAB_REWARD_CHEST_LOCATIONS), 9)
+        for chest_name in self.module.MUSIC_LAB_REWARD_CHEST_LOCATIONS:
+            with self.subTest(chest=chest_name):
+                chest = world.multiworld.get_location(chest_name, world.player)
+                self.assertFalse(chest.item_rule(required))
+
+    def test_eight_option_matrix_has_no_cassette_self_lock(self):
+        for difficulty in range(4):
+            for starting_area in (0, 1):
+                with self.subTest(difficulty=difficulty, starting_area=starting_area):
+                    world = self.make_world(
+                        seed=43001 + difficulty * 2 + starting_area,
+                        difficulty=difficulty,
+                        starting_area=starting_area,
+                    )
+                    world.generate_early()
+                    world.create_regions()
+                    world.create_items()
+                    world.set_rules()
+
+                    item_names = [item.name for item in world.multiworld.itempool]
+                    for entry in self.catalog.CASSETTES:
+                        self.assertEqual(item_names.count(entry.item_name), 1)
+
+                    all_other_progression = {
+                        name
+                        for name, classification in self.module.ITEM_CLASSIFICATIONS.items()
+                        if classification == "progression"
+                    }
+                    all_other_progression.update(item.name for item in world.multiworld.precollected)
+                    for entry in self.catalog.CASSETTES:
+                        all_but_self = all_other_progression - {entry.item_name}
+                        source = world.multiworld.get_location(entry.source_name, world.player)
+                        self.assertTrue(source.access_rule(State(all_but_self)), entry.source_name)
+                        bronze = world.multiworld.get_location(
+                            f"Music Lab Cassette - {entry.display_song} - Bronze",
+                            world.player,
+                        )
+                        self.assertFalse(bronze.access_rule(State(all_but_self)), entry.item_name)
 
     def test_shared_multiworld_capacity_and_pool_are_scoped_per_player(self):
         multiworld = FakeMultiWorld()
@@ -151,7 +256,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(
             [world._active_unfilled_location_capacity() for world in worlds],
-            [68, 68],
+            [92, 92],
         )
 
         for world in worlds:
@@ -162,7 +267,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [68, 68],
+            [92, 92],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
@@ -249,7 +354,7 @@ class WorldIntegrationTests(unittest.TestCase):
         source = world.multiworld.get_location(self.module.LEVEL_2_MONEY_CASSETTE_SOURCE, 1)
 
         self.assertEqual(source.address, 187256186)
-        self.assertEqual(source.parent_region.name, "Roots")
+        self.assertEqual(source.parent_region.name, "Roots OR Cell Tower")
         self.assertFalse(source.access_rule(State([])))
         self.assertTrue(source.access_rule(State(["Roots Access"])))
         self.assertIn("Roots", self.reachable_regions(world, State(["Roots Access"])))
@@ -374,7 +479,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 68)
+        self.assertEqual(data["active_location_count"], 92)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -390,7 +495,7 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 105)
+        self.assertEqual(data["active_location_count"], 129)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
         self.assertTrue(data["implementation_version"].endswith("vanilla-vampire-garage-0.21"))
@@ -451,7 +556,11 @@ class WorldIntegrationTests(unittest.TestCase):
         royal = next(region for region in world.multiworld.regions if region.name == "Royal Corridor")
         self.assertEqual(
             {location.name for location in royal.locations},
-            {"Level 22 - Completion", "Level 22 - 1 Star"},
+            {
+                "Level 22 - Completion",
+                "Level 22 - 1 Star",
+                "Cassette Source - Another Day In Paradise",
+            },
         )
         self.assertNotIn("Victory", {location.name for location in royal.locations})
 
