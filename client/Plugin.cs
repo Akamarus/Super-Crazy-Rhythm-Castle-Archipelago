@@ -18126,7 +18126,7 @@ internal static class CassetteReceiptRandomization
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
-    private static CassetteReceiptRuntime _runtime = new();
+    private static CassetteReceiptScheduler _scheduler = new();
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -18137,14 +18137,14 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             Enabled = false; _slotDataSynchronized = false;
-            _playerSaveRequestProcessor = null; _runtime = new CassetteReceiptRuntime();
+            _playerSaveRequestProcessor = null; _scheduler = new CassetteReceiptScheduler();
         }
     }
 
     internal static void ApplySlotData(Dictionary<string, object>? slotData)
     {
         bool enabled = ReadSlotBool(slotData, "randomize_level_2_money_cassette");
-        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; _runtime.Configure(enabled); }
+        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; _scheduler.Configure(enabled); }
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be persisted as HAVE_IN_BAG; deposited cassettes remain deposited."
             : "[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled; native cassette inventory remains vanilla.");
@@ -18154,11 +18154,10 @@ internal static class CassetteReceiptRandomization
     internal static bool TryApplyItem(string itemName)
     {
         bool recognized;
-        lock (Sync) recognized = _runtime.NoteReceived(itemName);
+        lock (Sync) recognized = _scheduler.NoteReceived(itemName);
         if (!recognized) return false;
         CassetteDefinition entry = CassetteCatalog.ByItemName[itemName];
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE RECEIVED item='{entry.ItemName}' nativeSong='{entry.NativeSong}' routingEnabled={Enabled}; Unity-thread reconciliation requested.");
-        OnLifecyclePoint($"received {entry.ItemName}");
         return true;
     }
 
@@ -18171,37 +18170,36 @@ internal static class CassetteReceiptRandomization
 
     internal static void OnLifecyclePoint(string reason)
     {
-        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; _runtime.OnLifecyclePoint(); }
+        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; _scheduler.OnLifecyclePoint(); }
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation retry window re-armed reason='{reason}'.");
-        TickPendingNativeGrants();
     }
 
     internal static void TickPendingNativeGrants()
     {
-        for (int i = 0; i < CassetteCatalog.All.Count; i++)
+        object? processor;
+        CassetteSchedulerTickResult result;
+        lock (Sync)
         {
-            string? song; object? processor;
-            lock (Sync)
-            {
-                if (!_slotDataSynchronized || !Enabled || !_runtime.TryBeginReconcileAttempt(out song)) return;
-                processor = _playerSaveRequestProcessor;
-            }
-            bool saveAvailable = TryReadNativeStatus(song!, out string? status, out string readDetail);
-            CassetteReceiptDecision decision;
-            lock (Sync) decision = _runtime.ObserveNativeStatus(song!, status, saveAvailable, processor != null);
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation song='{song}' decision={decision} nativeStatus='{status ?? "<unavailable>"}' detail='{readDetail}'.");
-            if (decision == CassetteReceiptDecision.RequestHaveInBag && processor != null)
-            {
-                bool submitted = TrySubmitHaveInBag(processor, song!, out string submitDetail);
-                Plugin.LoggerInstance?.LogWarning(submitted
-                    ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{song}' status='{CassetteRandomizationPolicy.HaveInBag}' {submitDetail}; verification pending."
-                    : $"[SCRC-AP] CASSETTE request failed nativeSong='{song}' detail='{submitDetail}'.");
-            }
-            else if (decision == CassetteReceiptDecision.VerifiedBag)
-                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{song}'.");
-            else if (decision == CassetteReceiptDecision.VerifiedDeposited)
-                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{song}'; terminal state preserved.");
+            if (!_slotDataSynchronized || !Enabled) return;
+            processor = _playerSaveRequestProcessor;
+            result = _scheduler.Tick(
+                song =>
+                {
+                    bool available = TryReadNativeStatus(song, out string? status, out _);
+                    return new CassetteNativeObservation(available, processor != null, status);
+                },
+                song => processor != null && TrySubmitHaveInBag(processor, song, out _));
         }
+        if (result.Decision == null || result.NativeSong == null) return;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation song='{result.NativeSong}' decision={result.Decision} writeSubmitted={result.WriteSubmitted}.");
+        if (result.Decision == CassetteReceiptDecision.RequestHaveInBag)
+            Plugin.LoggerInstance?.LogWarning(result.WriteSubmitted
+                ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}'; later-tick verification pending."
+                : $"[SCRC-AP] CASSETTE request failed nativeSong='{result.NativeSong}'.");
+        else if (result.Decision == CassetteReceiptDecision.VerifiedBag)
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}'.");
+        else if (result.Decision == CassetteReceiptDecision.VerifiedDeposited)
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{result.NativeSong}'; terminal state preserved.");
     }
 
     private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)

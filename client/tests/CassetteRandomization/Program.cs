@@ -90,6 +90,22 @@ foreach (var entry in CassetteCatalog.All)
     Equal(false, other.OwnsNativeSong(entry.NativeSong), $"different item does not grant {entry.NativeSong}");
 }
 
+int nativeReads = 0, nativeWrites = 0;
+var scheduler = new CassetteReceiptScheduler(); scheduler.Configure(true);
+Equal(true, scheduler.NoteReceived("Money Cassette"), "scheduler recognizes receipt");
+Equal(0, nativeReads, "receipt callback performs no native read");
+Equal(0, nativeWrites, "receipt callback performs no native write");
+var tick1 = scheduler.Tick(
+    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.Invalid); },
+    _ => { nativeWrites++; return true; });
+Equal(CassetteReceiptDecision.RequestHaveInBag, tick1.Decision, "first tick requests native bag");
+Equal(1, nativeReads, "first tick reads once"); Equal(1, nativeWrites, "first tick writes once");
+var tick2 = scheduler.Tick(
+    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.HaveInBag); },
+    _ => { nativeWrites++; return true; });
+Equal(CassetteReceiptDecision.VerifiedBag, tick2.Decision, "later tick verifies bag");
+Equal(2, nativeReads, "later tick reads once"); Equal(1, nativeWrites, "later verification does not rewrite");
+
 var lifecycle = new CassetteReceiptRuntime(); lifecycle.Configure(true);
 Equal(false, lifecycle.NoteReceived("not a cassette"), "unknown item ignored");
 Equal(true, lifecycle.NoteReceived("Money Cassette"), "Money receipt recognized");
@@ -119,6 +135,20 @@ var rearmed = new HashSet<string>(StringComparer.Ordinal);
 while (replay.TryBeginReconcileAttempt(out string? song)) rearmed.Add(song!);
 Equal(false, rearmed.Contains("ZEN"), "deposited is terminal after reconnect");
 Equal(29, rearmed.Count, "other ownership rearms after reconnect");
+
+var twoSaves = new CassetteReceiptRuntime(); twoSaves.Configure(true); twoSaves.NoteReceived("Money Cassette"); twoSaves.OnLifecyclePoint();
+twoSaves.TryBeginReconcileAttempt(out string? saveASong);
+Equal(CassetteReceiptDecision.VerifiedBag, twoSaves.ObserveNativeStatus(saveASong!, CassetteRandomizationPolicy.HaveInBag, true, true), "save A bag is satisfied");
+Equal(false, twoSaves.TryBeginReconcileAttempt(out _), "save A does not repeat satisfied bag");
+twoSaves.OnLifecyclePoint();
+Equal(true, twoSaves.TryBeginReconcileAttempt(out string? saveBSong), "compatible save B rearms bag-owned cassette");
+Equal(CassetteReceiptDecision.RequestHaveInBag, twoSaves.ObserveNativeStatus(saveBSong!, CassetteRandomizationPolicy.Invalid, true, true), "save B receives missing cassette");
+
+var depositedAcrossSaves = new CassetteReceiptRuntime(); depositedAcrossSaves.Configure(true); depositedAcrossSaves.NoteReceived("Zen Cassette"); depositedAcrossSaves.OnLifecyclePoint();
+depositedAcrossSaves.TryBeginReconcileAttempt(out string? depositedSong);
+Equal(CassetteReceiptDecision.VerifiedDeposited, depositedAcrossSaves.ObserveNativeStatus(depositedSong!, CassetteRandomizationPolicy.HaveDeposited, true, true), "deposited observed");
+depositedAcrossSaves.OnLifecyclePoint();
+Equal(false, depositedAcrossSaves.TryBeginReconcileAttempt(out _), "deposited remains terminal across saves");
 
 var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
 Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");
