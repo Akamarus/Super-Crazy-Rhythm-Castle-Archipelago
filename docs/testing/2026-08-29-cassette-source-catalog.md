@@ -32,13 +32,18 @@ The following runtime surfaces were found in `Assembly-CSharp.dll`:
 ## Required source evidence that is absent
 
 The installed interop metadata exposes the status and evaluator APIs but not
-the serialized level/variant reward definitions.  The retained evidence names
-the 30 Music Lab variants and identifies the six rows above, but it does not
-tie the following songs to a physical source event.  For each named row, the
-following required fields cannot be completed from metadata, retained logs, or
-historical evidence: source type, level, variant, existing AP location or new
-source name, region, requirements, native source identity, replay behavior,
-and source evidence.
+the serialized level/variant reward definitions.  The retained full-playthrough
+tasks `6a823d3d-f450-83ea-9ad2-890691a86084` and
+`6a85fe39-25b8-83ea-b3ad-ba3eec4421ec` confirm the Music Lab display/variant
+mapping run and the five chest rewards, but do not tie the remaining songs to
+a physical source event.  The retained attached logs confirm the Quicksand
+progression event, including `SONG_CASSETTE_COLLECTED_QUICKSAND`, but contain
+no missing cassette award event.
+
+For each named row below, the following required fields cannot be completed
+from metadata, retained logs, or historical evidence: source type, level,
+variant, existing AP location or new source name, region, requirements, native
+source identity, replay behavior, and source evidence.
 
 - The Little Things; No Plan B; Jolt City; Quieres Bailar; Gold; Hippo and
   Frog; On the Way; Badass; Heavy Metal; AOK; Rainbow Melodies; Sneaking;
@@ -49,6 +54,46 @@ and source evidence.
 Because those 24 native source identities are absent, this document is an
 evidence audit rather than the required 30-row reviewed catalog.  No new
 Archipelago source IDs, item IDs, regions, or source rules are allocated.
+
+## Expanded serialized-content audit
+
+The follow-up audit used read-only access only and did not launch or modify the
+game.  It examined these installed content formats:
+
+- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\StreamingAssets\aa\catalog.json`:
+  an Addressables compact catalog with `m_KeyDataString`, `m_BucketDataString`,
+  and `m_EntryDataString`, not decoded key/entry records.
+- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\StreamingAssets\aa\StandaloneWindows64\*.bundle`:
+  118 UnityFS bundles.  Read-only block-table/decompression inspection found
+  hashed internal node names and no literal `LevelData`, `songCassettes`,
+  `Level_06_Data`, or `LevelVariant_10` record that could establish a source
+  identity.
+- `D:\SteamLibrary\steamapps\common\Titus\Rhythm Castle_Data\resources.assets`,
+  `globalgamemanagers.assets`, and `sharedassets0.assets`: raw inspection
+  confirms type metadata such as `LevelData` and `LevelVariantData`, but not
+  decoded serialized instances.  The interop type exposes
+  `LevelData.variants` and `LevelVariantData.songCassettes` as native field
+  pointers, not their serialized values.
+
+No installed Unity serialized-asset reader was available (AssetRipper,
+AssetStudio, UABEA, and UnityPy were absent), and installing software is out
+of scope.  The bundled runtime was used only for in-memory, read-only format
+inspection.  These results do not establish that the data is absent; they
+establish that its values are not recoverable under the task's no-install,
+no-launch constraints.
+
+The retained attached logs searched in full were:
+
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-rxS4ra\LogOutput(20260819-181239).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-SQSNr9\LogOutput(20260819-180443).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-PiIE70\LogOutput(20260819-175602).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-CSJs7f\LogOutput(20260819-173942).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-SgadbJ\LogOutput(20260819-172403).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-bHpMjZ\LogOutput(20260819-172144).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-CyZ3fU\LogOutput(20260819-171835).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-auNFKl\LogOutput(20260819-164603).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-cBFNuJ\LogOutput(20260819-162822).log`
+- `C:\Users\Jack\AppData\Local\Temp\codex-file-preview-UYqj2G\LogOutput(20260819-162000).log`
 
 ## Evidence needed to unblock
 
