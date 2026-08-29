@@ -65,6 +65,65 @@ Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QU
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("I_GOT_MONEY", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:false), "level cassette grants are handled by the evaluator hook");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveDeposited, fromArchipelago:false), "deposited state is never intercepted");
 
+foreach (var entry in CassetteCatalog.All)
+{
+    var runtime = new CassetteReceiptRuntime();
+    runtime.Configure(true); runtime.OnLifecyclePoint();
+    Equal(false, runtime.TryBeginReconcileAttempt(out _), $"{entry.ItemName} absent means no work");
+    Equal(true, runtime.NoteReceived(entry.ItemName), $"{entry.ItemName} recognized");
+    runtime.OnLifecyclePoint();
+    Equal(true, runtime.TryBeginReconcileAttempt(out string? nativeSong), $"{entry.ItemName} begins reconciliation");
+    Equal(entry.NativeSong, nativeSong, $"{entry.ItemName} resolves native song");
+    foreach (string unowned in new[] { CassetteRandomizationPolicy.Invalid, CassetteRandomizationPolicy.HaveNotEarned })
+    {
+        Equal(CassetteReceiptDecision.RequestHaveInBag, runtime.ObserveNativeStatus(entry.NativeSong, unowned, true, true), $"{entry.ItemName} grants from {unowned}");
+        Equal(CassetteRandomizationPolicy.HaveInBag, runtime.RequestedNativeStatus, $"{entry.ItemName} requests bag state");
+    }
+    foreach (string owned in new[] { CassetteRandomizationPolicy.HaveInBag, CassetteRandomizationPolicy.HaveDeposited })
+    {
+        Equal(owned == CassetteRandomizationPolicy.HaveDeposited ? CassetteReceiptDecision.VerifiedDeposited : CassetteReceiptDecision.VerifiedBag,
+            runtime.ObserveNativeStatus(entry.NativeSong, owned, true, true), $"{entry.ItemName} preserves {owned}");
+        Equal<string?>(null, runtime.RequestedNativeStatus, $"{entry.ItemName} makes no request for {owned}");
+    }
+    var unrelated = CassetteCatalog.All.First(x => x.ItemName != entry.ItemName);
+    var other = new CassetteReceiptRuntime(); other.Configure(true); other.NoteReceived(unrelated.ItemName);
+    Equal(false, other.OwnsNativeSong(entry.NativeSong), $"different item does not grant {entry.NativeSong}");
+}
+
+var lifecycle = new CassetteReceiptRuntime(); lifecycle.Configure(true);
+Equal(false, lifecycle.NoteReceived("not a cassette"), "unknown item ignored");
+Equal(true, lifecycle.NoteReceived("Money Cassette"), "Money receipt recognized");
+Equal(true, lifecycle.NoteReceived("Money Cassette"), "duplicate history recognized idempotently");
+Equal(1, lifecycle.OwnedCount, "duplicate history stores one ownership");
+lifecycle.OnLifecyclePoint();
+Equal(true, lifecycle.TryBeginReconcileAttempt(out string? lifecycleSong), "owned song begins attempt");
+Equal(CassetteReceiptDecision.SaveUnavailable, lifecycle.ObserveNativeStatus(lifecycleSong!, null, false, true), "unavailable save retries later");
+Equal(CassetteReceiptDecision.ProcessorUnavailable, lifecycle.ObserveNativeStatus(lifecycleSong!, CassetteRandomizationPolicy.Invalid, true, false), "unavailable processor retries later");
+for (int i=1; i<CassetteReceiptRuntime.MaxRetryAttempts; i++)
+{
+    Equal(true, lifecycle.TryBeginReconcileAttempt(out lifecycleSong), $"retry attempt {i + 1} begins");
+    lifecycle.ObserveNativeStatus(lifecycleSong!, null, false, true);
+}
+Equal(false, lifecycle.TryBeginReconcileAttempt(out _), "retry window bounded");
+lifecycle.OnLifecyclePoint();
+Equal(true, lifecycle.TryBeginReconcileAttempt(out _), "later lifecycle rearms work");
+
+var replay = new CassetteReceiptRuntime(); replay.Configure(true);
+foreach (var entry in CassetteCatalog.All) replay.NoteReceived(entry.ItemName);
+Equal(30, replay.OwnedCount, "history reconstructs all ownership"); replay.OnLifecyclePoint();
+var attempted = new HashSet<string>(StringComparer.Ordinal);
+while (replay.TryBeginReconcileAttempt(out string? song)) attempted.Add(song!);
+Equal(30, attempted.Count, "one lifecycle attempts all received cassettes");
+replay.ObserveNativeStatus("ZEN", CassetteRandomizationPolicy.HaveDeposited, true, true); replay.OnLifecyclePoint();
+var rearmed = new HashSet<string>(StringComparer.Ordinal);
+while (replay.TryBeginReconcileAttempt(out string? song)) rearmed.Add(song!);
+Equal(false, rearmed.Contains("ZEN"), "deposited is terminal after reconnect");
+Equal(29, rearmed.Count, "other ownership rearms after reconnect");
+
+var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
+Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");
+Equal(false, CassetteReceiptRuntime.UseSelectedSaveChangedEventHook, "unsafe save-slot hook prohibited");
+
 foreach (var triggerGroup in CassetteCatalog.All
              .Where(x => x.SourceType == CassetteSourceType.LevelEarnedReward)
              .SelectMany(x => x.Triggers)

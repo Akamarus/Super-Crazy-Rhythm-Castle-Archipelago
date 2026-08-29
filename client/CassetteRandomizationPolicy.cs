@@ -32,30 +32,116 @@ internal static class CassetteRandomizationPolicy
     private static CassetteSourceDecision Allow(string detail)=>new(true,Array.Empty<string>(),Array.Empty<string>(),detail);
 }
 
-// Retained until the following receipt-reconciliation task generalizes the tested
-// Money receipt path to all catalog entries.
+internal enum CassetteReceiptDecision
+{
+    Disabled, NoOwnership, SaveUnavailable, ProcessorUnavailable, VerifiedBag,
+    VerifiedDeposited, RequestHaveInBag, UnknownNativeStatus
+}
+
+internal sealed class CassetteReceiptRuntime
+{
+    internal const int MaxRetryAttempts = 8;
+    internal static bool UseSelectedSaveChangedEventHook => false;
+    private bool _enabled;
+    private readonly HashSet<string> _ownedSongs = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _terminalSongs = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
+    private readonly Dictionary<string,int> _attempts = new(StringComparer.Ordinal);
+    private readonly Queue<string> _pending = new();
+    internal string? RequestedNativeStatus { get; private set; }
+    internal int OwnedCount => _ownedSongs.Count;
+
+    internal void Configure(bool enabled)
+    {
+        _enabled = enabled;
+        if (!enabled) { _pending.Clear(); _inFlight.Clear(); _attempts.Clear(); }
+    }
+
+    internal bool NoteReceived(string itemName)
+    {
+        if (!CassetteCatalog.ByItemName.TryGetValue(itemName, out CassetteDefinition? entry)) return false;
+        _ownedSongs.Add(entry.NativeSong);
+        return true;
+    }
+
+    internal bool OwnsNativeSong(string nativeSong) => _ownedSongs.Contains(nativeSong);
+
+    internal void OnLifecyclePoint()
+    {
+        _pending.Clear(); _inFlight.Clear(); _attempts.Clear();
+        if (!_enabled) return;
+        foreach (string song in _ownedSongs.Where(x => !_terminalSongs.Contains(x)).OrderBy(x => x, StringComparer.Ordinal))
+            _pending.Enqueue(song);
+    }
+
+    internal bool TryBeginReconcileAttempt(out string? nativeSong)
+    {
+        nativeSong = null;
+        while (_pending.Count > 0)
+        {
+            string candidate = _pending.Dequeue();
+            if (_terminalSongs.Contains(candidate) || _inFlight.Contains(candidate)) continue;
+            int count = _attempts.TryGetValue(candidate, out int prior) ? prior : 0;
+            if (count >= MaxRetryAttempts) continue;
+            _attempts[candidate] = count + 1;
+            _inFlight.Add(candidate); nativeSong = candidate; return true;
+        }
+        return false;
+    }
+
+    internal CassetteReceiptDecision ObserveNativeStatus(string nativeSong, string? nativeStatus, bool saveAvailable, bool processorAvailable)
+    {
+        RequestedNativeStatus = null;
+        _inFlight.Remove(nativeSong);
+        if (!_enabled) return CassetteReceiptDecision.Disabled;
+        if (!_ownedSongs.Contains(nativeSong)) return CassetteReceiptDecision.NoOwnership;
+        if (!saveAvailable) return Retry(nativeSong, CassetteReceiptDecision.SaveUnavailable);
+        if (string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveDeposited, StringComparison.OrdinalIgnoreCase))
+        { _terminalSongs.Add(nativeSong); return CassetteReceiptDecision.VerifiedDeposited; }
+        if (string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase))
+        { _terminalSongs.Add(nativeSong); return CassetteReceiptDecision.VerifiedBag; }
+        if (!CassetteRandomizationPolicy.IsUnearned(nativeStatus)) return Retry(nativeSong, CassetteReceiptDecision.UnknownNativeStatus);
+        if (!processorAvailable) return Retry(nativeSong, CassetteReceiptDecision.ProcessorUnavailable);
+        RequestedNativeStatus = CassetteRandomizationPolicy.HaveInBag;
+        return Retry(nativeSong, CassetteReceiptDecision.RequestHaveInBag);
+    }
+
+    private CassetteReceiptDecision Retry(string song, CassetteReceiptDecision decision)
+    {
+        if (_attempts.TryGetValue(song, out int count) && count < MaxRetryAttempts) _pending.Enqueue(song);
+        return decision;
+    }
+}
+
+// Temporary adapter retained so the former Money-only Unity integration keeps
+// compiling while Plugin.cs is migrated to CassetteReceiptRuntime below.
 internal enum Level2MoneyCassetteReconcileDecision { Disabled, NoOwnership, SaveUnavailable, ProcessorUnavailable, AlreadyOwned, RequestHaveInBag, UnknownNativeStatus }
 internal sealed class Level2MoneyCassetteRuntime
 {
-    internal const int MaxRetryAttempts=8;
-    private bool _enabled; private int _receivedCount; private int _remainingRetryAttempts; private bool _retryWindowOpen; private bool _retryWindowExhausted;
-    internal string? RequestedNativeStatus { get; private set; }
-    internal bool RetryWindowExhausted=>_retryWindowExhausted;
-    internal int RemainingRetryAttempts=>_remainingRetryAttempts;
-    internal void Configure(bool enabled){_enabled=enabled;if(!enabled)CloseRetryWindow();}
-    internal void NoteReceivedCount(int count){if(count>_receivedCount)_receivedCount=count;}
-    internal void OnSaveLifecyclePoint(){if(!_enabled||_receivedCount<1)return;_remainingRetryAttempts=MaxRetryAttempts;_retryWindowOpen=true;_retryWindowExhausted=false;}
-    internal bool TryBeginReconcileAttempt(){if(!_retryWindowOpen)return false;if(_remainingRetryAttempts<1){CloseRetryWindow(true);return false;}_remainingRetryAttempts--;return true;}
-    internal Level2MoneyCassetteReconcileDecision ObserveNativeStatus(bool saveAvailable,bool processorAvailable,string? nativeStatus)
+    internal const int MaxRetryAttempts = CassetteReceiptRuntime.MaxRetryAttempts;
+    private readonly CassetteReceiptRuntime _inner = new();
+    internal string? RequestedNativeStatus => _inner.RequestedNativeStatus;
+    internal bool RetryWindowExhausted { get; private set; }
+    internal int RemainingRetryAttempts { get; private set; }
+    internal void Configure(bool enabled) => _inner.Configure(enabled);
+    internal void NoteReceivedCount(int count) { if (count > 0) _inner.NoteReceived("Money Cassette"); }
+    internal void OnSaveLifecyclePoint() { _inner.OnLifecyclePoint(); RemainingRetryAttempts = MaxRetryAttempts; RetryWindowExhausted = false; }
+    internal bool TryBeginReconcileAttempt()
     {
-        RequestedNativeStatus=null;
-        if(!_enabled){CloseRetryWindow();return Level2MoneyCassetteReconcileDecision.Disabled;}
-        if(_receivedCount<1){CloseRetryWindow();return Level2MoneyCassetteReconcileDecision.NoOwnership;}
-        if(!saveAvailable)return Level2MoneyCassetteReconcileDecision.SaveUnavailable;
-        if(CassetteRandomizationPolicy.IsOwned(nativeStatus)){CloseRetryWindow();return Level2MoneyCassetteReconcileDecision.AlreadyOwned;}
-        if(!CassetteRandomizationPolicy.IsUnearned(nativeStatus))return Level2MoneyCassetteReconcileDecision.UnknownNativeStatus;
-        if(!processorAvailable)return Level2MoneyCassetteReconcileDecision.ProcessorUnavailable;
-        RequestedNativeStatus=CassetteRandomizationPolicy.HaveInBag;return Level2MoneyCassetteReconcileDecision.RequestHaveInBag;
+        bool result = _inner.TryBeginReconcileAttempt(out _);
+        if (result) RemainingRetryAttempts = Math.Max(0, RemainingRetryAttempts - 1);
+        else if (RemainingRetryAttempts == 0) RetryWindowExhausted = true;
+        return result;
     }
-    private void CloseRetryWindow(bool exhausted=false){_remainingRetryAttempts=0;_retryWindowOpen=false;_retryWindowExhausted=exhausted;}
+    internal Level2MoneyCassetteReconcileDecision ObserveNativeStatus(bool saveAvailable, bool processorAvailable, string? nativeStatus) =>
+        _inner.ObserveNativeStatus("I_GOT_MONEY", nativeStatus, saveAvailable, processorAvailable) switch
+        {
+            CassetteReceiptDecision.Disabled => Level2MoneyCassetteReconcileDecision.Disabled,
+            CassetteReceiptDecision.NoOwnership => Level2MoneyCassetteReconcileDecision.NoOwnership,
+            CassetteReceiptDecision.SaveUnavailable => Level2MoneyCassetteReconcileDecision.SaveUnavailable,
+            CassetteReceiptDecision.ProcessorUnavailable => Level2MoneyCassetteReconcileDecision.ProcessorUnavailable,
+            CassetteReceiptDecision.VerifiedBag or CassetteReceiptDecision.VerifiedDeposited => Level2MoneyCassetteReconcileDecision.AlreadyOwned,
+            CassetteReceiptDecision.RequestHaveInBag => Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
+            _ => Level2MoneyCassetteReconcileDecision.UnknownNativeStatus
+        };
 }

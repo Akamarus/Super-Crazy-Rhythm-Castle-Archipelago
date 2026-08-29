@@ -157,7 +157,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
-        Level2MoneyCassetteRandomization.Configure();
+        CassetteReceiptRandomization.Configure();
         CassetteSourceRandomization.Configure();
         PreviewAbilityRandomization.Configure();
         BottomHudDiagnostic.Configure();
@@ -181,7 +181,7 @@ public sealed class Plugin : BasePlugin
         if (enabled.Value)
             AddComponent<PlantPipesReconciliationKeeper>();
         if (enabled.Value)
-            AddComponent<Level2MoneyCassetteReconciliationKeeper>();
+            AddComponent<CassetteReceiptReconciliationKeeper>();
         if (enabled.Value)
             AddComponent<PreviewAbilityReconciliationKeeper>();
         if (enabled.Value)
@@ -1321,7 +1321,7 @@ internal sealed class ArchipelagoClient
                     GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                     WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                     PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
-                    Level2MoneyCassetteRandomization.ApplySlotData(loginSuccess.SlotData);
+                    CassetteReceiptRandomization.ApplySlotData(loginSuccess.SlotData);
                     CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
                     PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                     BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
@@ -11546,13 +11546,13 @@ internal static class GamePatches
 
     public static void SelectedSaveChangedEventPostfix()
     {
-        Level2MoneyCassetteRandomization.OnLifecyclePoint(
-            "selected player save slot changed");
+        // Intentionally empty: patching SelectedPlayerSaveSlotChangedEvent.HandleEvent
+        // is prohibited because its IL2CPP payload previously crashed startup.
     }
 
     public static void ApplyResultPrefix(object? __instance, object[]? __args)
     {
-        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(
+        CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(
             __instance,
             reconcileNow: false);
     }
@@ -11574,7 +11574,8 @@ internal static class GamePatches
                         ReflectionUtil.ReadMember(request, "_Song_k__BackingField"))?.ToString();
         string? status = (ReflectionUtil.ReadMember(request, "CassetteStatus") ??
                           ReflectionUtil.ReadMember(request, "_CassetteStatus_k__BackingField"))?.ToString();
-        return CassetteSourceRandomization.AllowCassetteStatusRequest(song, status);
+        return CassetteSourceRandomization.AllowCassetteStatusRequest(
+            song, status, CassetteReceiptRandomization.IsApplyingNativeGrant);
     }
 
     public static void ApplyResultPostfix(object[]? __args)
@@ -11601,7 +11602,7 @@ internal static class GamePatches
         Level6Discovery.RecordLevelResultApplied(level);
         Level8Discovery.RecordLevelResultApplied(level);
         PlantPipesRandomization.OnLevelResultApplied(level);
-        Level2MoneyCassetteRandomization.OnLifecyclePoint("level result applied");
+        CassetteReceiptRandomization.OnLifecyclePoint("level result applied");
     }
 
     public static void ResultPersistedEventPostfix(object[]? __args)
@@ -11646,7 +11647,7 @@ internal static class GamePatches
         Level8Discovery.RecordLevelPersisted(level);
         EarlySequenceBlockerPatches.RecordLevelPersisted(level);
         PlantPipesRandomization.OnLevelResultPersisted(level);
-        Level2MoneyCassetteRandomization.OnLifecyclePoint("level result persisted");
+        CassetteReceiptRandomization.OnLifecyclePoint("level result persisted");
         BottomHudDiagnostic.OnLevelResultPersisted(level);
 
         if (result != null)
@@ -14727,7 +14728,7 @@ internal static class DeveloperHarness
                 _level4ProxyTransitionRequested = true;
         }
         BottomHudDiagnostic.OnRoomTransition(observedRoom);
-        Level2MoneyCassetteRandomization.OnLifecyclePoint(
+        CassetteReceiptRandomization.OnLifecyclePoint(
             $"room transition to {observedRoom}");
 
         // IsInteractionEnabled() is patched at the native machine-code level
@@ -17686,10 +17687,10 @@ internal static class CassetteSourceRandomization
         return false;
     }
 
-    internal static bool AllowCassetteStatusRequest(string? nativeSong, string? status)
+    internal static bool AllowCassetteStatusRequest(string? nativeSong, string? status, bool fromArchipelago)
     {
         if (!_enabled || !CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant(
-                nativeSong, status, fromArchipelago: false))
+                nativeSong, status, fromArchipelago))
             return true;
 
         CassetteDefinition entry = CassetteCatalog.ByNativeSong[nativeSong!];
@@ -18115,6 +18116,153 @@ internal static class Level2MoneyCassetteRandomization
             return false;
         if (raw is bool value)
             return value;
+        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
+    }
+}
+
+
+internal static class CassetteReceiptRandomization
+{
+    private static readonly object Sync = new();
+    private static object? _playerSaveRequestProcessor;
+    private static bool _slotDataSynchronized;
+    private static CassetteReceiptRuntime _runtime = new();
+    [ThreadStatic] private static bool _applyingNativeGrant;
+
+    internal static bool Enabled { get; private set; }
+    internal static bool IsApplyingNativeGrant => _applyingNativeGrant;
+
+    internal static void Configure()
+    {
+        lock (Sync)
+        {
+            Enabled = false; _slotDataSynchronized = false;
+            _playerSaveRequestProcessor = null; _runtime = new CassetteReceiptRuntime();
+        }
+    }
+
+    internal static void ApplySlotData(Dictionary<string, object>? slotData)
+    {
+        bool enabled = ReadSlotBool(slotData, "randomize_level_2_money_cassette");
+        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; _runtime.Configure(enabled); }
+        Plugin.LoggerInstance?.LogWarning(enabled
+            ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be persisted as HAVE_IN_BAG; deposited cassettes remain deposited."
+            : "[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled; native cassette inventory remains vanilla.");
+        if (enabled) OnLifecyclePoint("slot data synchronized");
+    }
+
+    internal static bool TryApplyItem(string itemName)
+    {
+        bool recognized;
+        lock (Sync) recognized = _runtime.NoteReceived(itemName);
+        if (!recognized) return false;
+        CassetteDefinition entry = CassetteCatalog.ByItemName[itemName];
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE RECEIVED item='{entry.ItemName}' nativeSong='{entry.NativeSong}' routingEnabled={Enabled}; Unity-thread reconciliation requested.");
+        OnLifecyclePoint($"received {entry.ItemName}");
+        return true;
+    }
+
+    internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)
+    {
+        if (instance == null || !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal)) return;
+        lock (Sync) _playerSaveRequestProcessor = instance;
+        if (reconcileNow) OnLifecyclePoint("player save request processor activity");
+    }
+
+    internal static void OnLifecyclePoint(string reason)
+    {
+        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; _runtime.OnLifecyclePoint(); }
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation retry window re-armed reason='{reason}'.");
+        TickPendingNativeGrants();
+    }
+
+    internal static void TickPendingNativeGrants()
+    {
+        for (int i = 0; i < CassetteCatalog.All.Count; i++)
+        {
+            string? song; object? processor;
+            lock (Sync)
+            {
+                if (!_slotDataSynchronized || !Enabled || !_runtime.TryBeginReconcileAttempt(out song)) return;
+                processor = _playerSaveRequestProcessor;
+            }
+            bool saveAvailable = TryReadNativeStatus(song!, out string? status, out string readDetail);
+            CassetteReceiptDecision decision;
+            lock (Sync) decision = _runtime.ObserveNativeStatus(song!, status, saveAvailable, processor != null);
+            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation song='{song}' decision={decision} nativeStatus='{status ?? "<unavailable>"}' detail='{readDetail}'.");
+            if (decision == CassetteReceiptDecision.RequestHaveInBag && processor != null)
+            {
+                bool submitted = TrySubmitHaveInBag(processor, song!, out string submitDetail);
+                Plugin.LoggerInstance?.LogWarning(submitted
+                    ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{song}' status='{CassetteRandomizationPolicy.HaveInBag}' {submitDetail}; verification pending."
+                    : $"[SCRC-AP] CASSETTE request failed nativeSong='{song}' detail='{submitDetail}'.");
+            }
+            else if (decision == CassetteReceiptDecision.VerifiedBag)
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{song}'.");
+            else if (decision == CassetteReceiptDecision.VerifiedDeposited)
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{song}'; terminal state preserved.");
+        }
+    }
+
+    private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)
+    {
+        status = null; detail = string.Empty;
+        try
+        {
+            Assembly? asm = ReflectionUtil.GameAssembly;
+            Type? enquiries = asm?.GetType("SongCassetteEnquiries", false, false);
+            Type? songType = asm?.GetType("ePlayableSong", false, false);
+            if (enquiries == null || songType == null || !songType.IsEnum) { detail = "cassette enquiries or song enum unavailable"; return false; }
+            object song = Enum.Parse(songType, nativeSong, false);
+            MethodInfo? method = enquiries.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .FirstOrDefault(m => m.Name == "GetSongCassetteStatus" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == songType);
+            if (method == null) { detail = "GetSongCassetteStatus unavailable"; return false; }
+            object? raw = ReflectionUtil.UnwrapNullable(method.Invoke(null, new[] { song })); status = raw?.ToString();
+            detail = $"selected save returned {status ?? "<null>"}"; return !string.IsNullOrWhiteSpace(status);
+        }
+        catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
+    }
+
+    private static bool TrySubmitHaveInBag(object processor, string nativeSong, out string detail)
+    {
+        detail = string.Empty;
+        try
+        {
+            Assembly? asm = ReflectionUtil.GameAssembly;
+            Type? requestType = asm?.GetType("RecordSongCassetteStatusInSaveDataRequest", false, false);
+            Type? songType = asm?.GetType("ePlayableSong", false, false);
+            Type? statusType = asm?.GetType("eSongCassetteStatus", false, false);
+            if (requestType == null || songType == null || statusType == null || !songType.IsEnum || !statusType.IsEnum)
+            { detail = "cassette request or enum types unavailable"; return false; }
+            object song = Enum.Parse(songType, nativeSong, false);
+            object status = Enum.Parse(statusType, CassetteRandomizationPolicy.HaveInBag, false);
+            object? request = Activator.CreateInstance(requestType, nonPublic: true);
+            if (request == null) { detail = "request construction failed"; return false; }
+            if (!(TryWriteMember(request, "Song", song) || TryWriteMember(request, "_Song_k__BackingField", song)) ||
+                !(TryWriteMember(request, "CassetteStatus", status) || TryWriteMember(request, "_CassetteStatus_k__BackingField", status)))
+            { detail = "request members unavailable"; return false; }
+            MethodInfo? process = processor.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(m => m.Name == "ProcessRequest" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsInstanceOfType(request));
+            if (process == null) { detail = "matching ProcessRequest unavailable"; return false; }
+            _applyingNativeGrant = true;
+            try { process.Invoke(processor, new[] { request }); }
+            finally { _applyingNativeGrant = false; }
+            detail = "through RecordSongCassetteStatusInSaveDataRequest"; return true;
+        }
+        catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
+    }
+
+    private static bool TryWriteMember(object obj, string name, object value)
+    {
+        try { PropertyInfo? p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (p?.CanWrite == true) { p.SetValue(obj, value); return true; } } catch { }
+        try { FieldInfo? f = obj.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (f != null) { f.SetValue(obj, value); return true; } } catch { }
+        return false;
+    }
+
+    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
+    {
+        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null) return false;
+        if (raw is bool b) return b; if (raw is long l) return l != 0; if (raw is int i) return i != 0;
         return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
     }
 }
@@ -19571,11 +19719,11 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 }
 
 
-internal sealed class Level2MoneyCassetteReconciliationKeeper : MonoBehaviour
+internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 {
     private int _cooldown;
 
-    public Level2MoneyCassetteReconciliationKeeper(IntPtr pointer) : base(pointer)
+    public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
     }
 
@@ -19584,7 +19732,7 @@ internal sealed class Level2MoneyCassetteReconciliationKeeper : MonoBehaviour
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
-        Level2MoneyCassetteRandomization.TickPendingNativeGrant();
+        CassetteReceiptRandomization.TickPendingNativeGrants();
     }
 }
 
@@ -21019,7 +21167,7 @@ internal static class IntroRoomToHubRedirectPatches
     public static void NewSaveCreatedPostfix()
     {
         EarlySequenceBlockerPatches.NewSaveCreated();
-        Level2MoneyCassetteRandomization.OnLifecyclePoint("new player save created");
+        CassetteReceiptRandomization.OnLifecyclePoint("new player save created");
         _freshSavePending = IntroHubSkip.Enabled && IntroHubSkip.Compatible;
         _freshSaveRedirected = false;
         if (_freshSavePending)
@@ -24598,7 +24746,7 @@ internal static class NativeProgression
         if (AreaAccessPrototype.TryApplyItem(itemName))
             return;
 
-        if (Level2MoneyCassetteRandomization.TryApplyItem(itemName))
+        if (CassetteReceiptRandomization.TryApplyItem(itemName))
             return;
 
         if (!ItemToFlags.TryGetValue(itemName, out string[]? flags))
@@ -24895,7 +25043,7 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
-        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
