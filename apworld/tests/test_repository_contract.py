@@ -420,8 +420,8 @@ comment-internal newlines are not root-entry separators
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
         self.assertEqual(manifest["world_version"], "0.22.0")
-        self.assertEqual(manifest["version"], 8)
-        self.assertEqual(manifest["compatible_version"], 8)
+        self.assertEqual(manifest["version"], 7)
+        self.assertEqual(manifest["compatible_version"], 7)
 
     def test_example_yaml_selects_the_validated_roots_start(self):
         example = (REPO_ROOT / "apworld/examples/SCRC-AreaRouting-PlantPipes.yaml").read_text(
