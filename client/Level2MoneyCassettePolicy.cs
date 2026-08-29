@@ -42,20 +42,53 @@ internal enum Level2MoneyCassetteReconcileDecision
 
 internal sealed class Level2MoneyCassetteRuntime
 {
+    internal const int MaxRetryAttempts = 8;
+
     private bool _enabled;
     private int _receivedCount;
+    private int _remainingRetryAttempts;
+    private bool _retryWindowOpen;
+    private bool _retryWindowExhausted;
 
     internal string? RequestedNativeStatus { get; private set; }
+    internal bool RetryWindowExhausted => _retryWindowExhausted;
+    internal int RemainingRetryAttempts => _remainingRetryAttempts;
 
     internal void Configure(bool enabled)
     {
         _enabled = enabled;
+        if (!enabled)
+            CloseRetryWindow();
     }
 
     internal void NoteReceivedCount(int count)
     {
         if (count > _receivedCount)
             _receivedCount = count;
+    }
+
+    internal void OnSaveLifecyclePoint()
+    {
+        if (!_enabled || _receivedCount < 1)
+            return;
+
+        _remainingRetryAttempts = MaxRetryAttempts;
+        _retryWindowOpen = true;
+        _retryWindowExhausted = false;
+    }
+
+    internal bool TryBeginReconcileAttempt()
+    {
+        if (!_retryWindowOpen)
+            return false;
+        if (_remainingRetryAttempts < 1)
+        {
+            CloseRetryWindow(exhausted: true);
+            return false;
+        }
+
+        _remainingRetryAttempts--;
+        return true;
     }
 
     internal Level2MoneyCassetteReconcileDecision ObserveNativeStatus(
@@ -66,13 +99,22 @@ internal sealed class Level2MoneyCassetteRuntime
         RequestedNativeStatus = null;
 
         if (!_enabled)
+        {
+            CloseRetryWindow();
             return Level2MoneyCassetteReconcileDecision.Disabled;
+        }
         if (_receivedCount < 1)
+        {
+            CloseRetryWindow();
             return Level2MoneyCassetteReconcileDecision.NoOwnership;
+        }
         if (!saveAvailable)
             return Level2MoneyCassetteReconcileDecision.SaveUnavailable;
         if (IsOwned(nativeStatus))
+        {
+            CloseRetryWindow();
             return Level2MoneyCassetteReconcileDecision.AlreadyOwned;
+        }
         if (!string.Equals(nativeStatus, Level2MoneyCassettePolicy.HaveNotEarned, StringComparison.OrdinalIgnoreCase))
             return Level2MoneyCassetteReconcileDecision.UnknownNativeStatus;
         if (!processorAvailable)
@@ -80,6 +122,13 @@ internal sealed class Level2MoneyCassetteRuntime
 
         RequestedNativeStatus = Level2MoneyCassettePolicy.HaveInBag;
         return Level2MoneyCassetteReconcileDecision.RequestHaveInBag;
+    }
+
+    private void CloseRetryWindow(bool exhausted = false)
+    {
+        _remainingRetryAttempts = 0;
+        _retryWindowOpen = false;
+        _retryWindowExhausted = exhausted;
     }
 
     private static bool IsOwned(string? nativeStatus)

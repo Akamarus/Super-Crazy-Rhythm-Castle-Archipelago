@@ -112,6 +112,7 @@ public sealed class Plugin : BasePlugin
             nameof(GamePatches.ApplyResultPrefix),
             nameof(GamePatches.ApplyResultPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
+        patched += PatchMethodsByParameter("HandleEvent", "SelectedPlayerSaveSlotChangedEvent", nameof(GamePatches.SelectedSaveChangedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
         patched += PatchMethodsByParameterWithPrefixAndPostfix(
@@ -11463,9 +11464,17 @@ internal static class GamePatches
         MusicLabDiscovery.RecordScoredSongRequest(request);
     }
 
+    public static void SelectedSaveChangedEventPostfix()
+    {
+        Level2MoneyCassetteRandomization.OnLifecyclePoint(
+            "selected player save slot changed");
+    }
+
     public static void ApplyResultPrefix(object? __instance, object[]? __args)
     {
-        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(__instance);
+        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(
+            __instance,
+            reconcileNow: false);
 
         object? request = ReflectionUtil.FindArg(__args, "ApplyLevelResultToSaveDataRequest");
         if (request != null)
@@ -17549,13 +17558,10 @@ internal static class Level2MoneyCassetteRandomization
     internal const string SourceLocationName = "Level 2 - Money Cassette";
     internal const string NativeSongName = "I_GOT_MONEY";
 
-    private const int MaxRetryAttempts = 8;
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
-    private static bool _pendingReconciliation;
     private static int _receivedCount;
-    private static int _retryAttempts;
     private static bool _retryExhaustionLogged;
     private static Level2MoneyCassetteRuntime _runtime = new();
     private static Level2MoneyCassetteReconcileDecision? _lastDecision;
@@ -17569,9 +17575,7 @@ internal static class Level2MoneyCassetteRandomization
             Enabled = false;
             _playerSaveRequestProcessor = null;
             _slotDataSynchronized = false;
-            _pendingReconciliation = false;
             _receivedCount = 0;
-            _retryAttempts = 0;
             _retryExhaustionLogged = false;
             _runtime = new Level2MoneyCassetteRuntime();
             _lastDecision = null;
@@ -17588,8 +17592,6 @@ internal static class Level2MoneyCassetteRandomization
             _slotDataSynchronized = true;
             _runtime.Configure(Enabled);
             _runtime.NoteReceivedCount(_receivedCount);
-            _pendingReconciliation = Enabled && _receivedCount > 0;
-            _retryAttempts = 0;
             _retryExhaustionLogged = false;
             receivedCount = _receivedCount;
         }
@@ -17600,7 +17602,7 @@ internal static class Level2MoneyCassetteRandomization
                 : $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION disabled requested={requested}; Level 2's native cassette reward remains unchanged for this seed.");
 
         if (Enabled && receivedCount > 0)
-            RearmRetries("slot data synchronized");
+            ArmRetryWindow("slot data synchronized");
     }
 
     internal static bool TryApplyItem(string itemName)
@@ -17615,8 +17617,7 @@ internal static class Level2MoneyCassetteRandomization
             count = ++_receivedCount;
             _runtime.NoteReceivedCount(count);
             enabled = Enabled;
-            _pendingReconciliation = !_slotDataSynchronized || Enabled;
-            _retryAttempts = 0;
+            _runtime.OnSaveLifecyclePoint();
             _retryExhaustionLogged = false;
         }
 
@@ -17653,45 +17654,38 @@ internal static class Level2MoneyCassetteRandomization
         Plugin.AP?.QueueLocation(SourceLocationName);
     }
 
-    internal static void CapturePlayerSaveRequestProcessor(object? instance)
+    internal static void CapturePlayerSaveRequestProcessor(
+        object? instance,
+        bool reconcileNow = true)
     {
         if (instance == null ||
             !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
             return;
 
-        bool changed;
         lock (Sync)
-        {
-            changed = !ReferenceEquals(_playerSaveRequestProcessor, instance);
             _playerSaveRequestProcessor = instance;
-        }
 
-        if (changed)
-            OnLifecyclePoint("player save request processor captured");
+        if (reconcileNow)
+            OnLifecyclePoint("player save request processor activity");
     }
 
     internal static void OnLifecyclePoint(string reason)
     {
-        RearmRetries(reason);
+        ArmRetryWindow(reason);
         TryFlushPendingNativeGrant(reason);
     }
 
-    internal static void TickPendingNativeGrant()
-    {
-        TryFlushPendingNativeGrant("bounded keeper retry");
-    }
-
-    private static void RearmRetries(string reason)
+    private static void ArmRetryWindow(string reason)
     {
         bool rearmed;
         lock (Sync)
         {
-            rearmed = _pendingReconciliation && _slotDataSynchronized && Enabled;
-            if (rearmed)
-            {
-                _retryAttempts = 0;
-                _retryExhaustionLogged = false;
-            }
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            _runtime.OnSaveLifecyclePoint();
+            rearmed = _slotDataSynchronized && Enabled && _receivedCount > 0;
+            _retryExhaustionLogged = false;
+            _lastDecision = null;
         }
 
         if (rearmed)
@@ -17701,29 +17695,40 @@ internal static class Level2MoneyCassetteRandomization
         }
     }
 
+    internal static void TickPendingNativeGrant()
+    {
+        TryFlushPendingNativeGrant("bounded keeper retry");
+    }
+
     private static void TryFlushPendingNativeGrant(string reason)
     {
         object? processor;
         int attempt;
+        bool attemptAvailable;
         bool logExhaustion = false;
         lock (Sync)
         {
-            if (!_pendingReconciliation || !_slotDataSynchronized || !Enabled)
+            if (!_slotDataSynchronized || !Enabled)
                 return;
 
-            if (_retryAttempts >= MaxRetryAttempts)
+            _runtime.Configure(Enabled);
+            _runtime.NoteReceivedCount(_receivedCount);
+            if (!_runtime.TryBeginReconcileAttempt())
             {
-                if (!_retryExhaustionLogged)
+                attemptAvailable = false;
+                if (_runtime.RetryWindowExhausted && !_retryExhaustionLogged)
                 {
                     _retryExhaustionLogged = true;
                     logExhaustion = true;
                 }
                 processor = null;
-                attempt = _retryAttempts;
+                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts;
             }
             else
             {
-                attempt = ++_retryAttempts;
+                attemptAvailable = true;
+                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts -
+                          _runtime.RemainingRetryAttempts;
                 processor = _playerSaveRequestProcessor;
             }
         }
@@ -17731,9 +17736,11 @@ internal static class Level2MoneyCassetteRandomization
         if (logExhaustion)
         {
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation paused after {MaxRetryAttempts} attempts; a later save lifecycle point will retry.");
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation paused after {Level2MoneyCassetteRuntime.MaxRetryAttempts} attempts; a later save lifecycle point will retry.");
             return;
         }
+        if (!attemptAvailable)
+            return;
         bool saveAvailable = TryReadNativeStatus(out string? nativeStatus, out string readDetail);
         Level2MoneyCassetteReconcileDecision decision;
         bool decisionChanged;
@@ -17752,7 +17759,7 @@ internal static class Level2MoneyCassetteRandomization
         if (decisionChanged)
         {
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation decision={decision} nativeStatus='{nativeStatus ?? "<unavailable>"}' attempt={attempt}/{MaxRetryAttempts} reason='{reason}' detail='{readDetail}'.");
+                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation decision={decision} nativeStatus='{nativeStatus ?? "<unavailable>"}' attempt={attempt}/{Level2MoneyCassetteRuntime.MaxRetryAttempts} reason='{reason}' detail='{readDetail}'.");
         }
 
         switch (decision)
@@ -17760,8 +17767,6 @@ internal static class Level2MoneyCassetteRandomization
             case Level2MoneyCassetteReconcileDecision.AlreadyOwned:
                 lock (Sync)
                 {
-                    _pendingReconciliation = false;
-                    _retryAttempts = 0;
                     _retryExhaustionLogged = false;
                 }
                 Plugin.LoggerInstance?.LogWarning(
@@ -17784,8 +17789,6 @@ internal static class Level2MoneyCassetteRandomization
 
             case Level2MoneyCassetteReconcileDecision.Disabled:
             case Level2MoneyCassetteReconcileDecision.NoOwnership:
-                lock (Sync)
-                    _pendingReconciliation = false;
                 return;
         }
     }
@@ -20848,6 +20851,7 @@ internal static class IntroRoomToHubRedirectPatches
     public static void NewSaveCreatedPostfix()
     {
         EarlySequenceBlockerPatches.NewSaveCreated();
+        Level2MoneyCassetteRandomization.OnLifecyclePoint("new player save created");
         _freshSavePending = IntroHubSkip.Enabled && IntroHubSkip.Compatible;
         _freshSaveRedirected = false;
         if (_freshSavePending)
@@ -24670,7 +24674,6 @@ internal static class ProgressionPatches
         WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
-        Level2MoneyCassetteRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request prefix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);

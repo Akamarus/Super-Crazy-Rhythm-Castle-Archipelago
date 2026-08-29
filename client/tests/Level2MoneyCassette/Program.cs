@@ -89,4 +89,57 @@ Equal(Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
     retryRuntime.ObserveNativeStatus(saveAvailable: true, processorAvailable: true, Level2MoneyCassettePolicy.HaveNotEarned),
     "retry retains receipt ownership after unavailable save and processor");
 
+var selectedSaveRuntime = new Level2MoneyCassetteRuntime();
+selectedSaveRuntime.Configure(enabled: true);
+selectedSaveRuntime.NoteReceivedCount(1);
+selectedSaveRuntime.OnSaveLifecyclePoint();
+Equal(true,
+    selectedSaveRuntime.TryBeginReconcileAttempt(),
+    "first selected save opens a bounded reconciliation window");
+Equal(Level2MoneyCassetteReconcileDecision.AlreadyOwned,
+    selectedSaveRuntime.ObserveNativeStatus(
+        saveAvailable: true,
+        processorAvailable: true,
+        Level2MoneyCassettePolicy.HaveInBag),
+    "owned first selected save closes only its current reconciliation window");
+Equal(false,
+    selectedSaveRuntime.TryBeginReconcileAttempt(),
+    "verified ownership pauses retries for the current selected save");
+
+selectedSaveRuntime.OnSaveLifecyclePoint();
+Equal(true,
+    selectedSaveRuntime.TryBeginReconcileAttempt(),
+    "selecting or creating another save reopens reconciliation for persistent AP ownership");
+Equal(Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
+    selectedSaveRuntime.ObserveNativeStatus(
+        saveAvailable: true,
+        processorAvailable: true,
+        Level2MoneyCassettePolicy.HaveNotEarned),
+    "unowned later selected save receives the persistent AP cassette");
+
+var exhaustedRuntime = new Level2MoneyCassetteRuntime();
+exhaustedRuntime.Configure(enabled: true);
+exhaustedRuntime.NoteReceivedCount(1);
+exhaustedRuntime.OnSaveLifecyclePoint();
+for (int attempt = 0; attempt < Level2MoneyCassetteRuntime.MaxRetryAttempts; attempt++)
+{
+    Equal(true,
+        exhaustedRuntime.TryBeginReconcileAttempt(),
+        $"bounded retry attempt {attempt + 1} is available");
+}
+Equal(false,
+    exhaustedRuntime.TryBeginReconcileAttempt(),
+    "retry window pauses after the bounded attempt limit");
+
+exhaustedRuntime.OnSaveLifecyclePoint();
+Equal(true,
+    exhaustedRuntime.TryBeginReconcileAttempt(),
+    "later save activity with the same processor starts a fresh bounded retry window");
+Equal(Level2MoneyCassetteReconcileDecision.RequestHaveInBag,
+    exhaustedRuntime.ObserveNativeStatus(
+        saveAvailable: true,
+        processorAvailable: true,
+        Level2MoneyCassettePolicy.HaveNotEarned),
+    "same-processor lifecycle recovery grants after earlier save-unavailable exhaustion");
+
 Console.WriteLine("Level 2 Money Cassette policy tests passed.");
