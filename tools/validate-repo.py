@@ -73,10 +73,12 @@ EXPECTED = {
     "chicken_bucket_item_id": 187256120,
     "hypno_pan_item_id": 187256121,
     "violance_item_id": 187256122,
+    "money_cassette_item_id": 187256123,
     "hip_glasses_location_id": 187256180,
     "bucket_trade_location_id": 187256181,
-    "next_item_id": 187256123,
-    "next_location_id": 187256186,
+    "money_cassette_location_id": 187256186,
+    "next_item_id": 187256124,
+    "next_location_id": 187256187,
 }
 
 
@@ -247,6 +249,7 @@ if star_id != EXPECTED["star_item_id"]:
 for label, expected_id, symbol in (
     ("Hypno Pan", EXPECTED["hypno_pan_item_id"], "HYPNO_PAN_ITEM_NAME"),
     ("Violance", EXPECTED["violance_item_id"], "VIOLANCE_ITEM_NAME"),
+    ("Money Cassette", EXPECTED["money_cassette_item_id"], "MONEY_CASSETTE_ITEM_NAME"),
 ):
     match = re.search(rf'{symbol}\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
     if not match:
@@ -254,6 +257,19 @@ for label, expected_id, symbol in (
     absolute = 187256000 + int(match.group(1))
     if absolute != expected_id:
         fail(f"{label} item ID changed: expected {expected_id}, got {absolute}")
+
+money_cassette_location_match = re.search(
+    r'LOCATION_NAME_TO_ID\[LEVEL_2_MONEY_CASSETTE_SOURCE\]\s*=\s*BASE_ID\s*\+\s*(\d+)',
+    world_text,
+)
+if not money_cassette_location_match:
+    fail("could not locate Money Cassette source ID assignment")
+money_cassette_location_id = 187256000 + int(money_cassette_location_match.group(1))
+if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
+    fail(
+        "Money Cassette source ID changed: expected "
+        f"{EXPECTED['money_cassette_location_id']}, got {money_cassette_location_id}"
+    )
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
@@ -313,8 +329,10 @@ print(json.dumps({
     "chicken_bucket_item_id": EXPECTED["chicken_bucket_item_id"],
     "hypno_pan_item_id": EXPECTED["hypno_pan_item_id"],
     "violance_item_id": EXPECTED["violance_item_id"],
+    "money_cassette_item_id": EXPECTED["money_cassette_item_id"],
     "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
+    "money_cassette_location_id": EXPECTED["money_cassette_location_id"],
     "next_item_id": EXPECTED["next_item_id"],
     "local_ai_allowed_models": list(LOCAL_AI_ALLOWED_MODELS),
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,

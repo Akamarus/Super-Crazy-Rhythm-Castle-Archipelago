@@ -28,7 +28,8 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Hip Glasses and Chicken Bucket chain | Implemented / needs gameplay acceptance | Level 4 and the Bucket Minion trade are AP checks. AP delivers both held items; native interactions consume them and produce non-network Combo Bucket. |
 | Levels 1–3 campaign completion checks | Implemented / needs more testing | These are the only current campaign completion checks. |
 | Game Garage cartridges and sticker checks | Implemented / live entrance accepted | Vampire Killer remains a physical vanilla pickup; five cartridges are AP items. All six songs retain cumulative Bronze through Platinum checks. |
-| Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks; cassette items are not randomized yet. |
+| Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks. The four I Got Money medal checks require Money Cassette. |
+| Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | The verified `Level_06 -> 110 -> I_GOT_MONEY` source sends `Level 2 - Money Cassette`; AP receipt reconciles `HAVE_IN_BAG` and normal Music Lab insertion deposits it. Fresh-save and save-switch IL2CPP acceptance remain pending. |
 | Music Lab reward chests | Implemented / needs more testing | Nine native point-threshold chests are AP checks and are reconciled from the save. Native medal score remains the current currency. |
 | Current development completion condition | Implemented / needs more testing | The APWorld currently validates the Area Access routing milestone; it is not the approved Level 22 victory design. |
 
@@ -39,7 +40,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
 | Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Implemented / needs gameplay acceptance | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival mappings are implemented. Fresh-save reload/reconnect acceptance remains required. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
-| Cassette sources and native inventory mappings | Discovery required | Medal checks exist, but source-to-item randomization has not been mapped for all 30 cassettes. |
+| Remaining cassette sources and native inventory mappings | Discovery required | The one-cassette Level 2 Money pilot is implemented; source-to-item randomization for every other cassette remains unmapped. The separate `MONEY_DUB=128` entry is not the `Level_06 -> 110 -> I_GOT_MONEY` source. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |
 
 ## Generation gate

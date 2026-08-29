@@ -96,7 +96,7 @@ Physical reward sources and meaningful trades may become AP locations. Receiving
 | Displayed progression | Internal level / room | Area | Observed or log-confirmed notes |
 | --- | --- | --- | --- |
 | Level 1 | `Level_05` | Roots | Completion and star-result mapping were tested during early client development. Earlier per-level gate experiments are superseded. |
-| Level 2 | `Level_06` | Roots | Completion was repeatedly logged. A Bee Mode variant later reuses this level as Nectar Party and has no stars. |
+| Level 2 | `Level_06` | Roots | Completion was repeatedly logged. Shipped assets map `Level_06_Data.variants[*].songCassettes[0]` to `110`, which is `ePlayableSong.I_GOT_MONEY`; the one-cassette AP pilot uses this first default award. A Bee Mode variant later reuses this level as Nectar Party and has no stars. |
 | Level 3 | `Level_07` | Roots | Weed Killer opens the entrance. Frog and Hippo provide the Plant Pipes ability during the level. |
 | Level 4 | `Level_08` / `GameRoom_08` | Roots | Hip Glasses are awarded immediately before completion. The entrance uses `Level_08_Entrance`; the vine hierarchy includes `BossWeeds-tofb`. |
 | Level 5 — Lift Quest | `Level_09` | Roots | Hip Glasses are traded to the Bucket Minion for the Chicken Bucket. The trade removes the bucket blockade and precedes the King lift conversation. The entrance is `Placeholder_Level_09_Entrance` with `KingLiftChatWitnessed_Condition`. |
@@ -313,7 +313,7 @@ This historical table matches the current approved design, but it is not proof t
 | 13 | Bounce | Variant `LevelVariant_10_BOUNCE`. |
 | 26 | Quicksand | Unlocked by the Quicksand Cassette. |
 
-The approved future design randomizes individual cassette and nonstarting-character items. It is not current implementation: every cassette still needs verified source, inventory, insertion, and reconciliation mappings, and the complete nonstarting-character roster and native unlock mappings still require discovery.
+The approved future design randomizes individual cassette and nonstarting-character items. One bounded exception is now implemented: the Level 2 Money Cassette pilot maps `Level_06 -> 110 -> I_GOT_MONEY` to `Level 2 - Money Cassette` and the `Money Cassette` item. The unrelated `MONEY_DUB = 128` entry is the Music Lab song named Money, not this source. All other cassettes still need verified source, inventory, insertion, and reconciliation mappings; the complete nonstarting-character roster and native unlock mappings still require discovery. Live fresh-save and save-switch IL2CPP acceptance for the pilot remain pending.
 
 ### Music Lab point chests
 
