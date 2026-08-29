@@ -83,7 +83,7 @@ In Archipelago Launcher, click **Generate**. On success, take the generated arch
 
 Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.21.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`; it forces Roots as the starter area and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
 
-Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. Normal addresses 67 locations; Hard 104; Expert 141; Perfection 177. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
+Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. Normal addresses 68 locations; Hard 105; Expert 142; Perfection 178. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
 Existing v0.20 seeds remain usable with Client v0.67.95 and retain six-cartridge randomization. Install v0.21 and generate a fresh seed for native Vampire Killer Garage access.
 

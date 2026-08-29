@@ -525,8 +525,8 @@ class SCRCWorld(World):
 
         # Hub6 side content is always logically reachable. v0.14 intentionally
         # permits Area Access items here so current-save networking can test
-        # real AP-driven area unlocks. Cassette/point/full world prerequisites
-        # will be modeled in a later logic milestone.
+        # real AP-driven area unlocks. Remaining cassette/point/full world
+        # prerequisites will be modeled in a later logic milestone.
         for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
             location = SCRCLocation(
                 self.player,

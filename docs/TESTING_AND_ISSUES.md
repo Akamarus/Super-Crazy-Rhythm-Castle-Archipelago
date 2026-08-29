@@ -18,7 +18,7 @@ Use matching source builds and record the versions you actually use:
 - Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
-- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 67/104/141/177 existing locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
+- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 68/105/142/178 existing locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
 - For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.
 
 Follow the [installation guide](INSTALL.md) to build and install both components, generate the seed, and configure the client. Use the room's real host, port, slot name, and password locally; do not publish a password or a complete config file.

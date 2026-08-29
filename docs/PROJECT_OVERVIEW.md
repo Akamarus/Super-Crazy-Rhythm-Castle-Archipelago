@@ -427,7 +427,7 @@ A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.21.0 retains v0.20 difficulty filtering while retiring the Vampire Killer source check, producing 67/104/141/177 addressed locations. Existing v0.20 seeds retain their old location sets and six-cartridge behavior. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.21.0 retains v0.20 difficulty filtering while retiring the Vampire Killer source check, producing 68/105/142/178 addressed locations. Existing v0.20 seeds retain their old location sets and six-cartridge behavior. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -555,7 +555,7 @@ The client follows several implementation rules developed through testing:
 | Remaining cassette-item randomization | Design approved / not implemented | Only the Level 2 Money Cassette pilot is implemented; every other cassette still requires source, inventory, insertion, and reconciliation mapping. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 67/104/141/177 addressed locations; native REG/PRO remains player-controlled. |
+| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing campaign performance locations at 68/105/142/178 addressed locations; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 

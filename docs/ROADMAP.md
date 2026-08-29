@@ -20,7 +20,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
-| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 67/104/141/177 locations after retiring the Vampire Killer source from fresh generation. |
+| Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 68/105/142/178 locations after retiring the Vampire Killer source from fresh generation. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
 | Roots traversal baseline | Implemented / needs more testing | The first-arrival cutscene, FirstAreaGate, and StarEaterBlockade handling support the Roots-first prototype. |
 | Weed Killer source and item | Implemented / needs more testing | Gecko sends an AP check; AP receipt grants the native consumable for the normal Level 3 route. |
