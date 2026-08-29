@@ -9,7 +9,13 @@ from .difficulty import (
     filter_locations_for_difficulty,
     medal_tiers,
 )
-from .items import NEW_ITEM_CLASSIFICATIONS, NEW_ITEM_NAME_TO_ID
+from .cassettes import NEW_CASSETTE_SOURCE_IDS, validate_cassette_catalog
+from .items import (
+    CASSETTE_ITEM_CLASSIFICATIONS,
+    CASSETTE_ITEM_NAME_TO_ID,
+    NEW_ITEM_CLASSIFICATIONS,
+    NEW_ITEM_NAME_TO_ID,
+)
 from .items import (
     HYPNO_PAN_ITEM_NAME,
     MONEY_CASSETTE_ITEM_NAME,
@@ -222,6 +228,12 @@ for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
 LEVEL_2_MONEY_CASSETTE_SOURCE = "Level 2 - Money Cassette"
 LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
 
+# Full cassette randomization appends only genuinely new physical source
+# locations.  The six reused sources (including Money's pilot location) retain
+# their established locations and never receive duplicate checks.
+LOCATION_NAME_TO_ID.update(NEW_CASSETTE_SOURCE_IDS)
+validate_cassette_catalog(CASSETTE_SONGS, LOCATION_NAME_TO_ID)
+
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
     MUSIC_LAB_10_POINT_CHEST,
@@ -267,6 +279,7 @@ ITEM_NAME_TO_ID = {
     "Hip Glasses": BASE_ID + 119,
     "Chicken Bucket": BASE_ID + 120,
     **NEW_ITEM_NAME_TO_ID,
+    **CASSETTE_ITEM_NAME_TO_ID,
 }
 
 HIP_GLASSES_ITEM = "Hip Glasses"
@@ -283,6 +296,7 @@ ITEM_CLASSIFICATIONS = {
     HIP_GLASSES_ITEM: ItemClassification.progression,
     CHICKEN_BUCKET_ITEM: ItemClassification.progression,
     **NEW_ITEM_CLASSIFICATIONS,
+    **CASSETTE_ITEM_CLASSIFICATIONS,
 }
 
 

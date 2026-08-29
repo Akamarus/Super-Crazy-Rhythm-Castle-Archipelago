@@ -58,7 +58,8 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('"hip_glasses_location_id": 187256180', result.stdout)
         self.assertIn('"bucket_trade_location_id": 187256181', result.stdout)
         self.assertIn('"money_cassette_location_id": 187256186', result.stdout)
-        self.assertIn('"next_item_id": 187256124', result.stdout)
+        self.assertIn('"next_item_id": 187256153', result.stdout)
+        self.assertIn('"next_location_id": 187256211', result.stdout)
         self.assertIn(
             '"local_ai_allowed_models": [\n    "jacks-assistant",\n    "jacks-assistant-fast"\n  ]',
             result.stdout,

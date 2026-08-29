@@ -77,8 +77,8 @@ EXPECTED = {
     "hip_glasses_location_id": 187256180,
     "bucket_trade_location_id": 187256181,
     "money_cassette_location_id": 187256186,
-    "next_item_id": 187256124,
-    "next_location_id": 187256187,
+    "next_item_id": 187256153,
+    "next_location_id": 187256211,
 }
 
 
@@ -334,6 +334,7 @@ print(json.dumps({
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "money_cassette_location_id": EXPECTED["money_cassette_location_id"],
     "next_item_id": EXPECTED["next_item_id"],
+    "next_location_id": EXPECTED["next_location_id"],
     "local_ai_allowed_models": list(LOCAL_AI_ALLOWED_MODELS),
     "local_ai_decision_schema": LOCAL_AI_DECISION_SCHEMA,
     "local_ai_evaluation_schema": LOCAL_AI_EVALUATION_SCHEMA,

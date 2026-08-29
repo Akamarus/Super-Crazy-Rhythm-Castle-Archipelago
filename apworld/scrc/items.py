@@ -1,5 +1,7 @@
 from BaseClasses import ItemClassification
 
+from .cassettes import CASSETTES
+
 
 BASE_ID = 187256000
 STAR_ITEM_NAME = "Star"
@@ -20,6 +22,19 @@ NEW_ITEM_CLASSIFICATIONS = {
     HYPNO_PAN_ITEM_NAME: ItemClassification.progression,
     VIOLANCE_ITEM_NAME: ItemClassification.progression,
     MONEY_CASSETTE_ITEM_NAME: ItemClassification.progression,
+}
+
+# Money's pilot ID remains in NEW_ITEM_NAME_TO_ID above.  The catalog owns the
+# full permanent cassette mapping so future consumers share the same names and
+# IDs rather than duplicating a second song list.
+CASSETTE_ITEM_NAME_TO_ID = {
+    entry.item_name: entry.item_id
+    for entry in CASSETTES
+}
+
+CASSETTE_ITEM_CLASSIFICATIONS = {
+    entry.item_name: ItemClassification.progression
+    for entry in CASSETTES
 }
 
 

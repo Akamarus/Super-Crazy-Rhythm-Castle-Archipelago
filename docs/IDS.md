@@ -23,13 +23,59 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+181` | `187256181` | Roots - Bucket Minion Trade |
 | `+182..+185` | `187256182..187256185` | Level 22 Completion / 1 Star / 2 Stars / 3 Stars |
 | `+186` | `187256186` | Level 2 - Money Cassette |
+| `+187..+210` | `187256187..187256210` | 24 new full-cassette source checks |
 
-**Next safe location offset:** `+187`
-**Next safe location ID:** `187256187`
+**Next safe location offset:** `+211`
+**Next safe location ID:** `187256211`
 
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
-The current allocation contains **179** network locations.
+The current allocation contains **203** network locations.
+
+### Full cassette source IDs
+
+| Offset | Absolute ID | Source location |
+| ---: | ---: | --- |
+| `+187` | `187256187` | Cassette Source - The Little Things |
+| `+188` | `187256188` | Cassette Source - No Plan B |
+| `+189` | `187256189` | Cassette Source - Jolt City |
+| `+190` | `187256190` | Cassette Source - Quieres Bailar |
+| `+191` | `187256191` | Cassette Source - Gold |
+| `+192` | `187256192` | Cassette Source - Hippo and Frog |
+| `+193` | `187256193` | Cassette Source - On the Way |
+| `+194` | `187256194` | Cassette Source - Badass |
+| `+195` | `187256195` | Cassette Source - Heavy Metal |
+| `+196` | `187256196` | Cassette Source - AOK |
+| `+197` | `187256197` | Cassette Source - Rainbow Melodies |
+| `+198` | `187256198` | Cassette Source - Sneaking |
+| `+199` | `187256199` | Cassette Source - The Heist |
+| `+200` | `187256200` | Cassette Source - Money |
+| `+201` | `187256201` | Cassette Source - Lets Go |
+| `+202` | `187256202` | Cassette Source - Bounce |
+| `+203` | `187256203` | Cassette Source - Epical |
+| `+204` | `187256204` | Cassette Source - Hollywood Trailer |
+| `+205` | `187256205` | Cassette Source - False Data |
+| `+206` | `187256206` | Cassette Source - Gotta Get Up |
+| `+207` | `187256207` | Cassette Source - Fumblin Around |
+| `+208` | `187256208` | Cassette Source - Party Non Stop |
+| `+209` | `187256209` | Cassette Source - Keep On Hustlin |
+| `+210` | `187256210` | Cassette Source - Another Day In Paradise |
+
+### Reused cassette source events
+
+The following Music Lab chest events remain authoritative under their historical
+IDs; full cassette randomization creates no duplicate source location for them.
+
+| Cassette | Existing source event | Existing ID |
+| --- | --- | ---: |
+| Quicksand | Music Lab - 32 Point Chest | `187256172` |
+| Flamenco | Music Lab - 64 Point Chest | `187256045` |
+| Ten-Four Good Buddy | Music Lab - 89 Point Chest | `187256166` |
+| Zen | Music Lab - 111 Point Chest | `187256167` |
+| Wiggle | Music Lab - 140 Point Chest | `187256168` |
+
+`I Got Money` separately continues to reuse the existing `Level 2 - Money
+Cassette` source at `187256186`.
 
 ## Item IDs
 
@@ -57,10 +103,39 @@ The current allocation contains **179** network locations.
 | `+120` | `187256120` | Chicken Bucket |
 | `+121` | `187256121` | Hypno Pan — registered preview; excluded from generated pools |
 | `+122` | `187256122` | Violance — registered preview; excluded from generated pools |
-| `+123` | `187256123` | Money Cassette |
+| `+123` | `187256123` | Money Cassette (I Got Money native song) |
+| `+124` | `187256124` | The Little Things Cassette |
+| `+125` | `187256125` | No Plan B Cassette |
+| `+126` | `187256126` | Jolt City Cassette |
+| `+127` | `187256127` | Quieres Bailar Cassette |
+| `+128` | `187256128` | Quicksand Cassette |
+| `+129` | `187256129` | Gold Cassette |
+| `+130` | `187256130` | Hippo and Frog Cassette |
+| `+131` | `187256131` | On the Way Cassette |
+| `+132` | `187256132` | Badass Cassette |
+| `+133` | `187256133` | Heavy Metal Cassette |
+| `+134` | `187256134` | AOK Cassette |
+| `+135` | `187256135` | Rainbow Melodies Cassette |
+| `+136` | `187256136` | Sneaking Cassette |
+| `+137` | `187256137` | The Heist Cassette |
+| `+138` | `187256138` | Money Dub Cassette |
+| `+139` | `187256139` | Lets Go Cassette |
+| `+140` | `187256140` | Bounce Cassette |
+| `+141` | `187256141` | Epical Cassette |
+| `+142` | `187256142` | Hollywood Trailer Cassette |
+| `+143` | `187256143` | False Data Cassette |
+| `+144` | `187256144` | Gotta Get Up Cassette |
+| `+145` | `187256145` | Fumblin Around Cassette |
+| `+146` | `187256146` | Party Non Stop Cassette |
+| `+147` | `187256147` | Keep On Hustlin Cassette |
+| `+148` | `187256148` | Another Day In Paradise Cassette |
+| `+149` | `187256149` | Flamenco Cassette |
+| `+150` | `187256150` | Ten-Four Good Buddy Cassette |
+| `+151` | `187256151` | Zen Cassette |
+| `+152` | `187256152` | Wiggle Cassette |
 
-**Next safe item offset:** `+124`
-**Next safe item ID:** `187256124`
+**Next safe item offset:** `+153`
+**Next safe item ID:** `187256153`
 
 ## Rule for changes
 
