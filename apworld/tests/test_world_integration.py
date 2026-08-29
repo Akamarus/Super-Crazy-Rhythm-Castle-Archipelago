@@ -114,13 +114,13 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
     def test_active_location_counts_are_exact(self):
-        expected = {0: 67, 1: 104, 2: 141, 3: 177}
+        expected = {0: 68, 1: 105, 2: 142, 3: 178}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
 
     def test_item_pool_matches_active_unfilled_capacity(self):
-        expected = {0: 67, 1: 104, 2: 141, 3: 177}
+        expected = {0: 68, 1: 105, 2: 142, 3: 178}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 world = self.build_world(difficulty=value)
@@ -143,7 +143,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(
             [world._active_unfilled_location_capacity() for world in worlds],
-            [67, 67],
+            [68, 68],
         )
 
         for world in worlds:
@@ -154,7 +154,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [67, 67],
+            [68, 68],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
@@ -209,6 +209,49 @@ class WorldIntegrationTests(unittest.TestCase):
             len(set(self.module.LOCATION_NAME_TO_ID.values())),
             len(self.module.LOCATION_NAME_TO_ID),
         )
+
+    def test_money_cassette_registers_unique_progression_source_and_pool_item(self):
+        self.assertEqual(
+            self.module.ITEM_NAME_TO_ID[self.module.MONEY_CASSETTE_ITEM_NAME],
+            187256123,
+        )
+        self.assertEqual(
+            self.module.LOCATION_NAME_TO_ID[self.module.LEVEL_2_MONEY_CASSETTE_SOURCE],
+            187256186,
+        )
+        self.assertEqual(
+            self.module.ITEM_CLASSIFICATIONS[self.module.MONEY_CASSETTE_ITEM_NAME],
+            "progression",
+        )
+        self.assertEqual(len(set(self.module.ITEM_NAME_TO_ID.values())), len(self.module.ITEM_NAME_TO_ID))
+        self.assertEqual(
+            len(set(self.module.LOCATION_NAME_TO_ID.values())),
+            len(self.module.LOCATION_NAME_TO_ID),
+        )
+
+        world = self.build_world(difficulty=3)
+        world.create_items()
+        self.assertEqual(
+            [item.name for item in world.multiworld.itempool].count("Money Cassette"),
+            1,
+        )
+
+    def test_money_cassette_source_and_i_got_money_medals_follow_its_rules(self):
+        world = self.build_world(difficulty=3)
+        source = world.multiworld.get_location(self.module.LEVEL_2_MONEY_CASSETTE_SOURCE, 1)
+
+        self.assertEqual(source.address, 187256186)
+        self.assertEqual(source.parent_region.name, "Roots")
+        self.assertFalse(source.access_rule(State([])))
+        self.assertTrue(source.access_rule(State(["Roots Access"])))
+        self.assertIn("Roots", self.reachable_regions(world, State(["Roots Access"])))
+
+        for tier in self.module.CASSETTE_MEDAL_TIERS:
+            location = world.multiworld.get_location(
+                f"Music Lab Cassette - I Got Money - {tier}", 1
+            )
+            self.assertFalse(location.access_rule(State([])))
+            self.assertTrue(location.access_rule(State(["Money Cassette"])))
 
     def test_roots_bucket_graph_uses_network_sources_and_internal_events(self):
         world = self.make_world()
@@ -275,6 +318,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(data["difficulty_filtering_active"])
         self.assertTrue(data["development_area_access_victory_active"])
         self.assertTrue(data["randomize_hip_glasses_chicken_bucket"])
+        self.assertTrue(data["randomize_level_2_money_cassette"])
         self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
         self.assertEqual(
             data["vanilla_game_garage_cartridge_item"],
@@ -322,7 +366,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 67)
+        self.assertEqual(data["active_location_count"], 68)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -338,7 +382,7 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 104)
+        self.assertEqual(data["active_location_count"], 105)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
         self.assertTrue(data["implementation_version"].endswith("vanilla-vampire-garage-0.21"))

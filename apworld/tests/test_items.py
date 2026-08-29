@@ -32,6 +32,7 @@ class ItemPlanningTests(unittest.TestCase):
                 "Star": 187256118,
                 "Hypno Pan": 187256121,
                 "Violance": 187256122,
+                "Money Cassette": 187256123,
             },
         )
         self.assertEqual(self.items.planned_star_names(), ("Star",) * 66)
@@ -48,6 +49,14 @@ class ItemPlanningTests(unittest.TestCase):
         self.assertEqual(self.items.VIOLANCE_ITEM_NAME, "Violance")
         self.assertEqual(self.items.NEW_ITEM_CLASSIFICATIONS["Hypno Pan"], "progression")
         self.assertEqual(self.items.NEW_ITEM_CLASSIFICATIONS["Violance"], "progression")
+
+    def test_money_cassette_has_a_permanent_progression_id(self):
+        self.assertEqual(self.items.MONEY_CASSETTE_ITEM_NAME, "Money Cassette")
+        self.assertEqual(self.items.NEW_ITEM_NAME_TO_ID["Money Cassette"], 187256123)
+        self.assertEqual(
+            self.items.NEW_ITEM_CLASSIFICATIONS["Money Cassette"],
+            "progression",
+        )
 
     def test_capacity_accepts_exact_fit(self):
         self.items.validate_planned_item_capacity(79, 13)

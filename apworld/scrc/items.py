@@ -6,17 +6,20 @@ STAR_ITEM_NAME = "Star"
 STAR_ITEM_COUNT = 66
 HYPNO_PAN_ITEM_NAME = "Hypno Pan"
 VIOLANCE_ITEM_NAME = "Violance"
+MONEY_CASSETTE_ITEM_NAME = "Money Cassette"
 
 NEW_ITEM_NAME_TO_ID = {
     STAR_ITEM_NAME: BASE_ID + 118,
     HYPNO_PAN_ITEM_NAME: BASE_ID + 121,
     VIOLANCE_ITEM_NAME: BASE_ID + 122,
+    MONEY_CASSETTE_ITEM_NAME: BASE_ID + 123,
 }
 
 NEW_ITEM_CLASSIFICATIONS = {
     STAR_ITEM_NAME: ItemClassification.progression,
     HYPNO_PAN_ITEM_NAME: ItemClassification.progression,
     VIOLANCE_ITEM_NAME: ItemClassification.progression,
+    MONEY_CASSETTE_ITEM_NAME: ItemClassification.progression,
 }
 
 
