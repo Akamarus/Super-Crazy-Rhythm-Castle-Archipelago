@@ -418,10 +418,10 @@ This controls which existing performance-based checks a seed contains without ch
 
 | AP difficulty | Campaign levels | Music Lab and Game Garage | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 67 |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 104 |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 141 |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 177 |
+| Normal | Completion / 1-Star | Bronze | 68 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 105 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 142 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 178 |
 
 A key current design rule is:
 
