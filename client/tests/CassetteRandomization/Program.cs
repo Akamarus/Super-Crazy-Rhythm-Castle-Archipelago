@@ -5,6 +5,30 @@ using System.Text.Json;
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
 
+var constructedRequest = CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
+    typeof(TestCassetteRequest),
+    typeof(TestSong),
+    typeof(TestCassetteStatus),
+    typeof(TestBundle),
+    nameof(TestSong.QUIERES_BAILAR),
+    out object? request,
+    out string requestDetail);
+Equal(true, constructedRequest, "cassette request uses semantic constructor");
+var typedRequest = (TestCassetteRequest)request!;
+Equal(TestSong.QUIERES_BAILAR, typedRequest.Song, "semantic constructor receives song");
+Equal(TestCassetteStatus.HAVE_IN_BAG, typedRequest.CassetteStatus, "semantic constructor receives bag status");
+Equal(TestBundle.DEFAULT, typedRequest.Bundle, "semantic constructor receives default bundle");
+Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write construction is prohibited");
+Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
+string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+int submitStart = pluginSource.IndexOf("private static bool TrySubmitHaveInBag(object processor, string nativeSong", StringComparison.Ordinal);
+int submitEnd = pluginSource.IndexOf("private static bool TryWriteMember", submitStart, StringComparison.Ordinal);
+Equal(true, submitStart >= 0 && submitEnd > submitStart, "production cassette submission method is inspectable");
+string submitSource = pluginSource[submitStart..submitEnd];
+Equal(true, submitSource.Contains("CassetteNativeRequestFactory.TryCreateHaveInBagRequest(", StringComparison.Ordinal), "production wiring uses semantic request adapter");
+Equal(true, submitSource.Contains("requestType, songType, statusType, bundleType, nativeSong", StringComparison.Ordinal), "production wiring supplies all semantic request types");
+Equal(false, submitSource.Contains("Activator.CreateInstance", StringComparison.Ordinal), "production wiring forbids parameterless request allocation");
+
 string[] expectedCatalog =
 {
  "The Little Things|THE_LITTLE_THINGS|The Little Things Cassette|Cassette Source - The Little Things|Level_24:LevelVariant_Default",
@@ -204,3 +228,25 @@ foreach (var triggerGroup in CassetteCatalog.All
     SequenceEqual(mapped.Select(x => x.SourceName), aliasDecision.SourceLocationsToQueue, $"verified alias {triggerGroup.Level}/{triggerGroup.Variant} queues exact sources");
 }
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
+
+enum TestSong { INVALID, QUIERES_BAILAR }
+enum TestCassetteStatus { INVALID, HAVE_IN_BAG }
+enum TestBundle { INVALID, DEFAULT }
+
+sealed class TestCassetteRequest
+{
+    public TestSong Song { get; set; }
+    public TestCassetteStatus CassetteStatus { get; set; }
+    public TestBundle Bundle { get; set; }
+    public bool SemanticConstructorUsed { get; }
+
+    private TestCassetteRequest() { }
+
+    public TestCassetteRequest(TestSong song, TestCassetteStatus cassetteStatus, TestBundle bundle)
+    {
+        Song = song;
+        CassetteStatus = cassetteStatus;
+        Bundle = bundle;
+        SemanticConstructorUsed = true;
+    }
+}

@@ -52,11 +52,11 @@ For every row, the spoiler audit must confirm completion reachability; every cas
 
 ## Representative live acceptance
 
-- [ ] Money level-completion source sends once and suppresses only its vanilla cassette award.
+- [x] Money level-completion source sends once and suppresses only its vanilla cassette award.
 - [ ] One additional ordinary level-completion cassette source sends once.
 - [ ] One Music Lab point-chest cassette reuses its existing AP check and sends no duplicate source.
 - [ ] One non-level story, pickup, or quest source is exercised if the final catalog contains one.
-- [ ] A received cassette appears in the native inventory without forcing its song open.
+- [ ] A received cassette appears in the native inventory without forcing its song open. **FAILED in the first live run:** `Quieres Bailar Cassette` reached AP receipt routing, but the native selected-save state remained unearned. The request used the synthetic parameterless IL2CPP constructor and omitted its mandatory bundle. The client now uses the exact `(song, status, bundle)` constructor with `HAVE_IN_BAG` and `DEFAULT`; live retest remains pending.
 - [ ] Normal Music Lab insertion deposits the cassette and enables its matching medals.
 - [ ] Replaying a source sends no duplicate check and does not leak a vanilla cassette.
 - [ ] Save reload, Archipelago reconnect, and full game restart preserve bag/deposited state correctly.
@@ -96,3 +96,13 @@ D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\
 - [x] The repaired client was installed and relaunched through `Rhythm Castle.exe`. Fresh logs confirm `[SCRC-AP] v0.68.0 loading.`, successful login, the exact v0.22 implementation tag, `CASSETTE RECEIPT RECONCILIATION ENABLED entries=30`, `CASSETTE SOURCE RANDOMIZATION ENABLED entries=30 levelSources=25 chestSources=5`, and `CONNECTED server=127.0.0.1:38281 slot='Jack'`.
 
 The game and local server are now ready for representative gameplay. Every manual gameplay row remains unchecked until its own live evidence is retained.
+
+## First live Money-source result and receipt blocker
+
+- [x] A fresh save spawned directly in Music Lab and connected with all 30 cassette routes enabled.
+- [x] Default Level 2 suppressed its native `I_GOT_MONEY` cassette award and sent `Level 2 - Money Cassette` exactly once.
+- [x] AP returned `Quieres Bailar Cassette` and the client routed it to native song `QUIERES_BAILAR` on the Unity scheduler.
+- [ ] Native receipt persistence failed: repeated later-tick reads remained unearned even though the processor returned normally.
+- [x] Root cause was isolated to construction of `RecordSongCassetteStatusInSaveDataRequest`: the synthetic parameterless wrapper allocation set song/status members but omitted the mandatory `ePlayerSaveChangeBundleKey` semantic-constructor argument.
+- [x] The production adapter now requires the exact three-argument constructor and passes `QUIERES_BAILAR`, `HAVE_IN_BAG`, and `DEFAULT`. Focused logs include song/status/bundle at submission and a later persisted/terminal verification outcome.
+- [ ] Install and live-retest the corrected client before checking native inventory visibility, insertion, reload, reconnect, or restart rows. This document does not claim a live receipt pass.

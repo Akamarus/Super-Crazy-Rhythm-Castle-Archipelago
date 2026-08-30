@@ -18223,12 +18223,12 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation song='{result.NativeSong}' decision={result.Decision} writeSubmitted={result.WriteSubmitted}.");
         if (result.Decision == CassetteReceiptDecision.RequestHaveInBag)
             Plugin.LoggerInstance?.LogWarning(result.WriteSubmitted
-                ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}'; later-tick verification pending."
+                ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' bundle='{CassetteNativeRequestFactory.DefaultBundle}'; later-tick verification pending."
                 : $"[SCRC-AP] CASSETTE request failed nativeSong='{result.NativeSong}'.");
         else if (result.Decision == CassetteReceiptDecision.VerifiedBag)
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}'.");
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' outcome='persisted'.");
         else if (result.Decision == CassetteReceiptDecision.VerifiedDeposited)
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{result.NativeSong}'; terminal state preserved.");
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveDeposited}' outcome='terminal'; state preserved.");
     }
 
     private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)
@@ -18259,22 +18259,21 @@ internal static class CassetteReceiptRandomization
             Type? requestType = asm?.GetType("RecordSongCassetteStatusInSaveDataRequest", false, false);
             Type? songType = asm?.GetType("ePlayableSong", false, false);
             Type? statusType = asm?.GetType("eSongCassetteStatus", false, false);
-            if (requestType == null || songType == null || statusType == null || !songType.IsEnum || !statusType.IsEnum)
+            Type? bundleType = asm?.GetType("ePlayerSaveChangeBundleKey", false, false);
+            if (requestType == null || songType == null || statusType == null || bundleType == null)
             { detail = "cassette request or enum types unavailable"; return false; }
-            object song = Enum.Parse(songType, nativeSong, false);
-            object status = Enum.Parse(statusType, CassetteRandomizationPolicy.HaveInBag, false);
-            object? request = Activator.CreateInstance(requestType, nonPublic: true);
-            if (request == null) { detail = "request construction failed"; return false; }
-            if (!(TryWriteMember(request, "Song", song) || TryWriteMember(request, "_Song_k__BackingField", song)) ||
-                !(TryWriteMember(request, "CassetteStatus", status) || TryWriteMember(request, "_CassetteStatus_k__BackingField", status)))
-            { detail = "request members unavailable"; return false; }
+            if (!CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
+                    requestType, songType, statusType, bundleType, nativeSong, out object? request, out string constructorDetail) ||
+                request == null)
+            { detail = constructorDetail; return false; }
             MethodInfo? process = processor.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                 .FirstOrDefault(m => m.Name == "ProcessRequest" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsInstanceOfType(request));
             if (process == null) { detail = "matching ProcessRequest unavailable"; return false; }
             _applyingNativeGrant = true;
             try { process.Invoke(processor, new[] { request }); }
             finally { _applyingNativeGrant = false; }
-            detail = "through RecordSongCassetteStatusInSaveDataRequest"; return true;
+            detail = $"through RecordSongCassetteStatusInSaveDataRequest {constructorDetail}";
+            return true;
         }
         catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
     }
