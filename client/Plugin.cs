@@ -18507,6 +18507,7 @@ internal static class PlantPipesRandomization
             lock (Sync)
                 _playerSaveRequestProcessor = processor;
             RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(processor);
+            CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(processor);
             Plugin.LoggerInstance?.LogInfo(
                 "[SCRC-AP] ROOTS PLANT PIPES constructed stateless PlayerSaveRequestProcessor after selected-save enquiries became readable.");
             return true;

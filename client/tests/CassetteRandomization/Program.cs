@@ -53,6 +53,22 @@ foreach (string submitSource in submitMethods)
     Equal(false, submitSource.Contains("TryWriteMember(request, \"CassetteStatus\"", StringComparison.Ordinal), "cassette submission forbids post-construction status writes");
 }
 
+IReadOnlyList<string> processorFactories =
+    ExtractMethods(pluginSource, "private static bool EnsureProcessorAvailable()");
+Equal(1, processorFactories.Count,
+    "the restart-safe player-save processor factory is uniquely inspectable");
+
+string processorFactory = processorFactories.Single();
+int processorStored = processorFactory.IndexOf(
+    "_playerSaveRequestProcessor = processor;",
+    StringComparison.Ordinal);
+int cassetteHandoff = processorFactory.IndexOf(
+    "CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(processor);",
+    StringComparison.Ordinal);
+Equal(true,
+    processorStored >= 0 && cassetteHandoff > processorStored,
+    "the restart-safe stateless processor is handed to cassette reconciliation after construction");
+
 string[] expectedCatalog =
 {
  "The Little Things|THE_LITTLE_THINGS|The Little Things Cassette|Cassette Source - The Little Things|Level_24:LevelVariant_Default",
