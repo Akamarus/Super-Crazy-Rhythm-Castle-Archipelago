@@ -42,8 +42,52 @@ Equal(TestBundle.DEFAULT, typedRequest.Bundle, "semantic constructor receives de
 Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write construction is prohibited");
 Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+
+foreach (string selectionRequest in new[]
+{
+    "SelectPlayerSaveSlotRequest",
+    "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest",
+    "EnsureAPlayerSaveSlotIsSelectedRequest",
+    "CreateNewPlayerSaveFileInSlotRequest"
+})
+{
+    Equal(true,
+        pluginSource.Contains($"PatchMethodsByParameter(\"ProcessRequest\", \"{selectionRequest}\", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix))", StringComparison.Ordinal),
+        $"safe save-selection hook installed for {selectionRequest}");
+}
+foreach (string persistRequest in new[] { "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
+{
+    Equal(true,
+        pluginSource.Contains($"PatchMethodsByParameterWithPrefixAndPostfix(\n            \"ProcessRequest\",\n            \"{persistRequest}\",\n            nameof(CassetteSaveTransactionPatches.PersistPrefix),\n            nameof(CassetteSaveTransactionPatches.PersistPostfix))", StringComparison.Ordinal),
+        $"natural persist prefix/postfix installed for {persistRequest}");
+}
+
+string selectionPostfix = ExtractMethods(pluginSource, "public static void SaveSelectionPostfix(").Single();
+Equal(true, selectionPostfix.Contains("CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot)", StringComparison.Ordinal), "selection postfix verifies the loaded save");
+Equal(true, selectionPostfix.Contains("ActivateLoadedSave(slot", StringComparison.Ordinal), "successful selection activates a new epoch");
+Equal(true, selectionPostfix.Contains("DeactivateLoadedSave(", StringComparison.Ordinal), "failed selection deactivates the epoch");
+string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
+Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
+
+string persistPrefixSource = ExtractMethods(pluginSource, "public static void PersistPrefix(").Single();
+Equal(true, persistPrefixSource.Contains("TryBeginNativePersist(__instance, request, out __state)", StringComparison.Ordinal), "persist prefix delegates exact natural request and processor");
+Equal(false, persistPrefixSource.Contains("return false", StringComparison.Ordinal), "persist prefix never suppresses the native persist");
+string persistPostfix = ExtractMethods(pluginSource, "public static void PersistPostfix(").Single();
+Equal(true, persistPostfix.Contains("SchedulePersistVerification(__state)", StringComparison.Ordinal), "persist postfix schedules verification");
+
+string transactionBegin = ExtractMethods(pluginSource, "internal static bool TryBeginNativePersist(").Single();
+Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName)", StringComparison.Ordinal), "persist prefix preserves the natural native bundle");
+Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong", StringComparison.Ordinal), "persist prefix authoritatively rereads before staging");
+Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryStageHaveInBag(processor, nativeSong, nativeBundle", StringComparison.Ordinal), "persist prefix stages into the natural bundle");
+
+string periodicKeeper = ExtractMethods(pluginSource, "internal static void TickPendingNativeGrants(").Single();
+Equal(false, periodicKeeper.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "periodic reconciliation submits no cassette request");
+Equal(false, periodicKeeper.Contains("TryStageHaveInBag", StringComparison.Ordinal), "periodic reconciliation cannot stage cassette writes");
+Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
+Console.WriteLine("PASS: safe_save_lifecycle_production_wiring");
+
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
-Equal(2, submitMethods.Count, "all compiled cassette request submission paths are enumerated");
+Equal(1, submitMethods.Count, "only the legacy Money compatibility path retains direct cassette submission");
 foreach (string submitSource in submitMethods)
 {
     Equal(true, submitSource.Contains("CassetteNativeRequestFactory.TryCreateHaveInBagRequest(", StringComparison.Ordinal), "every cassette submission uses semantic request adapter");

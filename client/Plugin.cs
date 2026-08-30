@@ -113,14 +113,21 @@ public sealed class Plugin : BasePlugin
             nameof(GamePatches.ApplyResultPostfix));
         patched += PatchCassetteEvaluation();
         patched += PatchCassetteStatusRequest();
+        patched += PatchMethodsByParameter("ProcessRequest", "SelectPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
+        patched += PatchMethodsByParameter("ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
+        patched += PatchMethodsByParameter("ProcessRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
+        patched += PatchMethodsByParameter("ProcessRequest", "CreateNewPlayerSaveFileInSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
+        patched += PatchMethodsByParameterWithPrefixAndPostfix(
+            "ProcessRequest",
+            "PersistSaveChangeBundleRequest",
+            nameof(CassetteSaveTransactionPatches.PersistPrefix),
+            nameof(CassetteSaveTransactionPatches.PersistPostfix));
+        patched += PatchMethodsByParameterWithPrefixAndPostfix(
+            "ProcessRequest",
+            "PersistAllSaveChangeBundlesRequest",
+            nameof(CassetteSaveTransactionPatches.PersistPrefix),
+            nameof(CassetteSaveTransactionPatches.PersistPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
-        if (CassetteRandomizationPolicy.UseSelectedSaveChangedEventHook)
-        {
-            patched += PatchMethodsByParameter(
-                "HandleEvent",
-                "SelectedPlayerSaveSlotChangedEvent",
-                nameof(GamePatches.SelectedSaveChangedEventPostfix));
-        }
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
         patched += PatchMethodsByParameterWithPrefixAndPostfix(
@@ -391,12 +398,14 @@ public sealed class Plugin : BasePlugin
                 {
                     MethodInfo? prefix =
                         FindPatchMethod(typeof(GamePatches), prefixName)
-                        ?? FindPatchMethod(typeof(ProgressionPatches), prefixName);
+                        ?? FindPatchMethod(typeof(ProgressionPatches), prefixName)
+                        ?? FindPatchMethod(typeof(CassetteSaveTransactionPatches), prefixName);
 
                     MethodInfo? postfix =
                         FindPatchMethod(typeof(GamePatches), postfixName)
                         ?? FindPatchMethod(typeof(ProgressionPatches), postfixName)
-                        ?? FindPatchMethod(typeof(IntroRoomToHubRedirectPatches), postfixName);
+                        ?? FindPatchMethod(typeof(IntroRoomToHubRedirectPatches), postfixName)
+                        ?? FindPatchMethod(typeof(CassetteSaveTransactionPatches), postfixName);
 
                     if (prefix == null || postfix == null)
                     {
@@ -1046,7 +1055,8 @@ public sealed class Plugin : BasePlugin
                     MethodInfo? postfix =
                         FindPatchMethod(typeof(GamePatches), postfixName)
                         ?? FindPatchMethod(typeof(ProgressionPatches), postfixName)
-                        ?? FindPatchMethod(typeof(IntroRoomToHubRedirectPatches), postfixName);
+                        ?? FindPatchMethod(typeof(IntroRoomToHubRedirectPatches), postfixName)
+                        ?? FindPatchMethod(typeof(CassetteSaveTransactionPatches), postfixName);
 
                     if (postfix == null)
                     {
@@ -11518,6 +11528,34 @@ internal static class MusicLabSequencePatches
     }
 }
 
+internal static class CassetteSaveTransactionPatches
+{
+    public static void SaveSelectionPostfix(MethodBase __originalMethod)
+    {
+        string reason = __originalMethod?.GetParameters()
+            .FirstOrDefault(parameter => parameter.ParameterType.Name.EndsWith("PlayerSaveSlotRequest", StringComparison.Ordinal))
+            ?.ParameterType.Name ?? __originalMethod?.Name ?? "save selection";
+        if (CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot))
+            CassetteReceiptRandomization.ActivateLoadedSave(slot, reason);
+        else
+            CassetteReceiptRandomization.DeactivateLoadedSave(reason);
+    }
+
+    public static void PersistPrefix(object? __instance, object[]? __args, ref CassettePersistToken? __state)
+    {
+        object? request = __args?.FirstOrDefault(argument =>
+            argument != null &&
+            (string.Equals(argument.GetType().Name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal) ||
+             string.Equals(argument.GetType().Name, "PersistAllSaveChangeBundlesRequest", StringComparison.Ordinal)));
+        CassetteReceiptRandomization.TryBeginNativePersist(__instance, request, out __state);
+    }
+
+    public static void PersistPostfix(CassettePersistToken? __state)
+    {
+        CassetteReceiptRandomization.SchedulePersistVerification(__state);
+    }
+}
+
 
 internal static class GamePatches
 {
@@ -18112,9 +18150,11 @@ internal static class Level2MoneyCassetteRandomization
 internal static class CassetteReceiptRandomization
 {
     private static readonly object Sync = new();
+    private static readonly Queue<CassettePersistToken> PendingPersistVerifications = new();
+    private static readonly Queue<CassettePersistToken> ReadyPersistVerifications = new();
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
-    private static CassetteReceiptScheduler _scheduler = new();
+    private static CassetteSaveEpochRuntime _runtime = new();
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -18125,7 +18165,9 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             Enabled = false; _slotDataSynchronized = false;
-            _playerSaveRequestProcessor = null; _scheduler = new CassetteReceiptScheduler();
+            _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime();
+            PendingPersistVerifications.Clear();
+            ReadyPersistVerifications.Clear();
         }
     }
 
@@ -18133,7 +18175,7 @@ internal static class CassetteReceiptRandomization
     {
         CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
         bool enabled = compatibility.Compatible;
-        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; _scheduler.Configure(enabled); }
+        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; if (!enabled) _runtime.DeactivateSave(); }
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be persisted as HAVE_IN_BAG; deposited cassettes remain deposited."
             : $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled detail=\"{compatibility.Detail}\"; native cassette inventory remains vanilla.");
@@ -18143,9 +18185,9 @@ internal static class CassetteReceiptRandomization
     internal static bool TryApplyItem(string itemName)
     {
         bool recognized;
-        lock (Sync) recognized = _scheduler.NoteReceived(itemName);
+        recognized = CassetteCatalog.ByItemName.TryGetValue(itemName, out CassetteDefinition? entry);
         if (!recognized) return false;
-        CassetteDefinition entry = CassetteCatalog.ByItemName[itemName];
+        lock (Sync) _runtime.Receive(entry!.NativeSong);
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE RECEIVED item='{entry.ItemName}' nativeSong='{entry.NativeSong}' routingEnabled={Enabled}; Unity-thread reconciliation requested.");
         return true;
     }
@@ -18159,49 +18201,116 @@ internal static class CassetteReceiptRandomization
 
     internal static void OnLifecyclePoint(string reason)
     {
-        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; _scheduler.OnLifecyclePoint(); }
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation retry window re-armed reason='{reason}'.");
+        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; }
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE observation requested reason='{reason}'; loaded-save epoch unchanged.");
+    }
+
+    internal static void ActivateLoadedSave(int slot, string reason)
+    {
+        long epoch;
+        lock (Sync)
+        {
+            _runtime.ActivateSave(slot);
+            PendingPersistVerifications.Clear();
+            ReadyPersistVerifications.Clear();
+            epoch = _runtime.Epoch;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
+    }
+
+    internal static void DeactivateLoadedSave(string reason)
+    {
+        lock (Sync)
+        {
+            _runtime.DeactivateSave();
+            PendingPersistVerifications.Clear();
+            ReadyPersistVerifications.Clear();
+        }
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
+    }
+
+    internal static bool TryBeginNativePersist(object? processor, object? request, out CassettePersistToken? token)
+    {
+        token = null;
+        if (processor == null || request == null ||
+            !CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName) ||
+            nativeBundle == null)
+            return false;
+
+        lock (Sync)
+        {
+            if (!_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave)
+                return false;
+
+            _playerSaveRequestProcessor = processor;
+            foreach (CassetteDefinition entry in CassetteCatalog.All)
+            {
+                if (CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong, out string? nativeStatus))
+                    _runtime.Observe(entry.NativeSong, nativeStatus);
+            }
+
+            token = _runtime.BeginPersist(bundleName);
+            foreach (string nativeSong in token.StagedSongs)
+            {
+                if (!CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, nativeSong, out string? currentStatus))
+                {
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE STAGE SKIPPED epoch={token.Epoch} slot={token.Slot} nativeSong='{nativeSong}' detail='authoritative read unavailable'.");
+                    continue;
+                }
+                _runtime.Observe(nativeSong, currentStatus);
+                if (!CassetteRandomizationPolicy.IsUnearned(currentStatus))
+                    continue;
+
+                _applyingNativeGrant = true;
+                try
+                {
+                    if (CassetteSaveTransactionAdapter.TryStageHaveInBag(processor, nativeSong, nativeBundle, out string detail))
+                        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE STAGED epoch={token.Epoch} slot={token.Slot} {detail}.");
+                    else
+                        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE STAGE FAILED epoch={token.Epoch} slot={token.Slot} nativeSong='{nativeSong}' detail='{detail}'.");
+                }
+                finally { _applyingNativeGrant = false; }
+            }
+            return true;
+        }
+    }
+
+    internal static void SchedulePersistVerification(CassettePersistToken? token)
+    {
+        if (token == null || token.StagedSongs.Count == 0) return;
+        lock (Sync) PendingPersistVerifications.Enqueue(token);
+    }
+
+    internal static void TickPostPersistVerifications()
+    {
+        CassettePersistToken? token;
+        object? processor;
+        lock (Sync)
+        {
+            token = ReadyPersistVerifications.Count == 0 ? null : ReadyPersistVerifications.Dequeue();
+            while (PendingPersistVerifications.Count > 0)
+                ReadyPersistVerifications.Enqueue(PendingPersistVerifications.Dequeue());
+            processor = _playerSaveRequestProcessor;
+            if (token == null || processor == null) return;
+            _runtime.CompletePersist(token, song =>
+                CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, song, out string? status) ? status : null);
+        }
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE PERSIST VERIFIED epoch={token.Epoch} slot={token.Slot} bundle='{token.Bundle}' songs={token.StagedSongs.Count}.");
     }
 
     internal static void TickPendingNativeGrants()
     {
         object? processor;
-        CassetteSchedulerTickResult result;
         lock (Sync)
         {
             if (!_slotDataSynchronized || !Enabled) return;
             processor = _playerSaveRequestProcessor;
-            result = _scheduler.Tick(
-                song =>
-                {
-                    bool available = TryReadNativeStatus(song, out string? status, out _);
-                    Type? songType = ReflectionUtil.GameAssembly?.GetType(
-                        "ePlayableSong", throwOnError: false, ignoreCase: false);
-                    bool authoritativeAvailable = CassetteAuthoritativeStateReader.TryRead(
-                        processor,
-                        songType,
-                        song,
-                        out string? authoritativeStatus,
-                        out _);
-                    return new CassetteNativeObservation(
-                        available,
-                        processor != null,
-                        status,
-                        authoritativeAvailable,
-                        authoritativeStatus);
-                },
-                song => processor != null && TrySubmitHaveInBag(processor, song, out _));
+            if (processor == null || !_runtime.HasActiveSave) return;
+            foreach (CassetteDefinition entry in CassetteCatalog.All)
+                if (CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong, out string? status))
+                    _runtime.Observe(entry.NativeSong, status);
         }
-        if (result.Decision == null || result.NativeSong == null) return;
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE reconciliation song='{result.NativeSong}' decision={result.Decision} writeSubmitted={result.WriteSubmitted}.");
-        if (result.Decision == CassetteReceiptDecision.RequestHaveInBag)
-            Plugin.LoggerInstance?.LogWarning(result.WriteSubmitted
-                ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' bundle='{CassetteNativeRequestFactory.DefaultBundle}'; later-tick verification pending."
-                : $"[SCRC-AP] CASSETTE request failed nativeSong='{result.NativeSong}'.");
-        else if (result.Decision == CassetteReceiptDecision.VerifiedBag)
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' outcome='terminal'; state preserved.");
-        else if (result.Decision == CassetteReceiptDecision.VerifiedDeposited)
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveDeposited}' outcome='terminal'; state preserved.");
+        Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE periodic observation completed; no native write submitted.");
     }
 
     private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)
@@ -18219,34 +18328,6 @@ internal static class CassetteReceiptRandomization
             if (method == null) { detail = "GetSongCassetteStatus unavailable"; return false; }
             object? raw = ReflectionUtil.UnwrapNullable(method.Invoke(null, new[] { song })); status = raw?.ToString();
             detail = $"selected save returned {status ?? "<null>"}"; return !string.IsNullOrWhiteSpace(status);
-        }
-        catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
-    }
-
-    private static bool TrySubmitHaveInBag(object processor, string nativeSong, out string detail)
-    {
-        detail = string.Empty;
-        try
-        {
-            Assembly? asm = ReflectionUtil.GameAssembly;
-            Type? requestType = asm?.GetType("RecordSongCassetteStatusInSaveDataRequest", false, false);
-            Type? songType = asm?.GetType("ePlayableSong", false, false);
-            Type? statusType = asm?.GetType("eSongCassetteStatus", false, false);
-            Type? bundleType = asm?.GetType("ePlayerSaveChangeBundleKey", false, false);
-            if (requestType == null || songType == null || statusType == null || bundleType == null)
-            { detail = "cassette request or enum types unavailable"; return false; }
-            if (!CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
-                    requestType, songType, statusType, bundleType, nativeSong, out object? request, out string constructorDetail) ||
-                request == null)
-            { detail = constructorDetail; return false; }
-            MethodInfo? process = processor.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(m => m.Name == "ProcessRequest" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsInstanceOfType(request));
-            if (process == null) { detail = "matching ProcessRequest unavailable"; return false; }
-            _applyingNativeGrant = true;
-            try { process.Invoke(processor, new[] { request }); }
-            finally { _applyingNativeGrant = false; }
-            detail = $"through RecordSongCassetteStatusInSaveDataRequest {constructorDetail}";
-            return true;
         }
         catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
     }
@@ -19729,6 +19810,7 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
+        CassetteReceiptRandomization.TickPostPersistVerifications();
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
