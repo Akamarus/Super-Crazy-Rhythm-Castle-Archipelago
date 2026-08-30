@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace RhythmCastleAP;
 
 internal sealed record CassetteSourceDecision(bool AllowNative, IReadOnlyList<string> SourceLocationsToQueue, IReadOnlyList<string> NativeSongsToSuppress, string Detail);
@@ -121,7 +123,6 @@ internal sealed class CassetteReceiptRuntime
     private bool _enabled;
     private readonly HashSet<string> _ownedSongs = new(StringComparer.Ordinal);
     private readonly HashSet<string> _terminalSongs = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _satisfiedForCurrentSave = new(StringComparer.Ordinal);
     private readonly HashSet<string> _inFlight = new(StringComparer.Ordinal);
     private readonly Dictionary<string,int> _attempts = new(StringComparer.Ordinal);
     private readonly Queue<string> _pending = new();
@@ -146,7 +147,7 @@ internal sealed class CassetteReceiptRuntime
 
     internal void OnLifecyclePoint()
     {
-        _pending.Clear(); _inFlight.Clear(); _attempts.Clear(); _satisfiedForCurrentSave.Clear();
+        _pending.Clear(); _inFlight.Clear(); _attempts.Clear();
         if (!_enabled) return;
         foreach (string song in _ownedSongs.Where(x => !_terminalSongs.Contains(x)).OrderBy(x => x, StringComparer.Ordinal))
             _pending.Enqueue(song);
@@ -158,7 +159,7 @@ internal sealed class CassetteReceiptRuntime
         while (_pending.Count > 0)
         {
             string candidate = _pending.Dequeue();
-            if (_terminalSongs.Contains(candidate) || _satisfiedForCurrentSave.Contains(candidate) || _inFlight.Contains(candidate)) continue;
+            if (_terminalSongs.Contains(candidate) || _inFlight.Contains(candidate)) continue;
             int count = _attempts.TryGetValue(candidate, out int prior) ? prior : 0;
             if (count >= MaxRetryAttempts) continue;
             _attempts[candidate] = count + 1;
@@ -177,7 +178,7 @@ internal sealed class CassetteReceiptRuntime
         if (string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveDeposited, StringComparison.OrdinalIgnoreCase))
         { _terminalSongs.Add(nativeSong); return CassetteReceiptDecision.VerifiedDeposited; }
         if (string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase))
-        { _satisfiedForCurrentSave.Add(nativeSong); return CassetteReceiptDecision.VerifiedBag; }
+        { _terminalSongs.Add(nativeSong); return CassetteReceiptDecision.VerifiedBag; }
         if (!CassetteRandomizationPolicy.IsUnearned(nativeStatus)) return Retry(nativeSong, CassetteReceiptDecision.UnknownNativeStatus);
         if (!processorAvailable) return Retry(nativeSong, CassetteReceiptDecision.ProcessorUnavailable);
         RequestedNativeStatus = CassetteRandomizationPolicy.HaveInBag;
@@ -191,7 +192,68 @@ internal sealed class CassetteReceiptRuntime
     }
 }
 
-internal sealed record CassetteNativeObservation(bool SaveAvailable, bool ProcessorAvailable, string? NativeStatus);
+internal sealed record CassetteNativeObservation(
+    bool SaveAvailable,
+    bool ProcessorAvailable,
+    string? NativeStatus,
+    bool AuthoritativeStateAvailable = false,
+    string? AuthoritativeNativeStatus = null);
+
+internal static class CassetteAuthoritativeStateReader
+{
+    internal static bool TryRead(
+        object? processor,
+        Type? songType,
+        string nativeSong,
+        out string? status,
+        out string detail)
+    {
+        status = null;
+        detail = string.Empty;
+        try
+        {
+            if (processor == null || songType == null || !songType.IsEnum)
+            {
+                detail = "processor or song enum unavailable";
+                return false;
+            }
+
+            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            MethodInfo? obtainState = processor.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(method =>
+                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
+                    method.GetParameters().Length == 0);
+            object? state = obtainState?.Invoke(processor, null);
+            if (state == null)
+            {
+                detail = "PlayerSaveRequestProcessor.ObtainState unavailable";
+                return false;
+            }
+
+            MethodInfo? readStatus = state.GetType().GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .FirstOrDefault(method =>
+                    string.Equals(method.Name, "GetCassetteStatusForSong", StringComparison.Ordinal) &&
+                    method.GetParameters().Length == 1 &&
+                    method.GetParameters()[0].ParameterType == songType);
+            if (readStatus == null)
+            {
+                detail = "PlayerSaveFileState.GetCassetteStatusForSong unavailable";
+                return false;
+            }
+
+            status = readStatus.Invoke(state, new[] { song })?.ToString();
+            detail = $"processor-selected save returned {status ?? "<null>"}";
+            return !string.IsNullOrWhiteSpace(status);
+        }
+        catch (Exception ex)
+        {
+            detail = ex.GetBaseException().Message;
+            return false;
+        }
+    }
+}
 internal sealed record CassetteSchedulerTickResult(string? NativeSong, CassetteReceiptDecision? Decision, bool WriteSubmitted);
 
 internal sealed class CassetteReceiptScheduler
@@ -205,7 +267,12 @@ internal sealed class CassetteReceiptScheduler
         if (!_runtime.TryBeginReconcileAttempt(out string? song) || song == null)
             return new(null, null, false);
         CassetteNativeObservation native = observe(song);
-        CassetteReceiptDecision decision = _runtime.ObserveNativeStatus(song, native.NativeStatus, native.SaveAvailable, native.ProcessorAvailable);
+        bool useAuthoritativeState = native.ProcessorAvailable;
+        CassetteReceiptDecision decision = _runtime.ObserveNativeStatus(
+            song,
+            useAuthoritativeState ? native.AuthoritativeNativeStatus : native.NativeStatus,
+            useAuthoritativeState ? native.AuthoritativeStateAvailable : native.SaveAvailable,
+            native.ProcessorAvailable);
         bool submitted = decision == CassetteReceiptDecision.RequestHaveInBag && requestHaveInBag(song);
         return new(song, decision, submitted);
     }

@@ -18175,7 +18175,20 @@ internal static class CassetteReceiptRandomization
                 song =>
                 {
                     bool available = TryReadNativeStatus(song, out string? status, out _);
-                    return new CassetteNativeObservation(available, processor != null, status);
+                    Type? songType = ReflectionUtil.GameAssembly?.GetType(
+                        "ePlayableSong", throwOnError: false, ignoreCase: false);
+                    bool authoritativeAvailable = CassetteAuthoritativeStateReader.TryRead(
+                        processor,
+                        songType,
+                        song,
+                        out string? authoritativeStatus,
+                        out _);
+                    return new CassetteNativeObservation(
+                        available,
+                        processor != null,
+                        status,
+                        authoritativeAvailable,
+                        authoritativeStatus);
                 },
                 song => processor != null && TrySubmitHaveInBag(processor, song, out _));
         }
@@ -18186,7 +18199,7 @@ internal static class CassetteReceiptRandomization
                 ? $"[SCRC-AP] CASSETTE REQUESTED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' bundle='{CassetteNativeRequestFactory.DefaultBundle}'; later-tick verification pending."
                 : $"[SCRC-AP] CASSETTE request failed nativeSong='{result.NativeSong}'.");
         else if (result.Decision == CassetteReceiptDecision.VerifiedBag)
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' outcome='persisted'.");
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveInBag}' outcome='terminal'; state preserved.");
         else if (result.Decision == CassetteReceiptDecision.VerifiedDeposited)
             Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED DEPOSITED nativeSong='{result.NativeSong}' status='{CassetteRandomizationPolicy.HaveDeposited}' outcome='terminal'; state preserved.");
     }

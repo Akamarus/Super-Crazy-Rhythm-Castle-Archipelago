@@ -196,15 +196,64 @@ Equal(true, scheduler.NoteReceived("Money Cassette"), "scheduler recognizes rece
 Equal(0, nativeReads, "receipt callback performs no native read");
 Equal(0, nativeWrites, "receipt callback performs no native write");
 var tick1 = scheduler.Tick(
-    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.Invalid); },
+    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.Invalid, true, CassetteRandomizationPolicy.Invalid); },
     _ => { nativeWrites++; return true; });
 Equal(CassetteReceiptDecision.RequestHaveInBag, tick1.Decision, "first tick requests native bag");
 Equal(1, nativeReads, "first tick reads once"); Equal(1, nativeWrites, "first tick writes once");
 var tick2 = scheduler.Tick(
-    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.HaveInBag); },
+    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.HaveInBag, true, CassetteRandomizationPolicy.HaveInBag); },
     _ => { nativeWrites++; return true; });
 Equal(CassetteReceiptDecision.VerifiedBag, tick2.Decision, "later tick verifies bag");
 Equal(2, nativeReads, "later tick reads once"); Equal(1, nativeWrites, "later verification does not rewrite");
+
+int staleEnquiryReads = 0, staleStateWrites = 0;
+var staleEnquiry = new CassetteReceiptScheduler(); staleEnquiry.Configure(true);
+Equal(true, staleEnquiry.NoteReceived("Money Cassette"), "stale-enquiry scheduler recognizes receipt");
+var authoritativeTick = staleEnquiry.Tick(
+    _ =>
+    {
+        staleEnquiryReads++;
+        return new CassetteNativeObservation(
+            true,
+            true,
+            CassetteRandomizationPolicy.Invalid,
+            true,
+            CassetteRandomizationPolicy.HaveInBag);
+    },
+    _ => { staleStateWrites++; return true; });
+Equal(CassetteReceiptDecision.VerifiedBag, authoritativeTick.Decision, "authoritative processor state wins over stale public enquiry");
+Equal(0, staleStateWrites, "authoritative bag state prevents duplicate request submission");
+staleEnquiry.OnLifecyclePoint();
+var afterTerminalRearm = staleEnquiry.Tick(
+    _ =>
+    {
+        staleEnquiryReads++;
+        return new CassetteNativeObservation(
+            true,
+            true,
+            CassetteRandomizationPolicy.Invalid,
+            true,
+            CassetteRandomizationPolicy.HaveInBag);
+    },
+    _ => { staleStateWrites++; return true; });
+Equal<CassetteReceiptDecision?>(null, afterTerminalRearm.Decision, "authoritative bag state remains terminal across broad lifecycle events");
+Equal(1, staleEnquiryReads, "terminal bag state is not read again after broad lifecycle rearm");
+Equal(0, staleStateWrites, "terminal bag state is never resubmitted after broad lifecycle rearm");
+
+var authoritativeState = new AuthoritativeSaveState(TestCassetteStatus.HAVE_IN_BAG);
+var authoritativeProcessor = new AuthoritativeProcessor(authoritativeState);
+Equal(true,
+    CassetteAuthoritativeStateReader.TryRead(
+        authoritativeProcessor,
+        typeof(TestSong),
+        nameof(TestSong.QUIERES_BAILAR),
+        out string? authoritativeStatus,
+        out string authoritativeDetail),
+    "processor-selected save status is readable without the private bundle predicate");
+Equal(nameof(TestCassetteStatus.HAVE_IN_BAG), authoritativeStatus, "authoritative reader returns processor-selected status");
+Equal(1, authoritativeProcessor.ObtainStateCalls, "authoritative reader obtains current processor state once");
+Equal(1, authoritativeState.StatusReads, "authoritative reader reads current cassette status once");
+Equal(true, authoritativeDetail.Contains("processor-selected save returned HAVE_IN_BAG", StringComparison.Ordinal), "authoritative detail names the read source and status");
 
 var lifecycle = new CassetteReceiptRuntime(); lifecycle.Configure(true);
 Equal(false, lifecycle.NoteReceived("not a cassette"), "unknown item ignored");
@@ -241,8 +290,7 @@ twoSaves.TryBeginReconcileAttempt(out string? saveASong);
 Equal(CassetteReceiptDecision.VerifiedBag, twoSaves.ObserveNativeStatus(saveASong!, CassetteRandomizationPolicy.HaveInBag, true, true), "save A bag is satisfied");
 Equal(false, twoSaves.TryBeginReconcileAttempt(out _), "save A does not repeat satisfied bag");
 twoSaves.OnLifecyclePoint();
-Equal(true, twoSaves.TryBeginReconcileAttempt(out string? saveBSong), "compatible save B rearms bag-owned cassette");
-Equal(CassetteReceiptDecision.RequestHaveInBag, twoSaves.ObserveNativeStatus(saveBSong!, CassetteRandomizationPolicy.Invalid, true, true), "save B receives missing cassette");
+Equal(false, twoSaves.TryBeginReconcileAttempt(out _), "broad lifecycle does not rearm terminal bag state");
 
 var depositedAcrossSaves = new CassetteReceiptRuntime(); depositedAcrossSaves.Configure(true); depositedAcrossSaves.NoteReceived("Zen Cassette"); depositedAcrossSaves.OnLifecyclePoint();
 depositedAcrossSaves.TryBeginReconcileAttempt(out string? depositedSong);
@@ -272,6 +320,34 @@ Console.WriteLine("Cassette randomization catalog and source policy tests passed
 enum TestSong { INVALID, QUIERES_BAILAR }
 enum TestCassetteStatus { INVALID, HAVE_IN_BAG }
 enum TestBundle { INVALID, DEFAULT }
+
+sealed class AuthoritativeProcessor
+{
+    private readonly AuthoritativeSaveState _state;
+    public int ObtainStateCalls { get; private set; }
+
+    public AuthoritativeProcessor(AuthoritativeSaveState state) => _state = state;
+
+    private AuthoritativeSaveState ObtainState()
+    {
+        ObtainStateCalls++;
+        return _state;
+    }
+}
+
+sealed class AuthoritativeSaveState
+{
+    private readonly TestCassetteStatus _status;
+    public int StatusReads { get; private set; }
+
+    public AuthoritativeSaveState(TestCassetteStatus status) => _status = status;
+
+    public TestCassetteStatus GetCassetteStatusForSong(TestSong song)
+    {
+        StatusReads++;
+        return _status;
+    }
+}
 
 sealed class TestCassetteRequest
 {
