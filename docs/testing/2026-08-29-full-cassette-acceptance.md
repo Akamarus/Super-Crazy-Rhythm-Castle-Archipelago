@@ -85,4 +85,14 @@ D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\
 - Both supported starting-area option values were exercised. The explicit Random option resolves to Roots because Roots is currently the only validated starting area, matching the approved option contract.
 - `git diff --check` passed after the automated evidence update.
 
-Installation and manual gameplay have not been authorized for this acceptance build. Every manual row remains unchecked.
+## Fresh live-acceptance environment
+
+- [x] The owner authorized replacement of only the documented APWorld and `RhythmCastleAP` plugin targets.
+- [x] A fresh Normal/Roots seed was generated with seed `43009` as `AP_80040381594953139783.zip` in an isolated temporary directory. It has 92 active locations and 30 active Bronze cassette medals.
+- [x] The spoiler contains each of the 30 cassette items and 30 logical cassette sources exactly once, the five point-chest source locations are reused, and the generated playthrough reaches `Victory` without a cassette self-lock. The first progression sphere contains `Level 2 - Money Cassette`, minimizing the owner's initial replay requirement.
+- [x] The local server is hosting the fresh archive at `127.0.0.1:38281` with slot `Jack`; the installed config has networking enabled and the documented test harness enabled.
+- [x] The first live startup exposed a client parsing defect: Archipelago.MultiClient.Net materializes nested slot-data maps as Newtonsoft `JObject` entries with `Name`/`Value`, while the compatibility reader accepted only `Key`/`Value`. The client therefore failed closed with `cassette_items.The Little Things ... actual='<missing>'` even though the generated multidata contained the complete maps.
+- [x] A runtime-shaped `JObject` regression test was added first and observed failing with zero parsed entries. Commit `27912f2` accepts both `Key`/`Value` and `Name`/`Value`; the focused test, all 94 APWorld tests, all 17 client test projects, repository validation, non-installing v0.68 build, and `git diff --check` then passed.
+- [x] The repaired client was installed and relaunched through `Rhythm Castle.exe`. Fresh logs confirm `[SCRC-AP] v0.68.0 loading.`, successful login, the exact v0.22 implementation tag, `CASSETTE RECEIPT RECONCILIATION ENABLED entries=30`, `CASSETTE SOURCE RANDOMIZATION ENABLED entries=30 levelSources=25 chestSources=5`, and `CONNECTED server=127.0.0.1:38281 slot='Jack'`.
+
+The game and local server are now ready for representative gameplay. Every manual gameplay row remains unchecked until its own live evidence is retained.
