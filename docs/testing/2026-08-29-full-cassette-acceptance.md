@@ -56,10 +56,10 @@ For every row, the spoiler audit must confirm completion reachability; every cas
 - [ ] One additional ordinary level-completion cassette source sends once.
 - [ ] One Music Lab point-chest cassette reuses its existing AP check and sends no duplicate source.
 - [ ] One non-level story, pickup, or quest source is exercised if the final catalog contains one.
-- [ ] A received cassette appears in the native inventory without forcing its song open. **FAILED in the first live run:** `Quieres Bailar Cassette` reached AP receipt routing, but the native selected-save state remained unearned. The request used the synthetic parameterless IL2CPP constructor and omitted its mandatory bundle. The client now uses the exact `(song, status, bundle)` constructor with `HAVE_IN_BAG` and `DEFAULT`; live retest remains pending.
-- [ ] Normal Music Lab insertion deposits the cassette and enables its matching medals.
+- [x] A received cassette appears in the native inventory without forcing its song open. The safe authoritative-readback build reconciled `QUIERES_BAILAR` as `VerifiedBag` with `writeSubmitted=False`, and the user visually confirmed the cassette in carried inventory before insertion.
+- [x] Normal Music Lab insertion deposits the cassette and enables its matching medals. The user inserted the received cassette through the normal cassette machine and confirmed that Cassette 16 became available.
 - [ ] Replaying a source sends no duplicate check and does not leak a vanilla cassette.
-- [ ] Save reload, Archipelago reconnect, and full game restart preserve bag/deposited state correctly.
+- [ ] Save reload, Archipelago reconnect, and full game restart preserve bag/deposited state correctly. **Partial PASS:** after a full restart, reconciliation observed `VerifiedDeposited` with `writeSubmitted=False`; the user confirmed Cassette 16 remained available and the deposited cassette was absent from carried inventory. Separate save-reload/reconnect coverage remains pending.
 - [ ] Local cooperative play receives a smoke test when practical.
 
 ## Installation boundary
@@ -95,7 +95,7 @@ D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\
 - [x] A runtime-shaped `JObject` regression test was added first and observed failing with zero parsed entries. Commit `27912f2` accepts both `Key`/`Value` and `Name`/`Value`; the focused test, all 94 APWorld tests, all 17 client test projects, repository validation, non-installing v0.68 build, and `git diff --check` then passed.
 - [x] The repaired client was installed and relaunched through `Rhythm Castle.exe`. Fresh logs confirm `[SCRC-AP] v0.68.0 loading.`, successful login, the exact v0.22 implementation tag, `CASSETTE RECEIPT RECONCILIATION ENABLED entries=30`, `CASSETTE SOURCE RANDOMIZATION ENABLED entries=30 levelSources=25 chestSources=5`, and `CONNECTED server=127.0.0.1:38281 slot='Jack'`.
 
-The game and local server are now ready for representative gameplay. Every manual gameplay row remains unchecked until its own live evidence is retained.
+The game and local server remain suitable for the unchecked representative cases above. The receipt, normal insertion, and full-restart deposited-state evidence below are now retained; unrelated manual rows remain pending.
 
 ## First live Money-source result and receipt blocker
 
@@ -105,4 +105,29 @@ The game and local server are now ready for representative gameplay. Every manua
 - [ ] Native receipt persistence failed: repeated later-tick reads remained unearned even though the processor returned normally.
 - [x] Root cause was isolated to construction of `RecordSongCassetteStatusInSaveDataRequest`: the synthetic parameterless wrapper allocation set song/status members but omitted the mandatory `ePlayerSaveChangeBundleKey` semantic-constructor argument.
 - [x] The production adapter now requires the exact three-argument constructor and passes `QUIERES_BAILAR`, `HAVE_IN_BAG`, and `DEFAULT`. Focused logs include song/status/bundle at submission and a later persisted/terminal verification outcome.
-- [ ] Install and live-retest the corrected client before checking native inventory visibility, insertion, reload, reconnect, or restart rows. This document does not claim a live receipt pass.
+- [x] The later safe authoritative-readback build superseded this blocker in live testing. It observed the already-staged processor-selected state instead of submitting another request; the complete retained evidence is below.
+
+## Discarded diagnostic build — not acceptance evidence
+
+- [x] The diagnostic build from commits `d9e2bd2` and `9de6a65` produced the one-time collision diagnostic and was followed by a CoreCLR access violation. That build is discarded and must not be counted as a passing client build.
+- [x] Commits `6706508` and `df70f74` removed the diagnostic helper, private IL2CPP nullable ref/out predicate reflection, Harmony postfix, and `__state` transfer, restoring the safe prefix-only cassette hook.
+- [x] No live evidence from the crashing diagnostic build is used to satisfy the inventory, insertion, restart, or stability acceptance rows.
+
+## Safe authoritative-readback live retest
+
+- [x] The safe client started as v0.68.0 against the v0.22 slot data with cassette receipt and source randomization enabled.
+- [x] For `QUIERES_BAILAR`, the processor-selected save already reported `HAVE_IN_BAG`; reconciliation logged `decision=VerifiedBag writeSubmitted=False` and did not submit another cassette request.
+- [x] The user visually confirmed the received cassette in carried inventory.
+- [x] The user used the normal cassette-machine insertion flow and confirmed that Cassette 16 unlocked.
+- [x] After a full game restart, reconciliation logged `decision=VerifiedDeposited writeSubmitted=False`.
+- [x] After restart, the user confirmed Cassette 16 remained available and the deposited cassette was no longer present in carried inventory.
+- [x] The safe run showed no cassette retry loop, no `CASSETTE BUNDLE COLLISION DIAGNOSTIC` line, and no crash.
+
+The decisive safe-build lines were:
+
+```text
+[SCRC-AP] CASSETTE reconciliation song='QUIERES_BAILAR' decision=VerifiedBag writeSubmitted=False.
+[SCRC-AP] CASSETTE VERIFIED BAG nativeSong='QUIERES_BAILAR' status='HAVE_IN_BAG' outcome='terminal'; state preserved.
+```
+
+After normal insertion and full restart, the corresponding authoritative decision was `VerifiedDeposited` with `writeSubmitted=False`; no later request loop occurred.

@@ -1,6 +1,6 @@
 # Cassette authoritative-readback repair report
 
-**Status:** AUTOMATED_REPAIR_COMPLETE; LIVE_RETEST_PENDING
+**Status:** LIVE_RETEST_PASS
 
 ## Commits
 
@@ -59,22 +59,26 @@ Cassette randomization catalog and source policy tests passed.
 
 The first validator attempt used the unavailable Windows `python` app alias and exited before running the validator. The same validator then passed with the repository's documented bundled interpreter.
 
-## Exact expected live evidence
+## Verified live evidence
 
-For the captured `QUIERES_BAILAR` case where the public enquiry can still lag but the processor-selected save already reports `HAVE_IN_BAG`, the decisive log pair is:
+The safe v0.68 client started successfully against the v0.22 slot data. For the captured `QUIERES_BAILAR` case where the public enquiry could lag but the processor-selected save already reported `HAVE_IN_BAG`, the decisive log pair appeared as designed:
 
 ```text
 [SCRC-AP] CASSETTE reconciliation song='QUIERES_BAILAR' decision=VerifiedBag writeSubmitted=False.
 [SCRC-AP] CASSETTE VERIFIED BAG nativeSong='QUIERES_BAILAR' status='HAVE_IN_BAG' outcome='terminal'; state preserved.
 ```
 
-After those lines, generic lifecycle messages may still say the retry window was re-armed, but there must be no later `CASSETTE REQUESTED nativeSong='QUIERES_BAILAR'` line for that runtime. There must also be no `CASSETTE BUNDLE COLLISION DIAGNOSTIC` line.
+The user visually confirmed the cassette in carried inventory, then used the normal cassette-machine insertion flow and confirmed that Cassette 16 unlocked. After a full game restart, reconciliation observed `VerifiedDeposited` with `writeSubmitted=False`; the user confirmed Cassette 16 remained available and the deposited cassette was absent from carried inventory.
 
-If the authoritative state is deposited, the expected terminal pair uses `decision=VerifiedDeposited`, `writeSubmitted=False`, and the existing `CASSETTE VERIFIED DEPOSITED ... outcome='terminal'; state preserved.` message.
+No later `CASSETTE REQUESTED nativeSong='QUIERES_BAILAR'` retry loop appeared. The removed `CASSETTE BUNDLE COLLISION DIAGNOSTIC` did not appear, and the safe build did not crash.
+
+## Discarded diagnostic build
+
+The diagnostic build from `d9e2bd2`/`9de6a65` is not a passing build and contributes no acceptance credit. Its single diagnostic execution was followed by a CoreCLR access violation. The entire diagnostic range was removed by `6706508`/`df70f74` before the safe authoritative-readback build was tested. The passing live evidence above applies only to the safe prefix-only build containing `e7ae90e`.
 
 ## Remaining concerns
 
-- Live in-game retest remains required; automated success does not prove IL2CPP runtime behavior.
+- The focused `QUIERES_BAILAR` receipt, insertion, and full-restart path passed live. Other cassette identities and the remaining representative acceptance rows still need their own coverage.
 - The authoritative reader still uses ordinary reflection across the IL2CPP wrapper boundary, but only for zero-argument state lookup and a one-enum-argument status getter. It has no nullable ref/out argument and does not retain wrapper state across a native request.
 - Terminal bag state deliberately survives broad lifecycle events. The runtime does not currently identify a genuine selected-save identity change, so switching to a different save inside the same configured session will not rearm a cassette already observed terminal. This is the requested safe behavior until save identity can be tracked reliably.
-- No install, game launch, merge, push, persistence request, or direct save write was performed.
+- This documentation follow-up performed no install, game launch, merge, push, persistence request, direct save write, or production-code change.
