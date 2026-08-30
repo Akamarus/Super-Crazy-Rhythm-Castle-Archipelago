@@ -475,9 +475,7 @@ public sealed class Plugin : BasePlugin
                 m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == requestType);
         MethodInfo? prefix = FindPatchMethod(
             typeof(GamePatches), nameof(GamePatches.CassetteStatusRequestPrefix));
-        MethodInfo? postfix = FindPatchMethod(
-            typeof(GamePatches), nameof(GamePatches.CassetteStatusRequestPostfix));
-        if (target == null || prefix == null || postfix == null || _harmony == null)
+        if (target == null || prefix == null || _harmony == null)
         {
             Log.LogWarning("[SCRC-AP] CASSETTE STATUS SOURCE hook unavailable.");
             return 0;
@@ -485,11 +483,8 @@ public sealed class Plugin : BasePlugin
 
         try
         {
-            _harmony.Patch(
-                target,
-                prefix: new HarmonyMethod(prefix),
-                postfix: new HarmonyMethod(postfix));
-            Log.LogInfo("[SCRC-AP] CASSETTE STATUS SOURCE HOOKED PlayerSaveRequestProcessor.ProcessRequest(RecordSongCassetteStatusInSaveDataRequest) with AP-request bundle diagnostic.");
+            _harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            Log.LogInfo("[SCRC-AP] CASSETTE STATUS SOURCE HOOKED PlayerSaveRequestProcessor.ProcessRequest(RecordSongCassetteStatusInSaveDataRequest).");
             return 1;
         }
         catch (Exception ex)
@@ -11569,13 +11564,9 @@ internal static class GamePatches
         return CassetteSourceRandomization.AllowLevelCassetteEvaluation(succeeded);
     }
 
-    public static bool CassetteStatusRequestPrefix(
-        object? __instance,
-        object[]? __args,
-        out CassetteBundleCollisionPatchState? __state)
+    public static bool CassetteStatusRequestPrefix(object[]? __args)
     {
         object? request = ReflectionUtil.FindArg(__args, "RecordSongCassetteStatusInSaveDataRequest");
-        __state = CassetteBundleCollisionDiagnostic.Begin(__instance, request);
         if (request == null)
             return true;
 
@@ -11586,9 +11577,6 @@ internal static class GamePatches
         return CassetteSourceRandomization.AllowCassetteStatusRequest(
             song, status, CassetteReceiptRandomization.IsApplyingNativeGrant);
     }
-
-    public static void CassetteStatusRequestPostfix(CassetteBundleCollisionPatchState? __state) =>
-        CassetteBundleCollisionDiagnostic.CompleteAndLog(__state);
 
     public static void ApplyResultPostfix(object[]? __args)
     {
@@ -18120,184 +18108,6 @@ internal static class Level2MoneyCassetteRandomization
     }
 }
 
-
-internal sealed class CassetteBundleCollisionPatchState
-{
-    internal string Song { get; set; } = "<unavailable>";
-    internal string RequestedStatus { get; set; } = "<unavailable>";
-    internal string RawBundle { get; set; } = "<unavailable>";
-    internal string EffectiveBundle { get; set; } = "<unavailable>";
-    internal string ProcessorStatePointer { get; set; } = "<unavailable>";
-    internal string EnquiryStatePointer { get; set; } = "<unavailable>";
-    internal bool? CrossBundle { get; set; }
-    internal string CrossBundleStatus { get; set; } = "<unavailable>";
-    internal string BeforeStatus { get; set; } = "<unavailable>";
-    internal string AfterStatus { get; set; } = "<unavailable>";
-    internal string? Error { get; set; }
-    internal object? NativeState { get; set; }
-    internal object? NativeSong { get; set; }
-    internal MethodInfo? StatusMethod { get; set; }
-}
-
-internal static class CassetteBundleCollisionDiagnostic
-{
-    internal static CassetteBundleCollisionPatchState? Begin(object? processor, object? request)
-    {
-        if (!CassetteReceiptRandomization.IsApplyingNativeGrant || processor == null || request == null)
-            return null;
-
-        var capture = new CassetteBundleCollisionPatchState();
-        try
-        {
-            object? song = ReflectionUtil.ReadMember(request, "Song") ??
-                           ReflectionUtil.ReadMember(request, "_Song_k__BackingField");
-            object? requestedStatus = ReflectionUtil.ReadMember(request, "CassetteStatus") ??
-                                      ReflectionUtil.ReadMember(request, "_CassetteStatus_k__BackingField");
-            object? rawBundle = ReflectionUtil.ReadMember(request, "Bundle") ??
-                                ReflectionUtil.ReadMember(request, "_Bundle_k__BackingField");
-            object? rawBundleValue = ReflectionUtil.UnwrapNullable(rawBundle);
-            if (song == null || requestedStatus == null)
-                throw new InvalidOperationException("cassette request song or status unavailable");
-
-            Type? bundleType = request.GetType().Assembly.GetType(
-                "ePlayerSaveChangeBundleKey", throwOnError: false, ignoreCase: false);
-            if (bundleType == null || !bundleType.IsEnum)
-                throw new InvalidOperationException("cassette bundle enum unavailable");
-            object effectiveBundle = rawBundleValue ?? Enum.Parse(
-                bundleType, CassetteNativeRequestFactory.DefaultBundle, ignoreCase: false);
-
-            capture.NativeSong = song;
-            capture.Song = song.ToString() ?? "<unavailable>";
-            capture.RequestedStatus = requestedStatus.ToString() ?? "<unavailable>";
-            capture.RawBundle = rawBundleValue?.ToString() ?? "<null>";
-            capture.EffectiveBundle = effectiveBundle.ToString() ?? "<unavailable>";
-
-            MethodInfo? obtainState = processor.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 0);
-            capture.NativeState = obtainState?.Invoke(processor, null) ??
-                                  throw new InvalidOperationException("PlayerSaveRequestProcessor.ObtainState unavailable");
-            capture.ProcessorStatePointer = Pointer(capture.NativeState);
-            capture.EnquiryStatePointer = SelectedEnquiryStatePointer(request.GetType().Assembly);
-
-            capture.StatusMethod = capture.NativeState.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "GetCassetteStatusForSong", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 1 &&
-                    method.GetParameters()[0].ParameterType == song.GetType()) ??
-                throw new InvalidOperationException("PlayerSaveFileState.GetCassetteStatusForSong unavailable");
-            capture.BeforeStatus = capture.StatusMethod.Invoke(
-                capture.NativeState, new[] { song })?.ToString() ?? "<null>";
-
-            MethodInfo predicate = capture.NativeState.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "HasSongCassetteStatusBeenChangedByAnyBundle", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 3 &&
-                    method.GetParameters()[0].ParameterType == song.GetType()) ??
-                throw new InvalidOperationException("PlayerSaveFileState.HasSongCassetteStatusBeenChangedByAnyBundle unavailable");
-            ParameterInfo[] predicateParameters = predicate.GetParameters();
-            Type outStatusType = predicateParameters[1].ParameterType.GetElementType() ??
-                                 throw new InvalidOperationException("cross-bundle out-status type unavailable");
-            object? bundleExclusion = rawBundleValue != null && rawBundle != null &&
-                                      predicateParameters[2].ParameterType.IsInstanceOfType(rawBundle)
-                ? rawBundle
-                : Activator.CreateInstance(
-                    predicateParameters[2].ParameterType,
-                    new[] { effectiveBundle });
-            object?[] predicateArgs =
-            {
-                song,
-                Activator.CreateInstance(outStatusType),
-                bundleExclusion
-            };
-            capture.CrossBundle = predicate.Invoke(capture.NativeState, predicateArgs) as bool?;
-            capture.CrossBundleStatus = ReflectionUtil.UnwrapNullable(predicateArgs[1])?.ToString() ?? "<null>";
-        }
-        catch (Exception ex)
-        {
-            capture.Error = ex.GetBaseException().Message;
-        }
-
-        return capture;
-    }
-
-    internal static void CompleteAndLog(CassetteBundleCollisionPatchState? capture)
-    {
-        if (capture == null)
-            return;
-
-        try
-        {
-            if (capture.NativeState != null && capture.NativeSong != null && capture.StatusMethod != null)
-            {
-                capture.AfterStatus = capture.StatusMethod.Invoke(
-                    capture.NativeState, new[] { capture.NativeSong })?.ToString() ?? "<null>";
-            }
-        }
-        catch (Exception ex)
-        {
-            capture.Error = capture.Error == null
-                ? ex.GetBaseException().Message
-                : capture.Error + "; after-status: " + ex.GetBaseException().Message;
-        }
-
-        var observation = new CassetteBundleCollisionObservation(
-            capture.Song,
-            capture.RequestedStatus,
-            capture.RawBundle,
-            capture.EffectiveBundle,
-            capture.ProcessorStatePointer,
-            capture.EnquiryStatePointer,
-            capture.CrossBundle,
-            capture.CrossBundleStatus,
-            capture.BeforeStatus,
-            capture.AfterStatus,
-            capture.Error);
-        Plugin.LoggerInstance?.LogWarning(
-            CassetteBundleCollisionDiagnosticPolicy.Format(observation));
-    }
-
-    private static string SelectedEnquiryStatePointer(Assembly gameAssembly)
-    {
-        try
-        {
-            Type? enquiries = gameAssembly.GetType(
-                "CurrentPlayerSaveEnquiries", throwOnError: false, ignoreCase: false);
-            MethodInfo? selectedState = enquiries?.GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "GetSelectedSaveFileState", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 0);
-            object? state = selectedState?.Invoke(null, null);
-            return state == null ? "<unavailable>" : Pointer(state);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-
-    private static string Pointer(object value)
-    {
-        try
-        {
-            object? raw = value.GetType().GetProperty(
-                "Pointer",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value);
-            return raw is IntPtr pointer && pointer != IntPtr.Zero
-                ? $"0x{pointer.ToInt64():X}"
-                : "<unavailable>";
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-}
 
 internal static class CassetteReceiptRandomization
 {
