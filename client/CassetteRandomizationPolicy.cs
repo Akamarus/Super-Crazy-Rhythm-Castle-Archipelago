@@ -42,6 +42,42 @@ internal static class CassetteSlotCompatibility
         new(false, $"{key} expected='{expected}' actual='{actual}'");
 }
 
+internal static class CassetteSlotMapReader
+{
+    internal static IReadOnlyDictionary<string, string> Read(object? raw)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (raw is null)
+            return result;
+
+        if (raw is System.Collections.IDictionary dictionary)
+        {
+            foreach (System.Collections.DictionaryEntry entry in dictionary)
+                if (entry.Key?.ToString() is string mapKey && entry.Value?.ToString() is string value)
+                    result[mapKey] = value;
+            return result;
+        }
+
+        if (raw is System.Collections.IEnumerable entries)
+        {
+            foreach (object? entry in entries)
+            {
+                if (entry is null)
+                    continue;
+                Type type = entry.GetType();
+                object? mapKey =
+                    type.GetProperty("Key")?.GetValue(entry) ??
+                    type.GetProperty("Name")?.GetValue(entry);
+                object? value = type.GetProperty("Value")?.GetValue(entry);
+                if (mapKey?.ToString() is string keyText && value?.ToString() is string valueText)
+                    result[keyText] = valueText;
+            }
+        }
+
+        return result;
+    }
+}
+
 internal static class CassetteRandomizationPolicy
 {
     internal const string HaveInBag="HAVE_IN_BAG", HaveDeposited="HAVE_DEPOSITED", HaveNotEarned="HAVE_NOT_EARNED", Invalid="INVALID";

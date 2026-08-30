@@ -17769,26 +17769,8 @@ internal static class CassetteSlotDataCompatibility
     }
     private static IReadOnlyDictionary<string,string> ReadMap(Dictionary<string,object>? data,string key)
     {
-        var result=new Dictionary<string,string>(StringComparer.Ordinal);
-        if(data==null||!data.TryGetValue(key,out object? raw)||raw==null)return result;
-        if(raw is System.Collections.IDictionary dictionary)
-        {
-            foreach(System.Collections.DictionaryEntry entry in dictionary)
-                if(entry.Key?.ToString() is string mapKey && entry.Value?.ToString() is string value)result[mapKey]=value;
-            return result;
-        }
-        if(raw is System.Collections.IEnumerable entries)
-        {
-            foreach(object? entry in entries)
-            {
-                if(entry==null)continue;
-                Type type=entry.GetType();
-                object? mapKey=type.GetProperty("Key")?.GetValue(entry);
-                object? value=type.GetProperty("Value")?.GetValue(entry);
-                if(mapKey?.ToString() is string keyText&&value?.ToString() is string valueText)result[keyText]=valueText;
-            }
-        }
-        return result;
+        if(data==null||!data.TryGetValue(key,out object? raw))return new Dictionary<string,string>(StringComparer.Ordinal);
+        return CassetteSlotMapReader.Read(raw);
     }
 }
 

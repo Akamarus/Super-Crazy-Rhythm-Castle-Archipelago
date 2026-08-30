@@ -1,4 +1,5 @@
 using RhythmCastleAP;
+using Newtonsoft.Json.Linq;
 using System.Text.Json;
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
@@ -52,6 +53,10 @@ SequenceEqual(fixtureMappings, clientMappings, "neutral fixture matches complete
 var compatibleItems = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.ItemName, StringComparer.Ordinal);
 var compatibleSources = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.SourceName, StringComparer.Ordinal);
 var compatibleReused = CassetteCatalog.All.Where(x => x.ReusesExistingLocation).ToDictionary(x => x.DisplaySong, x => x.SourceName, StringComparer.Ordinal);
+var networkSlotMap = JObject.Parse("{\"The Little Things\":\"The Little Things Cassette\"}");
+var parsedNetworkSlotMap = CassetteSlotMapReader.Read(networkSlotMap);
+Equal(1, parsedNetworkSlotMap.Count, "network JObject slot map count");
+Equal("The Little Things Cassette", parsedNetworkSlotMap["The Little Things"], "network JObject slot map value");
 var compatibility = CassetteSlotCompatibility.Validate(1, true, 30, compatibleItems, compatibleSources, compatibleReused);
 Equal(true, compatibility.Compatible, "exact v0.22 cassette contract is compatible");
 Equal("compatible", compatibility.Detail, "compatible detail");
