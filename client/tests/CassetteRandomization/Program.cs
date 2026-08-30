@@ -408,13 +408,13 @@ foreach (var triggerGroup in CassetteCatalog.All
     Equal(false, aliasDecision.AllowNative, $"verified alias {triggerGroup.Level}/{triggerGroup.Variant} intercepts");
     SequenceEqual(mapped.Select(x => x.SourceName), aliasDecision.SourceLocationsToQueue, $"verified alias {triggerGroup.Level}/{triggerGroup.Variant} queues exact sources");
 }
-SaveManagementEnquiries.SelectedSlot = null;
-SaveManagementEnquiries.SelectedState = new object();
+PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: false, value: 0);
+PlayerSaveManagementEnquiries.SelectedState = new object();
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded save requires selected slot number");
-SaveManagementEnquiries.SelectedSlot = 4;
-SaveManagementEnquiries.SelectedState = null;
+PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: true, value: 4);
+PlayerSaveManagementEnquiries.SelectedState = null;
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded save requires selected slot state");
-SaveManagementEnquiries.SelectedState = new object();
+PlayerSaveManagementEnquiries.SelectedState = new object();
 Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSave(out int selectedSlot), "loaded save accepts matching slot and state enquiries");
 Equal(4, selectedSlot, "loaded save returns selected slot number");
 
@@ -499,12 +499,24 @@ sealed class TestCassetteRequest
     }
 }
 
-static class SaveManagementEnquiries
+static class PlayerSaveManagementEnquiries
 {
-    public static int? SelectedSlot { get; set; }
+    public static FakeIl2CppNullable<int>? SelectedSlot { get; set; }
     public static object? SelectedState { get; set; }
-    public static int? GetSelectedSaveFileSlotNumber() => SelectedSlot;
+    public static FakeIl2CppNullable<int>? GetSelectedSaveFileSlotNumber() => SelectedSlot;
     public static object? TryGetSelectedSlotSaveFileState() => SelectedState;
+}
+
+sealed class FakeIl2CppNullable<T>
+{
+    public FakeIl2CppNullable(bool hasValue, T value)
+    {
+        HasValue = hasValue;
+        Value = value;
+    }
+
+    public bool HasValue { get; }
+    public T Value { get; }
 }
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }

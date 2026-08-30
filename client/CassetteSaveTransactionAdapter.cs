@@ -16,7 +16,7 @@ internal static class CassetteSaveTransactionAdapter
         slot = default;
         try
         {
-            Type? enquiries = FindType("SaveManagementEnquiries");
+            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
             MethodInfo? getSlot = enquiries?.GetMethod(
                 "GetSelectedSaveFileSlotNumber", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
             MethodInfo? getState = enquiries?.GetMethod(
@@ -176,7 +176,12 @@ internal static class CassetteSaveTransactionAdapter
     {
         if (value == null) return null;
         Type type = value.GetType();
-        if (!type.IsGenericType || type.GetGenericTypeDefinition() != typeof(Nullable<>)) return value;
-        return type.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance)?.GetValue(value);
+        string typeName = type.FullName ?? type.Name;
+        if (!typeName.Contains("Nullable`1", StringComparison.Ordinal)) return value;
+        object? hasValue = type.GetProperty(
+            "HasValue", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value);
+        if (hasValue is bool present && !present) return null;
+        return type.GetProperty(
+            "Value", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value);
     }
 }
