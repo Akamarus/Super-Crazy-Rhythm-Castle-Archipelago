@@ -110,7 +110,21 @@ internal static class CassetteRandomizationPolicy
     private static CassetteSourceDecision Allow(string detail)=>new(true,Array.Empty<string>(),Array.Empty<string>(),detail);
 }
 
-internal sealed record CassettePersistToken(long Epoch, int Slot, string Bundle, IReadOnlyList<string> StagedSongs);
+internal sealed record CassettePersistToken
+{
+    internal CassettePersistToken(long epoch, int slot, string bundle, IReadOnlyList<string> stagedSongs)
+    {
+        Epoch = epoch;
+        Slot = slot;
+        Bundle = bundle;
+        StagedSongs = Array.AsReadOnly(stagedSongs.ToArray());
+    }
+
+    internal long Epoch { get; }
+    internal int Slot { get; }
+    internal string Bundle { get; }
+    internal IReadOnlyList<string> StagedSongs { get; }
+}
 
 internal sealed class CassetteSaveEpochRuntime
 {

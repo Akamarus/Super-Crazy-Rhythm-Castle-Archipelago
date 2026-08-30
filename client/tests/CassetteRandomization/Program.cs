@@ -270,6 +270,7 @@ depositedSaveA.ActivateSave(1);
 depositedSaveA.Observe("BADASS", CassetteRandomizationPolicy.HaveDeposited);
 Equal(0, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "deposited save A is not rewritten");
 depositedSaveA.ActivateSave(2);
+Equal(2L, depositedSaveA.Epoch, "switching to a different valid slot creates a new epoch");
 Equal(true, depositedSaveA.IsPending("BADASS"), "deposited save A does not terminal-cache unowned save B");
 Equal(1, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "unowned save B stages its owned cassette");
 Console.WriteLine("PASS: deposited_in_save_a_does_not_terminal_cache_save_b");
@@ -328,6 +329,23 @@ failedAuthoritativeRead.CompletePersist(failedReadToken, _ => null);
 Equal(true, failedAuthoritativeRead.IsPending("BADASS"), "authoritative read failure leaves cassette pending");
 Equal(1, failedAuthoritativeRead.BeginPersist("DEFAULT").StagedSongs.Count, "authoritative read failure retries at a later persist boundary");
 Console.WriteLine("PASS: authoritative_failure_at_persist_boundary_fails_closed");
+
+string[] callerStagedSongs = { "BADASS" };
+var callerToken = new CassettePersistToken(1, 1, "DEFAULT", callerStagedSongs);
+callerStagedSongs[0] = "TAMPERED";
+SequenceEqual(new[] { "BADASS" }, callerToken.StagedSongs, "persist token copies caller-owned staged songs");
+var immutablePersist = new CassetteSaveEpochRuntime();
+immutablePersist.Receive("BADASS");
+immutablePersist.ActivateSave(1);
+var immutableToken = immutablePersist.BeginPersist("DEFAULT");
+if (immutableToken.StagedSongs is string[] exposedStagedSongs)
+    exposedStagedSongs[0] = "TAMPERED";
+immutablePersist.CompletePersist(immutableToken, song =>
+    string.Equals(song, "BADASS", StringComparison.Ordinal)
+        ? CassetteRandomizationPolicy.HaveInBag
+        : null);
+Equal(false, immutablePersist.IsPending("BADASS"), "caller cannot redirect staged completion through a mutable token snapshot");
+Console.WriteLine("PASS: persist_token_staged_song_snapshot_is_immutable_to_callers");
 
 var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
 Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");
