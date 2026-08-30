@@ -11541,13 +11541,13 @@ internal static class CassetteSaveTransactionPatches
             CassetteReceiptRandomization.DeactivateLoadedSave(reason);
     }
 
-    public static void PersistPrefix(object? __instance, object[]? __args, ref CassettePersistToken? __state)
+    public static void PersistPrefix(object[]? __args, ref CassettePersistToken? __state)
     {
         object? request = __args?.FirstOrDefault(argument =>
             argument != null &&
             (string.Equals(argument.GetType().Name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal) ||
              string.Equals(argument.GetType().Name, "PersistAllSaveChangeBundlesRequest", StringComparison.Ordinal)));
-        CassetteReceiptRandomization.TryBeginNativePersist(__instance, request, out __state);
+        CassetteReceiptRandomization.TryBeginNativePersist(request, out __state);
     }
 
     public static void PersistPostfix(CassettePersistToken? __state)
@@ -18229,10 +18229,10 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }
 
-    internal static bool TryBeginNativePersist(object? processor, object? request, out CassettePersistToken? token)
+    internal static bool TryBeginNativePersist(object? request, out CassettePersistToken? token)
     {
         token = null;
-        if (processor == null || request == null ||
+        if (request == null ||
             !CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName) ||
             nativeBundle == null)
             return false;
@@ -18242,7 +18242,10 @@ internal static class CassetteReceiptRandomization
             if (!_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave)
                 return false;
 
-            _playerSaveRequestProcessor = processor;
+            object? processor = _playerSaveRequestProcessor;
+            if (processor == null)
+                return false;
+
             foreach (CassetteDefinition entry in CassetteCatalog.All)
             {
                 if (CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong, out string? nativeStatus))

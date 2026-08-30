@@ -70,13 +70,17 @@ string activateLoadedSave = ExtractMethods(pluginSource, "internal static void A
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
 string persistPrefixSource = ExtractMethods(pluginSource, "public static void PersistPrefix(").Single();
-Equal(true, persistPrefixSource.Contains("TryBeginNativePersist(__instance, request, out __state)", StringComparison.Ordinal), "persist prefix delegates exact natural request and processor");
+Equal(true, persistPrefixSource.Contains("TryBeginNativePersist(request, out __state)", StringComparison.Ordinal), "persist prefix delegates only the exact natural request");
+Equal(false, persistPrefixSource.Contains("TryBeginNativePersist(__instance", StringComparison.Ordinal), "natural SaveDataRequestProcessor is never used for player cassette state");
 Equal(false, persistPrefixSource.Contains("return false", StringComparison.Ordinal), "persist prefix never suppresses the native persist");
 string persistPostfix = ExtractMethods(pluginSource, "public static void PersistPostfix(").Single();
 Equal(true, persistPostfix.Contains("SchedulePersistVerification(__state)", StringComparison.Ordinal), "persist postfix schedules verification");
 
 string transactionBegin = ExtractMethods(pluginSource, "internal static bool TryBeginNativePersist(").Single();
 Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName)", StringComparison.Ordinal), "persist prefix preserves the natural native bundle");
+Equal(true, transactionBegin.Contains("processor = _playerSaveRequestProcessor;", StringComparison.Ordinal), "persist transaction uses the captured PlayerSaveRequestProcessor");
+Equal(true, transactionBegin.Contains("if (processor == null)", StringComparison.Ordinal), "persist transaction fails closed without a captured player processor");
+Equal(false, transactionBegin.Contains("_playerSaveRequestProcessor = processor;", StringComparison.Ordinal), "persist transaction never overwrites the captured player processor with SaveDataRequestProcessor");
 Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong", StringComparison.Ordinal), "persist prefix authoritatively rereads before staging");
 Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryStageHaveInBag(processor, nativeSong, nativeBundle", StringComparison.Ordinal), "persist prefix stages into the natural bundle");
 
@@ -425,11 +429,13 @@ Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), transactionStatus, "transaction a
 Equal(1, transactionProcessor.ObtainStateCalls, "transaction read obtains current state for each call");
 
 var exactBundle = ePlayerSaveChangeBundleKey.CAMPAIGN;
-var singlePersist = new PersistSaveChangeBundleRequest { Bundle = exactBundle };
+var singlePersist = new PersistSaveChangeBundleRequest { Bundle = new FakeIl2CppNullable<ePlayerSaveChangeBundleKey>(hasValue: true, value: exactBundle) };
 Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(singlePersist, out object? singleBundle, out string singleBundleName), "single persist exposes native bundle");
 Equal(true, Equals(exactBundle, singleBundle), "single persist preserves exact native bundle value");
 Equal(nameof(ePlayerSaveChangeBundleKey.CAMPAIGN), singleBundleName, "single persist reports exact bundle name");
-Equal(false, CassetteSaveTransactionAdapter.TryGetPersistBundle(new PersistSaveChangeBundleRequest(), out _, out _), "single persist rejects null bundle");
+Equal(false, CassetteSaveTransactionAdapter.TryGetPersistBundle(
+    new PersistSaveChangeBundleRequest { Bundle = new FakeIl2CppNullable<ePlayerSaveChangeBundleKey>(hasValue: false, value: default) },
+    out _, out _), "single persist rejects empty IL2CPP nullable bundle");
 Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(new PersistAllSaveChangeBundlesRequest(), out object? allBundle, out string allBundleName), "persist-all resolves default bundle");
 Equal(ePlayerSaveChangeBundleKey.DEFAULT, (ePlayerSaveChangeBundleKey)allBundle!, "persist-all uses native default bundle");
 Equal(nameof(ePlayerSaveChangeBundleKey.DEFAULT), allBundleName, "persist-all reports default bundle name");
@@ -525,7 +531,7 @@ enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
 
 sealed class PersistSaveChangeBundleRequest
 {
-    public ePlayerSaveChangeBundleKey? Bundle { get; init; }
+    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey>? Bundle { get; init; }
 }
 
 sealed class PersistAllSaveChangeBundlesRequest { }
