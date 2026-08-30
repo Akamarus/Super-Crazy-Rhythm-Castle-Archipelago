@@ -32,7 +32,7 @@ Implemented the native save-transaction adapter without modifying `Plugin.cs` or
 
 ## Commit
 
-Pending at report creation; recorded in the task handoff after commit.
+- Implementation and initial report: `f092d8726a904f7efa1b578e761c2ba07c78f38f`
 
 ## Concerns
 
