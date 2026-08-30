@@ -3,6 +3,56 @@ namespace RhythmCastleAP;
 internal sealed record CassetteSourceDecision(bool AllowNative, IReadOnlyList<string> SourceLocationsToQueue, IReadOnlyList<string> NativeSongsToSuppress, string Detail);
 internal sealed record CassetteSlotCompatibilityResult(bool Compatible, string Detail);
 
+internal sealed record CassetteBundleCollisionObservation(
+    string Song,
+    string RequestedStatus,
+    string RawBundle,
+    string EffectiveBundle,
+    string ProcessorStatePointer,
+    string EnquiryStatePointer,
+    bool? CrossBundle,
+    string CrossBundleStatus,
+    string BeforeStatus,
+    string AfterStatus,
+    string? Error);
+
+internal static class CassetteBundleCollisionDiagnosticPolicy
+{
+    internal static string Format(CassetteBundleCollisionObservation observation)
+    {
+        string outcome = observation.Error != null
+            ? "diagnostic-error"
+            : !string.Equals(observation.BeforeStatus, observation.AfterStatus, StringComparison.Ordinal)
+                ? "stage-observed"
+                : observation.CrossBundle == true
+                    ? "cross-bundle-rejection-indicated"
+                    : observation.CrossBundle == false
+                        ? "predicate-false-unchanged"
+                        : "inconclusive";
+        string sameState = observation.ProcessorStatePointer == "<unavailable>" ||
+                           observation.EnquiryStatePointer == "<unavailable>"
+            ? "<unavailable>"
+            : string.Equals(
+                observation.ProcessorStatePointer,
+                observation.EnquiryStatePointer,
+                StringComparison.OrdinalIgnoreCase).ToString();
+
+        return $"[SCRC-AP] CASSETTE BUNDLE COLLISION DIAGNOSTIC " +
+               $"song='{Clean(observation.Song)}' requestedStatus='{Clean(observation.RequestedStatus)}' " +
+               $"rawBundle='{Clean(observation.RawBundle)}' effectiveBundle='{Clean(observation.EffectiveBundle)}' " +
+               $"processorState={Clean(observation.ProcessorStatePointer)} enquiryState={Clean(observation.EnquiryStatePointer)} sameState={sameState} " +
+               $"crossBundle={observation.CrossBundle?.ToString() ?? "<unavailable>"} crossBundleStatus='{Clean(observation.CrossBundleStatus)}' " +
+               $"before='{Clean(observation.BeforeStatus)}' after='{Clean(observation.AfterStatus)}' " +
+               $"outcome='{outcome}' error='{Clean(observation.Error ?? "<none>")}' " +
+               "readOnly=True extraRequest=False persistenceChanged=False.";
+    }
+
+    private static string Clean(string value) =>
+        value.Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Replace("'", "''", StringComparison.Ordinal);
+}
+
 internal static class CassetteSlotCompatibility
 {
     internal const int Schema = 1;

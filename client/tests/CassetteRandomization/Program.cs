@@ -41,6 +41,25 @@ Equal(TestCassetteStatus.HAVE_IN_BAG, typedRequest.CassetteStatus, "semantic con
 Equal(TestBundle.DEFAULT, typedRequest.Bundle, "semantic constructor receives default bundle");
 Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write construction is prohibited");
 Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
+
+var collisionObservation = new CassetteBundleCollisionObservation(
+    "QUIERES_BAILAR", "HAVE_IN_BAG", "DEFAULT", "DEFAULT",
+    "0x1111", "0x1111", true, "HAVE_NOT_EARNED",
+    "HAVE_NOT_EARNED", "HAVE_NOT_EARNED", null);
+string collisionLine = CassetteBundleCollisionDiagnosticPolicy.Format(collisionObservation);
+Equal(false, collisionLine.Contains('\n'), "bundle-collision diagnostic is one coherent line");
+Equal(true, collisionLine.Contains("crossBundle=True", StringComparison.Ordinal), "bundle-collision diagnostic includes the exact native predicate");
+Equal(true, collisionLine.Contains("before='HAVE_NOT_EARNED' after='HAVE_NOT_EARNED'", StringComparison.Ordinal), "bundle-collision diagnostic includes native status before and after");
+Equal(true, collisionLine.Contains("outcome='cross-bundle-rejection-indicated'", StringComparison.Ordinal), "true predicate plus unchanged status identifies collision rejection");
+
+string falsifiedLine = CassetteBundleCollisionDiagnosticPolicy.Format(
+    collisionObservation with { CrossBundle = false });
+Equal(true, falsifiedLine.Contains("outcome='predicate-false-unchanged'", StringComparison.Ordinal), "false predicate plus unchanged status falsifies collision rejection");
+
+string stagedLine = CassetteBundleCollisionDiagnosticPolicy.Format(
+    collisionObservation with { CrossBundle = false, AfterStatus = CassetteRandomizationPolicy.HaveInBag });
+Equal(true, stagedLine.Contains("outcome='stage-observed'", StringComparison.Ordinal), "changed native status identifies successful AddChange staging");
+
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(2, submitMethods.Count, "all compiled cassette request submission paths are enumerated");
