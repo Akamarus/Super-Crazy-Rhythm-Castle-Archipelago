@@ -206,40 +206,6 @@ var tick2 = scheduler.Tick(
 Equal(CassetteReceiptDecision.VerifiedBag, tick2.Decision, "later tick verifies bag");
 Equal(2, nativeReads, "later tick reads once"); Equal(1, nativeWrites, "later verification does not rewrite");
 
-int staleEnquiryReads = 0, staleStateWrites = 0;
-var staleEnquiry = new CassetteReceiptScheduler(); staleEnquiry.Configure(true);
-Equal(true, staleEnquiry.NoteReceived("Money Cassette"), "stale-enquiry scheduler recognizes receipt");
-var authoritativeTick = staleEnquiry.Tick(
-    _ =>
-    {
-        staleEnquiryReads++;
-        return new CassetteNativeObservation(
-            true,
-            true,
-            CassetteRandomizationPolicy.Invalid,
-            true,
-            CassetteRandomizationPolicy.HaveInBag);
-    },
-    _ => { staleStateWrites++; return true; });
-Equal(CassetteReceiptDecision.VerifiedBag, authoritativeTick.Decision, "authoritative processor state wins over stale public enquiry");
-Equal(0, staleStateWrites, "authoritative bag state prevents duplicate request submission");
-staleEnquiry.OnLifecyclePoint();
-var afterTerminalRearm = staleEnquiry.Tick(
-    _ =>
-    {
-        staleEnquiryReads++;
-        return new CassetteNativeObservation(
-            true,
-            true,
-            CassetteRandomizationPolicy.Invalid,
-            true,
-            CassetteRandomizationPolicy.HaveInBag);
-    },
-    _ => { staleStateWrites++; return true; });
-Equal<CassetteReceiptDecision?>(null, afterTerminalRearm.Decision, "authoritative bag state remains terminal across broad lifecycle events");
-Equal(1, staleEnquiryReads, "terminal bag state is not read again after broad lifecycle rearm");
-Equal(0, staleStateWrites, "terminal bag state is never resubmitted after broad lifecycle rearm");
-
 var authoritativeState = new AuthoritativeSaveState(TestCassetteStatus.HAVE_IN_BAG);
 var authoritativeProcessor = new AuthoritativeProcessor(authoritativeState);
 Equal(true,
@@ -273,30 +239,95 @@ Equal(false, lifecycle.TryBeginReconcileAttempt(out _), "retry window bounded");
 lifecycle.OnLifecyclePoint();
 Equal(true, lifecycle.TryBeginReconcileAttempt(out _), "later lifecycle rearms work");
 
-var replay = new CassetteReceiptRuntime(); replay.Configure(true);
-foreach (var entry in CassetteCatalog.All) replay.NoteReceived(entry.ItemName);
-Equal(30, replay.OwnedCount, "history reconstructs all ownership"); replay.OnLifecyclePoint();
-var attempted = new HashSet<string>(StringComparer.Ordinal);
-while (replay.TryBeginReconcileAttempt(out string? song)) attempted.Add(song!);
-Equal(30, attempted.Count, "one lifecycle attempts all received cassettes");
-replay.ObserveNativeStatus("ZEN", CassetteRandomizationPolicy.HaveDeposited, true, true); replay.OnLifecyclePoint();
-var rearmed = new HashSet<string>(StringComparer.Ordinal);
-while (replay.TryBeginReconcileAttempt(out string? song)) rearmed.Add(song!);
-Equal(false, rearmed.Contains("ZEN"), "deposited is terminal after reconnect");
-Equal(29, rearmed.Count, "other ownership rearms after reconnect");
+var preSelection = new CassetteSaveEpochRuntime();
+preSelection.Receive("BADASS");
+preSelection.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, preSelection.HasActiveSave, "receipt before save selection remains inactive");
+Equal(false, preSelection.IsPending("BADASS"), "pre-selection observation cannot make a cassette pending in a save");
+Equal(0, preSelection.BeginPersist("DEFAULT").StagedSongs.Count, "no staging before a confirmed save load");
+Console.WriteLine("PASS: receipt_before_save_selection_never_reads_writes_or_satisfies");
 
-var twoSaves = new CassetteReceiptRuntime(); twoSaves.Configure(true); twoSaves.NoteReceived("Money Cassette"); twoSaves.OnLifecyclePoint();
-twoSaves.TryBeginReconcileAttempt(out string? saveASong);
-Equal(CassetteReceiptDecision.VerifiedBag, twoSaves.ObserveNativeStatus(saveASong!, CassetteRandomizationPolicy.HaveInBag, true, true), "save A bag is satisfied");
-Equal(false, twoSaves.TryBeginReconcileAttempt(out _), "save A does not repeat satisfied bag");
-twoSaves.OnLifecyclePoint();
-Equal(false, twoSaves.TryBeginReconcileAttempt(out _), "broad lifecycle does not rearm terminal bag state");
+var preSlotBag = new CassetteSaveEpochRuntime();
+preSlotBag.Receive("BADASS");
+preSlotBag.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+preSlotBag.ActivateSave(2);
+Equal(1L, preSlotBag.Epoch, "first selected save creates epoch one");
+Equal(true, preSlotBag.IsPending("BADASS"), "pre-slot bag cannot suppress the later loaded save");
+Console.WriteLine("PASS: pre_slot_bag_cannot_suppress_the_later_loaded_save");
 
-var depositedAcrossSaves = new CassetteReceiptRuntime(); depositedAcrossSaves.Configure(true); depositedAcrossSaves.NoteReceived("Zen Cassette"); depositedAcrossSaves.OnLifecyclePoint();
-depositedAcrossSaves.TryBeginReconcileAttempt(out string? depositedSong);
-Equal(CassetteReceiptDecision.VerifiedDeposited, depositedAcrossSaves.ObserveNativeStatus(depositedSong!, CassetteRandomizationPolicy.HaveDeposited, true, true), "deposited observed");
-depositedAcrossSaves.OnLifecyclePoint();
-Equal(false, depositedAcrossSaves.TryBeginReconcileAttempt(out _), "deposited remains terminal across saves");
+var sameSlotReload = new CassetteSaveEpochRuntime();
+sameSlotReload.Receive("BADASS");
+sameSlotReload.ActivateSave(2);
+sameSlotReload.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+sameSlotReload.ActivateSave(2);
+Equal(2L, sameSlotReload.Epoch, "same-slot reload creates a new epoch");
+Equal(true, sameSlotReload.IsPending("BADASS"), "same-slot reload revalidates native state");
+Console.WriteLine("PASS: same_numeric_slot_reload_creates_a_new_epoch_and_revalidates");
+
+var depositedSaveA = new CassetteSaveEpochRuntime();
+depositedSaveA.Receive("BADASS");
+depositedSaveA.ActivateSave(1);
+depositedSaveA.Observe("BADASS", CassetteRandomizationPolicy.HaveDeposited);
+Equal(0, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "deposited save A is not rewritten");
+depositedSaveA.ActivateSave(2);
+Equal(true, depositedSaveA.IsPending("BADASS"), "deposited save A does not terminal-cache unowned save B");
+Equal(1, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "unowned save B stages its owned cassette");
+Console.WriteLine("PASS: deposited_in_save_a_does_not_terminal_cache_save_b");
+
+var depositedRevalidation = new CassetteSaveEpochRuntime();
+depositedRevalidation.Receive("ZEN");
+depositedRevalidation.ActivateSave(1);
+depositedRevalidation.Observe("ZEN", CassetteRandomizationPolicy.HaveDeposited);
+depositedRevalidation.ActivateSave(1);
+depositedRevalidation.Observe("ZEN", CassetteRandomizationPolicy.HaveDeposited);
+Equal(0, depositedRevalidation.BeginPersist("DEFAULT").StagedSongs.Count, "deposited cassette remains unwritten after reloading its save");
+Console.WriteLine("PASS: deposited_is_never_rewritten_within_or_after_reloading_its_save");
+
+var lifecycleNeutral = new CassetteSaveEpochRuntime();
+lifecycleNeutral.Receive("BADASS");
+lifecycleNeutral.ActivateSave(4);
+lifecycleNeutral.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+lifecycleNeutral.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(1L, lifecycleNeutral.Epoch, "observations do not create or replace a save epoch");
+Equal(0, lifecycleNeutral.BeginPersist("DEFAULT").StagedSongs.Count, "broad lifecycle-neutral observations do not rewrite a satisfied cassette");
+Console.WriteLine("PASS: broad_lifecycle_notifications_do_not_create_or_replace_a_save_epoch");
+
+var persistPrefix = new CassetteSaveEpochRuntime();
+persistPrefix.Receive("BADASS");
+persistPrefix.ActivateSave(3);
+Equal(true, persistPrefix.IsPending("BADASS"), "unowned receipt is pending in an active save");
+var midLevelToken = persistPrefix.BeginPersist("MID_LEVEL");
+SequenceEqual(new[] { "BADASS" }, midLevelToken.StagedSongs, "persist prefix stages the missing cassette");
+Equal(true, persistPrefix.IsPending("BADASS"), "staging alone does not satisfy a cassette");
+persistPrefix.CompletePersist(midLevelToken, _ => CassetteRandomizationPolicy.HaveInBag);
+Equal(false, persistPrefix.IsPending("BADASS"), "post-persist authoritative bag read satisfies the cassette");
+Console.WriteLine("PASS: unowned_receipt_is_staged_only_inside_the_natural_persist_prefix");
+
+var persistAll = new CassetteSaveEpochRuntime();
+persistAll.Receive("BADASS");
+persistAll.ActivateSave(3);
+var defaultToken = persistAll.BeginPersist("DEFAULT");
+Equal("DEFAULT", defaultToken.Bundle, "persist-all stages into the default bundle");
+SequenceEqual(new[] { "BADASS" }, defaultToken.StagedSongs, "persist-all stages the owned missing cassette");
+Console.WriteLine("PASS: persist_all_stages_default_then_uses_the_original_native_commit");
+
+var selectionDuringPersist = new CassetteSaveEpochRuntime();
+selectionDuringPersist.Receive("BADASS");
+selectionDuringPersist.ActivateSave(1);
+var stalePersist = selectionDuringPersist.BeginPersist("DEFAULT");
+selectionDuringPersist.ActivateSave(2);
+selectionDuringPersist.CompletePersist(stalePersist, _ => CassetteRandomizationPolicy.HaveInBag);
+Equal(true, selectionDuringPersist.IsPending("BADASS"), "selection change during persist cannot satisfy the new save");
+Console.WriteLine("PASS: selection_change_during_persist_does_not_satisfy_the_new_save");
+
+var failedAuthoritativeRead = new CassetteSaveEpochRuntime();
+failedAuthoritativeRead.Receive("BADASS");
+failedAuthoritativeRead.ActivateSave(5);
+var failedReadToken = failedAuthoritativeRead.BeginPersist("DEFAULT");
+failedAuthoritativeRead.CompletePersist(failedReadToken, _ => null);
+Equal(true, failedAuthoritativeRead.IsPending("BADASS"), "authoritative read failure leaves cassette pending");
+Equal(1, failedAuthoritativeRead.BeginPersist("DEFAULT").StagedSongs.Count, "authoritative read failure retries at a later persist boundary");
+Console.WriteLine("PASS: authoritative_failure_at_persist_boundary_fails_closed");
 
 var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
 Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");

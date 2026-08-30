@@ -110,6 +110,92 @@ internal static class CassetteRandomizationPolicy
     private static CassetteSourceDecision Allow(string detail)=>new(true,Array.Empty<string>(),Array.Empty<string>(),detail);
 }
 
+internal sealed record CassettePersistToken(long Epoch, int Slot, string Bundle, IReadOnlyList<string> StagedSongs);
+
+internal sealed class CassetteSaveEpochRuntime
+{
+    private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _inFlightThisEpoch = new(StringComparer.Ordinal);
+
+    internal long Epoch { get; private set; }
+    internal int? ActiveSlot { get; private set; }
+    internal bool HasActiveSave => ActiveSlot.HasValue;
+
+    internal void ActivateSave(int slot)
+    {
+        Epoch++;
+        ActiveSlot = slot;
+        _satisfiedThisEpoch.Clear();
+        _inFlightThisEpoch.Clear();
+    }
+
+    internal void DeactivateSave()
+    {
+        ActiveSlot = null;
+        _satisfiedThisEpoch.Clear();
+        _inFlightThisEpoch.Clear();
+    }
+
+    internal void Receive(string nativeSong)
+    {
+        _owned.Add(nativeSong);
+    }
+
+    internal bool IsPending(string nativeSong) =>
+        HasActiveSave && _owned.Contains(nativeSong) && !_satisfiedThisEpoch.Contains(nativeSong);
+
+    internal void Observe(string nativeSong, string? nativeStatus)
+    {
+        if (!HasActiveSave || !_owned.Contains(nativeSong) || !IsSatisfiedNativeStatus(nativeStatus))
+            return;
+
+        _satisfiedThisEpoch.Add(nativeSong);
+        _inFlightThisEpoch.Remove(nativeSong);
+    }
+
+    internal CassettePersistToken BeginPersist(string bundle)
+    {
+        if (!HasActiveSave)
+            return new(Epoch, -1, bundle, Array.Empty<string>());
+
+        string[] stagedSongs = _owned
+            .Where(song => !_satisfiedThisEpoch.Contains(song) && !_inFlightThisEpoch.Contains(song))
+            .OrderBy(song => song, StringComparer.Ordinal)
+            .ToArray();
+        foreach (string song in stagedSongs)
+            _inFlightThisEpoch.Add(song);
+        return new(Epoch, ActiveSlot!.Value, bundle, stagedSongs);
+    }
+
+    internal void CompletePersist(CassettePersistToken token, Func<string, string?> readStatus)
+    {
+        if (!HasActiveSave || token.Epoch != Epoch || token.Slot != ActiveSlot)
+            return;
+
+        foreach (string song in token.StagedSongs.Distinct(StringComparer.Ordinal))
+        {
+            string? status;
+            try
+            {
+                status = readStatus(song);
+            }
+            catch
+            {
+                status = null;
+            }
+
+            _inFlightThisEpoch.Remove(song);
+            if (_owned.Contains(song) && IsSatisfiedNativeStatus(status))
+                _satisfiedThisEpoch.Add(song);
+        }
+    }
+
+    private static bool IsSatisfiedNativeStatus(string? status) =>
+        string.Equals(status, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, CassetteRandomizationPolicy.HaveDeposited, StringComparison.OrdinalIgnoreCase);
+}
+
 internal enum CassetteReceiptDecision
 {
     Disabled, NoOwnership, SaveUnavailable, ProcessorUnavailable, VerifiedBag,
