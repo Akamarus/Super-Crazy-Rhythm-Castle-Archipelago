@@ -364,6 +364,45 @@ foreach (var triggerGroup in CassetteCatalog.All
     Equal(false, aliasDecision.AllowNative, $"verified alias {triggerGroup.Level}/{triggerGroup.Variant} intercepts");
     SequenceEqual(mapped.Select(x => x.SourceName), aliasDecision.SourceLocationsToQueue, $"verified alias {triggerGroup.Level}/{triggerGroup.Variant} queues exact sources");
 }
+SaveManagementEnquiries.SelectedSlot = null;
+SaveManagementEnquiries.SelectedState = new object();
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded save requires selected slot number");
+SaveManagementEnquiries.SelectedSlot = 4;
+SaveManagementEnquiries.SelectedState = null;
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded save requires selected slot state");
+SaveManagementEnquiries.SelectedState = new object();
+Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSave(out int selectedSlot), "loaded save accepts matching slot and state enquiries");
+Equal(4, selectedSlot, "loaded save returns selected slot number");
+
+var transactionState = new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG);
+var transactionProcessor = new TransactionProcessor(transactionState);
+Equal(true, CassetteSaveTransactionAdapter.TryReadCassetteStatus(transactionProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string? transactionStatus), "transaction adapter reads current processor state");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), transactionStatus, "transaction adapter returns authoritative cassette status");
+Equal(1, transactionProcessor.ObtainStateCalls, "transaction read obtains current state for each call");
+
+var exactBundle = ePlayerSaveChangeBundleKey.CAMPAIGN;
+var singlePersist = new PersistSaveChangeBundleRequest { Bundle = exactBundle };
+Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(singlePersist, out object? singleBundle, out string singleBundleName), "single persist exposes native bundle");
+Equal(true, Equals(exactBundle, singleBundle), "single persist preserves exact native bundle value");
+Equal(nameof(ePlayerSaveChangeBundleKey.CAMPAIGN), singleBundleName, "single persist reports exact bundle name");
+Equal(false, CassetteSaveTransactionAdapter.TryGetPersistBundle(new PersistSaveChangeBundleRequest(), out _, out _), "single persist rejects null bundle");
+Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(new PersistAllSaveChangeBundlesRequest(), out object? allBundle, out string allBundleName), "persist-all resolves default bundle");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, (ePlayerSaveChangeBundleKey)allBundle!, "persist-all uses native default bundle");
+Equal(nameof(ePlayerSaveChangeBundleKey.DEFAULT), allBundleName, "persist-all reports default bundle name");
+
+var stagingProcessor = new TransactionProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
+Equal(true, CassetteSaveTransactionAdapter.TryStageHaveInBag(stagingProcessor, nameof(ePlayableSong.QUIERES_BAILAR), exactBundle, out string stageDetail), "transaction adapter stages cassette in memory");
+Equal(1, stagingProcessor.ProcessRequestCalls, "staging processes exactly one semantic request");
+Equal(ePlayableSong.QUIERES_BAILAR, stagingProcessor.LastRequest!.Song, "staging request receives native song");
+Equal(eSongCassetteStatus.HAVE_IN_BAG, stagingProcessor.LastRequest.CassetteStatus, "staging request receives bag status");
+Equal(exactBundle, stagingProcessor.LastRequest.Bundle, "staging request preserves supplied native bundle");
+Equal(true, stagingProcessor.LastRequest.SemanticConstructorUsed, "staging uses semantic cassette constructor");
+Equal(true, stageDetail.Contains("CAMPAIGN", StringComparison.Ordinal), "staging detail identifies supplied bundle");
+
+string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent" })
+    Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
+Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
 
 enum TestSong { INVALID, QUIERES_BAILAR }
@@ -408,6 +447,70 @@ sealed class TestCassetteRequest
     private TestCassetteRequest() { }
 
     public TestCassetteRequest(TestSong song, TestCassetteStatus cassetteStatus, TestBundle bundle)
+    {
+        Song = song;
+        CassetteStatus = cassetteStatus;
+        Bundle = bundle;
+        SemanticConstructorUsed = true;
+    }
+}
+
+static class SaveManagementEnquiries
+{
+    public static int? SelectedSlot { get; set; }
+    public static object? SelectedState { get; set; }
+    public static int? GetSelectedSaveFileSlotNumber() => SelectedSlot;
+    public static object? TryGetSelectedSlotSaveFileState() => SelectedState;
+}
+
+enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
+enum ePlayableSong { INVALID, QUIERES_BAILAR }
+enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
+
+sealed class PersistSaveChangeBundleRequest
+{
+    public ePlayerSaveChangeBundleKey? Bundle { get; init; }
+}
+
+sealed class PersistAllSaveChangeBundlesRequest { }
+
+sealed class TransactionProcessor
+{
+    private readonly TransactionSaveState _state;
+    public int ObtainStateCalls { get; private set; }
+    public int ProcessRequestCalls { get; private set; }
+    public RecordSongCassetteStatusInSaveDataRequest? LastRequest { get; private set; }
+
+    public TransactionProcessor(TransactionSaveState state) => _state = state;
+
+    private TransactionSaveState ObtainState()
+    {
+        ObtainStateCalls++;
+        return _state;
+    }
+
+    public void ProcessRequest(RecordSongCassetteStatusInSaveDataRequest request)
+    {
+        ProcessRequestCalls++;
+        LastRequest = request;
+    }
+}
+
+sealed class TransactionSaveState
+{
+    private readonly eSongCassetteStatus _status;
+    public TransactionSaveState(eSongCassetteStatus status) => _status = status;
+    public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => _status;
+}
+
+sealed class RecordSongCassetteStatusInSaveDataRequest
+{
+    public ePlayableSong Song { get; }
+    public eSongCassetteStatus CassetteStatus { get; }
+    public ePlayerSaveChangeBundleKey Bundle { get; }
+    public bool SemanticConstructorUsed { get; }
+
+    public RecordSongCassetteStatusInSaveDataRequest(ePlayableSong song, eSongCassetteStatus cassetteStatus, ePlayerSaveChangeBundleKey bundle)
     {
         Song = song;
         CassetteStatus = cassetteStatus;

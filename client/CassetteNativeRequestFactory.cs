@@ -8,6 +8,33 @@ internal static class CassetteNativeRequestFactory
     internal const string HaveInBag = "HAVE_IN_BAG";
     internal const string DefaultBundle = "DEFAULT";
 
+    internal static object Create(
+        Type requestType,
+        Type songType,
+        Type statusType,
+        Type bundleType,
+        string nativeSong,
+        string nativeStatus,
+        object nativeBundle)
+    {
+        if (!songType.IsEnum || !statusType.IsEnum || !bundleType.IsEnum)
+            throw new ArgumentException("cassette request semantic types are not enums");
+        if (!bundleType.IsInstanceOfType(nativeBundle))
+            throw new ArgumentException("native bundle does not match cassette request bundle type", nameof(nativeBundle));
+
+        object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+        object status = Enum.Parse(statusType, nativeStatus, ignoreCase: false);
+        ConstructorInfo? constructor = requestType.GetConstructor(
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            binder: null,
+            types: new[] { songType, statusType, bundleType },
+            modifiers: null);
+        if (constructor == null)
+            throw new MissingMethodException("exact cassette request constructor (song, status, bundle) unavailable");
+
+        return constructor.Invoke(new[] { song, status, nativeBundle });
+    }
+
     internal static bool TryCreateHaveInBagRequest(
         Type requestType,
         Type songType,
