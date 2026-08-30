@@ -4,6 +4,27 @@ using System.Text.Json;
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
+static IReadOnlyList<string> ExtractMethods(string source, string signaturePrefix)
+{
+    var methods = new List<string>();
+    int searchFrom = 0;
+    while ((searchFrom = source.IndexOf(signaturePrefix, searchFrom, StringComparison.Ordinal)) >= 0)
+    {
+        int bodyStart = source.IndexOf('{', searchFrom);
+        if (bodyStart < 0) throw new InvalidOperationException($"method body missing for {signaturePrefix}");
+        int depth = 0;
+        int bodyEnd = bodyStart;
+        for (; bodyEnd < source.Length; bodyEnd++)
+        {
+            if (source[bodyEnd] == '{') depth++;
+            else if (source[bodyEnd] == '}' && --depth == 0) { bodyEnd++; break; }
+        }
+        if (depth != 0) throw new InvalidOperationException($"method body unbalanced for {signaturePrefix}");
+        methods.Add(source[searchFrom..bodyEnd]);
+        searchFrom = bodyEnd;
+    }
+    return methods;
+}
 
 var constructedRequest = CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
     typeof(TestCassetteRequest),
@@ -21,13 +42,16 @@ Equal(TestBundle.DEFAULT, typedRequest.Bundle, "semantic constructor receives de
 Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write construction is prohibited");
 Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
-int submitStart = pluginSource.IndexOf("private static bool TrySubmitHaveInBag(object processor, string nativeSong", StringComparison.Ordinal);
-int submitEnd = pluginSource.IndexOf("private static bool TryWriteMember", submitStart, StringComparison.Ordinal);
-Equal(true, submitStart >= 0 && submitEnd > submitStart, "production cassette submission method is inspectable");
-string submitSource = pluginSource[submitStart..submitEnd];
-Equal(true, submitSource.Contains("CassetteNativeRequestFactory.TryCreateHaveInBagRequest(", StringComparison.Ordinal), "production wiring uses semantic request adapter");
-Equal(true, submitSource.Contains("requestType, songType, statusType, bundleType, nativeSong", StringComparison.Ordinal), "production wiring supplies all semantic request types");
-Equal(false, submitSource.Contains("Activator.CreateInstance", StringComparison.Ordinal), "production wiring forbids parameterless request allocation");
+IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
+Equal(2, submitMethods.Count, "all compiled cassette request submission paths are enumerated");
+foreach (string submitSource in submitMethods)
+{
+    Equal(true, submitSource.Contains("CassetteNativeRequestFactory.TryCreateHaveInBagRequest(", StringComparison.Ordinal), "every cassette submission uses semantic request adapter");
+    Equal(true, submitSource.Contains("requestType, songType, statusType, bundleType, nativeSong", StringComparison.Ordinal), "every cassette submission supplies all semantic request types");
+    Equal(false, submitSource.Contains("Activator.CreateInstance", StringComparison.Ordinal), "cassette submission forbids parameterless request allocation");
+    Equal(false, submitSource.Contains("TryWriteMember(request, \"Song\"", StringComparison.Ordinal), "cassette submission forbids post-construction song writes");
+    Equal(false, submitSource.Contains("TryWriteMember(request, \"CassetteStatus\"", StringComparison.Ordinal), "cassette submission forbids post-construction status writes");
+}
 
 string[] expectedCatalog =
 {

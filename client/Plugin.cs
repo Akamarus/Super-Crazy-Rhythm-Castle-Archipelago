@@ -18053,30 +18053,20 @@ internal static class Level2MoneyCassetteRandomization
                 "ePlayableSong", throwOnError: false, ignoreCase: false);
             Type? statusType = gameAssembly?.GetType(
                 "eSongCassetteStatus", throwOnError: false, ignoreCase: false);
-            if (requestType == null || songType == null || statusType == null ||
-                !songType.IsEnum || !statusType.IsEnum)
+            Type? bundleType = gameAssembly?.GetType(
+                "ePlayerSaveChangeBundleKey", throwOnError: false, ignoreCase: false);
+            if (requestType == null || songType == null || statusType == null || bundleType == null)
             {
                 detail = "cassette request or enum types unavailable.";
                 return false;
             }
 
-            object song = Enum.Parse(songType, NativeSongName, ignoreCase: false);
-            object status = Enum.Parse(
-                statusType, CassetteRandomizationPolicy.HaveInBag, ignoreCase: false);
-            object? request = Activator.CreateInstance(requestType, nonPublic: true);
-            if (request == null)
+            string nativeSong = NativeSongName;
+            if (!CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
+                    requestType, songType, statusType, bundleType, nativeSong,
+                    out object? request, out string constructorDetail) || request == null)
             {
-                detail = "RecordSongCassetteStatusInSaveDataRequest could not be constructed.";
-                return false;
-            }
-
-            bool songWritten = TryWriteMember(request, "Song", song) ||
-                               TryWriteMember(request, "_Song_k__BackingField", song);
-            bool statusWritten = TryWriteMember(request, "CassetteStatus", status) ||
-                                 TryWriteMember(request, "_CassetteStatus_k__BackingField", status);
-            if (!songWritten || !statusWritten)
-            {
-                detail = "cassette request members could not be populated.";
+                detail = constructorDetail;
                 return false;
             }
 
@@ -18098,7 +18088,7 @@ internal static class Level2MoneyCassetteRandomization
             }
 
             process.Invoke(processor, new[] { request });
-            detail = "through RecordSongCassetteStatusInSaveDataRequest";
+            detail = $"through RecordSongCassetteStatusInSaveDataRequest {constructorDetail}";
             return true;
         }
         catch (Exception ex)
@@ -18106,36 +18096,6 @@ internal static class Level2MoneyCassetteRandomization
             detail = ex.GetBaseException().Message;
             return false;
         }
-    }
-
-    private static bool TryWriteMember(object obj, string name, object value)
-    {
-        Type type = obj.GetType();
-        try
-        {
-            PropertyInfo? property = type.GetProperty(
-                name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (property != null && property.CanWrite)
-            {
-                property.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        try
-        {
-            FieldInfo? field = type.GetField(
-                name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field != null)
-            {
-                field.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        return false;
     }
 
     private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
