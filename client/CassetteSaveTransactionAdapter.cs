@@ -16,6 +16,8 @@ internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
     private const BindingFlags AllInstance = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+    private const BindingFlags PublicStatic = BindingFlags.Public | BindingFlags.Static;
+    private const BindingFlags PublicInstance = BindingFlags.Public | BindingFlags.Instance;
     private static readonly Dictionary<string, Type?> TypeCache = new(StringComparer.Ordinal);
 
     internal static bool TryGetLoadedSave(out int slot)
@@ -92,26 +94,26 @@ internal static class CassetteSaveTransactionAdapter
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries");
             MethodInfo? getState = enquiries?.GetMethod(
-                "TryGetSelectedSlotSaveFileState", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+                "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
             if (enquiries == null) { stage = "fingerprint-owner-missing"; return false; }
             if (getState == null) { stage = "fingerprint-state-method-missing"; return false; }
             object? currentState = UnwrapNullable(getState.Invoke(null, null));
             if (currentState == null) { stage = "fingerprint-state-null"; return false; }
 
-            PropertyInfo? gameStatsProperty = currentState.GetType().GetProperty("GameStats", AllInstance);
+            PropertyInfo? gameStatsProperty = currentState.GetType().GetProperty("GameStats", PublicInstance);
             object? gameStats = gameStatsProperty?.GetValue(currentState);
             if (gameStats == null) { stage = "fingerprint-game-stats-missing"; return false; }
 
-            PropertyInfo? playTimeProperty = gameStats.GetType().GetProperty("PlayTimeInSeconds", AllInstance);
+            PropertyInfo? playTimeProperty = gameStats.GetType().GetProperty("PlayTimeInSeconds", PublicInstance);
             object? rawPlayTime = playTimeProperty?.GetValue(gameStats);
             if (rawPlayTime == null) { stage = "fingerprint-play-time-missing"; return false; }
             long playTime;
             try { playTime = Convert.ToInt64(rawPlayTime); }
             catch (Exception ex) { stage = $"fingerprint-play-time-convert:{SummarizeException(ex)}"; return false; }
 
-            PropertyInfo? lastPlayProperty = gameStats.GetType().GetProperty("LastPlayDateTimeUtc", AllInstance);
+            PropertyInfo? lastPlayProperty = gameStats.GetType().GetProperty("LastPlayDateTimeUtc", PublicInstance);
             object? lastPlay = lastPlayProperty?.GetValue(gameStats);
-            PropertyInfo? ticksProperty = lastPlay?.GetType().GetProperty("Ticks", AllInstance);
+            PropertyInfo? ticksProperty = lastPlay?.GetType().GetProperty("Ticks", PublicInstance);
             object? rawTicks = ticksProperty?.GetValue(lastPlay);
             if (rawTicks == null) { stage = "fingerprint-last-play-ticks-missing"; return false; }
             long lastPlayTicks;
@@ -121,7 +123,7 @@ internal static class CassetteSaveTransactionAdapter
             Type? songType = FindType("ePlayableSong", currentState.GetType().Assembly);
             if (songType?.IsEnum != true) { stage = "fingerprint-song-enum-missing"; return false; }
             MethodInfo? getStatus = currentState.GetType().GetMethod(
-                "GetCassetteStatusForSong", AllInstance, binder: null, types: new[] { songType }, modifiers: null);
+                "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
             if (getStatus == null) { stage = "fingerprint-cassette-method-missing"; return false; }
             if (!TryReadFingerprintCassetteStatus(currentState, getStatus, songType, "I_GOT_MONEY", out string iGotMoney, out stage)) return false;
             if (!TryReadFingerprintCassetteStatus(currentState, getStatus, songType, "BADASS", out string badass, out stage)) return false;

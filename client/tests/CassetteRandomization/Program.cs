@@ -498,6 +498,9 @@ Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out 
 Equal("pointer-missing", identityStage, "missing pointer has exact stage");
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "missing fingerprint fields fail closed");
 Equal("fingerprint-game-stats-missing", fingerprintStage, "fingerprint failure names exact missing field stage");
+PlayerSaveManagementEnquiries.SelectedState = new PrivateFingerprintState();
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects private replacement members");
+Equal("fingerprint-game-stats-missing", fingerprintStage, "private GameStats is not treated as public metadata");
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(IntPtr.Zero);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "zero pointer fails closed");
 Equal("pointer-zero", identityStage, "zero pointer has exact stage");
@@ -519,6 +522,9 @@ Equal(true, semanticProcessor.LastRequest.SemanticConstructorUsed, "submission u
 Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submission detail identifies default bundle");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+string fingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetLoadedSaveFingerprint(").Single();
+Equal(true, fingerprintAdapter.Contains("PublicStatic", StringComparison.Ordinal) && fingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "fingerprint uses explicit public-only reflection flags");
+Equal(false, fingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || fingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "fingerprint never binds non-public members");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
@@ -610,6 +616,12 @@ sealed class FakePlayerSavePublicState
 }
 
 sealed record FakeGameStats(long PlayTimeInSeconds, DateTime LastPlayDateTimeUtc);
+
+sealed class PrivateFingerprintState
+{
+    private FakeGameStats GameStats { get; } = new(1, DateTime.UnixEpoch);
+    private eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.INVALID;
+}
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
 enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
