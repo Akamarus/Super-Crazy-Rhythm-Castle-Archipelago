@@ -116,6 +116,10 @@ public sealed class Plugin : BasePlugin
         patched += PatchExactMethod("SaveDataRequestProcessor", "ChangeSelectedPlayerSaveSlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "SelectPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
@@ -11547,6 +11551,7 @@ internal static class MusicLabSequencePatches
 internal static class CassetteSaveTransactionPatches
 {
     private static readonly HashSet<string> ExtractionFailures = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> PublicSelectionDiagnostics = new(StringComparer.Ordinal);
 
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
@@ -11590,6 +11595,56 @@ internal static class CassetteSaveTransactionPatches
             return;
         }
         CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
+    }
+
+    public static void PublicSelectionDiagnosticPostfix(object[]? __args, MethodBase __originalMethod)
+    {
+        string requestIdentity = __originalMethod?.GetParameters().SingleOrDefault()?.ParameterType.Name ?? "<unknown-request>";
+        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
+        object? request = ReflectionUtil.FindArg(__args, requestIdentity);
+        if (request == null)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"{requestIdentity} argument was missing");
+            return;
+        }
+
+        string detail;
+        if (string.Equals(requestIdentity, "SelectPlayerSaveSlotRequest", StringComparison.Ordinal))
+        {
+            int? slot = ReflectionUtil.ReadInt(request, "SlotNumber");
+            if (!slot.HasValue)
+            {
+                LogExtractionFailureOnce(methodIdentity, "SelectPlayerSaveSlotRequest.SlotNumber was unreadable");
+                return;
+            }
+            detail = $"slot={slot.Value}";
+        }
+        else if (string.Equals(requestIdentity, "EnsureAPlayerSaveSlotIsSelectedRequest", StringComparison.Ordinal))
+        {
+            int? defaultSlot = ReflectionUtil.ReadInt(request, "DefaultSlotNumber");
+            if (!defaultSlot.HasValue)
+            {
+                LogExtractionFailureOnce(methodIdentity, "EnsureAPlayerSaveSlotIsSelectedRequest.DefaultSlotNumber was unreadable");
+                return;
+            }
+            detail = $"defaultSlot={defaultSlot.Value}";
+        }
+        else
+        {
+            detail = "identity-only";
+        }
+
+        LogPublicSelectionDiagnosticOnce(methodIdentity, detail);
+    }
+
+    private static void LogPublicSelectionDiagnosticOnce(string identity, string detail)
+    {
+        string key = $"{identity}|{detail}";
+        lock (PublicSelectionDiagnostics)
+        {
+            if (!PublicSelectionDiagnostics.Add(key)) return;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE PUBLIC SELECTION DIAGNOSTIC target='{identity}' detail='{detail}'; no save-boundary signal emitted.");
     }
 
     private static void LogExtractionFailureOnce(string identity, string reason)

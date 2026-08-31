@@ -46,6 +46,14 @@ string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirector
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"CreateNewPlayerSaveFileInEmptySlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact empty-slot creation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installed");
+foreach (string diagnosticRequest in new[]
+{
+    "SelectPlayerSaveSlotRequest",
+    "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest",
+    "EnsureAPlayerSaveSlotIsSelectedRequest",
+    "EnsurePlayerSaveFileExistsInSelectedSlotRequest",
+})
+    Equal(true, pluginSource.Contains($"PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"{diagnosticRequest}\", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix))", StringComparison.Ordinal), $"diagnostic-only exact hook installed for {diagnosticRequest}");
 
 static string ExtractClass(string source, string className)
 {
@@ -78,6 +86,12 @@ Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal)
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
+string publicSelectionDiagnostic = ExtractMethods(pluginSource, "public static void PublicSelectionDiagnosticPostfix(").Single();
+Equal(true, publicSelectionDiagnostic.Contains("SelectPlayerSaveSlotRequest", StringComparison.Ordinal), "public selection diagnostic recognizes explicit slot request");
+Equal(true, publicSelectionDiagnostic.Contains("EnsureAPlayerSaveSlotIsSelectedRequest", StringComparison.Ordinal), "public selection diagnostic recognizes documented default slot request");
+Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "public selection diagnostics are bounded by identity/value");
+foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
 string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
