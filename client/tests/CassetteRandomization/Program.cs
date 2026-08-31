@@ -43,18 +43,9 @@ Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write co
 Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 
-foreach (string selectionRequest in new[]
-{
-    "SelectPlayerSaveSlotRequest",
-    "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest",
-    "EnsureAPlayerSaveSlotIsSelectedRequest",
-    "CreateNewPlayerSaveFileInSlotRequest"
-})
-{
-    Equal(true,
-        pluginSource.Contains($"PatchMethodsByParameter(\"ProcessRequest\", \"{selectionRequest}\", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix))", StringComparison.Ordinal),
-        $"safe save-selection hook installed for {selectionRequest}");
-}
+Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
+Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"CreateNewPlayerSaveFileInEmptySlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact empty-slot creation hook installed");
+Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installed");
 
 static string ExtractClass(string source, string className)
 {
@@ -72,10 +63,14 @@ static string ExtractClass(string source, string className)
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPrefix)", StringComparison.Ordinal), "absent Persist boundary is not hooked");
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPostfix)", StringComparison.Ordinal), "absent Persist postfix is not hooked");
 
-string selectionPostfix = ExtractMethods(pluginSource, "public static void SaveSelectionPostfix(").Single();
-Equal(true, selectionPostfix.Contains("CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot)", StringComparison.Ordinal), "selection postfix verifies the loaded save");
-Equal(true, selectionPostfix.Contains("ActivateLoadedSave(slot", StringComparison.Ordinal), "successful selection activates a new epoch");
-Equal(true, selectionPostfix.Contains("DeactivateLoadedSave(", StringComparison.Ordinal), "failed selection deactivates the epoch");
+Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix)", StringComparison.Ordinal), "broad selection postfix is non-authoritative");
+string selectedMutationPostfix = ExtractMethods(pluginSource, "public static void SelectedSlotMutationPostfix(").Single();
+Equal(true, selectedMutationPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Ordinal), "slot mutation callback only queues boundary signal");
+Equal(false, selectedMutationPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "slot mutation callback performs no native enquiry");
+Equal(false, selectedMutationPostfix.Contains("ActivateLoadedSave", StringComparison.Ordinal), "slot mutation callback cannot activate epoch");
+string buildPostfix = ExtractMethods(pluginSource, "public static void BuiltPlayerSaveStatePostfix(").Single();
+Equal(true, buildPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Ordinal), "build callback only queues boundary signal");
+Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "build callback performs no native enquiry");
 string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
@@ -103,6 +98,12 @@ Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal)
 string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
+Equal(true, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordinal), "Unity keeper observes selected slot and native public-state pointer");
+Equal(true, unityTick.Contains("_saveIdentity.Observe", StringComparison.Ordinal), "Unity keeper feeds only stabilized identity into epoch activation");
+string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
+Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
+Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
+Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -111,6 +112,44 @@ foreach (string obsolete in new[] { "CassetteReceiptRuntime", "CassetteReceiptSc
     Equal(false, pluginSource.Contains(obsolete, StringComparison.Ordinal) || File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs")).Contains(obsolete, StringComparison.Ordinal), $"obsolete process-wide cassette state removed: {obsolete}");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
 Console.WriteLine("PASS: safe_save_lifecycle_production_wiring");
+
+var stabilizer = new CassetteSaveIdentityStabilizer();
+Equal(false, stabilizer.BoundaryPending, "no signal starts inactive");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "room observation without exact signal cannot activate");
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation);
+Equal(true, stabilizer.BoundaryPending, "exact creation signal suspends old epoch immediately");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(0, 100), "startup slot cannot satisfy slot-4 signal");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first matching observation is not stable");
+var stableActivation = stabilizer.Observe(4, 400);
+Equal(4, stableActivation!.Value.Slot, "slot 4 activates after two matching observations");
+Equal(400L, stableActivation.Value.Pointer, "activation records native pointer");
+Equal(false, stabilizer.BoundaryPending, "activation resumes epoch work");
+
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first observation precedes newer signal");
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build);
+Equal(true, stabilizer.BoundaryPending, "same-slot build keeps boundary suspended");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "new same-slot signal resets stability");
+stableActivation = stabilizer.Observe(4, 400);
+Equal(true, stableActivation!.Value.IncludesBuild, "coalesced generation preserves build");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "coalesced generation activates at most once");
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "duplicate selection first observation");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "duplicate selection does not create another epoch");
+Equal(false, stabilizer.BoundaryPending, "stable duplicate selection resumes existing epoch without duplicating it");
+
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 401), "new pointer first observation");
+stableActivation = stabilizer.Observe(4, 401);
+Equal(401L, stableActivation!.Value.Pointer, "pointer replacement activates once");
+stabilizer.Signal(5, CassetteSaveBoundarySignalKind.Selection);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 401), "mismatched slot cannot activate");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(5, 500), "slot switch first observation");
+stableActivation = stabilizer.Observe(5, 500);
+Equal(5, stableActivation!.Value.Slot, "slot switch activates");
+stabilizer.Reset();
+Equal(false, stabilizer.BoundaryPending, "reset clears pending boundary");
+Console.WriteLine("PASS: final_save_identity_stabilization");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
@@ -370,9 +409,12 @@ Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded sav
 PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: true, value: 4);
 PlayerSaveManagementEnquiries.SelectedState = null;
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded save requires selected slot state");
-PlayerSaveManagementEnquiries.SelectedState = new object();
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x400));
 Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSave(out int selectedSlot), "loaded save accepts matching slot and state enquiries");
 Equal(4, selectedSlot, "loaded save returns selected slot number");
+Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out int identitySlot, out long identityPointer), "loaded save identity reads public native pointer");
+Equal(4, identitySlot, "loaded save identity preserves slot");
+Equal(0x400L, identityPointer, "loaded save identity preserves pointer");
 
 var transactionState = new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG);
 var transactionProcessor = new PlayerSaveRequestProcessor(transactionState);
@@ -464,6 +506,12 @@ sealed class FakeIl2CppNullable<T>
 
     public bool HasValue { get; }
     public T Value { get; }
+}
+
+sealed class FakePlayerSavePublicState
+{
+    public FakePlayerSavePublicState(IntPtr pointer) => Pointer = pointer;
+    public IntPtr Pointer { get; }
 }
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }

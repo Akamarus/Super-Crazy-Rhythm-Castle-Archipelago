@@ -34,6 +34,35 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    internal static bool TryGetLoadedSaveIdentity(out int slot, out long selectedStatePointer)
+    {
+        slot = default;
+        selectedStatePointer = 0;
+        try
+        {
+            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
+            MethodInfo? getSlot = enquiries?.GetMethod(
+                "GetSelectedSaveFileSlotNumber", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            MethodInfo? getState = enquiries?.GetMethod(
+                "TryGetSelectedSlotSaveFileState", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            object? rawSlot = UnwrapNullable(getSlot?.Invoke(null, null));
+            object? currentState = UnwrapNullable(getState?.Invoke(null, null));
+            if (rawSlot == null || currentState == null) return false;
+            object? rawPointer = currentState.GetType().GetProperty(
+                "Pointer", BindingFlags.Public | BindingFlags.Instance)?.GetValue(currentState);
+            if (rawPointer is not IntPtr pointer || pointer == IntPtr.Zero) return false;
+            slot = Convert.ToInt32(rawSlot);
+            selectedStatePointer = pointer.ToInt64();
+            return true;
+        }
+        catch
+        {
+            slot = default;
+            selectedStatePointer = 0;
+            return false;
+        }
+    }
+
     internal static bool TryReadCassetteStatus(
         object processor,
         string nativeSong,

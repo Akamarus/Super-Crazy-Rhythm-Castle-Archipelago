@@ -113,10 +113,9 @@ public sealed class Plugin : BasePlugin
             nameof(GamePatches.ApplyResultPostfix));
         patched += PatchCassetteEvaluation();
         patched += PatchCassetteStatusRequest();
-        patched += PatchMethodsByParameter("ProcessRequest", "SelectPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
-        patched += PatchMethodsByParameter("ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
-        patched += PatchMethodsByParameter("ProcessRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
-        patched += PatchMethodsByParameter("ProcessRequest", "CreateNewPlayerSaveFileInSlotRequest", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ChangeSelectedPlayerSaveSlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
+        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
@@ -1066,6 +1065,33 @@ public sealed class Plugin : BasePlugin
         }
 
         return count;
+    }
+
+    private int PatchExactMethod(string ownerTypeName, string methodName, string parameterTypeName, string postfixName)
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? owner = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
+            .FirstOrDefault(type => string.Equals(type.Name, ownerTypeName, StringComparison.Ordinal));
+        MethodInfo? target = owner?.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            .SingleOrDefault(method => method.Name == methodName && method.GetParameters() is ParameterInfo[] parameters &&
+                parameters.Length == 1 && parameters[0].ParameterType.Name == parameterTypeName);
+        MethodInfo? postfix = FindPatchMethod(typeof(CassetteSaveTransactionPatches), postfixName);
+        if (target == null || postfix == null || _harmony == null)
+        {
+            Log.LogWarning($"[SCRC-AP] Exact cassette save-boundary hook unavailable: {ownerTypeName}.{methodName}({parameterTypeName}).");
+            return 0;
+        }
+        try
+        {
+            _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
+            Log.LogInfo($"[SCRC-AP] Hooked exact {ownerTypeName}.{methodName}({parameterTypeName})");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Log.LogError($"[SCRC-AP] Failed exact cassette save-boundary hook {ownerTypeName}.{methodName}: {ex}");
+            return 0;
+        }
     }
 
     public override bool Unload()
@@ -11520,17 +11546,22 @@ internal static class MusicLabSequencePatches
 
 internal static class CassetteSaveTransactionPatches
 {
-    public static void SaveSelectionPostfix(MethodBase __originalMethod)
+    public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
-        string reason = __originalMethod?.GetParameters()
-            .FirstOrDefault(parameter => parameter.ParameterType.Name.EndsWith("PlayerSaveSlotRequest", StringComparison.Ordinal))
-            ?.ParameterType.Name ?? __originalMethod?.Name ?? "save selection";
-        if (CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot))
-            CassetteReceiptRandomization.ActivateLoadedSave(slot, reason);
-        else
-            CassetteReceiptRandomization.DeactivateLoadedSave(reason);
+        if (__args == null || __args.Length != 1 || __args[0] is not int slot) return;
+        CassetteSaveBoundarySignalKind kind = string.Equals(
+            __originalMethod?.Name, "CreateNewPlayerSaveFileInEmptySlot", StringComparison.Ordinal)
+            ? CassetteSaveBoundarySignalKind.Creation
+            : CassetteSaveBoundarySignalKind.Selection;
+        CassetteReceiptRandomization.QueueSaveBoundarySignal(slot, kind);
     }
 
+    public static void BuiltPlayerSaveStatePostfix(object[]? __args)
+    {
+        object? request = ReflectionUtil.FindArg(__args, "BuildPlayerSaveStateFromFileRequest");
+        int? slot = request == null ? null : ReflectionUtil.ReadInt(request, "SlotNumber");
+        if (slot.HasValue) CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
+    }
 }
 
 
@@ -17797,6 +17828,7 @@ internal static class CassetteReceiptRandomization
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
+    private static CassetteSaveIdentityStabilizer _saveIdentity = new();
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     [ThreadStatic] private static bool _applyingNativeGrant;
@@ -17809,7 +17841,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             Enabled = false; _slotDataSynchronized = false;
-            _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime();
+            _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteSaveIdentityStabilizer();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty;
         }
     }
@@ -17866,6 +17898,17 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE Unity-thread observation queued reason='{reason}'; loaded-save epoch unchanged.");
     }
 
+    internal static void QueueSaveBoundarySignal(int expectedSlot, CassetteSaveBoundarySignalKind kind)
+    {
+        lock (Sync)
+        {
+            _saveIdentity.Signal(expectedSlot, kind);
+            _unityReconciliationRequested = false;
+            _unityReconciliationReason = string.Empty;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY QUEUED slot={expectedSlot} kind='{kind}'; prior epoch suspended.");
+    }
+
     internal static void ActivateLoadedSave(int slot, string reason)
     {
         long epoch;
@@ -17889,13 +17932,13 @@ internal static class CassetteReceiptRandomization
 
     internal static void TryReconcile(string reason)
     {
-        EnsureCassetteProcessorAvailable();
         string[] songs;
         lock (Sync)
         {
-            if (!_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave) return;
+            if (_saveIdentity.BoundaryPending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave) return;
             songs = _runtime.PendingSongs.ToArray();
         }
+        EnsureCassetteProcessorAvailable();
         foreach (string song in songs) TryReconcileSong(song, reason, verificationDue: false);
     }
 
@@ -17935,7 +17978,7 @@ internal static class CassetteReceiptRandomization
         long epoch;
         lock (Sync)
         {
-            if (!_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave || !_runtime.IsPending(nativeSong)) return;
+            if (_saveIdentity.BoundaryPending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave || !_runtime.IsPending(nativeSong)) return;
             processor = _playerSaveRequestProcessor;
             epoch = _runtime.Epoch;
         }
@@ -17977,9 +18020,23 @@ internal static class CassetteReceiptRandomization
 
     internal static void TickUnity(TimeSpan elapsed)
     {
+        CassetteSaveActivation? activation = null;
+        bool boundaryPending;
+        lock (Sync) boundaryPending = _saveIdentity.BoundaryPending;
+        if (boundaryPending && CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out int selectedSlot, out long selectedStatePointer))
+        {
+            lock (Sync) activation = _saveIdentity.Observe(selectedSlot, selectedStatePointer);
+        }
+        if (activation.HasValue)
+        {
+            CassetteSaveActivation loaded = activation.Value;
+            ActivateLoadedSave(loaded.Slot, $"{loaded.Reason} generation={loaded.Generation} pointer=0x{loaded.Pointer:X} build={loaded.IncludesBuild}");
+        }
+
         string? reason = null;
         lock (Sync)
         {
+            if (_saveIdentity.BoundaryPending) return;
             if (_unityReconciliationRequested)
             {
                 reason = _unityReconciliationReason;

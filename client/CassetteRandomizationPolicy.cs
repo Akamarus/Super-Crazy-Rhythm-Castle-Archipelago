@@ -110,6 +110,94 @@ internal static class CassetteRandomizationPolicy
     private static CassetteSourceDecision Allow(string detail)=>new(true,Array.Empty<string>(),Array.Empty<string>(),detail);
 }
 
+internal enum CassetteSaveBoundarySignalKind
+{
+    Selection,
+    Creation,
+    Build,
+}
+
+internal readonly record struct CassetteSaveActivation(
+    int Slot,
+    long Pointer,
+    long Generation,
+    CassetteSaveBoundarySignalKind Reason,
+    bool IncludesBuild);
+
+internal sealed class CassetteSaveIdentityStabilizer
+{
+    private long _generation;
+    private int? _expectedSlot;
+    private bool _includesBuild;
+    private CassetteSaveBoundarySignalKind _latestKind;
+    private int? _candidateSlot;
+    private long _candidatePointer;
+    private int _matchingObservations;
+    private int? _activatedSlot;
+    private long _activatedPointer;
+    private long _consumedBuildGeneration;
+
+    internal bool BoundaryPending { get; private set; }
+
+    internal void Signal(int expectedSlot, CassetteSaveBoundarySignalKind kind)
+    {
+        bool coalescingSameSlot = BoundaryPending && _expectedSlot == expectedSlot;
+        _generation++;
+        _expectedSlot = expectedSlot;
+        _includesBuild = coalescingSameSlot ? _includesBuild || kind == CassetteSaveBoundarySignalKind.Build : kind == CassetteSaveBoundarySignalKind.Build;
+        _latestKind = kind;
+        _candidateSlot = null;
+        _candidatePointer = 0;
+        _matchingObservations = 0;
+        BoundaryPending = true;
+    }
+
+    internal CassetteSaveActivation? Observe(int? selectedSlot, long selectedStatePointer)
+    {
+        if (!BoundaryPending || !_expectedSlot.HasValue || !selectedSlot.HasValue ||
+            selectedSlot.Value != _expectedSlot.Value || selectedStatePointer == 0)
+            return null;
+
+        if (_candidateSlot != selectedSlot || _candidatePointer != selectedStatePointer)
+        {
+            _candidateSlot = selectedSlot;
+            _candidatePointer = selectedStatePointer;
+            _matchingObservations = 1;
+            return null;
+        }
+
+        _matchingObservations++;
+        if (_matchingObservations < 2) return null;
+
+        bool identityChanged = _activatedSlot != selectedSlot || _activatedPointer != selectedStatePointer;
+        bool unconsumedBuild = _includesBuild && _consumedBuildGeneration != _generation;
+        if (!identityChanged && !unconsumedBuild)
+        {
+            BoundaryPending = false;
+            _includesBuild = false;
+            return null;
+        }
+
+        if (unconsumedBuild) _consumedBuildGeneration = _generation;
+        _activatedSlot = selectedSlot;
+        _activatedPointer = selectedStatePointer;
+        BoundaryPending = false;
+        bool includedBuild = _includesBuild;
+        _includesBuild = false;
+        return new CassetteSaveActivation(selectedSlot.Value, selectedStatePointer, _generation, _latestKind, includedBuild);
+    }
+
+    internal void Reset()
+    {
+        _expectedSlot = null;
+        _includesBuild = false;
+        _candidateSlot = null;
+        _candidatePointer = 0;
+        _matchingObservations = 0;
+        BoundaryPending = false;
+    }
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] RetryDelays =
