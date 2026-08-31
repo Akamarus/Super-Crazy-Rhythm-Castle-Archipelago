@@ -124,243 +124,6 @@ internal readonly record struct CassetteSaveActivation(
     CassetteSaveBoundarySignalKind Reason,
     bool IncludesBuild);
 
-internal enum CassetteSaveIdentityObservationKind
-{
-    NoPendingSignal,
-    InvalidIdentity,
-    Mismatch,
-    FirstStable,
-    Activated,
-    StableDuplicate,
-}
-
-internal readonly record struct CassetteSaveIdentityObservation(
-    CassetteSaveIdentityObservationKind Kind,
-    CassetteSaveActivation? Activation);
-
-internal enum CassetteMostRecentIdentityProbeKind
-{
-    None,
-    ReadFailure,
-    FirstObservation,
-    Stable,
-    Changed,
-}
-
-internal readonly record struct CassetteMostRecentIdentityProbeResult(
-    CassetteMostRecentIdentityProbeKind Kind,
-    int? Slot,
-    long Pointer,
-    string Stage)
-{
-    // This diagnostic result is deliberately incapable of authorizing a save epoch.
-    internal CassetteSaveActivation? Activation => null;
-}
-
-internal sealed class CassetteMostRecentIdentityProbe
-{
-    private int? _candidateSlot;
-    private long _candidatePointer;
-
-    internal bool Pending { get; private set; }
-
-    internal void Queue()
-    {
-        Pending = true;
-        _candidateSlot = null;
-        _candidatePointer = 0;
-    }
-
-    internal CassetteMostRecentIdentityProbeResult Observe(bool readable, int slot, long pointer, string stage)
-    {
-        if (!Pending)
-            return new(CassetteMostRecentIdentityProbeKind.None, null, 0, stage);
-
-        if (!readable)
-        {
-            Pending = false;
-            return new(CassetteMostRecentIdentityProbeKind.ReadFailure, null, 0, stage);
-        }
-
-        if (!_candidateSlot.HasValue)
-        {
-            _candidateSlot = slot;
-            _candidatePointer = pointer;
-            return new(CassetteMostRecentIdentityProbeKind.FirstObservation, slot, pointer, stage);
-        }
-
-        bool stable = _candidateSlot.Value == slot && _candidatePointer == pointer;
-        Pending = false;
-        return new(
-            stable ? CassetteMostRecentIdentityProbeKind.Stable : CassetteMostRecentIdentityProbeKind.Changed,
-            slot,
-            pointer,
-            stage);
-    }
-}
-
-internal enum CassetteProcessorIdentityProbeKind
-{
-    None,
-    ReadFailure,
-    FirstObservation,
-    Stable,
-    Changed,
-}
-
-internal readonly record struct CassetteProcessorIdentityProbeResult(
-    CassetteProcessorIdentityProbeKind Kind,
-    long Pointer,
-    string Stage)
-{
-    internal CassetteSaveActivation? Activation => null;
-}
-
-internal readonly record struct CassetteProcessorIdentityProbeSnapshot(
-    CassetteProcessorIdentityProbe Probe,
-    long Generation,
-    bool Pending,
-    object? Processor)
-{
-    internal static CassetteProcessorIdentityProbeSnapshot Capture(
-        CassetteProcessorIdentityProbe probe,
-        object? processor) =>
-        new(probe, probe.Generation, probe.Pending, processor);
-
-    internal bool IsCurrent(CassetteProcessorIdentityProbe currentProbe) =>
-        ReferenceEquals(Probe, currentProbe) && Generation == currentProbe.Generation;
-}
-
-internal sealed class CassetteProcessorIdentityProbe
-{
-    private long _generation;
-    private long _candidatePointer;
-
-    internal long Generation => _generation;
-    internal bool WaitingForCapture { get; private set; }
-    internal bool Pending { get; private set; }
-
-    internal void SignalSelection()
-    {
-        _generation++;
-        WaitingForCapture = true;
-        Pending = false;
-        _candidatePointer = 0;
-    }
-
-    internal bool CaptureAfterSelection()
-    {
-        if (!WaitingForCapture) return false;
-        WaitingForCapture = false;
-        Pending = true;
-        _candidatePointer = 0;
-        return true;
-    }
-
-    internal CassetteProcessorIdentityProbeResult Observe(long generation, bool readable, long pointer, string stage)
-    {
-        if (!Pending || generation != _generation) return new(CassetteProcessorIdentityProbeKind.None, 0, stage);
-        if (!readable)
-        {
-            Pending = false;
-            return new(CassetteProcessorIdentityProbeKind.ReadFailure, 0, stage);
-        }
-        if (_candidatePointer == 0)
-        {
-            _candidatePointer = pointer;
-            return new(CassetteProcessorIdentityProbeKind.FirstObservation, pointer, stage);
-        }
-        bool stable = _candidatePointer == pointer;
-        Pending = false;
-        return new(
-            stable ? CassetteProcessorIdentityProbeKind.Stable : CassetteProcessorIdentityProbeKind.Changed,
-            pointer,
-            stage);
-    }
-}
-
-internal sealed class CassetteSaveIdentityStabilizer
-{
-    private long _generation;
-    private int? _expectedSlot;
-    private bool _includesBuild;
-    private CassetteSaveBoundarySignalKind _latestKind;
-    private int? _candidateSlot;
-    private long _candidatePointer;
-    private int _matchingObservations;
-    private int? _activatedSlot;
-    private long _activatedPointer;
-    private long _consumedBuildGeneration;
-
-    internal bool BoundaryPending { get; private set; }
-    internal int? ExpectedSlot => _expectedSlot;
-
-    internal void Signal(int expectedSlot, CassetteSaveBoundarySignalKind kind)
-    {
-        bool coalescingSameSlot = BoundaryPending && _expectedSlot == expectedSlot;
-        _generation++;
-        _expectedSlot = expectedSlot;
-        _includesBuild = coalescingSameSlot ? _includesBuild || kind == CassetteSaveBoundarySignalKind.Build : kind == CassetteSaveBoundarySignalKind.Build;
-        _latestKind = kind;
-        _candidateSlot = null;
-        _candidatePointer = 0;
-        _matchingObservations = 0;
-        BoundaryPending = true;
-    }
-
-    internal CassetteSaveActivation? Observe(int? selectedSlot, long selectedStatePointer)
-        => ObserveDetailed(selectedSlot, selectedStatePointer).Activation;
-
-    internal CassetteSaveIdentityObservation ObserveDetailed(int? selectedSlot, long selectedStatePointer)
-    {
-        if (!BoundaryPending || !_expectedSlot.HasValue)
-            return new(CassetteSaveIdentityObservationKind.NoPendingSignal, null);
-        if (!selectedSlot.HasValue || selectedStatePointer == 0)
-            return new(CassetteSaveIdentityObservationKind.InvalidIdentity, null);
-        if (selectedSlot.Value != _expectedSlot.Value)
-            return new(CassetteSaveIdentityObservationKind.Mismatch, null);
-
-        if (_candidateSlot != selectedSlot || _candidatePointer != selectedStatePointer)
-        {
-            _candidateSlot = selectedSlot;
-            _candidatePointer = selectedStatePointer;
-            _matchingObservations = 1;
-            return new(CassetteSaveIdentityObservationKind.FirstStable, null);
-        }
-
-        _matchingObservations++;
-        if (_matchingObservations < 2) return new(CassetteSaveIdentityObservationKind.FirstStable, null);
-
-        bool identityChanged = _activatedSlot != selectedSlot || _activatedPointer != selectedStatePointer;
-        bool unconsumedBuild = _includesBuild && _consumedBuildGeneration != _generation;
-        if (!identityChanged && !unconsumedBuild)
-        {
-            BoundaryPending = false;
-            _includesBuild = false;
-            return new(CassetteSaveIdentityObservationKind.StableDuplicate, null);
-        }
-
-        if (unconsumedBuild) _consumedBuildGeneration = _generation;
-        _activatedSlot = selectedSlot;
-        _activatedPointer = selectedStatePointer;
-        BoundaryPending = false;
-        bool includedBuild = _includesBuild;
-        _includesBuild = false;
-        var activation = new CassetteSaveActivation(selectedSlot.Value, selectedStatePointer, _generation, _latestKind, includedBuild);
-        return new(CassetteSaveIdentityObservationKind.Activated, activation);
-    }
-
-    internal void Reset()
-    {
-        _expectedSlot = null;
-        _includesBuild = false;
-        _candidateSlot = null;
-        _candidatePointer = 0;
-        _matchingObservations = 0;
-        BoundaryPending = false;
-    }
-}
-
 internal readonly record struct CassetteProcessorSaveIdentitySnapshot(
     long Generation,
     int? ExpectedSlot,
@@ -522,6 +285,20 @@ internal sealed class CassetteRegularSavePointerJoinProbe
         _saveDataProcessor = null;
         _playerSaveProcessor = null;
     }
+}
+
+internal sealed class CassetteDiagnosticSignatureDeduplicator
+{
+    private string? _lastSignature;
+
+    internal bool ShouldLog(string signature)
+    {
+        if (string.Equals(_lastSignature, signature, StringComparison.Ordinal)) return false;
+        _lastSignature = signature;
+        return true;
+    }
+
+    internal void Reset() => _lastSignature = null;
 }
 
 internal sealed class CassetteSaveEpochRuntime

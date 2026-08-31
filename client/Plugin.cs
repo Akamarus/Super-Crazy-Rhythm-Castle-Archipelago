@@ -116,11 +116,7 @@ public sealed class Plugin : BasePlugin
         patched += PatchExactMethod("SaveDataRequestProcessor", "ChangeSelectedPlayerSaveSlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
-        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "SelectPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
-        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
-        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
-        patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
-        patched += PatchExactMethod("SaveDataState", "set_SelectedPlayerSaveSlot", "Nullable`1", nameof(CassetteSaveTransactionPatches.SelectedSlotSetterDiagnosticPostfix));
+        patched += PatchExactMethodPrefix("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
@@ -1095,6 +1091,33 @@ public sealed class Plugin : BasePlugin
         catch (Exception ex)
         {
             Log.LogError($"[SCRC-AP] Failed exact cassette save-boundary hook {ownerTypeName}.{methodName}: {ex}");
+            return 0;
+        }
+    }
+
+    private int PatchExactMethodPrefix(string ownerTypeName, string methodName, string parameterTypeName, string prefixName)
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? owner = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
+            .FirstOrDefault(type => string.Equals(type.Name, ownerTypeName, StringComparison.Ordinal));
+        MethodInfo? target = owner?.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            .SingleOrDefault(method => method.Name == methodName && method.GetParameters() is ParameterInfo[] parameters &&
+                parameters.Length == 1 && parameters[0].ParameterType.Name == parameterTypeName);
+        MethodInfo? prefix = FindPatchMethod(typeof(CassetteSaveTransactionPatches), prefixName);
+        if (target == null || prefix == null || _harmony == null)
+        {
+            Log.LogWarning($"[SCRC-AP] Exact cassette save-boundary prefix unavailable: {ownerTypeName}.{methodName}({parameterTypeName}).");
+            return 0;
+        }
+        try
+        {
+            _harmony.Patch(target, prefix: new HarmonyMethod(prefix));
+            Log.LogInfo($"[SCRC-AP] Hooked exact prefix {ownerTypeName}.{methodName}({parameterTypeName})");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Log.LogError($"[SCRC-AP] Failed exact cassette save-boundary prefix {ownerTypeName}.{methodName}: {ex}");
             return 0;
         }
     }
@@ -11552,7 +11575,6 @@ internal static class MusicLabSequencePatches
 internal static class CassetteSaveTransactionPatches
 {
     private static readonly HashSet<string> ExtractionFailures = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> PublicSelectionDiagnostics = new(StringComparer.Ordinal);
 
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
@@ -11598,84 +11620,9 @@ internal static class CassetteSaveTransactionPatches
         CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
     }
 
-    public static void PublicSelectionDiagnosticPostfix(object? __instance, object[]? __args, MethodBase __originalMethod)
+    public static void MostRecentSelectionPrefix(object? __instance)
     {
-        string requestIdentity = __originalMethod?.GetParameters().SingleOrDefault()?.ParameterType.Name ?? "<unknown-request>";
-        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
-        object? request = ReflectionUtil.FindArg(__args, requestIdentity);
-        if (request == null)
-        {
-            LogExtractionFailureOnce(methodIdentity, $"{requestIdentity} argument was missing");
-            return;
-        }
-
-        string detail;
-        if (string.Equals(requestIdentity, "SelectPlayerSaveSlotRequest", StringComparison.Ordinal))
-        {
-            int? slot = ReflectionUtil.ReadInt(request, "SlotNumber");
-            if (!slot.HasValue)
-            {
-                LogExtractionFailureOnce(methodIdentity, "SelectPlayerSaveSlotRequest.SlotNumber was unreadable");
-                return;
-            }
-            detail = $"slot={slot.Value}";
-        }
-        else if (string.Equals(requestIdentity, "EnsureAPlayerSaveSlotIsSelectedRequest", StringComparison.Ordinal))
-        {
-            int? defaultSlot = ReflectionUtil.ReadInt(request, "DefaultSlotNumber");
-            if (!defaultSlot.HasValue)
-            {
-                LogExtractionFailureOnce(methodIdentity, "EnsureAPlayerSaveSlotIsSelectedRequest.DefaultSlotNumber was unreadable");
-                return;
-            }
-            detail = $"defaultSlot={defaultSlot.Value}";
-        }
-        else
-        {
-            detail = "identity-only";
-            if (string.Equals(requestIdentity, "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", StringComparison.Ordinal))
-                CassetteReceiptRandomization.QueueMostRecentSelectionIdentityDiagnostic(__instance);
-        }
-
-        LogPublicSelectionDiagnosticOnce(methodIdentity, detail);
-    }
-
-    public static void SelectedSlotSetterDiagnosticPostfix(object[]? __args, MethodBase __originalMethod)
-    {
-        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataState"}.{__originalMethod?.Name ?? "set_SelectedPlayerSaveSlot"}(Nullable<Int32>)";
-        if (__args == null || __args.Length != 1)
-        {
-            LogExtractionFailureOnce(methodIdentity, __args == null
-                ? "arguments were null"
-                : $"expected one nullable slot argument, received {__args.Length}");
-            return;
-        }
-
-        object? rawSlot = ReflectionUtil.UnwrapNullable(__args[0]);
-        if (rawSlot == null)
-        {
-            LogPublicSelectionDiagnosticOnce(methodIdentity, "slot=<empty>");
-            return;
-        }
-        try
-        {
-            int slot = Convert.ToInt32(rawSlot);
-            LogPublicSelectionDiagnosticOnce(methodIdentity, $"slot={slot}");
-        }
-        catch (Exception ex)
-        {
-            LogExtractionFailureOnce(methodIdentity, $"nullable slot conversion failed ({ex.GetBaseException().GetType().Name})");
-        }
-    }
-
-    private static void LogPublicSelectionDiagnosticOnce(string identity, string detail)
-    {
-        string key = $"{identity}|{detail}";
-        lock (PublicSelectionDiagnostics)
-        {
-            if (!PublicSelectionDiagnostics.Add(key)) return;
-        }
-        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE PUBLIC SELECTION DIAGNOSTIC target='{identity}' detail='{detail}'; no save-boundary signal emitted.");
+        CassetteReceiptRandomization.BeginMostRecentSelectionBoundary(__instance);
     }
 
     private static void LogExtractionFailureOnce(string identity, string reason)
@@ -17955,6 +17902,8 @@ internal static class CassetteReceiptRandomization
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
+    private static CassetteDiagnosticSignatureDeduplicator _mostRecentQueueLogDeduper = new();
+    private static CassetteDiagnosticSignatureDeduplicator _mostRecentResultLogDeduper = new();
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
@@ -17970,6 +17919,8 @@ internal static class CassetteReceiptRandomization
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
+            _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
+            _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
@@ -18049,23 +18000,37 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY QUEUED slot={expectedSlot} kind='{kind}'; prior epoch suspended.");
     }
 
-    internal static void QueueMostRecentSelectionIdentityDiagnostic(object? saveDataProcessor)
+    internal static void BeginMostRecentSelectionBoundary(object? saveDataProcessor)
     {
-        if (saveDataProcessor == null || !string.Equals(saveDataProcessor.GetType().Name, "SaveDataRequestProcessor", StringComparison.Ordinal))
-        {
-            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT pointer join rejected: SaveDataRequestProcessor unavailable.");
-            return;
-        }
+        string stage;
+        bool log;
         lock (Sync)
         {
+            // Suspension is deliberately first: a malformed callback can never leave the old epoch eligible for work.
             _saveIdentity.SuspendUnresolved();
-            _regularSavePointerJoinProbe.Queue(saveDataProcessor);
-            if (CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor))
-                _regularSavePointerJoinProbe.CapturePlayerProcessor(_playerSaveRequestProcessor);
+            _regularSavePointerJoinProbe.Cancel();
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
+            if (saveDataProcessor == null)
+            {
+                stage = "processor-null";
+            }
+            else if (!string.Equals(saveDataProcessor.GetType().Name, "SaveDataRequestProcessor", StringComparison.Ordinal))
+            {
+                stage = $"processor-wrong-type:{saveDataProcessor.GetType().Name}";
+            }
+            else
+            {
+                _regularSavePointerJoinProbe.Queue(saveDataProcessor);
+                if (CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor))
+                    _regularSavePointerJoinProbe.CapturePlayerProcessor(_playerSaveRequestProcessor);
+                stage = "queued";
+            }
+            log = _mostRecentQueueLogDeduper.ShouldLog(stage);
         }
-        Plugin.LoggerInstance?.LogWarning("[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY QUEUED; prior epoch suspended pending unique regular-save pointer join.");
+        if (log)
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY stage='{stage}'; prior epoch suspended pending unique regular-save pointer join.");
     }
 
     internal static void ActivateLoadedSave(int slot, string reason)
@@ -18200,9 +18165,15 @@ internal static class CassetteReceiptRandomization
             {
                 string fingerprints = string.Join(",", regularEntries.Select(entry =>
                     $"slot={entry.Slot}:pointer=0x{entry.Pointer:X}:lastPlayUtcTicks={entry.LastPlayDateTimeUtcTicks}"));
-                Plugin.LoggerInstance?.LogWarning(joined
-                    ? $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY RESOLVED uiSlot={joinedSlot} entries='[{fingerprints}]'; awaiting two stable processor observations."
-                    : $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY UNRESOLVED stage='{joinStage}' entries='[{fingerprints}]'; epoch remains suspended.");
+                string resultSignature = joined
+                    ? $"resolved|slot={joinedSlot}|entries={fingerprints}"
+                    : $"unresolved|stage={joinStage}|entries={fingerprints}";
+                bool shouldLog;
+                lock (Sync) shouldLog = _mostRecentResultLogDeduper.ShouldLog(resultSignature);
+                if (shouldLog)
+                    Plugin.LoggerInstance?.LogWarning(joined
+                        ? $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY RESOLVED uiSlot={joinedSlot} entries='[{fingerprints}]'; awaiting two stable processor observations."
+                        : $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY UNRESOLVED stage='{joinStage}' entries='[{fingerprints}]'; epoch remains suspended.");
             }
         }
 

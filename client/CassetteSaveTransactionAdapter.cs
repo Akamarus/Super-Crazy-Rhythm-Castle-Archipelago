@@ -5,13 +5,6 @@ using System.Reflection;
 
 namespace RhythmCastleAP;
 
-internal readonly record struct CassetteSaveFingerprint(
-    string StateType,
-    long PlayTimeInSeconds,
-    long LastPlayDateTimeUtcTicks,
-    string IGotMoneyStatus,
-    string BadassStatus);
-
 internal readonly record struct CassetteRegularSavePointerEntry(
     int Slot,
     long Pointer,
@@ -87,69 +80,6 @@ internal static class CassetteSaveTransactionAdapter
             slot = default;
             selectedStatePointer = 0;
             stage = $"invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryGetLoadedSaveFingerprint(out CassetteSaveFingerprint fingerprint, out string stage)
-    {
-        fingerprint = default;
-        stage = "fingerprint-start";
-        try
-        {
-            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
-            MethodInfo? getState = enquiries?.GetMethod(
-                "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (enquiries == null) { stage = "fingerprint-owner-missing"; return false; }
-            if (getState == null) { stage = "fingerprint-state-method-missing"; return false; }
-            object? currentState = UnwrapNullablePublic(getState.Invoke(null, null));
-            if (currentState == null) { stage = "fingerprint-state-null"; return false; }
-
-            return TryBuildFingerprint(currentState, out fingerprint, out stage);
-        }
-        catch (Exception ex)
-        {
-            fingerprint = default;
-            stage = $"fingerprint-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryGetProcessorSaveFingerprint(
-        object? processor,
-        out long statePointer,
-        out CassetteSaveFingerprint fingerprint,
-        out string stage)
-    {
-        statePointer = 0;
-        fingerprint = default;
-        stage = "processor-fingerprint-start";
-        try
-        {
-            if (!IsCompatiblePlayerSaveRequestProcessor(processor))
-            {
-                stage = "processor-fingerprint-incompatible";
-                return false;
-            }
-            MethodInfo? obtainState = processor!.GetType().GetMethods(PublicInstance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 0);
-            if (obtainState == null) { stage = "processor-fingerprint-obtain-state-missing"; return false; }
-            object? currentState = obtainState.Invoke(processor, null);
-            if (currentState == null) { stage = "processor-fingerprint-state-null"; return false; }
-            PropertyInfo? pointerProperty = currentState.GetType().GetProperty("Pointer", PublicInstance);
-            object? rawPointer = pointerProperty?.GetValue(currentState);
-            if (rawPointer is not IntPtr pointer) { stage = "processor-fingerprint-pointer-missing"; return false; }
-            if (pointer == IntPtr.Zero) { stage = "processor-fingerprint-pointer-zero"; return false; }
-            statePointer = pointer.ToInt64();
-            return TryBuildFingerprint(currentState, out fingerprint, out stage);
-        }
-        catch (Exception ex)
-        {
-            statePointer = 0;
-            fingerprint = default;
-            stage = $"processor-fingerprint-invocation:{SummarizeException(ex)}";
             return false;
         }
     }
@@ -307,83 +237,6 @@ internal static class CassetteSaveTransactionAdapter
         return true;
     }
 
-    private static bool TryBuildFingerprint(object currentState, out CassetteSaveFingerprint fingerprint, out string stage)
-    {
-        fingerprint = default;
-        stage = "fingerprint-start";
-        try
-        {
-
-            PropertyInfo? gameStatsProperty = currentState.GetType().GetProperty("GameStats", PublicInstance);
-            object? gameStats = gameStatsProperty?.GetValue(currentState);
-            if (gameStats == null) { stage = "fingerprint-game-stats-missing"; return false; }
-
-            PropertyInfo? playTimeProperty = gameStats.GetType().GetProperty("PlayTimeInSeconds", PublicInstance);
-            object? rawPlayTime = playTimeProperty?.GetValue(gameStats);
-            if (rawPlayTime == null) { stage = "fingerprint-play-time-missing"; return false; }
-            long playTime;
-            try { playTime = Convert.ToInt64(rawPlayTime); }
-            catch (Exception ex) { stage = $"fingerprint-play-time-convert:{SummarizeException(ex)}"; return false; }
-
-            PropertyInfo? lastPlayProperty = gameStats.GetType().GetProperty("LastPlayDateTimeUtc", PublicInstance);
-            object? lastPlay = lastPlayProperty?.GetValue(gameStats);
-            PropertyInfo? ticksProperty = lastPlay?.GetType().GetProperty("Ticks", PublicInstance);
-            object? rawTicks = ticksProperty?.GetValue(lastPlay);
-            if (rawTicks == null) { stage = "fingerprint-last-play-ticks-missing"; return false; }
-            long lastPlayTicks;
-            try { lastPlayTicks = Convert.ToInt64(rawTicks); }
-            catch (Exception ex) { stage = $"fingerprint-last-play-ticks-convert:{SummarizeException(ex)}"; return false; }
-
-            Type? songType = FindType("ePlayableSong", currentState.GetType().Assembly);
-            if (songType?.IsEnum != true) { stage = "fingerprint-song-enum-missing"; return false; }
-            MethodInfo? getStatus = currentState.GetType().GetMethod(
-                "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
-            if (getStatus == null) { stage = "fingerprint-cassette-method-missing"; return false; }
-            if (!TryReadFingerprintCassetteStatus(currentState, getStatus, songType, "I_GOT_MONEY", out string iGotMoney, out stage)) return false;
-            if (!TryReadFingerprintCassetteStatus(currentState, getStatus, songType, "BADASS", out string badass, out stage)) return false;
-
-            fingerprint = new(
-                currentState.GetType().Name,
-                playTime,
-                lastPlayTicks,
-                iGotMoney,
-                badass);
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            fingerprint = default;
-            stage = $"fingerprint-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    private static bool TryReadFingerprintCassetteStatus(
-        object state,
-        MethodInfo getStatus,
-        Type songType,
-        string nativeSong,
-        out string status,
-        out string stage)
-    {
-        status = string.Empty;
-        stage = $"fingerprint-{nativeSong}-start";
-        try
-        {
-            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
-            object? rawStatus = UnwrapNullablePublic(getStatus.Invoke(state, new[] { song }));
-            status = rawStatus?.ToString() ?? string.Empty;
-            if (status.Length == 0) { stage = $"fingerprint-{nativeSong}-status-empty"; return false; }
-            return true;
-        }
-        catch (Exception ex)
-        {
-            stage = $"fingerprint-{nativeSong}-status:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
     private static string SummarizeException(Exception exception)
     {
         Exception root = exception.GetBaseException();
@@ -509,14 +362,4 @@ internal static class CassetteSaveTransactionAdapter
             "Value", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value);
     }
 
-    private static object? UnwrapNullablePublic(object? value)
-    {
-        if (value == null) return null;
-        Type type = value.GetType();
-        string typeName = type.FullName ?? type.Name;
-        if (!typeName.Contains("Nullable`1", StringComparison.Ordinal)) return value;
-        object? hasValue = type.GetProperty("HasValue", PublicInstance)?.GetValue(value);
-        if (hasValue is not bool present || !present) return null;
-        return type.GetProperty("Value", PublicInstance)?.GetValue(value);
-    }
 }

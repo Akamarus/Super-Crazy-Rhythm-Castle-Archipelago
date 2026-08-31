@@ -46,15 +46,9 @@ string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirector
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"CreateNewPlayerSaveFileInEmptySlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact empty-slot creation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installed");
-foreach (string diagnosticRequest in new[]
-{
-    "SelectPlayerSaveSlotRequest",
-    "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest",
-    "EnsureAPlayerSaveSlotIsSelectedRequest",
-    "EnsurePlayerSaveFileExistsInSelectedSlotRequest",
-})
-    Equal(true, pluginSource.Contains($"PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"{diagnosticRequest}\", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix))", StringComparison.Ordinal), $"diagnostic-only exact hook installed for {diagnosticRequest}");
-Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataState\", \"set_SelectedPlayerSaveSlot\", \"Nullable`1\", nameof(CassetteSaveTransactionPatches.SelectedSlotSetterDiagnosticPostfix))", StringComparison.Ordinal), "diagnostic-only exact selected-slot setter hook installed");
+Equal(true, pluginSource.Contains("PatchExactMethodPrefix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"SelectMostRecentlyUsedRegularPlayerSaveSlotRequest\", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix))", StringComparison.Ordinal), "most-recent authority is installed as an exact prefix");
+foreach (string obsoleteDiagnostic in new[] { "PublicSelectionDiagnosticPostfix", "SelectedSlotSetterDiagnosticPostfix", "SelectPlayerSaveSlotRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest" })
+    Equal(false, pluginSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary diagnostic removed: {obsoleteDiagnostic}");
 
 static string ExtractClass(string source, string className)
 {
@@ -87,24 +81,17 @@ Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal)
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
-string publicSelectionDiagnostic = ExtractMethods(pluginSource, "public static void PublicSelectionDiagnosticPostfix(").Single();
-Equal(true, publicSelectionDiagnostic.Contains("SelectPlayerSaveSlotRequest", StringComparison.Ordinal), "public selection diagnostic recognizes explicit slot request");
-Equal(true, publicSelectionDiagnostic.Contains("EnsureAPlayerSaveSlotIsSelectedRequest", StringComparison.Ordinal), "public selection diagnostic recognizes documented default slot request");
-Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "public selection diagnostics are bounded by identity/value");
-foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
-    Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
-Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed unresolved boundary");
-Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic(__instance)", StringComparison.Ordinal), "MostRecent postfix passes only exact owner into bounded boundary queue");
-string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
-Equal(true, queueMostRecentProbe.Contains("_saveIdentity.SuspendUnresolved", StringComparison.Ordinal), "MostRecent immediately suspends prior epoch without inventing a slot");
-Equal(true, queueMostRecentProbe.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "MostRecent clears prior reconciliation intent");
+string mostRecentPrefix = ExtractMethods(pluginSource, "public static void MostRecentSelectionPrefix(").Single();
+Equal(true, mostRecentPrefix.Contains("BeginMostRecentSelectionBoundary(__instance)", StringComparison.Ordinal), "most-recent prefix immediately enters unresolved authority boundary");
+string beginMostRecentBoundary = ExtractMethods(pluginSource, "internal static void BeginMostRecentSelectionBoundary(").Single();
+int suspendIndex = beginMostRecentBoundary.IndexOf("_saveIdentity.SuspendUnresolved()", StringComparison.Ordinal);
+Equal(true, suspendIndex >= 0, "MostRecent immediately suspends prior epoch without inventing a slot");
+Equal(true, suspendIndex < beginMostRecentBoundary.IndexOf("saveDataProcessor == null", StringComparison.Ordinal), "null processor validation occurs only after prior epoch suspension");
+Equal(true, suspendIndex < beginMostRecentBoundary.IndexOf("saveDataProcessor.GetType().Name", StringComparison.Ordinal), "wrong processor validation occurs only after prior epoch suspension");
+Equal(true, beginMostRecentBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "MostRecent clears prior reconciliation intent");
+Equal(true, beginMostRecentBoundary.Contains("_mostRecentQueueLogDeduper.ShouldLog(stage)", StringComparison.Ordinal), "identical most-recent queue outcomes are deduplicated");
 foreach (string prohibitedCall in new[] { "_saveIdentity.SignalSelection", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
-    Equal(false, queueMostRecentProbe.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent probe queue forbids semantic call {prohibitedCall}");
-string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
-Equal(true, selectedSlotSetterDiagnostic.Contains("ReflectionUtil.UnwrapNullable", StringComparison.Ordinal), "selected-slot setter safely unwraps generated nullable value");
-Equal(true, selectedSlotSetterDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "selected-slot setter logging is bounded");
-foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
-    Equal(false, selectedSlotSetterDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"selected-slot setter diagnostic forbids semantic call {prohibitedCall}");
+    Equal(false, beginMostRecentBoundary.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent boundary entry forbids semantic call {prohibitedCall}");
 string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
@@ -136,6 +123,7 @@ Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.O
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
 Equal(true, unityTick.Contains("_saveIdentity.SignalSelection(joinedSlot, joinSnapshot.PlayerSaveProcessor)", StringComparison.Ordinal), "only unique join resolves real UI slot into processor stabilizer");
 Equal(true, unityTick.Contains("awaiting two stable processor observations", StringComparison.Ordinal), "join cannot activate before processor pointer confirmation");
+Equal(true, unityTick.Contains("_mostRecentResultLogDeduper.ShouldLog(resultSignature)", StringComparison.Ordinal), "identical pointer-join results are deduplicated");
 string joinBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
 foreach (string prohibitedCall in new[] { "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, joinBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"pointer join cannot directly perform semantic call {prohibitedCall}");
@@ -160,53 +148,24 @@ foreach (string obsolete in new[] { "CassetteReceiptRuntime", "CassetteReceiptSc
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
 Console.WriteLine("PASS: safe_save_lifecycle_production_wiring");
 
-var stabilizer = new CassetteSaveIdentityStabilizer();
-Equal(false, stabilizer.BoundaryPending, "no signal starts inactive");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "room observation without exact signal cannot activate");
-stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation);
-Equal(true, stabilizer.BoundaryPending, "exact creation signal suspends old epoch immediately");
-Equal(4, stabilizer.ExpectedSlot, "pending diagnostic exposes expected slot");
-Equal(CassetteSaveIdentityObservationKind.Mismatch, stabilizer.ObserveDetailed(0, 100).Kind, "diagnostic classifies slot mismatch");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(0, 100), "startup slot cannot satisfy slot-4 signal");
-Equal(CassetteSaveIdentityObservationKind.FirstStable, stabilizer.ObserveDetailed(4, 400).Kind, "diagnostic classifies first stable observation");
-var detailedActivation = stabilizer.ObserveDetailed(4, 400);
-Equal(CassetteSaveIdentityObservationKind.Activated, detailedActivation.Kind, "diagnostic classifies second observation activation");
-var stableActivation = detailedActivation.Activation;
-Equal(4, stableActivation!.Value.Slot, "slot 4 activates after two matching observations");
-Equal(400L, stableActivation.Value.Pointer, "activation records native pointer");
-Equal(false, stabilizer.BoundaryPending, "activation resumes epoch work");
-
-stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first observation precedes newer signal");
-stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build);
-Equal(true, stabilizer.BoundaryPending, "same-slot build keeps boundary suspended");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "new same-slot signal resets stability");
-stableActivation = stabilizer.Observe(4, 400);
-Equal(true, stableActivation!.Value.IncludesBuild, "coalesced generation preserves build");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "coalesced generation activates at most once");
-stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "duplicate selection first observation");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "duplicate selection does not create another epoch");
-Equal(false, stabilizer.BoundaryPending, "stable duplicate selection resumes existing epoch without duplicating it");
-
-stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 401), "new pointer first observation");
-stableActivation = stabilizer.Observe(4, 401);
-Equal(401L, stableActivation!.Value.Pointer, "pointer replacement activates once");
-stabilizer.Signal(5, CassetteSaveBoundarySignalKind.Selection);
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 401), "mismatched slot cannot activate");
-Equal<CassetteSaveActivation?>(null, stabilizer.Observe(5, 500), "slot switch first observation");
-stableActivation = stabilizer.Observe(5, 500);
-Equal(5, stableActivation!.Value.Slot, "slot switch activates");
-stabilizer.Reset();
-Equal(false, stabilizer.BoundaryPending, "reset clears pending boundary");
-Console.WriteLine("PASS: final_save_identity_stabilization");
-
 var processorStabilizer = new CassetteProcessorSaveIdentityStabilizer();
 long unresolvedGeneration = processorStabilizer.SuspendUnresolved();
 Equal(true, processorStabilizer.Capture().Pending, "MostRecent immediately suspends prior epoch");
 Equal<int?>(null, processorStabilizer.Capture().ExpectedSlot, "MostRecent starts without trusting a UI slot");
 Equal(false, processorStabilizer.CaptureProcessor(new object()), "unresolved boundary cannot bind player processor before unique join");
+foreach (string invalidEntry in new[] { "processor-null", "processor-wrong-type", "processor-extraction-failed" })
+{
+    var priorEpoch = new CassetteSaveEpochRuntime();
+    priorEpoch.ActivateSave(4);
+    var invalidBoundary = new CassetteProcessorSaveIdentityStabilizer();
+    invalidBoundary.SignalSelection(4, new object());
+    invalidBoundary.Observe(invalidBoundary.Capture().Generation, invalidBoundary.Capture().Processor, true, 400, "success");
+    invalidBoundary.Observe(invalidBoundary.Capture().Generation, invalidBoundary.Capture().Processor, true, 400, "success");
+    invalidBoundary.SuspendUnresolved();
+    Equal(true, priorEpoch.HasActiveSave, $"{invalidEntry} retains prior epoch data for later safe replacement");
+    Equal(true, invalidBoundary.Capture().Pending, $"{invalidEntry} suspends all old-epoch native work");
+    Equal<int?>(null, invalidBoundary.Capture().ExpectedSlot, $"{invalidEntry} cannot leave old slot authoritative");
+}
 object slot3Processor = new();
 long slot3Generation = processorStabilizer.SignalSelection(3, slot3Processor);
 var processorBoundarySnapshot = processorStabilizer.Capture();
@@ -262,84 +221,16 @@ Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(staleInterrupti
 Equal(4, processorStabilizer.Observe(staleInterruptionGeneration, slot4Processor, true, 470, "success")!.Value.Slot, "two consecutive samples after stale generation activate");
 Console.WriteLine("PASS: processor_local_save_identity_stabilization");
 
-var probe = new CassetteMostRecentIdentityProbe();
-Equal(false, probe.Pending, "most-recent diagnostic starts inactive");
-probe.Queue();
-Equal(true, probe.Pending, "most-recent diagnostic queues managed probe");
-var probeResult = probe.Observe(readable: true, slot: 4, pointer: 400, stage: "success");
-Equal(CassetteMostRecentIdentityProbeKind.FirstObservation, probeResult.Kind, "first identity observation is diagnostic only");
-Equal(true, probe.Pending, "probe waits for one confirming observation");
-probeResult = probe.Observe(readable: true, slot: 4, pointer: 400, stage: "success");
-Equal(CassetteMostRecentIdentityProbeKind.Stable, probeResult.Kind, "second matching identity is reported stable");
-Equal(false, probe.Pending, "stable probe clears after two observations");
-Equal<CassetteSaveActivation?>(null, probeResult.Activation, "diagnostic probe cannot produce epoch activation");
-probe.Queue();
-probeResult = probe.Observe(readable: false, slot: 0, pointer: 0, stage: "state-null");
-Equal(CassetteMostRecentIdentityProbeKind.ReadFailure, probeResult.Kind, "read failure reports bounded stage");
-Equal(false, probe.Pending, "failed probe clears without retry loop");
-Console.WriteLine("PASS: most_recent_identity_probe_is_bounded_and_non_authoritative");
-
-var processorProbe = new CassetteProcessorIdentityProbe();
-Equal(false, processorProbe.CaptureAfterSelection(), "pre-selection processor capture cannot arm probe");
-processorProbe.SignalSelection();
-Equal(true, processorProbe.WaitingForCapture, "selection waits for a later processor capture");
-Equal(false, processorProbe.Pending, "selection alone does not read processor state");
-Equal(true, processorProbe.CaptureAfterSelection(), "post-selection processor capture arms probe");
-Equal(true, processorProbe.Pending, "post-selection capture queues bounded Unity probe");
-long processorProbeGeneration = processorProbe.Generation;
-var processorProbeResult = processorProbe.Observe(processorProbeGeneration, readable: true, pointer: 300, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.FirstObservation, processorProbeResult.Kind, "processor probe requires confirmation");
-processorProbeResult = processorProbe.Observe(processorProbeGeneration, readable: true, pointer: 300, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.Stable, processorProbeResult.Kind, "processor probe reports stable second observation");
-Equal(false, processorProbe.Pending, "processor probe clears after two observations");
-Equal<CassetteSaveActivation?>(null, processorProbeResult.Activation, "processor diagnostic cannot activate epoch");
-processorProbe.SignalSelection();
-processorProbe.CaptureAfterSelection();
-long staleProcessorProbeGeneration = processorProbe.Generation;
-processorProbe.SignalSelection();
-Equal(false, processorProbe.Pending, "new selection invalidates prior generation capture");
-Equal(true, processorProbe.WaitingForCapture, "new selection requires a new processor callback");
-processorProbe.CaptureAfterSelection();
-processorProbeResult = processorProbe.Observe(staleProcessorProbeGeneration, readable: true, pointer: 999, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.None, processorProbeResult.Kind, "stale generation observation cannot affect current probe");
-Equal(true, processorProbe.Pending, "stale generation observation leaves current probe pending");
-Console.WriteLine("PASS: processor_identity_probe_requires_post_selection_capture");
-
-var preexistingProbe = new CassetteProcessorIdentityProbe();
-preexistingProbe.SignalSelection();
-Equal(false, preexistingProbe.Pending, "selection with no preexisting processor remains unarmed");
-preexistingProbe.SignalSelection();
-Equal(true, preexistingProbe.CaptureAfterSelection(), "compatible preexisting processor arms at selection");
-long preexistingGeneration = preexistingProbe.Generation;
-var preexistingResult = preexistingProbe.Observe(preexistingGeneration, readable: true, pointer: 444, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.FirstObservation, preexistingResult.Kind, "preexisting probe first observation is bounded");
-preexistingResult = preexistingProbe.Observe(preexistingGeneration, readable: true, pointer: 444, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.Stable, preexistingResult.Kind, "preexisting probe confirms second observation");
-Equal(false, preexistingProbe.Pending, "preexisting probe clears after confirmation");
-Equal<CassetteSaveActivation?>(null, preexistingResult.Activation, "preexisting diagnostic cannot activate epoch");
-preexistingProbe.SignalSelection();
-preexistingProbe.CaptureAfterSelection();
-long invalidatedPreexistingGeneration = preexistingProbe.Generation;
-preexistingProbe.SignalSelection();
-preexistingResult = preexistingProbe.Observe(invalidatedPreexistingGeneration, readable: true, pointer: 555, stage: "success");
-Equal(CassetteProcessorIdentityProbeKind.None, preexistingResult.Kind, "new selection rejects stale preexisting result");
-Console.WriteLine("PASS: preexisting_processor_probe_is_bounded_and_non_authoritative");
-
-var snapshotProbe = new CassetteProcessorIdentityProbe();
-snapshotProbe.SignalSelection();
-snapshotProbe.CaptureAfterSelection();
-object snapshotProcessor = new();
-var processorSnapshot = CassetteProcessorIdentityProbeSnapshot.Capture(snapshotProbe, snapshotProcessor);
-Equal(true, processorSnapshot.Pending, "snapshot captures pending state");
-Equal(true, ReferenceEquals(snapshotProcessor, processorSnapshot.Processor), "snapshot captures paired processor");
-var replacementProbe = new CassetteProcessorIdentityProbe();
-replacementProbe.SignalSelection();
-replacementProbe.CaptureAfterSelection();
-Equal(false, processorSnapshot.IsCurrent(replacementProbe), "detached snapshot cannot consume replacement probe");
-snapshotProbe.SignalSelection();
-Equal(false, processorSnapshot.IsCurrent(snapshotProbe), "newer generation invalidates captured snapshot");
-Equal(true, snapshotProbe.WaitingForCapture, "invalidated snapshot cannot clear current waiting state");
-Console.WriteLine("PASS: processor_probe_snapshot_is_atomic_and_replacement_safe");
+var queueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
+Equal(true, queueLogDeduper.ShouldLog("queued"), "first MostRecent queue outcome logs");
+Equal(false, queueLogDeduper.ShouldLog("queued"), "identical MostRecent queue outcome is suppressed");
+Equal(true, queueLogDeduper.ShouldLog("processor-null"), "changed queue stage logs");
+var resultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
+Equal(true, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "first resolved result logs");
+Equal(false, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "identical resolved result is suppressed");
+Equal(true, resultLogDeduper.ShouldLog("success|slot=4|pointer=800"), "changed resolved slot logs");
+Equal(true, resultLogDeduper.ShouldLog("failure|match-count:0"), "changed unresolved stage logs");
+Console.WriteLine("PASS: most_recent_logs_are_bounded_and_deduplicated");
 
 var joinProbe = new CassetteRegularSavePointerJoinProbe();
 object saveDataProcessorA = new();
@@ -637,13 +528,6 @@ Equal(4, identitySlot, "loaded save identity preserves slot");
 Equal(0x400L, identityPointer, "loaded save identity preserves pointer");
 Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out string identityStage), "diagnostic identity overload succeeds");
 Equal("success", identityStage, "identity success stage is bounded");
-Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out CassetteSaveFingerprint fingerprint, out string fingerprintStage), "diagnostic fingerprint reads fixed public fields");
-Equal("success", fingerprintStage, "fingerprint success stage is bounded");
-Equal(nameof(FakePlayerSavePublicState), fingerprint.StateType, "fingerprint records safe runtime type identity");
-Equal(1234L, fingerprint.PlayTimeInSeconds, "fingerprint records play time");
-Equal(new DateTime(2026, 8, 31, 12, 0, 0, DateTimeKind.Utc).Ticks, fingerprint.LastPlayDateTimeUtcTicks, "fingerprint records last-play ticks");
-Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), fingerprint.IGotMoneyStatus, "fingerprint records I Got Money cassette status");
-Equal(nameof(eSongCassetteStatus.INVALID), fingerprint.BadassStatus, "fingerprint records Badass cassette status");
 PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: false, value: 0);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "empty slot fails closed");
 Equal("slot-empty", identityStage, "empty slot has exact stage");
@@ -654,17 +538,6 @@ Equal("state-null", identityStage, "null state has exact stage");
 PlayerSaveManagementEnquiries.SelectedState = new object();
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "missing pointer fails closed");
 Equal("pointer-missing", identityStage, "missing pointer has exact stage");
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "missing fingerprint fields fail closed");
-Equal("fingerprint-game-stats-missing", fingerprintStage, "fingerprint failure names exact missing field stage");
-PlayerSaveManagementEnquiries.SelectedState = new PrivateFingerprintState();
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects private replacement members");
-Equal("fingerprint-game-stats-missing", fingerprintStage, "private GameStats is not treated as public metadata");
-PlayerSaveManagementEnquiries.SelectedState = new PrivateNullable<FakePlayerSavePublicState>(new FakePlayerSavePublicState(new IntPtr(0x400)));
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects nullable-shaped wrappers with private members");
-Equal("fingerprint-state-null", fingerprintStage, "private nullable members fail closed before fingerprint traversal");
-PlayerSaveManagementEnquiries.SelectedState = new PrivateStatusFingerprintState();
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects private nullable cassette status members");
-Equal("fingerprint-I_GOT_MONEY-status-empty", fingerprintStage, "private cassette nullable members fail closed");
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(IntPtr.Zero);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "zero pointer fails closed");
 Equal("pointer-zero", identityStage, "zero pointer has exact stage");
@@ -674,15 +547,9 @@ var transactionProcessor = new PlayerSaveRequestProcessor(transactionState);
 Equal(true, CassetteSaveTransactionAdapter.TryReadCassetteStatus(transactionProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string? transactionStatus), "transaction adapter reads current processor state");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), transactionStatus, "transaction adapter returns authoritative cassette status");
 Equal(1, transactionProcessor.ObtainStateCalls, "transaction read obtains current state for each call");
-Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(transactionProcessor, out long processorPointer, out CassetteSaveFingerprint processorFingerprint, out string processorFingerprintStage), "processor-local fingerprint reads captured processor state");
-Equal("success", processorFingerprintStage, "processor-local fingerprint success stage");
-Equal(0x700L, processorPointer, "processor-local fingerprint reads public pointer");
-Equal(777L, processorFingerprint.PlayTimeInSeconds, "processor-local fingerprint reads selected processor playtime");
 Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(transactionProcessor, out long authorityPointer, out string authorityStage), "authoritative identity reads processor-local public state");
 Equal(0x700L, authorityPointer, "authoritative identity returns processor-local pointer");
 Equal("success", authorityStage, "authoritative identity reports success");
-Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out _, out processorFingerprintStage), "processor fingerprint rejects private-only ObtainState");
-Equal("processor-fingerprint-obtain-state-missing", processorFingerprintStage, "private ObtainState fails closed");
 Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out authorityStage), "authoritative identity rejects private-only ObtainState");
 Equal("processor-identity-obtain-state-missing", authorityStage, "authoritative identity fails closed at public method boundary");
 
@@ -752,14 +619,11 @@ Equal(true, semanticProcessor.LastRequest.SemanticConstructorUsed, "submission u
 Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submission detail identifies default bundle");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
-string fingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetLoadedSaveFingerprint(").Single();
-string buildFingerprintAdapter = ExtractMethods(adapterSource, "private static bool TryBuildFingerprint(").Single();
-Equal(true, fingerprintAdapter.Contains("PublicStatic", StringComparison.Ordinal) && buildFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "fingerprint uses explicit public-only reflection flags");
-Equal(false, fingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || fingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "fingerprint never binds non-public members");
-Equal(false, buildFingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || buildFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "shared fingerprint fields never bind non-public members");
-string processorFingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveFingerprint(").Single();
-Equal(true, processorFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "processor fingerprint uses public-only ObtainState lookup");
-Equal(false, processorFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "processor fingerprint cannot invoke private ObtainState");
+foreach (string obsoleteDiagnostic in new[] { "CassetteSaveFingerprint", "TryGetLoadedSaveFingerprint", "TryGetProcessorSaveFingerprint", "TryBuildFingerprint", "UnwrapNullablePublic" })
+    Equal(false, adapterSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary adapter diagnostic removed: {obsoleteDiagnostic}");
+string policySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs"));
+foreach (string obsoleteDiagnostic in new[] { "CassetteSaveIdentityStabilizer", "CassetteMostRecentIdentityProbe", "CassetteProcessorIdentityProbe", "CassetteSaveFingerprint" })
+    Equal(false, policySource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary policy diagnostic removed: {obsoleteDiagnostic}");
 string processorIdentityAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveIdentity(").Single();
 Equal(true, processorIdentityAdapter.Contains("PublicInstance", StringComparison.Ordinal), "authoritative processor identity uses public-only state lookup");
 Equal(false, processorIdentityAdapter.Contains("AllInstance", StringComparison.Ordinal), "authoritative processor identity cannot invoke private state access");
@@ -857,26 +721,6 @@ sealed class FakePlayerSavePublicState
 }
 
 sealed record FakeGameStats(long PlayTimeInSeconds, DateTime LastPlayDateTimeUtc);
-
-sealed class PrivateFingerprintState
-{
-    private FakeGameStats GameStats { get; } = new(1, DateTime.UnixEpoch);
-    private eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.INVALID;
-}
-
-sealed class PrivateNullable<T>
-{
-    private bool HasValue => true;
-    private T Value { get; }
-    public PrivateNullable(T value) => Value = value;
-}
-
-sealed class PrivateStatusFingerprintState
-{
-    public FakeGameStats GameStats { get; } = new(1, DateTime.UnixEpoch);
-    public PrivateNullable<eSongCassetteStatus> GetCassetteStatusForSong(ePlayableSong song) =>
-        new(eSongCassetteStatus.HAVE_IN_BAG);
-}
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
 enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
