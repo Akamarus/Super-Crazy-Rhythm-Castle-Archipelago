@@ -17789,339 +17789,6 @@ internal static class CassetteSlotDataCompatibility
     }
 }
 
-internal static class Level2MoneyCassetteRandomization
-{
-    internal const string ItemName = "Money Cassette";
-    internal const string SourceLocationName = "Level 2 - Money Cassette";
-    internal const string NativeSongName = "I_GOT_MONEY";
-
-    private static readonly object Sync = new();
-    private static object? _playerSaveRequestProcessor;
-    private static bool _slotDataSynchronized;
-    private static int _receivedCount;
-    private static bool _retryExhaustionLogged;
-    private static Level2MoneyCassetteRuntime _runtime = new();
-    private static Level2MoneyCassetteReconcileDecision? _lastDecision;
-
-    internal static bool Enabled { get; private set; }
-
-    internal static void Configure()
-    {
-        lock (Sync)
-        {
-            Enabled = false;
-            _playerSaveRequestProcessor = null;
-            _slotDataSynchronized = false;
-            _receivedCount = 0;
-            _retryExhaustionLogged = false;
-            _runtime = new Level2MoneyCassetteRuntime();
-            _lastDecision = null;
-        }
-    }
-
-    internal static void ApplySlotData(Dictionary<string, object>? slotData)
-    {
-        bool requested = ReadSlotBool(slotData, "randomize_level_2_money_cassette");
-        int receivedCount;
-        lock (Sync)
-        {
-            Enabled = requested;
-            _slotDataSynchronized = true;
-            _runtime.Configure(Enabled);
-            _runtime.NoteReceivedCount(_receivedCount);
-            _retryExhaustionLogged = false;
-            receivedCount = _receivedCount;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            Enabled
-                ? $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION ENABLED item='{ItemName}' source='{SourceLocationName}' song='{NativeSongName}'."
-                : $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION disabled requested={requested}; Level 2's native cassette reward remains unchanged for this seed.");
-
-        if (Enabled && receivedCount > 0)
-            ArmRetryWindow("slot data synchronized");
-    }
-
-    internal static bool TryApplyItem(string itemName)
-    {
-        if (!string.Equals(itemName, ItemName, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        bool enabled;
-        int count;
-        lock (Sync)
-        {
-            count = ++_receivedCount;
-            _runtime.NoteReceivedCount(count);
-            enabled = Enabled;
-            _runtime.OnSaveLifecyclePoint();
-            _retryExhaustionLogged = false;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] LEVEL 2 MONEY CASSETTE RECEIVED item='{ItemName}' receivedCount={count} routingEnabled={enabled}. Native song '{NativeSongName}' will be reconciled against the selected save on the Unity thread.");
-        return true;
-    }
-
-    internal static void CapturePlayerSaveRequestProcessor(
-        object? instance,
-        bool reconcileNow = true)
-    {
-        if (instance == null ||
-            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
-
-        if (reconcileNow)
-            OnLifecyclePoint("player save request processor activity");
-    }
-
-    internal static void OnLifecyclePoint(string reason)
-    {
-        ArmRetryWindow(reason);
-        TryFlushPendingNativeGrant(reason);
-    }
-
-    private static void ArmRetryWindow(string reason)
-    {
-        bool rearmed;
-        lock (Sync)
-        {
-            _runtime.Configure(Enabled);
-            _runtime.NoteReceivedCount(_receivedCount);
-            _runtime.OnSaveLifecyclePoint();
-            rearmed = _slotDataSynchronized && Enabled && _receivedCount > 0;
-            _retryExhaustionLogged = false;
-            _lastDecision = null;
-        }
-
-        if (rearmed)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation retry budget re-armed reason='{reason}'.");
-        }
-    }
-
-    internal static void TickPendingNativeGrant()
-    {
-        TryFlushPendingNativeGrant("bounded keeper retry");
-    }
-
-    private static void TryFlushPendingNativeGrant(string reason)
-    {
-        object? processor;
-        int attempt;
-        bool attemptAvailable;
-        bool logExhaustion = false;
-        lock (Sync)
-        {
-            if (!_slotDataSynchronized || !Enabled)
-                return;
-
-            _runtime.Configure(Enabled);
-            _runtime.NoteReceivedCount(_receivedCount);
-            if (!_runtime.TryBeginReconcileAttempt())
-            {
-                attemptAvailable = false;
-                if (_runtime.RetryWindowExhausted && !_retryExhaustionLogged)
-                {
-                    _retryExhaustionLogged = true;
-                    logExhaustion = true;
-                }
-                processor = null;
-                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts;
-            }
-            else
-            {
-                attemptAvailable = true;
-                attempt = Level2MoneyCassetteRuntime.MaxRetryAttempts -
-                          _runtime.RemainingRetryAttempts;
-                processor = _playerSaveRequestProcessor;
-            }
-        }
-
-        if (logExhaustion)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation paused after {Level2MoneyCassetteRuntime.MaxRetryAttempts} attempts; a later save lifecycle point will retry.");
-            return;
-        }
-        if (!attemptAvailable)
-            return;
-        bool saveAvailable = TryReadNativeStatus(out string? nativeStatus, out string readDetail);
-        Level2MoneyCassetteReconcileDecision decision;
-        bool decisionChanged;
-        lock (Sync)
-        {
-            _runtime.Configure(Enabled);
-            _runtime.NoteReceivedCount(_receivedCount);
-            decision = _runtime.ObserveNativeStatus(
-                saveAvailable,
-                processor != null,
-                nativeStatus);
-            decisionChanged = _lastDecision != decision;
-            _lastDecision = decision;
-        }
-
-        if (decisionChanged)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] LEVEL 2 MONEY CASSETTE reconciliation decision={decision} nativeStatus='{nativeStatus ?? "<unavailable>"}' attempt={attempt}/{Level2MoneyCassetteRuntime.MaxRetryAttempts} reason='{reason}' detail='{readDetail}'.");
-        }
-
-        switch (decision)
-        {
-            case Level2MoneyCassetteReconcileDecision.AlreadyOwned:
-                lock (Sync)
-                {
-                    _retryExhaustionLogged = false;
-                }
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT VERIFIED song='{NativeSongName}' status='{nativeStatus}'.");
-                return;
-
-            case Level2MoneyCassetteReconcileDecision.RequestHaveInBag:
-                string submitDetail = "PlayerSaveRequestProcessor unavailable.";
-                if (processor != null && TrySubmitHaveInBag(processor, out submitDetail))
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE NATIVE GRANT SUBMITTED song='{NativeSongName}' status='{CassetteRandomizationPolicy.HaveInBag}' {submitDetail}; selected-save verification remains pending.");
-                }
-                else
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] LEVEL 2 MONEY CASSETTE native grant could not be submitted: {submitDetail}");
-                }
-                return;
-
-            case Level2MoneyCassetteReconcileDecision.Disabled:
-            case Level2MoneyCassetteReconcileDecision.NoOwnership:
-                return;
-        }
-    }
-
-    private static bool TryReadNativeStatus(out string? status, out string detail)
-    {
-        status = null;
-        detail = string.Empty;
-        try
-        {
-            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-            Type? enquiriesType = gameAssembly?.GetType(
-                "SongCassetteEnquiries", throwOnError: false, ignoreCase: false);
-            Type? songType = gameAssembly?.GetType(
-                "ePlayableSong", throwOnError: false, ignoreCase: false);
-            if (enquiriesType == null || songType == null || !songType.IsEnum)
-            {
-                detail = "SongCassetteEnquiries or ePlayableSong unavailable.";
-                return false;
-            }
-
-            object song = Enum.Parse(songType, NativeSongName, ignoreCase: false);
-            MethodInfo? enquiry = enquiriesType.GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(method =>
-                {
-                    if (!string.Equals(method.Name, "GetSongCassetteStatus", StringComparison.Ordinal))
-                        return false;
-                    ParameterInfo[] parameters;
-                    try { parameters = method.GetParameters(); }
-                    catch { return false; }
-                    return parameters.Length == 1 && parameters[0].ParameterType == songType;
-                });
-            if (enquiry == null)
-            {
-                detail = "SongCassetteEnquiries.GetSongCassetteStatus unavailable.";
-                return false;
-            }
-
-            object? rawStatus = enquiry.Invoke(null, new[] { song });
-            object? unwrapped = ReflectionUtil.UnwrapNullable(rawStatus);
-            if (unwrapped == null)
-            {
-                detail = "selected save cassette status unavailable.";
-                return false;
-            }
-
-            status = unwrapped.ToString();
-            detail = $"selected save returned {status}";
-            return !string.IsNullOrWhiteSpace(status);
-        }
-        catch (Exception ex)
-        {
-            detail = ex.GetBaseException().Message;
-            return false;
-        }
-    }
-
-    private static bool TrySubmitHaveInBag(object processor, out string detail)
-    {
-        detail = string.Empty;
-        try
-        {
-            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-            Type? requestType = gameAssembly?.GetType(
-                "RecordSongCassetteStatusInSaveDataRequest", throwOnError: false, ignoreCase: false);
-            Type? songType = gameAssembly?.GetType(
-                "ePlayableSong", throwOnError: false, ignoreCase: false);
-            Type? statusType = gameAssembly?.GetType(
-                "eSongCassetteStatus", throwOnError: false, ignoreCase: false);
-            Type? bundleType = gameAssembly?.GetType(
-                "ePlayerSaveChangeBundleKey", throwOnError: false, ignoreCase: false);
-            if (requestType == null || songType == null || statusType == null || bundleType == null)
-            {
-                detail = "cassette request or enum types unavailable.";
-                return false;
-            }
-
-            string nativeSong = NativeSongName;
-            if (!CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
-                    requestType, songType, statusType, bundleType, nativeSong,
-                    out object? request, out string constructorDetail) || request == null)
-            {
-                detail = constructorDetail;
-                return false;
-            }
-
-            MethodInfo? process = processor.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(method =>
-                {
-                    if (!string.Equals(method.Name, "ProcessRequest", StringComparison.Ordinal))
-                        return false;
-                    ParameterInfo[] parameters;
-                    try { parameters = method.GetParameters(); }
-                    catch { return false; }
-                    return parameters.Length == 1 && parameters[0].ParameterType.IsInstanceOfType(request);
-                });
-            if (process == null)
-            {
-                detail = "matching PlayerSaveRequestProcessor.ProcessRequest overload unavailable.";
-                return false;
-            }
-
-            process.Invoke(processor, new[] { request });
-            detail = $"through RecordSongCassetteStatusInSaveDataRequest {constructorDetail}";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            detail = ex.GetBaseException().Message;
-            return false;
-        }
-    }
-
-    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
-    {
-        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
-            return false;
-        if (raw is bool value)
-            return value;
-        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
-    }
-}
 
 
 internal static class CassetteReceiptRandomization
@@ -18130,6 +17797,8 @@ internal static class CassetteReceiptRandomization
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
+    private static bool _unityReconciliationRequested;
+    private static string _unityReconciliationReason = string.Empty;
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -18141,6 +17810,7 @@ internal static class CassetteReceiptRandomization
         {
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime();
+            _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty;
         }
     }
 
@@ -18152,7 +17822,7 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be persisted as HAVE_IN_BAG; deposited cassettes remain deposited."
             : $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled detail=\"{compatibility.Detail}\"; native cassette inventory remains vanilla.");
-        if (enabled) OnLifecyclePoint("slot data synchronized");
+        if (enabled) RequestUnityReconciliation("slot data synchronized");
     }
 
     internal static bool TryApplyItem(string itemName)
@@ -18162,6 +17832,7 @@ internal static class CassetteReceiptRandomization
         if (!recognized) return false;
         lock (Sync) _runtime.Receive(entry!.NativeSong);
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE RECEIVED item='{entry.ItemName}' nativeSong='{entry.NativeSong}' routingEnabled={Enabled}; Unity-thread reconciliation requested.");
+        RequestUnityReconciliation("AP cassette receipt");
         return true;
     }
 
@@ -18181,9 +17852,18 @@ internal static class CassetteReceiptRandomization
 
     internal static void OnLifecyclePoint(string reason)
     {
-        lock (Sync) { if (!_slotDataSynchronized || !Enabled) return; }
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE observation requested reason='{reason}'; loaded-save epoch unchanged.");
-        TryReconcile(reason);
+        RequestUnityReconciliation(reason);
+    }
+
+    private static void RequestUnityReconciliation(string reason)
+    {
+        lock (Sync)
+        {
+            if (!_slotDataSynchronized || !Enabled) return;
+            _unityReconciliationRequested = true;
+            _unityReconciliationReason = reason;
+        }
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE Unity-thread observation queued reason='{reason}'; loaded-save epoch unchanged.");
     }
 
     internal static void ActivateLoadedSave(int slot, string reason)
@@ -18195,7 +17875,7 @@ internal static class CassetteReceiptRandomization
             epoch = _runtime.Epoch;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
-        TryReconcile("save selection completed");
+        RequestUnityReconciliation("save selection completed");
     }
 
     internal static void DeactivateLoadedSave(string reason)
@@ -18295,8 +17975,20 @@ internal static class CassetteReceiptRandomization
             : $"[SCRC-AP] CASSETTE GRANT FAILED epoch={epoch} nativeSong='{nativeSong}' detail='{detail}'.");
     }
 
-    internal static void TickPendingNativeGrants(TimeSpan elapsed)
+    internal static void TickUnity(TimeSpan elapsed)
     {
+        string? reason = null;
+        lock (Sync)
+        {
+            if (_unityReconciliationRequested)
+            {
+                reason = _unityReconciliationReason;
+                _unityReconciliationRequested = false;
+                _unityReconciliationReason = string.Empty;
+            }
+        }
+        if (reason != null) TryReconcile(reason);
+
         string[] ready;
         lock (Sync) ready = _runtime.Tick(elapsed).ToArray();
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
@@ -19791,7 +19483,7 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 
 internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 {
-    private int _cooldown;
+    private long _lastTimestamp;
 
     public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
@@ -19799,10 +19491,12 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
-        if (_cooldown-- > 0)
-            return;
-        _cooldown = 60;
-        CassetteReceiptRandomization.TickPendingNativeGrants(TimeSpan.FromSeconds(1));
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        TimeSpan elapsed = _lastTimestamp == 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromSeconds((double)(now - _lastTimestamp) / System.Diagnostics.Stopwatch.Frequency);
+        _lastTimestamp = now;
+        CassetteReceiptRandomization.TickUnity(elapsed);
     }
 }
 

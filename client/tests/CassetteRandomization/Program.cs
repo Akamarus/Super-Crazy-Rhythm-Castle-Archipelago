@@ -55,6 +55,20 @@ foreach (string selectionRequest in new[]
         pluginSource.Contains($"PatchMethodsByParameter(\"ProcessRequest\", \"{selectionRequest}\", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix))", StringComparison.Ordinal),
         $"safe save-selection hook installed for {selectionRequest}");
 }
+
+static string ExtractClass(string source, string className)
+{
+    int start = source.IndexOf($"class {className}", StringComparison.Ordinal);
+    if (start < 0) throw new InvalidOperationException($"class missing: {className}");
+    int bodyStart = source.IndexOf('{', start);
+    int depth = 0;
+    for (int i = bodyStart; i < source.Length; i++)
+    {
+        if (source[i] == '{') depth++;
+        else if (source[i] == '}' && --depth == 0) return source[start..(i + 1)];
+    }
+    throw new InvalidOperationException($"class body unbalanced: {className}");
+}
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPrefix)", StringComparison.Ordinal), "absent Persist boundary is not hooked");
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPostfix)", StringComparison.Ordinal), "absent Persist postfix is not hooked");
 
@@ -79,13 +93,27 @@ string cassetteProcessorFallback = ExtractMethods(pluginSource, "private static 
 Equal(true, cassetteProcessorFallback.Contains("CassetteSaveTransactionAdapter.TryGetLoadedSave(out _)", StringComparison.Ordinal), "stateless processor fallback requires readable selected save");
 Equal(true, cassetteProcessorFallback.Contains("PlayerSaveRequestProcessor", StringComparison.Ordinal), "stateless fallback constructs only the proven processor type");
 
-string periodicKeeper = ExtractMethods(pluginSource, "internal static void TickPendingNativeGrants(").Single();
-Equal(true, periodicKeeper.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "periodic keeper advances only bounded verification timers");
+string receiptRandomizationSource = ExtractClass(pluginSource, "CassetteReceiptRandomization");
+string receiptApplySlotData = ExtractMethods(receiptRandomizationSource, "internal static void ApplySlotData(").Single();
+Equal(true, receiptApplySlotData.Contains("RequestUnityReconciliation(\"slot data synchronized\")", StringComparison.Ordinal), "slot-data synchronization queues Unity-thread work");
+Equal(false, receiptApplySlotData.Contains("TryReconcile(", StringComparison.Ordinal), "slot-data synchronization performs no native reconciliation");
+string receiptTryApply = ExtractMethods(receiptRandomizationSource, "internal static bool TryApplyItem(").Single();
+Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette receipt\")", StringComparison.Ordinal), "active-save AP receipt schedules prompt Unity-thread reconciliation");
+Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
+string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
+Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
+Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
+string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
+Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
+Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
+Equal(false, keeperSource.Contains("TimeSpan.FromSeconds(1)", StringComparison.Ordinal), "keeper does not substitute a frame-count interval for elapsed time");
+foreach (string obsolete in new[] { "CassetteReceiptRuntime", "CassetteReceiptScheduler", "Level2MoneyCassetteRuntime", "_terminalSongs" })
+    Equal(false, pluginSource.Contains(obsolete, StringComparison.Ordinal) || File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs")).Contains(obsolete, StringComparison.Ordinal), $"obsolete process-wide cassette state removed: {obsolete}");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
 Console.WriteLine("PASS: safe_save_lifecycle_production_wiring");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
-Equal(1, submitMethods.Count, "only the legacy Money compatibility path retains direct cassette submission");
+Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
 foreach (string submitSource in submitMethods)
 {
     Equal(true, submitSource.Contains("CassetteNativeRequestFactory.TryCreateHaveInBagRequest(", StringComparison.Ordinal), "every cassette submission uses semantic request adapter");
@@ -207,46 +235,7 @@ Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QU
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("I_GOT_MONEY", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:false), "level cassette grants are handled by the evaluator hook");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveDeposited, fromArchipelago:false), "deposited state is never intercepted");
 
-foreach (var entry in CassetteCatalog.All)
-{
-    var runtime = new CassetteReceiptRuntime();
-    runtime.Configure(true); runtime.OnLifecyclePoint();
-    Equal(false, runtime.TryBeginReconcileAttempt(out _), $"{entry.ItemName} absent means no work");
-    Equal(true, runtime.NoteReceived(entry.ItemName), $"{entry.ItemName} recognized");
-    runtime.OnLifecyclePoint();
-    Equal(true, runtime.TryBeginReconcileAttempt(out string? nativeSong), $"{entry.ItemName} begins reconciliation");
-    Equal(entry.NativeSong, nativeSong, $"{entry.ItemName} resolves native song");
-    foreach (string unowned in new[] { CassetteRandomizationPolicy.Invalid, CassetteRandomizationPolicy.HaveNotEarned })
-    {
-        Equal(CassetteReceiptDecision.RequestHaveInBag, runtime.ObserveNativeStatus(entry.NativeSong, unowned, true, true), $"{entry.ItemName} grants from {unowned}");
-        Equal(CassetteRandomizationPolicy.HaveInBag, runtime.RequestedNativeStatus, $"{entry.ItemName} requests bag state");
-    }
-    foreach (string owned in new[] { CassetteRandomizationPolicy.HaveInBag, CassetteRandomizationPolicy.HaveDeposited })
-    {
-        Equal(owned == CassetteRandomizationPolicy.HaveDeposited ? CassetteReceiptDecision.VerifiedDeposited : CassetteReceiptDecision.VerifiedBag,
-            runtime.ObserveNativeStatus(entry.NativeSong, owned, true, true), $"{entry.ItemName} preserves {owned}");
-        Equal<string?>(null, runtime.RequestedNativeStatus, $"{entry.ItemName} makes no request for {owned}");
-    }
-    var unrelated = CassetteCatalog.All.First(x => x.ItemName != entry.ItemName);
-    var other = new CassetteReceiptRuntime(); other.Configure(true); other.NoteReceived(unrelated.ItemName);
-    Equal(false, other.OwnsNativeSong(entry.NativeSong), $"different item does not grant {entry.NativeSong}");
-}
 
-int nativeReads = 0, nativeWrites = 0;
-var scheduler = new CassetteReceiptScheduler(); scheduler.Configure(true);
-Equal(true, scheduler.NoteReceived("Money Cassette"), "scheduler recognizes receipt");
-Equal(0, nativeReads, "receipt callback performs no native read");
-Equal(0, nativeWrites, "receipt callback performs no native write");
-var tick1 = scheduler.Tick(
-    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.Invalid, true, CassetteRandomizationPolicy.Invalid); },
-    _ => { nativeWrites++; return true; });
-Equal(CassetteReceiptDecision.RequestHaveInBag, tick1.Decision, "first tick requests native bag");
-Equal(1, nativeReads, "first tick reads once"); Equal(1, nativeWrites, "first tick writes once");
-var tick2 = scheduler.Tick(
-    _ => { nativeReads++; return new CassetteNativeObservation(true, true, CassetteRandomizationPolicy.HaveInBag, true, CassetteRandomizationPolicy.HaveInBag); },
-    _ => { nativeWrites++; return true; });
-Equal(CassetteReceiptDecision.VerifiedBag, tick2.Decision, "later tick verifies bag");
-Equal(2, nativeReads, "later tick reads once"); Equal(1, nativeWrites, "later verification does not rewrite");
 
 var authoritativeState = new AuthoritativeSaveState(TestCassetteStatus.HAVE_IN_BAG);
 var authoritativeProcessor = new AuthoritativeProcessor(authoritativeState);
@@ -263,23 +252,6 @@ Equal(1, authoritativeProcessor.ObtainStateCalls, "authoritative reader obtains 
 Equal(1, authoritativeState.StatusReads, "authoritative reader reads current cassette status once");
 Equal(true, authoritativeDetail.Contains("processor-selected save returned HAVE_IN_BAG", StringComparison.Ordinal), "authoritative detail names the read source and status");
 
-var lifecycle = new CassetteReceiptRuntime(); lifecycle.Configure(true);
-Equal(false, lifecycle.NoteReceived("not a cassette"), "unknown item ignored");
-Equal(true, lifecycle.NoteReceived("Money Cassette"), "Money receipt recognized");
-Equal(true, lifecycle.NoteReceived("Money Cassette"), "duplicate history recognized idempotently");
-Equal(1, lifecycle.OwnedCount, "duplicate history stores one ownership");
-lifecycle.OnLifecyclePoint();
-Equal(true, lifecycle.TryBeginReconcileAttempt(out string? lifecycleSong), "owned song begins attempt");
-Equal(CassetteReceiptDecision.SaveUnavailable, lifecycle.ObserveNativeStatus(lifecycleSong!, null, false, true), "unavailable save retries later");
-Equal(CassetteReceiptDecision.ProcessorUnavailable, lifecycle.ObserveNativeStatus(lifecycleSong!, CassetteRandomizationPolicy.Invalid, true, false), "unavailable processor retries later");
-for (int i=1; i<CassetteReceiptRuntime.MaxRetryAttempts; i++)
-{
-    Equal(true, lifecycle.TryBeginReconcileAttempt(out lifecycleSong), $"retry attempt {i + 1} begins");
-    lifecycle.ObserveNativeStatus(lifecycleSong!, null, false, true);
-}
-Equal(false, lifecycle.TryBeginReconcileAttempt(out _), "retry window bounded");
-lifecycle.OnLifecyclePoint();
-Equal(true, lifecycle.TryBeginReconcileAttempt(out _), "later lifecycle rearms work");
 
 var preSelection = new CassetteSaveEpochRuntime();
 preSelection.Receive("BADASS");
@@ -348,18 +320,36 @@ semantic.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, semantic.IsPending("BADASS"), "later authoritative bag read satisfies this epoch");
 Console.WriteLine("PASS: post_epoch_semantic_request_requires_delayed_verification");
 
+var boundedSchedule = new CassetteSaveEpochRuntime();
+boundedSchedule.Receive("BADASS");
+boundedSchedule.ActivateSave(3);
+boundedSchedule.RecordSubmission("BADASS");
+Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(249)).Count, "attempt one cannot verify before 250ms");
+SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt one verifies at 250ms");
+boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
+Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unearned first verification permits bounded retry");
+boundedSchedule.RecordSubmission("BADASS");
+Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(999)).Count, "attempt two cannot verify before 1s");
+SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt two verifies at 1s");
+boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
+Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unearned second verification permits final bounded retry");
+boundedSchedule.RecordSubmission("BADASS");
+Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(2999)).Count, "attempt three cannot verify before 3s");
+SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt three verifies at 3s");
+boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
+Equal(false, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "three attempts exhaust the current epoch retry budget");
+Console.WriteLine("PASS: bounded_verification_schedule_uses_250ms_1s_3s");
+
 var staleVerification = new CassetteSaveEpochRuntime();
 staleVerification.Receive("BADASS");
 staleVerification.ActivateSave(1);
 staleVerification.RecordSubmission("BADASS");
 staleVerification.ActivateSave(2);
+Equal(0, staleVerification.Tick(TimeSpan.FromSeconds(3)).Count, "reload invalidates stale verification timer from prior epoch");
 staleVerification.RecordVerification("BADASS", null);
 Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "reload clears prior attempt and revalidates new epoch");
 Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
-var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
-Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");
-Equal(false, CassetteReceiptRuntime.UseSelectedSaveChangedEventHook, "unsafe save-slot hook prohibited");
 
 foreach (var triggerGroup in CassetteCatalog.All
              .Where(x => x.SourceType == CassetteSourceType.LevelEarnedReward)
