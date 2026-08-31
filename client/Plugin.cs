@@ -17870,6 +17870,7 @@ internal static class CassetteReceiptRandomization
     private static CassetteSaveIdentityStabilizer _saveIdentity = new();
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
+    private static string _lastIdentityDiagnostic = string.Empty;
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -17881,7 +17882,7 @@ internal static class CassetteReceiptRandomization
         {
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteSaveIdentityStabilizer();
-            _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty;
+            _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
 
@@ -18061,10 +18062,29 @@ internal static class CassetteReceiptRandomization
     {
         CassetteSaveActivation? activation = null;
         bool boundaryPending;
-        lock (Sync) boundaryPending = _saveIdentity.BoundaryPending;
-        if (boundaryPending && CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out int selectedSlot, out long selectedStatePointer))
+        int? expectedSlot;
+        lock (Sync)
         {
-            lock (Sync) activation = _saveIdentity.Observe(selectedSlot, selectedStatePointer);
+            boundaryPending = _saveIdentity.BoundaryPending;
+            expectedSlot = _saveIdentity.ExpectedSlot;
+        }
+        if (boundaryPending)
+        {
+            bool identityReadable = CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(
+                out int selectedSlot, out long selectedStatePointer, out string identityStage);
+            if (!identityReadable)
+            {
+                LogIdentityDiagnosticOnChange(
+                    $"expectedSlot={expectedSlot?.ToString() ?? "<none>"} actualSlot=<unavailable> pointer=<unavailable> outcome='{identityStage}'");
+            }
+            else
+            {
+                CassetteSaveIdentityObservation observation;
+                lock (Sync) observation = _saveIdentity.ObserveDetailed(selectedSlot, selectedStatePointer);
+                activation = observation.Activation;
+                LogIdentityDiagnosticOnChange(
+                    $"expectedSlot={expectedSlot?.ToString() ?? "<none>"} actualSlot={selectedSlot} pointer=0x{selectedStatePointer:X} outcome='{observation.Kind}'");
+            }
         }
         if (activation.HasValue)
         {
@@ -18088,6 +18108,16 @@ internal static class CassetteReceiptRandomization
         string[] ready;
         lock (Sync) ready = _runtime.Tick(elapsed).ToArray();
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
+    }
+
+    private static void LogIdentityDiagnosticOnChange(string diagnostic)
+    {
+        lock (Sync)
+        {
+            if (string.Equals(_lastIdentityDiagnostic, diagnostic, StringComparison.Ordinal)) return;
+            _lastIdentityDiagnostic = diagnostic;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE IDENTITY {diagnostic}.");
     }
 
     private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)

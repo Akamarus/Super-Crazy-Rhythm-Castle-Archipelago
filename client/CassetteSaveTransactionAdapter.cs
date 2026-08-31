@@ -35,32 +35,54 @@ internal static class CassetteSaveTransactionAdapter
     }
 
     internal static bool TryGetLoadedSaveIdentity(out int slot, out long selectedStatePointer)
+        => TryGetLoadedSaveIdentity(out slot, out selectedStatePointer, out _);
+
+    internal static bool TryGetLoadedSaveIdentity(out int slot, out long selectedStatePointer, out string stage)
     {
         slot = default;
         selectedStatePointer = 0;
+        stage = "start";
         try
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries");
+            if (enquiries == null) { stage = "owner-missing"; return false; }
             MethodInfo? getSlot = enquiries?.GetMethod(
                 "GetSelectedSaveFileSlotNumber", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
             MethodInfo? getState = enquiries?.GetMethod(
                 "TryGetSelectedSlotSaveFileState", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            if (getSlot == null) { stage = "slot-method-missing"; return false; }
+            if (getState == null) { stage = "state-method-missing"; return false; }
             object? rawSlot = UnwrapNullable(getSlot?.Invoke(null, null));
             object? currentState = UnwrapNullable(getState?.Invoke(null, null));
-            if (rawSlot == null || currentState == null) return false;
-            object? rawPointer = currentState.GetType().GetProperty(
-                "Pointer", BindingFlags.Public | BindingFlags.Instance)?.GetValue(currentState);
-            if (rawPointer is not IntPtr pointer || pointer == IntPtr.Zero) return false;
-            slot = Convert.ToInt32(rawSlot);
+            if (rawSlot == null) { stage = "slot-empty"; return false; }
+            try { slot = Convert.ToInt32(rawSlot); }
+            catch (Exception ex) { stage = $"slot-convert:{SummarizeException(ex)}"; return false; }
+            if (currentState == null) { stage = "state-null"; return false; }
+            PropertyInfo? pointerProperty = currentState.GetType().GetProperty(
+                "Pointer", BindingFlags.Public | BindingFlags.Instance);
+            if (pointerProperty == null) { stage = "pointer-missing"; return false; }
+            object? rawPointer = pointerProperty.GetValue(currentState);
+            if (rawPointer is not IntPtr pointer) { stage = $"pointer-wrong-type:{rawPointer?.GetType().Name ?? "null"}"; return false; }
+            if (pointer == IntPtr.Zero) { stage = "pointer-zero"; return false; }
             selectedStatePointer = pointer.ToInt64();
+            stage = "success";
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             slot = default;
             selectedStatePointer = 0;
+            stage = $"invocation:{SummarizeException(ex)}";
             return false;
         }
+    }
+
+    private static string SummarizeException(Exception exception)
+    {
+        Exception root = exception.GetBaseException();
+        string message = (root.Message ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (message.Length > 160) message = message[..160];
+        return $"{root.GetType().Name}:{message}";
     }
 
     internal static bool TryReadCassetteStatus(

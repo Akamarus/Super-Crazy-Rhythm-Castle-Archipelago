@@ -124,6 +124,20 @@ internal readonly record struct CassetteSaveActivation(
     CassetteSaveBoundarySignalKind Reason,
     bool IncludesBuild);
 
+internal enum CassetteSaveIdentityObservationKind
+{
+    NoPendingSignal,
+    InvalidIdentity,
+    Mismatch,
+    FirstStable,
+    Activated,
+    StableDuplicate,
+}
+
+internal readonly record struct CassetteSaveIdentityObservation(
+    CassetteSaveIdentityObservationKind Kind,
+    CassetteSaveActivation? Activation);
+
 internal sealed class CassetteSaveIdentityStabilizer
 {
     private long _generation;
@@ -138,6 +152,7 @@ internal sealed class CassetteSaveIdentityStabilizer
     private long _consumedBuildGeneration;
 
     internal bool BoundaryPending { get; private set; }
+    internal int? ExpectedSlot => _expectedSlot;
 
     internal void Signal(int expectedSlot, CassetteSaveBoundarySignalKind kind)
     {
@@ -153,21 +168,27 @@ internal sealed class CassetteSaveIdentityStabilizer
     }
 
     internal CassetteSaveActivation? Observe(int? selectedSlot, long selectedStatePointer)
+        => ObserveDetailed(selectedSlot, selectedStatePointer).Activation;
+
+    internal CassetteSaveIdentityObservation ObserveDetailed(int? selectedSlot, long selectedStatePointer)
     {
-        if (!BoundaryPending || !_expectedSlot.HasValue || !selectedSlot.HasValue ||
-            selectedSlot.Value != _expectedSlot.Value || selectedStatePointer == 0)
-            return null;
+        if (!BoundaryPending || !_expectedSlot.HasValue)
+            return new(CassetteSaveIdentityObservationKind.NoPendingSignal, null);
+        if (!selectedSlot.HasValue || selectedStatePointer == 0)
+            return new(CassetteSaveIdentityObservationKind.InvalidIdentity, null);
+        if (selectedSlot.Value != _expectedSlot.Value)
+            return new(CassetteSaveIdentityObservationKind.Mismatch, null);
 
         if (_candidateSlot != selectedSlot || _candidatePointer != selectedStatePointer)
         {
             _candidateSlot = selectedSlot;
             _candidatePointer = selectedStatePointer;
             _matchingObservations = 1;
-            return null;
+            return new(CassetteSaveIdentityObservationKind.FirstStable, null);
         }
 
         _matchingObservations++;
-        if (_matchingObservations < 2) return null;
+        if (_matchingObservations < 2) return new(CassetteSaveIdentityObservationKind.FirstStable, null);
 
         bool identityChanged = _activatedSlot != selectedSlot || _activatedPointer != selectedStatePointer;
         bool unconsumedBuild = _includesBuild && _consumedBuildGeneration != _generation;
@@ -175,7 +196,7 @@ internal sealed class CassetteSaveIdentityStabilizer
         {
             BoundaryPending = false;
             _includesBuild = false;
-            return null;
+            return new(CassetteSaveIdentityObservationKind.StableDuplicate, null);
         }
 
         if (unconsumedBuild) _consumedBuildGeneration = _generation;
@@ -184,7 +205,8 @@ internal sealed class CassetteSaveIdentityStabilizer
         BoundaryPending = false;
         bool includedBuild = _includesBuild;
         _includesBuild = false;
-        return new CassetteSaveActivation(selectedSlot.Value, selectedStatePointer, _generation, _latestKind, includedBuild);
+        var activation = new CassetteSaveActivation(selectedSlot.Value, selectedStatePointer, _generation, _latestKind, includedBuild);
+        return new(CassetteSaveIdentityObservationKind.Activated, activation);
     }
 
     internal void Reset()
