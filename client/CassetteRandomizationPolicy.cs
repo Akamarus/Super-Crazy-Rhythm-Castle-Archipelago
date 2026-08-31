@@ -507,6 +507,20 @@ internal sealed class CassetteRegularSavePointerJoinProbe
     }
 }
 
+internal sealed class CassetteDiagnosticSignatureDeduplicator
+{
+    private string? _lastSignature;
+
+    internal bool ShouldLog(string signature)
+    {
+        if (string.Equals(_lastSignature, signature, StringComparison.Ordinal)) return false;
+        _lastSignature = signature;
+        return true;
+    }
+
+    internal void Reset() => _lastSignature = null;
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] RetryDelays =

@@ -233,7 +233,10 @@ internal static class CassetteSaveTransactionAdapter
                     if (!hasNext) break;
                     object? pair = currentProperty.GetValue(enumerator);
                     if (pair == null) { stage = "entry-null"; return false; }
-                    object? rawKey = pair.GetType().GetProperty("Key", PublicInstance)?.GetValue(pair);
+                    PropertyInfo? keyProperty = pair.GetType().GetProperty("Key", PublicInstance);
+                    if (keyProperty == null) { stage = "entry-key-missing"; return false; }
+                    object? rawKey = keyProperty.GetValue(pair);
+                    if (rawKey == null) { stage = "entry-key-null"; return false; }
                     int slot;
                     try { slot = Convert.ToInt32(rawKey); }
                     catch (Exception ex) { stage = $"entry-key-convert:{SummarizeException(ex)}"; return false; }
@@ -241,10 +244,17 @@ internal static class CassetteSaveTransactionAdapter
                     if (value == null) { stage = "entry-value-null"; return false; }
                     if (!TryReadPublicPointer(value, $"entry-{slot}", out long pointer, out stage)) return false;
                     PropertyInfo? gameStatsProperty = value.GetType().GetProperty("GameStats", PublicInstance);
-                    object? gameStats = gameStatsProperty?.GetValue(value);
-                    PropertyInfo? lastPlayProperty = gameStats?.GetType().GetProperty("LastPlayDateTimeUtc", PublicInstance);
-                    object? lastPlay = lastPlayProperty?.GetValue(gameStats);
-                    object? rawTicks = lastPlay?.GetType().GetProperty("Ticks", PublicInstance)?.GetValue(lastPlay);
+                    if (gameStatsProperty == null) { stage = $"entry-{slot}-game-stats-missing"; return false; }
+                    object? gameStats = gameStatsProperty.GetValue(value);
+                    if (gameStats == null) { stage = $"entry-{slot}-game-stats-null"; return false; }
+                    PropertyInfo? lastPlayProperty = gameStats.GetType().GetProperty("LastPlayDateTimeUtc", PublicInstance);
+                    if (lastPlayProperty == null) { stage = $"entry-{slot}-last-play-missing"; return false; }
+                    object? lastPlay = lastPlayProperty.GetValue(gameStats);
+                    if (lastPlay == null) { stage = $"entry-{slot}-last-play-null"; return false; }
+                    PropertyInfo? ticksProperty = lastPlay.GetType().GetProperty("Ticks", PublicInstance);
+                    if (ticksProperty == null) { stage = $"entry-{slot}-ticks-missing"; return false; }
+                    object? rawTicks = ticksProperty.GetValue(lastPlay);
+                    if (rawTicks == null) { stage = $"entry-{slot}-ticks-null"; return false; }
                     long ticks;
                     try { ticks = Convert.ToInt64(rawTicks); }
                     catch (Exception ex) { stage = $"entry-{slot}-ticks-convert:{SummarizeException(ex)}"; return false; }

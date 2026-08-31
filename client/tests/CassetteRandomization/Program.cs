@@ -97,6 +97,7 @@ Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentity
 Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic(__instance)", StringComparison.Ordinal), "MostRecent postfix passes only exact owner into bounded diagnostic queue");
 string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
 Equal(true, queueMostRecentProbe.Contains("non-authoritative", StringComparison.Ordinal), "most-recent static identity remains explicitly non-authoritative");
+Equal(true, queueMostRecentProbe.Contains("_regularSavePointerJoinQueueLogged", StringComparison.Ordinal), "identical pointer-join queue notices are suppressed");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, queueMostRecentProbe.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent probe queue forbids semantic call {prohibitedCall}");
 string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
@@ -134,6 +135,7 @@ Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal)
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
 Equal(true, unityTick.Contains("nonAuthoritative=true", StringComparison.Ordinal), "pointer-join result is explicitly non-authoritative");
+Equal(true, unityTick.Contains("_regularSavePointerJoinLogDeduper.ShouldLog(signature)", StringComparison.Ordinal), "pointer-join results are signature-deduplicated");
 string joinBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
 foreach (string prohibitedCall in new[] { "_saveIdentity.SignalSelection", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, joinBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"pointer-join diagnostic forbids semantic call {prohibitedCall}");
@@ -358,6 +360,16 @@ Equal(true, joinProbe.TryConsume(joinSnapshotB), "current diagnostic consumes ex
 Equal(false, joinProbe.Pending, "consumed diagnostic is bounded");
 Equal(false, joinProbe.TryConsume(joinSnapshotB), "diagnostic cannot consume twice");
 Console.WriteLine("PASS: regular_save_pointer_join_probe_is_bounded_and_non_authoritative");
+
+var joinLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
+Equal(true, joinLogDeduper.ShouldLog("success|slot=3|p=700|t=3000"), "first join result logs");
+Equal(false, joinLogDeduper.ShouldLog("success|slot=3|p=700|t=3000"), "identical join result is suppressed");
+Equal(true, joinLogDeduper.ShouldLog("success|slot=4|p=800|t=4000"), "changed slot/fingerprint logs");
+Equal(true, joinLogDeduper.ShouldLog("failure|match-count:0"), "changed outcome logs");
+Equal(false, joinLogDeduper.ShouldLog("failure|match-count:0"), "identical failure is suppressed");
+joinLogDeduper.Reset();
+Equal(true, joinLogDeduper.ShouldLog("failure|match-count:0"), "configure reset permits fresh diagnostic");
+Console.WriteLine("PASS: pointer_join_diagnostics_are_signature_deduplicated");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
@@ -704,6 +716,21 @@ Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(new SaveData
 Equal(true, joinStage.StartsWith("entry-key-convert:", StringComparison.Ordinal), "slot conversion failure has explicit stage");
 Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(new SaveDataProcessorFixture(new ThrowingSaveDataStateFixture()), transactionProcessor, out _, out _, out joinStage), "enumeration failure fails closed");
 Equal(true, joinStage.StartsWith("enumeration:", StringComparison.Ordinal), "enumeration failure has explicit stage");
+foreach (var malformed in new (object State, string Stage)[]
+{
+    (new MissingKeySaveDataStateFixture(), "entry-key-missing"),
+    (new NullKeySaveDataStateFixture(), "entry-key-null"),
+    (new MissingGameStatsSaveDataStateFixture(), "entry-3-game-stats-missing"),
+    (new NullGameStatsSaveDataStateFixture(), "entry-3-game-stats-null"),
+    (new MissingLastPlaySaveDataStateFixture(), "entry-3-last-play-missing"),
+    (new NullLastPlaySaveDataStateFixture(), "entry-3-last-play-null"),
+    (new MissingTicksSaveDataStateFixture(), "entry-3-ticks-missing"),
+    (new NullTicksSaveDataStateFixture(), "entry-3-ticks-null"),
+})
+{
+    Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(new SaveDataProcessorFixture(malformed.State), transactionProcessor, out _, out _, out joinStage), $"{malformed.Stage} fails closed");
+    Equal(malformed.Stage, joinStage, $"{malformed.Stage} is reported exactly");
+}
 
 var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
 Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
@@ -926,6 +953,71 @@ sealed class ThrowingEnumerable
 {
     public System.Collections.IEnumerator GetEnumerator() => throw new InvalidOperationException("enumeration failed");
 }
+
+sealed class PairEnumerable
+{
+    private readonly object _pair;
+    public PairEnumerable(object pair) => _pair = pair;
+    public System.Collections.IEnumerator GetEnumerator() => new List<object> { _pair }.GetEnumerator();
+}
+
+abstract class SingleEntrySaveDataStateFixture
+{
+    protected SingleEntrySaveDataStateFixture(object pair) => RegularPlayerSaves = new PairEnumerable(pair);
+    public PairEnumerable RegularPlayerSaves { get; }
+}
+
+sealed class MissingKeySaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public MissingKeySaveDataStateFixture() : base(new PairWithoutKey(new RegularSaveStateFixture(new IntPtr(0x700), 3000))) { }
+}
+sealed record PairWithoutKey(object Value);
+
+sealed class NullKeySaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public NullKeySaveDataStateFixture() : base(new PairWithNullableKey(null, new RegularSaveStateFixture(new IntPtr(0x700), 3000))) { }
+}
+sealed record PairWithNullableKey(object? Key, object Value);
+
+sealed class MissingGameStatsSaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public MissingGameStatsSaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new PointerOnlyState())) { }
+}
+sealed record PointerOnlyState { public IntPtr Pointer => new(0x700); }
+
+sealed class NullGameStatsSaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public NullGameStatsSaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new NullGameStatsState())) { }
+}
+sealed record NullGameStatsState { public IntPtr Pointer => new(0x700); public object? GameStats => null; }
+
+sealed class MissingLastPlaySaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public MissingLastPlaySaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new MissingLastPlayState())) { }
+}
+sealed record MissingLastPlayState { public IntPtr Pointer => new(0x700); public object GameStats => new object(); }
+
+sealed class NullLastPlaySaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public NullLastPlaySaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new NullLastPlayState())) { }
+}
+sealed record NullLastPlayState { public IntPtr Pointer => new(0x700); public NullLastPlayStats GameStats => new(); }
+sealed record NullLastPlayStats { public object? LastPlayDateTimeUtc => null; }
+
+sealed class MissingTicksSaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public MissingTicksSaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new MissingTicksState())) { }
+}
+sealed record MissingTicksState { public IntPtr Pointer => new(0x700); public MissingTicksStats GameStats => new(); }
+sealed record MissingTicksStats { public object LastPlayDateTimeUtc => new object(); }
+
+sealed class NullTicksSaveDataStateFixture : SingleEntrySaveDataStateFixture
+{
+    public NullTicksSaveDataStateFixture() : base(new KeyValuePair<int, object>(3, new NullTicksState())) { }
+}
+sealed record NullTicksState { public IntPtr Pointer => new(0x700); public NullTicksStats GameStats => new(); }
+sealed record NullTicksStats { public NullTicksDate LastPlayDateTimeUtc => new(); }
+sealed record NullTicksDate { public object? Ticks => null; }
 
 sealed class RecordSongCassetteStatusInSaveDataRequest
 {
