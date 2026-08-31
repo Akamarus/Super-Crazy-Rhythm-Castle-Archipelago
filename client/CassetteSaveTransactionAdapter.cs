@@ -97,7 +97,7 @@ internal static class CassetteSaveTransactionAdapter
                 "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
             if (enquiries == null) { stage = "fingerprint-owner-missing"; return false; }
             if (getState == null) { stage = "fingerprint-state-method-missing"; return false; }
-            object? currentState = UnwrapNullable(getState.Invoke(null, null));
+            object? currentState = UnwrapNullablePublic(getState.Invoke(null, null));
             if (currentState == null) { stage = "fingerprint-state-null"; return false; }
 
             PropertyInfo? gameStatsProperty = currentState.GetType().GetProperty("GameStats", PublicInstance);
@@ -158,7 +158,7 @@ internal static class CassetteSaveTransactionAdapter
         try
         {
             object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
-            object? rawStatus = UnwrapNullable(getStatus.Invoke(state, new[] { song }));
+            object? rawStatus = UnwrapNullablePublic(getStatus.Invoke(state, new[] { song }));
             status = rawStatus?.ToString() ?? string.Empty;
             if (status.Length == 0) { stage = $"fingerprint-{nativeSong}-status-empty"; return false; }
             return true;
@@ -293,5 +293,16 @@ internal static class CassetteSaveTransactionAdapter
         if (hasValue is bool present && !present) return null;
         return type.GetProperty(
             "Value", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(value);
+    }
+
+    private static object? UnwrapNullablePublic(object? value)
+    {
+        if (value == null) return null;
+        Type type = value.GetType();
+        string typeName = type.FullName ?? type.Name;
+        if (!typeName.Contains("Nullable`1", StringComparison.Ordinal)) return value;
+        object? hasValue = type.GetProperty("HasValue", PublicInstance)?.GetValue(value);
+        if (hasValue is not bool present || !present) return null;
+        return type.GetProperty("Value", PublicInstance)?.GetValue(value);
     }
 }

@@ -501,6 +501,12 @@ Equal("fingerprint-game-stats-missing", fingerprintStage, "fingerprint failure n
 PlayerSaveManagementEnquiries.SelectedState = new PrivateFingerprintState();
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects private replacement members");
 Equal("fingerprint-game-stats-missing", fingerprintStage, "private GameStats is not treated as public metadata");
+PlayerSaveManagementEnquiries.SelectedState = new PrivateNullable<FakePlayerSavePublicState>(new FakePlayerSavePublicState(new IntPtr(0x400)));
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects nullable-shaped wrappers with private members");
+Equal("fingerprint-state-null", fingerprintStage, "private nullable members fail closed before fingerprint traversal");
+PlayerSaveManagementEnquiries.SelectedState = new PrivateStatusFingerprintState();
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "fingerprint rejects private nullable cassette status members");
+Equal("fingerprint-I_GOT_MONEY-status-empty", fingerprintStage, "private cassette nullable members fail closed");
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(IntPtr.Zero);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "zero pointer fails closed");
 Equal("pointer-zero", identityStage, "zero pointer has exact stage");
@@ -621,6 +627,20 @@ sealed class PrivateFingerprintState
 {
     private FakeGameStats GameStats { get; } = new(1, DateTime.UnixEpoch);
     private eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.INVALID;
+}
+
+sealed class PrivateNullable<T>
+{
+    private bool HasValue => true;
+    private T Value { get; }
+    public PrivateNullable(T value) => Value = value;
+}
+
+sealed class PrivateStatusFingerprintState
+{
+    public FakeGameStats GameStats { get; } = new(1, DateTime.UnixEpoch);
+    public PrivateNullable<eSongCassetteStatus> GetCassetteStatusForSong(ePlayableSong song) =>
+        new(eSongCassetteStatus.HAVE_IN_BAG);
 }
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
