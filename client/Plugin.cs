@@ -11633,6 +11633,8 @@ internal static class CassetteSaveTransactionPatches
         else
         {
             detail = "identity-only";
+            if (string.Equals(requestIdentity, "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", StringComparison.Ordinal))
+                CassetteReceiptRandomization.QueueMostRecentSelectionIdentityDiagnostic();
         }
 
         LogPublicSelectionDiagnosticOnce(methodIdentity, detail);
@@ -17952,6 +17954,7 @@ internal static class CassetteReceiptRandomization
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteSaveIdentityStabilizer _saveIdentity = new();
+    private static CassetteMostRecentIdentityProbe _mostRecentIdentityProbe = new();
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
@@ -17966,6 +17969,7 @@ internal static class CassetteReceiptRandomization
         {
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteSaveIdentityStabilizer();
+            _mostRecentIdentityProbe = new CassetteMostRecentIdentityProbe();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
@@ -18031,6 +18035,12 @@ internal static class CassetteReceiptRandomization
             _unityReconciliationReason = string.Empty;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY QUEUED slot={expectedSlot} kind='{kind}'; prior epoch suspended.");
+    }
+
+    internal static void QueueMostRecentSelectionIdentityDiagnostic()
+    {
+        lock (Sync) _mostRecentIdentityProbe.Queue();
+        Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT IDENTITY PROBE queued for next Unity update.");
     }
 
     internal static void ActivateLoadedSave(int slot, string reason)
@@ -18144,6 +18154,22 @@ internal static class CassetteReceiptRandomization
 
     internal static void TickUnity(TimeSpan elapsed)
     {
+        bool probePending;
+        lock (Sync) probePending = _mostRecentIdentityProbe.Pending;
+        if (probePending)
+        {
+            bool probeReadable = CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(
+                out int probeSlot, out long probePointer, out string probeStage);
+            CassetteMostRecentIdentityProbeResult probeResult;
+            lock (Sync) probeResult = _mostRecentIdentityProbe.Observe(
+                probeReadable, probeSlot, probePointer, probeStage);
+            string probeIdentity = probeReadable
+                ? $"slot={probeSlot} pointer=0x{probePointer:X}"
+                : "slot=<unavailable> pointer=<unavailable>";
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE MOST-RECENT IDENTITY PROBE outcome='{probeResult.Kind}' {probeIdentity} stage='{probeStage}'.");
+        }
+
         CassetteSaveActivation? activation = null;
         bool boundaryPending;
         int? expectedSlot;

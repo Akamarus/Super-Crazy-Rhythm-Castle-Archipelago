@@ -93,6 +93,11 @@ Equal(true, publicSelectionDiagnostic.Contains("EnsureAPlayerSaveSlotIsSelectedR
 Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "public selection diagnostics are bounded by identity/value");
 foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
+Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed identity probe");
+string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
+Equal(true, queueMostRecentProbe.Contains("_mostRecentIdentityProbe.Queue", StringComparison.Ordinal), "most-recent probe queue mutates pure managed state");
+foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, queueMostRecentProbe.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent probe queue forbids semantic call {prohibitedCall}");
 string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
 Equal(true, selectedSlotSetterDiagnostic.Contains("ReflectionUtil.UnwrapNullable", StringComparison.Ordinal), "selected-slot setter safely unwraps generated nullable value");
 Equal(true, selectedSlotSetterDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "selected-slot setter logging is bounded");
@@ -129,6 +134,7 @@ Equal(true, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordi
 Equal(true, unityTick.Contains("ObserveDetailed", StringComparison.Ordinal), "Unity keeper feeds identity into diagnostic stabilizer observation");
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
 Equal(true, unityTick.Contains("expectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes expected slot, actual slot, and pointer");
+Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringComparison.Ordinal) && unityTick.Contains("_mostRecentIdentityProbe.Observe", StringComparison.Ordinal), "Unity keeper consumes bounded most-recent probe");
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
 Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
@@ -183,6 +189,23 @@ Equal(5, stableActivation!.Value.Slot, "slot switch activates");
 stabilizer.Reset();
 Equal(false, stabilizer.BoundaryPending, "reset clears pending boundary");
 Console.WriteLine("PASS: final_save_identity_stabilization");
+
+var probe = new CassetteMostRecentIdentityProbe();
+Equal(false, probe.Pending, "most-recent diagnostic starts inactive");
+probe.Queue();
+Equal(true, probe.Pending, "most-recent diagnostic queues managed probe");
+var probeResult = probe.Observe(readable: true, slot: 4, pointer: 400, stage: "success");
+Equal(CassetteMostRecentIdentityProbeKind.FirstObservation, probeResult.Kind, "first identity observation is diagnostic only");
+Equal(true, probe.Pending, "probe waits for one confirming observation");
+probeResult = probe.Observe(readable: true, slot: 4, pointer: 400, stage: "success");
+Equal(CassetteMostRecentIdentityProbeKind.Stable, probeResult.Kind, "second matching identity is reported stable");
+Equal(false, probe.Pending, "stable probe clears after two observations");
+Equal<CassetteSaveActivation?>(null, probeResult.Activation, "diagnostic probe cannot produce epoch activation");
+probe.Queue();
+probeResult = probe.Observe(readable: false, slot: 0, pointer: 0, stage: "state-null");
+Equal(CassetteMostRecentIdentityProbeKind.ReadFailure, probeResult.Kind, "read failure reports bounded stage");
+Equal(false, probe.Pending, "failed probe clears without retry loop");
+Console.WriteLine("PASS: most_recent_identity_probe_is_bounded_and_non_authoritative");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");

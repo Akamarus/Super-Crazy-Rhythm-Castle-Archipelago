@@ -138,6 +138,67 @@ internal readonly record struct CassetteSaveIdentityObservation(
     CassetteSaveIdentityObservationKind Kind,
     CassetteSaveActivation? Activation);
 
+internal enum CassetteMostRecentIdentityProbeKind
+{
+    None,
+    ReadFailure,
+    FirstObservation,
+    Stable,
+    Changed,
+}
+
+internal readonly record struct CassetteMostRecentIdentityProbeResult(
+    CassetteMostRecentIdentityProbeKind Kind,
+    int? Slot,
+    long Pointer,
+    string Stage)
+{
+    // This diagnostic result is deliberately incapable of authorizing a save epoch.
+    internal CassetteSaveActivation? Activation => null;
+}
+
+internal sealed class CassetteMostRecentIdentityProbe
+{
+    private int? _candidateSlot;
+    private long _candidatePointer;
+
+    internal bool Pending { get; private set; }
+
+    internal void Queue()
+    {
+        Pending = true;
+        _candidateSlot = null;
+        _candidatePointer = 0;
+    }
+
+    internal CassetteMostRecentIdentityProbeResult Observe(bool readable, int slot, long pointer, string stage)
+    {
+        if (!Pending)
+            return new(CassetteMostRecentIdentityProbeKind.None, null, 0, stage);
+
+        if (!readable)
+        {
+            Pending = false;
+            return new(CassetteMostRecentIdentityProbeKind.ReadFailure, null, 0, stage);
+        }
+
+        if (!_candidateSlot.HasValue)
+        {
+            _candidateSlot = slot;
+            _candidatePointer = pointer;
+            return new(CassetteMostRecentIdentityProbeKind.FirstObservation, slot, pointer, stage);
+        }
+
+        bool stable = _candidateSlot.Value == slot && _candidatePointer == pointer;
+        Pending = false;
+        return new(
+            stable ? CassetteMostRecentIdentityProbeKind.Stable : CassetteMostRecentIdentityProbeKind.Changed,
+            slot,
+            pointer,
+            stage);
+    }
+}
+
 internal sealed class CassetteSaveIdentityStabilizer
 {
     private long _generation;
