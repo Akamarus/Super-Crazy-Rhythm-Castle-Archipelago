@@ -19,8 +19,10 @@
 - Do not rely on `PersistSaveChangeBundleRequest` or `PersistAllSaveChangeBundlesRequest`; live diagnostics observed no prefix entry for load, travel, title return, difficulty change, shutdown, or the durable Plant Pipes grant.
 - Broad selection-request postfixes are not authoritative and must not activate an epoch.
 - Exact callbacks for `SaveDataRequestProcessor.ChangeSelectedPlayerSaveSlot(Int32)`, `CreateNewPlayerSaveFileInEmptySlot(Int32)`, and `ProcessRequest(BuildPlayerSaveStateFromFileRequest)` enqueue only; they perform no native cassette read or write.
+- Every exact signal immediately suspends reconciliation and delayed verification for the prior active epoch. Native work remains fail-closed until a new candidate activates.
 - Begin an epoch only after the Unity keeper observes the signal's expected slot plus a non-null selected `PlayerSaveFilePublicState.Pointer` unchanged for two consecutive updates.
-- Slot change, pointer change, or one newly consumed Build generation for the selected slot advances the epoch; duplicate signals coalesce.
+- Every newer exact signal, including same-slot, advances the pending generation and resets stability to zero; both matching observations must occur afterward.
+- Slot change, pointer change, or one newly consumed Build generation for the selected slot advances the epoch; same-slot coalescing preserves Build inclusion and each coalesced generation activates at most once.
 - Room transitions never establish or replace an epoch.
 - Keep AP ownership session-wide, but never keep satisfaction process-wide. Bag/deposited status is terminal only in the epoch that authoritatively observed it.
 - Read before every write. Preserve `HAVE_IN_BAG` and `HAVE_DEPOSITED`.
@@ -169,6 +171,14 @@ Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first matching
 var activation = stabilizer.Observe(4, 400);
 Equal(4, activation!.Value.Slot, "slot 4 activates after two matching Unity observations");
 Equal(400L, activation.Value.Pointer, "activation records native state identity");
+
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first observation before newer signal");
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "same-slot Build resets stability to zero");
+activation = stabilizer.Observe(4, 400);
+Equal(true, activation!.Value.IncludesBuild, "coalesced generation preserves Build");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "coalesced generation activates at most once");
 ```
 
 Also require:
@@ -180,6 +190,7 @@ Also require:
 - duplicate create/build/change signals coalesce around one final identity;
 - repeated non-Build signals for the activated identity do not duplicate epochs;
 - `Observe` without an exact signal, including room-transition calls, cannot activate.
+- an active slot-0 epoch followed by a queued slot-4 signal reports boundary pending immediately, and old-epoch reconciliation/verification eligibility remains false until slot 4 activates.
 
 - [ ] **Step 2: Run focused test and verify RED**
 
@@ -191,7 +202,7 @@ Expected: FAIL because no expected-slot/native-pointer stabilizer exists.
 
 - [ ] **Step 3: Implement the minimal pure stabilizer**
 
-Keep signal generation, expected slot, an `includesBuild` marker, candidate identity, consecutive-match count, activated identity, and last-consumed Build generation. `Signal` for a different expected slot replaces the stale candidate. Signals for the same expected slot coalesce and preserve `includesBuild=true` if any signal was Build, even when a later Selection or Creation signal arrives. `Observe` ignores null slots, zero pointers, and slot mismatches; the first matching identity records a candidate and the second consecutive match may return one activation.
+Keep signal generation, expected slot, an `includesBuild` marker, boundary-pending state, candidate identity, consecutive-match count, activated identity, and last-consumed Build generation. Every `Signal`, including same-slot, advances/coalesces the pending generation, immediately marks the boundary pending, invalidates the candidate identity, and resets the consecutive count to zero. Signals for the same expected slot preserve `includesBuild=true` if any signal was Build, even when a later Selection or Creation signal arrives. A different expected slot replaces the stale expected slot and Build marker. `Observe` ignores null slots, zero pointers, and slot mismatches; the first matching identity records a candidate and the second consecutive match may return one activation.
 
 Return an activation when:
 
@@ -199,7 +210,7 @@ Return an activation when:
 - the stable pointer differs from the activated pointer; or
 - the stable signal includes an unconsumed Build generation for the selected slot.
 
-Consume a Build generation at most once. Return no activation for later non-Build signals with the same stable identity.
+Consume a Build generation at most once. Return no activation for later non-Build signals with the same stable identity. Activation clears boundary-pending state; no other observation or lifecycle notification clears it.
 
 - [ ] **Step 4: Run focused test to verify stabilizer GREEN**
 
@@ -216,6 +227,8 @@ SaveDataRequestProcessor.ProcessRequest(BuildPlayerSaveStateFromFileRequest)
 ```
 
 Require callbacks to extract the exact expected slot and call only the queue/stabilizer signal API. Reject `TryReconcile`, native status reads, semantic submissions, and epoch activation inside those callbacks.
+
+Require every exact callback to suspend prior-epoch reconciliation through pure managed state immediately. While the stabilizer reports boundary pending, require `TryReconcile`, delayed verification, and semantic submission paths to fail closed before any native enquiry.
 
 Require the Unity keeper to:
 
@@ -239,7 +252,7 @@ public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __or
 public static void BuiltPlayerSaveStatePostfix(object[]? __args)
 ```
 
-For `ChangeSelectedPlayerSaveSlot` and `CreateNewPlayerSaveFileInEmptySlot`, extract the sole `Int32` argument and enqueue `Selection` or `Creation`. For `BuildPlayerSaveStateFromFileRequest`, extract its `SlotNumber` and enqueue `Build`. Missing/unreadable arguments fail closed and log once; callbacks perform no save enquiry or cassette work.
+For `ChangeSelectedPlayerSaveSlot` and `CreateNewPlayerSaveFileInEmptySlot`, extract the sole `Int32` argument and enqueue `Selection` or `Creation`. For `BuildPlayerSaveStateFromFileRequest`, extract its `SlotNumber` and enqueue `Build`. Enqueueing immediately suspends the prior epoch in managed state. Missing/unreadable arguments fail closed and log once; callbacks perform no save enquiry or cassette work.
 
 The existing broad request postfixes become diagnostic-only or are removed. They do not activate/deactivate epochs.
 
@@ -253,7 +266,7 @@ On every keeper update with a pending signal:
 4. call `Observe(selectedSlot, pointer.ToInt64())`;
 5. if an activation is returned, call `ActivateLoadedSave` with its exact slot/generation reason and queue reconciliation.
 
-A newer signal replaces stale candidate work. Room transition and other lifecycle callbacks remain reconciliation-only and never call the stabilizer's `Signal`.
+A newer signal, including same-slot, resets stability and replaces stale candidate work so both observations occur afterward. Same-slot signals preserve Build inclusion, and one coalesced generation resumes reconciliation at most once. While any boundary signal/candidate is pending, the keeper may observe identity but must not advance old verification timers or enter native reconciliation. Room transition and other lifecycle callbacks remain reconciliation-only and never call the stabilizer's `Signal`.
 
 - [ ] **Step 9: Run complete verification**
 

@@ -32,7 +32,9 @@ Archipelago cassette ownership is session-wide, while the game's cassette state 
 
 The client maintains a monotonically increasing loaded-save epoch. The broad `SelectMostRecentlyUsedRegularPlayerSaveSlotRequest`, `SelectPlayerSaveSlotRequest`, `EnsureAPlayerSaveSlotIsSelectedRequest`, and `CreateNewPlayerSaveFileInSlotRequest` postfixes are not authoritative: live testing proved that startup can expose slot 0 through those enquiries before the UI installs the final playable slot 4, and the UI flow may not produce a later broad-request postfix.
 
-Instead, exact postfixes on `SaveDataRequestProcessor.ChangeSelectedPlayerSaveSlot(Int32)`, `SaveDataRequestProcessor.CreateNewPlayerSaveFileInEmptySlot(Int32)`, and `SaveDataRequestProcessor.ProcessRequest(BuildPlayerSaveStateFromFileRequest)` enqueue an expected slot, signal kind, and generation. `BuildPlayerSaveStateFromFileRequest` supplies both `SlotNumber` and `PlayerSaveFile`, making it the explicit state-build/replacement signal. These callbacks only enqueue; they never read or write native cassette state.
+Instead, exact postfixes on `SaveDataRequestProcessor.ChangeSelectedPlayerSaveSlot(Int32)`, `SaveDataRequestProcessor.CreateNewPlayerSaveFileInEmptySlot(Int32)`, and `SaveDataRequestProcessor.ProcessRequest(BuildPlayerSaveStateFromFileRequest)` enqueue an expected slot, signal kind, and generation. `BuildPlayerSaveStateFromFileRequest` supplies both `SlotNumber` and `PlayerSaveFile`, making it the explicit state-build/replacement signal. These callbacks only mutate managed boundary state; they never enquire into the selected save or read/write native cassette state.
+
+Queuing any exact Selection, Creation, or Build signal immediately suspends reconciliation and delayed verification for the previously active epoch. While a boundary signal or candidate is pending, all native reads, submissions, and verification retries fail closed. The old epoch is not resumed if stabilization is delayed or fails. Only activation of a newly stabilized candidate resumes reconciliation, clears stale epoch-local attempts/verifications, and reevaluates session-wide AP ownership in the new epoch.
 
 The Unity keeper reads `PlayerSaveManagementEnquiries.GetSelectedSaveFileSlotNumber()` and `TryGetSelectedSlotSaveFileState()`. It accepts a candidate only when the selected slot matches the signal's expected slot and the selected public state is non-null. It identifies the underlying `PlayerSaveFilePublicState` by its public `Il2CppObjectBase.Pointer` and requires the same non-zero `(slot, pointer)` on two consecutive Unity updates after the newest signal before advancing the epoch.
 
@@ -40,7 +42,7 @@ No cassette is considered terminal across epochs. `HAVE_IN_BAG` and `HAVE_DEPOSI
 
 Reconciliation remains inactive before the first confirmed loaded-save epoch.
 
-Duplicate create/build/change signals for one expected slot coalesce until the candidate stabilizes. The pending generation retains an `includesBuild` bit if any coalesced signal was Build; a later Creation or Selection signal for the same slot cannot erase it. A signal for a different expected slot replaces the stale candidate and its Build bit. A stable slot change or native pointer change advances the epoch. A new consumed Build generation for the selected slot also advances the epoch once, even if IL2CPP reuses the same pointer, so same-slot reloads cannot inherit satisfaction. Later non-Build signals with the already-activated `(slot, pointer)` do not create duplicate epochs.
+Duplicate create/build/change signals coalesce into one pending generation until the candidate stabilizes. Every newer exact signal, including a same-slot signal, advances/coalesces that generation, invalidates the current candidate identity, and resets the consecutive-observation count to zero. Thus both matching observations occur after the newest signal. Same-slot coalescing retains `includesBuild=true` if any signal was Build; a later Creation or Selection signal cannot erase it. A signal for a different expected slot replaces the stale expected slot and Build bit. A stable slot change or native pointer change advances the epoch. A new consumed Build generation for the selected slot also advances the epoch once, even if IL2CPP reuses the same pointer, so same-slot reloads cannot inherit satisfaction. Each coalesced generation activates at most once, and later non-Build signals with the already-activated `(slot, pointer)` do not create duplicate epochs.
 
 ### Pending AP ownership
 
@@ -57,7 +59,7 @@ Live diagnostics disproved the earlier assumption that `PersistSaveChangeBundleR
 
 After a loaded-save epoch is confirmed, reconciliation runs only on the Unity thread at existing safe lifecycle points. For each pending AP-owned cassette it:
 
-1. Confirms compatible synchronized slot data and an active epoch.
+1. Confirms compatible synchronized slot data, an active epoch, and no pending save-boundary signal or candidate.
 2. Authoritatively reads the selected save through `SongCassetteEnquiries.GetSongCassetteStatus`.
 3. Leaves `HAVE_IN_BAG` and `HAVE_DEPOSITED` unchanged and satisfies them only for the current epoch.
 4. Leaves unreadable or unknown state pending and fails closed.
@@ -102,6 +104,7 @@ No log may call a cassette persisted merely because request invocation returned 
 - Unknown native status: do not overwrite; log once per epoch/status transition.
 - Native semantic request failure: leave pending and retry only at the next bounded safe lifecycle point.
 - Save load during pending work: discard epoch-local markers and evaluate the new epoch.
+- Exact save-boundary signal during pending work: suspend the old epoch immediately; do not read, submit, or verify until a new candidate activates.
 - Duplicate AP receipt: idempotent; it does not create another native request.
 
 ## Testing
@@ -114,15 +117,17 @@ Automated tests must prove:
 4. A first load, same-slot reload (including pointer reuse), and different-slot switch each advance the epoch exactly once; duplicate signals coalesce.
 5. Startup slot 0 followed by a UI slot-4 create/select cannot authorize cassette writes to slot 0 and activates only after slot 4 stabilizes.
 6. Room transition alone never creates or replaces an epoch.
-7. Process-wide AP ownership survives epoch changes while native satisfaction does not.
-8. Missing cassettes submit only after an active loaded-save epoch and an authoritative unearned read.
-9. Submission uses the exact semantic three-argument request with `HAVE_IN_BAG` and `DEFAULT`.
-10. `HAVE_IN_BAG` and `HAVE_DEPOSITED` prevent submission within an epoch.
-11. Deposited cassettes remain deposited across reloads.
-12. Authoritative-read failures fail closed.
-13. A receipt arriving during campaign or Music Lab result processing waits for the Unity keeper rather than writing inside the result transaction.
-14. Same-slot reload after a transient bag observation revalidates and repairs the active save.
-15. Source wiring contains no selected-slot event hook, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
+7. An active slot-0 epoch followed by a queued slot-4 signal performs no old-epoch read, submission, or delayed verification before slot 4 activates.
+8. Signal slot 4, observe `(4, 400)` once, then signal same-slot Build: the count resets; the next observation does not activate and the following matching observation activates exactly once with Build preserved.
+9. Process-wide AP ownership survives epoch changes while native satisfaction does not.
+10. Missing cassettes submit only after an active loaded-save epoch and an authoritative unearned read.
+11. Submission uses the exact semantic three-argument request with `HAVE_IN_BAG` and `DEFAULT`.
+12. `HAVE_IN_BAG` and `HAVE_DEPOSITED` prevent submission within an epoch.
+13. Deposited cassettes remain deposited across reloads.
+14. Authoritative-read failures fail closed.
+15. A receipt arriving during campaign or Music Lab result processing waits for the Unity keeper rather than writing inside the result transaction.
+16. Same-slot reload after a transient bag observation revalidates and repairs the active save.
+17. Source wiring contains no selected-slot event hook, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
 
 Live acceptance uses fresh seed `8302601` at `127.0.0.1:38282`, slot `Jack`, with UI save slot 4:
 
