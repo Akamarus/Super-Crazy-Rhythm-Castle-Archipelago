@@ -361,6 +361,92 @@ internal sealed class CassetteSaveIdentityStabilizer
     }
 }
 
+internal readonly record struct CassetteProcessorSaveIdentitySnapshot(
+    long Generation,
+    int? ExpectedSlot,
+    bool Pending,
+    object? Processor)
+{
+    internal bool IsCurrent(CassetteProcessorSaveIdentitySnapshot current) =>
+        Pending && current.Pending && Generation == current.Generation &&
+        ExpectedSlot == current.ExpectedSlot && ReferenceEquals(Processor, current.Processor);
+}
+
+internal sealed class CassetteProcessorSaveIdentityStabilizer
+{
+    private long _generation;
+    private int? _expectedSlot;
+    private object? _processor;
+    private long _candidatePointer;
+    private int _matchingObservations;
+
+    internal long SignalSelection(int expectedSlot, object? processor)
+    {
+        _generation++;
+        _expectedSlot = expectedSlot;
+        _processor = processor;
+        _candidatePointer = 0;
+        _matchingObservations = 0;
+        Pending = true;
+        return _generation;
+    }
+
+    internal bool Pending { get; private set; }
+
+    internal bool CaptureProcessor(object processor)
+    {
+        if (!Pending) return false;
+        if (ReferenceEquals(_processor, processor)) return false;
+        _processor = processor;
+        _candidatePointer = 0;
+        _matchingObservations = 0;
+        return true;
+    }
+
+    internal CassetteProcessorSaveIdentitySnapshot Capture() =>
+        new(_generation, _expectedSlot, Pending, _processor);
+
+    internal CassetteSaveActivation? Observe(
+        long generation,
+        object? processor,
+        bool readable,
+        long pointer,
+        string stage)
+    {
+        if (!Pending || generation != _generation ||
+            processor == null || !ReferenceEquals(processor, _processor) ||
+            !readable || pointer == 0 || !_expectedSlot.HasValue)
+            return null;
+
+        if (_candidatePointer != pointer)
+        {
+            _candidatePointer = pointer;
+            _matchingObservations = 1;
+            return null;
+        }
+
+        _matchingObservations++;
+        if (_matchingObservations < 2) return null;
+
+        Pending = false;
+        return new CassetteSaveActivation(
+            _expectedSlot.Value,
+            pointer,
+            _generation,
+            CassetteSaveBoundarySignalKind.Selection,
+            IncludesBuild: false);
+    }
+
+    internal void Reset()
+    {
+        _expectedSlot = null;
+        _processor = null;
+        _candidatePointer = 0;
+        _matchingObservations = 0;
+        Pending = false;
+    }
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] RetryDelays =

@@ -149,6 +149,43 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    internal static bool TryGetProcessorSaveIdentity(
+        object? processor,
+        out long statePointer,
+        out string stage)
+    {
+        statePointer = 0;
+        stage = "processor-identity-start";
+        try
+        {
+            if (!IsCompatiblePlayerSaveRequestProcessor(processor))
+            {
+                stage = "processor-identity-incompatible";
+                return false;
+            }
+            MethodInfo? obtainState = processor!.GetType().GetMethods(PublicInstance)
+                .FirstOrDefault(method =>
+                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
+                    method.GetParameters().Length == 0);
+            if (obtainState == null) { stage = "processor-identity-obtain-state-missing"; return false; }
+            object? currentState = obtainState.Invoke(processor, null);
+            if (currentState == null) { stage = "processor-identity-state-null"; return false; }
+            PropertyInfo? pointerProperty = currentState.GetType().GetProperty("Pointer", PublicInstance);
+            object? rawPointer = pointerProperty?.GetValue(currentState);
+            if (rawPointer is not IntPtr pointer) { stage = "processor-identity-pointer-missing"; return false; }
+            if (pointer == IntPtr.Zero) { stage = "processor-identity-pointer-zero"; return false; }
+            statePointer = pointer.ToInt64();
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            statePointer = 0;
+            stage = $"processor-identity-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
     private static bool TryBuildFingerprint(object currentState, out CassetteSaveFingerprint fingerprint, out string stage)
     {
         fingerprint = default;

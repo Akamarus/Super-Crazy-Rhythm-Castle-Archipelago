@@ -95,7 +95,7 @@ foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLo
     Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
 Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed identity probe");
 string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
-Equal(true, queueMostRecentProbe.Contains("_mostRecentIdentityProbe.Queue", StringComparison.Ordinal), "most-recent probe queue mutates pure managed state");
+Equal(true, queueMostRecentProbe.Contains("non-authoritative", StringComparison.Ordinal), "most-recent static identity remains explicitly non-authoritative");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, queueMostRecentProbe.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent probe queue forbids semantic call {prohibitedCall}");
 string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
@@ -130,34 +130,17 @@ Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal)
 string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
-Equal(true, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordinal), "Unity keeper observes selected slot and native public-state pointer");
-Equal(true, unityTick.Contains("ObserveDetailed", StringComparison.Ordinal), "Unity keeper feeds identity into diagnostic stabilizer observation");
+Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
+Equal(false, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordinal), "Unity keeper never authorizes from stale static selected-save enquiry");
+Equal(true, unityTick.Contains("_saveIdentity.Observe", StringComparison.Ordinal), "Unity keeper feeds processor identity into authoritative stabilizer");
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
-Equal(true, unityTick.Contains("expectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes expected slot, actual slot, and pointer");
-Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringComparison.Ordinal) && unityTick.Contains("_mostRecentIdentityProbe.Observe", StringComparison.Ordinal), "Unity keeper consumes bounded most-recent probe");
-Equal(true, unityTick.Contains("TryGetLoadedSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads fixed public-state fingerprint");
-string processorProbeTick = ExtractMethods(receiptRandomizationSource, "private static void TickProcessorIdentityProbe(").Single();
-Equal(true, processorProbeTick.Contains("TryGetProcessorSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads processor-local public-state fingerprint");
-Equal(true, unityTick.Contains("lock (Sync)", StringComparison.Ordinal) && unityTick.Contains("CassetteProcessorIdentityProbeSnapshot.Capture", StringComparison.Ordinal), "Unity keeper snapshots probe generation and processor atomically");
-Equal(true, processorProbeTick.Contains("snapshot.IsCurrent", StringComparison.Ordinal), "processor probe rejects detached or replaced snapshots before consumption");
-foreach (string prohibitedCall in new[] { "_saveIdentity", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
-    Equal(false, processorProbeTick.Contains(prohibitedCall, StringComparison.Ordinal), $"processor diagnostic helper forbids semantic call {prohibitedCall}");
-foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHaveInBag" })
-{
-    string probeBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
-    Equal(false, probeBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"diagnostic probe block forbids semantic call {prohibitedCall}");
-}
+Equal(true, unityTick.Contains("identitySnapshot.ExpectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes exact UI slot and processor-local pointer");
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
-Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
+Equal(true, queueBoundary.Contains("_saveIdentity.SignalSelection", StringComparison.Ordinal), "exact UI selection records authoritative managed signal");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
-Equal(true, queueBoundary.Contains("_processorIdentityProbe.SignalSelection", StringComparison.Ordinal), "exact selection invalidates old processor probe generation");
-Equal(true, queueBoundary.Contains("_preexistingProcessorIdentityProbe.SignalSelection", StringComparison.Ordinal), "exact selection invalidates old preexisting-processor generation");
-Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal) && queueBoundary.Contains("_preexistingProcessorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "preexisting probe arms only from compatible processor present at selection");
+Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal), "selection binds only a compatible preexisting processor");
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
-Equal(true, captureProcessor.Contains("_processorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "only a post-selection processor callback arms processor probe");
-Equal(false, captureProcessor.Contains("_preexistingProcessorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "later capture cannot masquerade as preexisting processor");
-Equal(true, receiptRandomizationSource.Contains("TickProcessorIdentityProbe(\"preexisting-processor\"", StringComparison.Ordinal), "preexisting processor log has distinct source label");
-Equal(true, receiptRandomizationSource.Contains("TickProcessorIdentityProbe(\"post-selection-capture\"", StringComparison.Ordinal), "post-selection capture log has distinct source label");
+Equal(true, captureProcessor.Contains("_saveIdentity.CaptureProcessor", StringComparison.Ordinal), "compatible post-selection processor can bind pending selection");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
@@ -209,6 +192,43 @@ Equal(5, stableActivation!.Value.Slot, "slot switch activates");
 stabilizer.Reset();
 Equal(false, stabilizer.BoundaryPending, "reset clears pending boundary");
 Console.WriteLine("PASS: final_save_identity_stabilization");
+
+var processorStabilizer = new CassetteProcessorSaveIdentityStabilizer();
+object slot3Processor = new();
+long slot3Generation = processorStabilizer.SignalSelection(3, slot3Processor);
+var processorBoundarySnapshot = processorStabilizer.Capture();
+Equal(true, processorBoundarySnapshot.Pending, "selection suspends prior epoch");
+Equal(3, processorBoundarySnapshot.ExpectedSlot, "selection binds exact UI slot");
+Equal(true, ReferenceEquals(slot3Processor, processorBoundarySnapshot.Processor), "preexisting processor binds at selection");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(slot3Generation, slot3Processor, readable: true, pointer: 300, "success"), "first processor-local pointer observation cannot activate");
+var slot3Activation = processorStabilizer.Observe(slot3Generation, slot3Processor, readable: true, pointer: 300, "success");
+Equal(3, slot3Activation!.Value.Slot, "slot 3 activates after two matching processor-local observations");
+Equal(300L, slot3Activation.Value.Pointer, "slot 3 activation uses processor-local state pointer");
+
+object slot4Processor = new();
+long slot4Generation = processorStabilizer.SignalSelection(4, null);
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(slot4Generation, null, readable: false, pointer: 0, "processor-missing"), "missing processor remains suspended");
+Equal(true, processorStabilizer.CaptureProcessor(slot4Processor), "later compatible processor capture binds pending selection");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(slot4Generation, slot4Processor, readable: true, pointer: 400, "success"), "post-selection processor first observation cannot activate");
+var slot4Activation = processorStabilizer.Observe(slot4Generation, slot4Processor, readable: true, pointer: 400, "success");
+Equal(4, slot4Activation!.Value.Slot, "slot 4 creates a distinct epoch");
+Equal(400L, slot4Activation.Value.Pointer, "slot 4 uses distinct processor-local pointer");
+
+long pointerChangeGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 401, "success"), "pointer candidate starts with first observation");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 402, "success"), "pointer change resets stability");
+var pointerChangeActivation = processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 402, "success");
+Equal(402L, pointerChangeActivation!.Value.Pointer, "only repeated replacement pointer activates");
+
+long staleGeneration = processorStabilizer.SignalSelection(3, slot3Processor);
+long currentGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(staleGeneration, slot3Processor, true, 333, "success"), "stale generation cannot activate");
+Equal(true, processorStabilizer.Capture().Pending, "stale observation leaves current selection suspended");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGeneration, new object(), true, 444, "success"), "wrong processor cannot activate");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGeneration, slot4Processor, false, 0, "obtain-state-failed"), "failed processor read remains suspended");
+Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGeneration, slot4Processor, true, 444, "success"), "successful read after failures still requires two observations");
+Equal(4, processorStabilizer.Observe(currentGeneration, slot4Processor, true, 444, "success")!.Value.Slot, "current generation eventually activates");
+Console.WriteLine("PASS: processor_local_save_identity_stabilization");
 
 var probe = new CassetteMostRecentIdentityProbe();
 Equal(false, probe.Pending, "most-recent diagnostic starts inactive");
@@ -596,8 +616,13 @@ Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(transa
 Equal("success", processorFingerprintStage, "processor-local fingerprint success stage");
 Equal(0x700L, processorPointer, "processor-local fingerprint reads public pointer");
 Equal(777L, processorFingerprint.PlayTimeInSeconds, "processor-local fingerprint reads selected processor playtime");
+Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(transactionProcessor, out long authorityPointer, out string authorityStage), "authoritative identity reads processor-local public state");
+Equal(0x700L, authorityPointer, "authoritative identity returns processor-local pointer");
+Equal("success", authorityStage, "authoritative identity reports success");
 Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out _, out processorFingerprintStage), "processor fingerprint rejects private-only ObtainState");
 Equal("processor-fingerprint-obtain-state-missing", processorFingerprintStage, "private ObtainState fails closed");
+Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out authorityStage), "authoritative identity rejects private-only ObtainState");
+Equal("processor-identity-obtain-state-missing", authorityStage, "authoritative identity fails closed at public method boundary");
 
 var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
 Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
@@ -618,6 +643,9 @@ Equal(false, buildFingerprintAdapter.Contains("AllStatic", StringComparison.Ordi
 string processorFingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveFingerprint(").Single();
 Equal(true, processorFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "processor fingerprint uses public-only ObtainState lookup");
 Equal(false, processorFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "processor fingerprint cannot invoke private ObtainState");
+string processorIdentityAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveIdentity(").Single();
+Equal(true, processorIdentityAdapter.Contains("PublicInstance", StringComparison.Ordinal), "authoritative processor identity uses public-only state lookup");
+Equal(false, processorIdentityAdapter.Contains("AllInstance", StringComparison.Ordinal), "authoritative processor identity cannot invoke private state access");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
