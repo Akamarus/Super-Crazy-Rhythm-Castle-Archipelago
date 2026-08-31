@@ -1,7 +1,7 @@
 # Cassette Save-Transaction Design
 
 **Date:** 2026-08-30  
-**Status:** Approved in chat; written-spec review pending  
+**Status:** Revised boundary approved after live diagnostics
 **Related design:** `2026-08-29-full-cassette-randomization-design.md`
 
 ## Problem
@@ -13,7 +13,7 @@ Archipelago cassette ownership is session-wide, while the game's cassette state 
 ## Goals
 
 - Apply every AP-owned cassette to the actual loaded save.
-- Persist receipts through the game's normal save transaction.
+- Persist receipts through the game's native semantic player-save request lifecycle.
 - Revalidate after every load, reload, and save switch, including reselecting the same slot.
 - Never return or duplicate a cassette already marked `HAVE_DEPOSITED`.
 - Support receipts arriving during campaign and Music Lab result processing.
@@ -40,48 +40,51 @@ Reconciliation remains inactive before the first confirmed loaded-save epoch.
 
 AP receipt history remains the source of session-wide cassette ownership. Each owned cassette is evaluated against the active epoch:
 
-- `HAVE_DEPOSITED`: mark satisfied for this epoch and never stage a bag grant.
+- `HAVE_DEPOSITED`: mark satisfied for this epoch and never submit a bag grant.
 - `HAVE_IN_BAG`: mark satisfied for this epoch.
-- missing: keep pending until a natural save-bundle persistence boundary.
+- missing: keep pending until the selected save is readable and a compatible player-save processor is available.
 - authoritative read unavailable or unknown: fail closed and keep pending.
 
-### Natural transaction integration
+### Revised semantic request boundary
 
-The client hooks the existing `PersistSaveChangeBundleRequest` and `PersistAllSaveChangeBundlesRequest` processing boundaries without replacing their native behavior.
+Live diagnostics disproved the earlier assumption that `PersistSaveChangeBundleRequest` or `PersistAllSaveChangeBundlesRequest` provides a reachable cassette boundary. Neither prefix ran during save load, area travel, return to title, difficulty change, shutdown, nor a proven durable AP Plant Pipes grant. Cassette reconciliation must not wait for those absent callbacks.
 
-Immediately before the original native persistence operation:
+After a loaded-save epoch is confirmed, reconciliation runs only on the Unity thread at existing safe lifecycle points. For each pending AP-owned cassette it:
 
-1. Confirm a loaded-save epoch is active.
-2. Re-read each pending cassette from the authoritative state used by `PlayerSaveRequestProcessor`.
-3. Leave deposited or bagged cassettes unchanged.
-4. Stage only missing AP-owned cassettes as `HAVE_IN_BAG` using the bundle that the game is about to persist.
-5. Allow the original persistence request to commit and write the bundle normally.
+1. Confirms compatible synchronized slot data and an active epoch.
+2. Authoritatively reads the selected save through `SongCassetteEnquiries.GetSongCassetteStatus`.
+3. Leaves `HAVE_IN_BAG` and `HAVE_DEPOSITED` unchanged and satisfies them only for the current epoch.
+4. Leaves unreadable or unknown state pending and fails closed.
+5. For `INVALID` or `HAVE_NOT_EARNED`, constructs the exact semantic `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)`.
+6. Invokes the matching `PlayerSaveRequestProcessor.ProcessRequest(...)` overload through the compatible captured processor, or the proven stateless processor fallback only after selected-save enquiries are readable.
+7. Treats a successful invocation as `verification-pending`, never as persisted or satisfied.
+8. Re-reads after a bounded delay. Only authoritative `HAVE_IN_BAG` or `HAVE_DEPOSITED` satisfies the current epoch.
 
-The client never calls a save manager, flush method, or extra persistence request directly.
+This mirrors the durable Plant Pipes lifecycle. The native record request participates in the game's own save/change-bundle behavior; the client never calls a private save manager, flush method, or synthetic persist request.
 
-After native persistence completes, reconciliation re-reads status on a later Unity tick. A cassette becomes satisfied for the current epoch only after this post-persistence read returns `HAVE_IN_BAG` or `HAVE_DEPOSITED`.
+The exact cassette request mechanism already has live evidence: after the three-argument constructor fixed the earlier parameterless-wrapper defect, a received cassette appeared in native inventory, deposited normally, and remained deposited after full restart. The remaining repair is safe loaded-save timing and epoch-scoped verification, not a new persistence API.
 
 ### Load and switch behavior
 
 Every confirmed load/reload/switch:
 
 - advances the epoch;
-- clears per-epoch satisfaction and staged-attempt markers;
+- clears per-epoch satisfaction and request-attempt markers;
 - preserves AP ownership;
 - re-reads all owned cassettes;
-- keeps missing cassettes pending for the next natural persistence boundary.
+- keeps missing cassettes pending for post-epoch semantic request reconciliation.
 
 The client must not use `SelectedPlayerSaveSlotChangedEvent.HandleEvent`; the prior diagnostic established that unsafe IL2CPP event/reflection hooks can corrupt the runtime.
 
 ## Logging
 
-Logs distinguish staging from persistence:
+Logs distinguish submission from verified native state:
 
 - `pending`: AP-owned but missing from the active save;
-- `staged`: added to the bundle currently being persisted;
-- `verified bag`: observed after native persistence;
+- `grant submitted`: exact semantic request returned normally; verification remains pending;
+- `verified bag`: observed during a later authoritative read;
 - `verified deposited`: terminal for the current epoch;
-- `deferred`: no active epoch, no persistence boundary, or authoritative read unavailable.
+- `deferred`: no active epoch, selected save unreadable, compatible processor unavailable, or bounded retry pending.
 
 No log may call a cassette persisted merely because request invocation returned without an exception.
 
@@ -89,7 +92,7 @@ No log may call a cassette persisted merely because request invocation returned 
 
 - Missing save state or reader: do not submit; retry at a later safe boundary.
 - Unknown native status: do not overwrite; log once per epoch/status transition.
-- Native staging failure: leave pending and allow the game's persistence request to continue.
+- Native semantic request failure: leave pending and retry only at the next bounded safe lifecycle point.
 - Save load during pending work: discard epoch-local markers and evaluate the new epoch.
 - Duplicate AP receipt: idempotent; it does not create another native request.
 
@@ -97,25 +100,26 @@ No log may call a cassette persisted merely because request invocation returned 
 
 Automated tests must prove:
 
-1. No staging occurs before a confirmed loaded-save epoch.
+1. No native request occurs before a confirmed loaded-save epoch.
 2. A first load, same-slot reload, and different-slot switch each advance the epoch.
 3. Process-wide AP ownership survives epoch changes while native satisfaction does not.
-4. Missing cassettes stage only at a natural bundle-persist boundary.
-5. The exact native bundle being persisted is used.
-6. `HAVE_IN_BAG` and `HAVE_DEPOSITED` prevent staging within an epoch.
+4. Missing cassettes submit only after an active loaded-save epoch and an authoritative unearned read.
+5. Submission uses the exact semantic three-argument request with `HAVE_IN_BAG` and `DEFAULT`.
+6. `HAVE_IN_BAG` and `HAVE_DEPOSITED` prevent submission within an epoch.
 7. Deposited cassettes remain deposited across reloads.
 8. Authoritative-read failures fail closed.
-9. A receipt arriving during campaign result processing persists through that transaction.
-10. A receipt arriving during Music Lab result processing persists through that transaction.
+9. A receipt arriving during campaign result processing waits for a safe post-epoch Unity lifecycle point rather than writing inside the result transaction.
+10. A receipt arriving during Music Lab result processing follows the same deferred, bounded reconciliation.
 11. Same-slot reload after a transient bag observation revalidates and repairs the active save.
-12. Source wiring contains no selected-slot event hook, private save flush, or diagnostic postfix/state reflection.
+12. Source wiring contains no selected-slot event hook, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
 
 Live acceptance uses the existing seed without replaying completed checks:
 
 - AP history restores Badass and The Heist into the loaded save;
 - both appear in the top-right inventory;
+- a full restart before insertion restores both as `HAVE_IN_BAG` without duplicate requests or replayed checks;
 - normal machine insertion unlocks their corresponding Music Lab levels;
-- a full restart reports them deposited and does not return them;
+- a second full restart reports them `HAVE_DEPOSITED` and does not return them;
 - no repeated receipt loop or crash occurs.
 
 ## Acceptance boundary

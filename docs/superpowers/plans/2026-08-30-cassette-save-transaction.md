@@ -1,370 +1,245 @@
-# Cassette Save-Transaction Implementation Plan
+# Cassette Loaded-Save Reconciliation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Persist AP-owned cassettes into the actually loaded player save by staging them inside the game's next natural save transaction and revalidating them after every load, reload, or save switch.
+**Goal:** Persist every AP-owned cassette into the confirmed loaded save through the exact native semantic player-save request, with epoch-scoped authoritative verification and bounded retries.
 
-**Architecture:** AP ownership remains process-wide, but native satisfaction is scoped to a monotonically increasing loaded-save epoch established only by safe save-selection request postfixes. Missing receipts stage into the bundle already being persisted by the game; the original native persist request performs the write, and only its postfix may mark the cassette satisfied for that epoch.
+**Architecture:** AP ownership remains session-wide, while native satisfaction and outstanding attempts belong only to a monotonically increasing loaded-save epoch established by safe save-selection request postfixes. After that epoch exists, Unity-thread lifecycle points read before writing, submit `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)` through a compatible `PlayerSaveRequestProcessor`, and verify later; request return alone is never satisfaction. Live diagnostics proved the earlier `PersistSaveChangeBundleRequest`/`PersistAllSaveChangeBundlesRequest` assumption false because neither prefix ran during supported save and gameplay actions.
 
-**Tech Stack:** C#/.NET 6, BepInEx 6 IL2CPP, Harmony, reflection adapters for generated interop types, console-based regression projects, PowerShell build/validation scripts.
+**Tech Stack:** C#/.NET 6, BepInEx 6 IL2CPP, Harmony, generated-interop reflection adapters, console regression projects, PowerShell build/validation scripts.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-cassette-save-transaction-design.md`
 
 ## Global Constraints
 
-- Do not change cassette item placement, source routing, medal logic, or normal cassette-machine insertion.
+- Do not change cassette placement, sources, medal logic, or normal cassette-machine insertion.
 - Do not automatically deposit cassettes or directly unlock Music Lab levels.
-- Do not call private save-manager/flush APIs or synthesize an additional persist request.
+- Do not call private save-manager/flush APIs or synthesize a persist request.
 - Do not patch `SelectedPlayerSaveSlotChangedEvent.HandleEvent`.
-- A save epoch begins only after a safe save-selection request completes and selected-slot number plus selected-slot state enquiries both succeed.
-- Reselecting the same numeric slot creates a new epoch.
-- `HAVE_IN_BAG` and `HAVE_DEPOSITED` are terminal only for the epoch in which an authoritative read observes them.
-- Stage an unowned cassette only inside the prefix of the game's natural `PersistSaveChangeBundleRequest` or `PersistAllSaveChangeBundlesRequest`.
-- Use the natural bundle for a single-bundle persist and `DEFAULT` for persist-all.
-- Postfix verification must match the epoch and slot captured by the prefix.
-- The existing installed APWorld remains v0.22 and the client remains v0.68 for this repair.
-- No merge, push, publish, or release is authorized by this plan.
+- Do not rely on `PersistSaveChangeBundleRequest` or `PersistAllSaveChangeBundlesRequest`; live diagnostics observed no prefix entry for load, travel, title return, difficulty change, shutdown, or the durable Plant Pipes grant.
+- Begin an epoch only after a safe selection request completes and both selected-slot number and selected-state enquiries succeed; same-slot reselection begins a new epoch.
+- Keep AP ownership session-wide, but never keep satisfaction process-wide. Bag/deposited status is terminal only in the epoch that authoritatively observed it.
+- Read before every write. Preserve `HAVE_IN_BAG` and `HAVE_DEPOSITED`.
+- Submit only `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)` through a compatible `PlayerSaveRequestProcessor` on the Unity thread.
+- Treat request return as verification-pending. Require a later authoritative read in the same epoch.
+- Retry only at safe lifecycle points and through a bounded timer.
+- APWorld stays v0.22 and client stays v0.68 for this repair.
+- No merge, push, publish, or release is authorized.
 
 ---
 
 ## File Structure
 
-- Modify `client/CassetteRandomizationPolicy.cs`: replace process-wide terminal-song behavior with a pure loaded-save epoch and natural-persist state machine.
-- Create `client/CassetteSaveTransactionAdapter.cs`: isolate reflection for selected-slot verification, authoritative cassette reads, natural bundle extraction, and native cassette staging.
-- Modify `client/Plugin.cs`: install safe save-selection and persist hooks, route callbacks into the state machine, and remove periodic native writes.
-- Modify `client/tests/CassetteRandomization/Program.cs`: add behavioral and production-wiring regressions for epochs and transaction boundaries.
-- Modify `docs/testing/2026-08-29-full-cassette-acceptance.md`: record automated results and the Badass/The Heist live recovery result.
-- Modify `docs/TESTING_AND_ISSUES.md`: document the loaded-save transaction acceptance procedure.
+- Modify `client/CassetteRandomizationPolicy.cs`: replace persist-token staging with epoch-scoped read/apply/verify decisions and bounded retry state.
+- Modify `client/CassetteSaveTransactionAdapter.cs`: retain selection and read adapters; expose exact semantic `DEFAULT` request submission; remove natural-persist bundle staging.
+- Modify `client/Plugin.cs`: retain safe epoch hooks, reconcile from safe Unity lifecycle points, use the Plant Pipes compatible processor pattern, and remove reliance on absent Persist hooks.
+- Modify `client/tests/CassetteRandomization/Program.cs`: cover pure behavior, native-shaped request semantics, and production wiring.
+- Modify `docs/testing/2026-08-29-full-cassette-acceptance.md` and `docs/TESTING_AND_ISSUES.md`: record two-restart live acceptance.
 
 ---
 
-### Task 1: Loaded-Save Epoch State Machine
+### Task 1: Epoch-Scoped Read/Apply/Verify Runtime
 
 **Files:**
 - Modify: `client/CassetteRandomizationPolicy.cs`
 - Modify: `client/tests/CassetteRandomization/Program.cs`
 
 **Interfaces:**
-- Produces: `CassetteSaveEpochRuntime` with `ActivateSave(int slot)`, `DeactivateSave()`, `Receive(string nativeSong)`, `Observe(string nativeSong, string? nativeStatus)`, `BeginPersist(string bundle)`, and `CompletePersist(CassettePersistToken token, Func<string, string?> readStatus)`.
-- Produces: immutable `CassettePersistToken(long epoch, int slot, string bundle, IReadOnlyList<string> stagedSongs)`.
-- Consumes: existing `CassetteRandomizationPolicy` status values and AP-owned native-song identities.
+- Produces: `CassetteSaveEpochRuntime.ActivateSave(int slot)`, `DeactivateSave()`, `Receive(string nativeSong)`, `Evaluate(string nativeSong, string? nativeStatus, bool processorAvailable)`, `RecordSubmission(string nativeSong)`, `RecordSubmissionFailure(string nativeSong)`, `Verify(string nativeSong, string? nativeStatus)`, and `Tick(TimeSpan elapsed)`.
+- Produces: `CassetteReconcileDecision` values `Inactive`, `Satisfied`, `WaitForReadableSave`, `WaitForProcessor`, `Submit`, `Verify`, and `RetryExhausted`.
 
-- [ ] **Step 1: Replace faulty terminal-cache expectations with failing epoch tests**
-
-Add named cases that execute the pure runtime:
+- [ ] **Step 1: Write failing runtime tests**
 
 ```csharp
 var runtime = new CassetteSaveEpochRuntime();
 runtime.Receive("BADASS");
-Equal(false, runtime.HasActiveSave, "receipt before save selection remains inactive");
-Equal(0, runtime.BeginPersist("DEFAULT").StagedSongs.Count,
-    "no staging before a confirmed save load");
-
-runtime.ActivateSave(2);
-Equal(1L, runtime.Epoch, "first selected save creates epoch one");
-Equal(true, runtime.IsPending("BADASS"), "owned cassette is pending in loaded save");
-
-runtime.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
-runtime.ActivateSave(2);
-Equal(2L, runtime.Epoch, "same-slot reload creates a new epoch");
-Equal(true, runtime.IsPending("BADASS"), "same-slot reload revalidates native state");
+Equal(CassetteReconcileDecision.Inactive,
+    runtime.Evaluate("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true),
+    "pre-epoch receipt cannot submit");
+runtime.ActivateSave(4);
+Equal(CassetteReconcileDecision.Submit,
+    runtime.Evaluate("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true),
+    "confirmed loaded save permits submission");
+runtime.RecordSubmission("BADASS");
+Equal(CassetteReconcileDecision.Verify,
+    runtime.Evaluate("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true),
+    "request return is not satisfaction");
+runtime.Verify("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, runtime.IsPending("BADASS"), "later bag read satisfies this epoch");
 ```
 
-Add the ten cases from the root-cause report: pre-selection isolation, pre-slot bag invalidation, same-slot reload, deposited save A versus unowned save B, deposited revalidation, broad lifecycle neutrality, persist-prefix-only staging, persist-all default bundle, selection change during persist, and authoritative-read failure.
+Also test same-slot reload, different-slot switch, deposited preservation, unreadable/unknown state, missing processor, failed submission, bounded retry exhaustion, duplicate receipt, and stale prior-epoch verification.
 
-- [ ] **Step 2: Run the focused test and capture the expected RED**
-
-Run:
+- [ ] **Step 2: Run focused test and verify RED**
 
 ```powershell
 dotnet run --project client/tests/CassetteRandomization/CassetteRandomization.Tests.csproj -c Release
 ```
 
-Expected: FAIL because `CassetteSaveEpochRuntime`, `CassettePersistToken`, and epoch-scoped behavior do not exist, and because the old process-wide terminal assertions disagree with the new requirements.
+Expected: FAIL because the runtime still models persist tokens.
 
-- [ ] **Step 3: Implement the minimal pure epoch model**
+- [ ] **Step 3: Implement the minimal runtime**
 
-Implement a runtime with these invariants:
+Keep `_owned` across epochs. Clear satisfaction, attempts, retry counts, and timers on every activate/deactivate. Require active epoch, recognized native status, and compatible processor before `Submit`. Use bounded delays of 250 ms, 1 s, and 3 s; never submit every frame.
 
-```csharp
-internal sealed class CassetteSaveEpochRuntime
-{
-    private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _inFlightThisEpoch = new(StringComparer.Ordinal);
+- [ ] **Step 4: Run focused test to verify GREEN**
 
-    internal long Epoch { get; private set; }
-    internal int? ActiveSlot { get; private set; }
-    internal bool HasActiveSave => ActiveSlot.HasValue;
+Run Step 2. Expected: every revised runtime case passes.
 
-    internal void ActivateSave(int slot)
-    {
-        Epoch++;
-        ActiveSlot = slot;
-        _satisfiedThisEpoch.Clear();
-        _inFlightThisEpoch.Clear();
-    }
-
-    internal void DeactivateSave()
-    {
-        ActiveSlot = null;
-        _satisfiedThisEpoch.Clear();
-        _inFlightThisEpoch.Clear();
-    }
-}
-```
-
-`BeginPersist` returns an empty token without an active save. Otherwise it snapshots epoch, slot, and the owned songs that are neither satisfied nor in flight. `CompletePersist` ignores stale epoch/slot tokens and marks only authoritative `HAVE_IN_BAG` or `HAVE_DEPOSITED` results satisfied. Unknown/read failures remain pending.
-
-- [ ] **Step 4: Run focused tests to verify GREEN**
-
-Run the command from Step 2.
-
-Expected: PASS with every epoch and transaction-state case named in output.
-
-- [ ] **Step 5: Commit Task 1**
+- [ ] **Step 5: Commit**
 
 ```powershell
 git add client/CassetteRandomizationPolicy.cs client/tests/CassetteRandomization/Program.cs
-git commit -m "fix(client): scope cassette receipts to loaded saves"
+git commit -m "fix(client): model post-load cassette reconciliation"
 ```
 
 ---
 
-### Task 2: Native Save-Selection and Persistence Adapters
+### Task 2: Exact Semantic Native Adapter
 
 **Files:**
-- Create: `client/CassetteSaveTransactionAdapter.cs`
+- Modify: `client/CassetteSaveTransactionAdapter.cs`
 - Modify: `client/tests/CassetteRandomization/Program.cs`
 
 **Interfaces:**
-- Consumes: `CassettePersistToken` and existing `CassetteNativeRequestFactory`.
-- Produces: `TryGetLoadedSave(out int slot)`, `TryReadCassetteStatus(object processor, string nativeSong, out string? nativeStatus)`, `TryGetPersistBundle(object request, out object? nativeBundle, out string bundleName)`, and `TryStageHaveInBag(object processor, string nativeSong, object nativeBundle, out string detail)`.
-- Produces no save-write or flush operation.
+- Produces: `TryGetLoadedSave(out int slot)`, `TryReadCassetteStatus(object processor, string nativeSong, out string? nativeStatus)`, `IsCompatiblePlayerSaveRequestProcessor(object? processor)`, and `TrySubmitHaveInBag(object processor, string nativeSong, out string detail)`.
+- Consumes: `CassetteNativeRequestFactory.TryCreateHaveInBagRequest(...)` and `PlayerSaveManagementEnquiries`.
 
-- [ ] **Step 1: Write failing native-shaped adapter tests**
-
-Create managed fakes with the exact public shapes used by generated interop types:
+- [ ] **Step 1: Write failing native-shaped tests**
 
 ```csharp
-sealed class FakeSaveManagementEnquiries
-{
-    public static int? SelectedSlot;
-    public static object? SelectedState;
-    public static int? GetSelectedSaveFileSlotNumber() => SelectedSlot;
-    public static object? TryGetSelectedSlotSaveFileState() => SelectedState;
-}
-
-sealed class FakePersistSaveChangeBundleRequest
-{
-    public FakeBundle? Bundle { get; init; }
-}
+var processor = new FakePlayerSaveRequestProcessor();
+Equal(true, CassetteSaveTransactionAdapter.TrySubmitHaveInBag(
+    processor, nameof(ePlayableSong.BADASS), out _), "semantic request submits");
+Equal(ePlayableSong.BADASS, processor.LastRequest!.Song, "exact song");
+Equal(eSongCassetteStatus.HAVE_IN_BAG, processor.LastRequest.CassetteStatus, "bag status");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, processor.LastRequest.Bundle, "default bundle");
 ```
 
-Assert that selection requires both slot and state; nullable bundles resolve safely; single-bundle persistence preserves the exact native bundle object; persist-all resolves `DEFAULT`; and staging uses the semantic cassette constructor with the passed bundle.
+Require incompatible processors to fail closed. Retain IL2CPP nullable `HasValue`/`Value` selection cases. Audit out `SaveDataManager`, `WritePlayerSaveFile`, `RequestWriteForPlayerSave`, both Persist request types, deposited submission, and direct Music Lab unlock calls.
 
-Add a source audit that fails if the adapter contains any of:
+- [ ] **Step 2: Run focused test and verify RED**
 
-```text
-PersistAllChangesInBundle
-RequestWriteForPlayerSave
-SaveDataManager
-WritePlayerSaveFile
-SelectedPlayerSaveSlotChangedEvent
-```
+Run Task 1 Step 2. Expected: FAIL because the adapter still stages into a supplied persist bundle.
 
-- [ ] **Step 2: Run the focused test and capture RED**
+- [ ] **Step 3: Implement exact request submission**
 
-Run:
+Validate exact processor type name `PlayerSaveRequestProcessor`. Call `CassetteNativeRequestFactory.TryCreateHaveInBagRequest(...)`, which supplies `HAVE_IN_BAG` and `DEFAULT`, then invoke only the matching one-parameter `ProcessRequest` overload. Remove adapter methods used only for natural persist extraction/staging.
 
-```powershell
-dotnet run --project client/tests/CassetteRandomization/CassetteRandomization.Tests.csproj -c Release
-```
+- [ ] **Step 4: Run focused test to verify GREEN**
 
-Expected: FAIL because `CassetteSaveTransactionAdapter.cs` and its interfaces do not exist.
+Run Task 1 Step 2. Expected: request semantics and prohibited-API audits pass.
 
-- [ ] **Step 3: Implement the reflection adapter**
-
-Resolve types and members by exact name, cache only `Type`/`MethodInfo`/`ConstructorInfo`, and never retain an IL2CPP save-state wrapper between calls. `TryGetLoadedSave` must query slot and state together and return false if either is missing. `TryStageHaveInBag` must call:
-
-```csharp
-CassetteNativeRequestFactory.Create(
-    requestType,
-    songType,
-    cassetteStatusType,
-    bundleType,
-    nativeSong,
-    "HAVE_IN_BAG",
-    nativeBundle);
-```
-
-It may invoke the existing `PlayerSaveRequestProcessor.ProcessRequest` overload but must not invoke persistence itself.
-
-- [ ] **Step 4: Run focused tests to verify GREEN**
-
-Run the command from Step 2.
-
-Expected: PASS, including prohibited-API audits.
-
-- [ ] **Step 5: Commit Task 2**
+- [ ] **Step 5: Commit**
 
 ```powershell
 git add client/CassetteSaveTransactionAdapter.cs client/tests/CassetteRandomization/Program.cs
-git commit -m "fix(client): adapt cassette grants to native save bundles"
+git commit -m "fix(client): submit semantic cassette save requests"
 ```
 
 ---
 
-### Task 3: Hook Safe Save Lifecycle Boundaries
+### Task 3: Safe Post-Epoch Unity Wiring
 
 **Files:**
 - Modify: `client/Plugin.cs`
 - Modify: `client/tests/CassetteRandomization/Program.cs`
 
 **Interfaces:**
-- Consumes: `CassetteSaveEpochRuntime` and `CassetteSaveTransactionAdapter`.
-- Produces Harmony callbacks for save-selection postfixes and natural-persist prefix/postfix pairs.
-- Preserves existing AP receipt, source interception, and machine-deposit behavior.
+- Produces: `CassetteReceiptRandomization.TryReconcile(string reason)` and `TickPendingNativeGrants(TimeSpan elapsed)`.
+- Consumes: revised runtime/adapter and the existing Plant Pipes processor handoff.
+- Preserves: receipt recognition, source interception, normal machine deposit, and four safe selection postfixes.
 
-- [ ] **Step 1: Write failing production-wiring tests**
+- [ ] **Step 1: Write failing wiring tests**
 
-Require hooks for these exact request types:
+Require hooks for `SelectPlayerSaveSlotRequest`, `SelectMostRecentlyUsedRegularPlayerSaveSlotRequest`, `EnsureAPlayerSaveSlotIsSelectedRequest`, and `CreateNewPlayerSaveFileInSlotRequest`. Require reconciliation to check synchronized compatibility plus active epoch, read before write, preserve bag/deposited, and delay verification. Require the Plant Pipes stateless processor handoff only after selected-save readability. Reject cassette Persist prefix/postfix registration, the unsafe selected-slot event, private flush APIs, and continuous submission.
 
-```text
-SelectPlayerSaveSlotRequest
-SelectMostRecentlyUsedRegularPlayerSaveSlotRequest
-EnsureAPlayerSaveSlotIsSelectedRequest
-CreateNewPlayerSaveFileInSlotRequest
-PersistSaveChangeBundleRequest
-PersistAllSaveChangeBundlesRequest
-```
+- [ ] **Step 2: Run focused test and verify RED**
 
-Assert that selection postfixes call one verifier that activates a new epoch only after `TryGetLoadedSave` succeeds. Assert that persist prefixes capture an epoch token, re-read before staging, pass the natural bundle, and allow the original method to run. Assert postfixes verify only when token epoch and slot still match.
+Run Task 1 Step 2. Expected: FAIL because production still waits for absent Persist callbacks.
 
-Assert `TickPendingNativeGrants` performs observation/logging only and contains no cassette request submission.
+- [ ] **Step 3: Retain epoch activation and remove absent-boundary code**
 
-- [ ] **Step 2: Run the focused test and capture RED**
+Keep `SaveSelectionPostfix` activation only after slot plus selected state succeed. Remove cassette Persist hook registrations, transaction queues, callbacks, and diagnostics used only by the disproven boundary. Do not infer an epoch from room/result/slot-data callbacks.
 
-Run:
+- [ ] **Step 4: Implement read-before-write reconciliation**
 
-```powershell
-dotnet run --project client/tests/CassetteRandomization/CassetteRandomization.Tests.csproj -c Release
-```
+Invoke `TryReconcile` after confirmed selection, AP history/receipt delivery, compatible processor capture, and existing safe scene/lifecycle points. Snapshot epoch/processor, read authoritatively, reject a stale epoch before submission, and wrap only the exact request invocation in `_applyingNativeGrant`. Record request return as verification-pending.
 
-Expected: FAIL because selection/persist hooks and transaction callbacks are absent and periodic reconciliation still submits requests.
+- [ ] **Step 5: Implement bounded delayed verification**
 
-- [ ] **Step 3: Install safe selection hooks**
+The keeper advances only pending timers. On expiry, re-read on the Unity thread. Bag/deposited satisfies the current epoch; unearned permits only the next bounded attempt; epoch changes discard stale attempts and reevaluate from AP ownership.
 
-Patch the relevant `SaveDataRequestProcessor.ProcessRequest` overloads by exact request parameter type. Postfixes call:
+- [ ] **Step 6: Run complete verification**
 
-```csharp
-if (CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot))
-    CassetteReceiptRandomization.ActivateLoadedSave(slot, reason);
-else
-    CassetteReceiptRandomization.DeactivateLoadedSave(reason);
-```
-
-The same slot must still advance the epoch. Slot-data synchronization, room transitions, result events, and processor capture may request observation but cannot activate an epoch.
-
-- [ ] **Step 4: Install natural persist prefix/postfix hooks**
-
-For single-bundle persistence, prefix state captures the exact native bundle and the runtime token. For persist-all, prefix uses native `DEFAULT`. Before staging each song, authoritatively re-read it and skip bag/deposited states. The prefix never returns false and never replaces the native request.
-
-The postfix schedules authoritative re-read on the next Unity tick and completes only the matching token. Remove request submission from the periodic keeper.
-
-- [ ] **Step 5: Run focused tests to verify GREEN**
-
-Run the command from Step 2.
-
-Expected: PASS.
-
-- [ ] **Step 6: Run the complete client verification**
-
-Run all 17 client test projects using the repository's established cassette acceptance command, then:
+Run the focused suite and all 17 client projects, then:
 
 ```powershell
 & .\client\build.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\Titus' -SkipInstall
-& .\tools\validate_repo.ps1
+py .\tools\validate-repo.py
 git diff --check
 ```
 
-Expected: 17/17 test projects pass; Release build has 0 errors; validator passes; diff check is clean. Existing unrelated nullable warnings may remain documented but must not increase.
+Expected: focused and 17/17 suites pass; build has 0 errors; validator and diff check pass; unrelated warnings do not increase.
 
-- [ ] **Step 7: Commit Task 3**
+- [ ] **Step 7: Commit**
 
 ```powershell
 git add client/Plugin.cs client/tests/CassetteRandomization/Program.cs
-git commit -m "fix(client): persist cassettes with native save transactions"
+git commit -m "fix(client): reconcile cassettes after save selection"
 ```
 
 ---
 
-### Task 4: Acceptance Evidence and Live Recovery
+### Task 4: Two-Restart Live Acceptance
 
 **Files:**
 - Modify: `docs/testing/2026-08-29-full-cassette-acceptance.md`
 - Modify: `docs/TESTING_AND_ISSUES.md`
 
 **Interfaces:**
-- Consumes the verified v0.68 client and existing v0.22 seed on `127.0.0.1:38281`, slot `Jack`.
-- Produces auditable automated and live acceptance evidence; no merge/push/release.
+- Consumes: verified v0.68 client and retained v0.22 seed at `127.0.0.1:38281`, slot `Jack`.
+- Produces: auditable Badass/The Heist bag and deposited durability evidence.
 
-- [ ] **Step 1: Record automated verification before installation**
+- [ ] **Step 1: Record automated evidence**
 
-Document commit IDs, focused RED/GREEN evidence, 17/17 suite result, no-install build result, validator result, and independent task-review verdicts.
+Document commits, RED/GREEN output, 17/17 result, no-install build, validator, diff check, and independent reviews.
 
-- [ ] **Step 2: Obtain the existing installation boundary**
+- [ ] **Step 2: Install only with explicit owner authorization**
 
-Confirm the game process is closed. Replace only:
+With the game closed, replace only `D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\`. Do not replace APWorld v0.22.
 
-```text
-D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\
-```
+- [ ] **Step 3: Verify loaded-save ordering**
 
-Do not replace the APWorld because v0.22 seed/schema are unchanged.
+Require startup, compatible routing, connection, epoch activation, processor availability, and read-before-write logs. Reject any submission before epoch activation.
 
-- [ ] **Step 3: Verify every relaunch before gameplay**
+- [ ] **Step 4: Restart before insertion**
 
-Require fresh log lines for:
+Let AP history restore Badass and The Heist. Require semantic submission followed by later authoritative `HAVE_IN_BAG`; owner confirms both in inventory. Close without insertion, relaunch the same slot, require a new epoch and `HAVE_IN_BAG` for both with no duplicate source checks or unnecessary resubmission.
 
-```text
-[SCRC-AP] v0.68.0 loading.
-[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries=30.
-[SCRC-AP] CASSETTE SOURCE RANDOMIZATION ENABLED entries=30 levelSources=25 chestSources=5.
-[SCRC-AP] CONNECTED server=127.0.0.1:38281 slot='Jack'
-```
+- [ ] **Step 5: Restart after normal deposit**
 
-- [ ] **Step 4: Recover Badass and The Heist without replaying checks**
+Insert both normally and confirm their levels unlock. Relaunch again; require a new epoch, `HAVE_DEPOSITED`, no returned cassette, no forced unlock, no request loop, and no crash.
 
-Load the same save. AP history must keep both receipts pending until the loaded-save epoch is confirmed. Trigger one normal save boundary without replaying Level 1 or a Music Lab medal check. Confirm logs show staging inside that boundary and post-persist verification.
+- [ ] **Step 6: Record result and commit**
 
-The owner confirms both cassettes appear in the top-right inventory.
-
-- [ ] **Step 5: Verify normal insertion and deposited persistence**
-
-Insert each cassette normally. Confirm the matching Music Lab levels unlock. Restart fully; require `HAVE_DEPOSITED`, no returned cassette, no repeated request, and no crash.
-
-- [ ] **Step 6: Update documentation and commit**
-
-Record pass/fail evidence precisely. Do not mark the overall cassette feature complete if the 32-point reused chest source or other representative matrix rows remain pending.
+Keep unrelated manual matrix rows open and record any failure as a blocker.
 
 ```powershell
 git add docs/testing/2026-08-29-full-cassette-acceptance.md docs/TESTING_AND_ISSUES.md
-git commit -m "docs: record cassette transaction acceptance"
+git commit -m "docs: record loaded-save cassette acceptance"
 ```
 
 ---
 
 ## Final Verification Gate
 
-After all tasks receive independent task review:
-
 ```powershell
 dotnet run --project client/tests/CassetteRandomization/CassetteRandomization.Tests.csproj -c Release
 & .\client\build.ps1 -GameDir 'D:\SteamLibrary\steamapps\common\Titus' -SkipInstall
-& .\tools\validate_repo.ps1
+py .\tools\validate-repo.py
 git diff --check
 git status --short
 ```
 
-Then run one whole-branch review from the feature branch merge base through `HEAD`. Do not merge or push without explicit owner approval.
+After independent task reviews, run one whole-branch review from merge base through `HEAD`. Do not merge or push without explicit owner approval.
