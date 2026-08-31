@@ -121,6 +121,64 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    internal static bool TryReadPublicWriteState(object? processor, out CassettePublicWriteState state, out string stage)
+    {
+        state = default; stage = "write-state-start";
+        try
+        {
+            if (!TryObtainPublicState(processor, "write-state", out object? nativeState, out stage)) return false;
+            Type type = nativeState!.GetType();
+            PropertyInfo? hasChangesProperty = type.GetProperty("HasChanges", PublicInstance);
+            PropertyInfo? requiresProperty = type.GetProperty("RequiresWriteToDisk", PublicInstance);
+            PropertyInfo? successProperty = type.GetProperty("GameTimeOfLastWriteToDisk", PublicInstance);
+            PropertyInfo? failureProperty = type.GetProperty("GameTimeOfLastFailedAttemptToWriteToDisk", PublicInstance);
+            PropertyInfo? reasonProperty = type.GetProperty("FailureReasonOfLastFailedAttemptToWriteToDisk", PublicInstance);
+            if (hasChangesProperty == null || requiresProperty == null || successProperty == null || failureProperty == null || reasonProperty == null)
+            { stage = "write-state-contract-missing"; return false; }
+            bool hasChanges = Convert.ToBoolean(hasChangesProperty.GetValue(nativeState));
+            bool requires = Convert.ToBoolean(requiresProperty.GetValue(nativeState));
+            if (!TryReadPublicGameTime(successProperty.GetValue(nativeState), "success-time", out double? success, out stage)) return false;
+            if (!TryReadPublicGameTime(failureProperty.GetValue(nativeState), "failure-time", out double? failure, out stage)) return false;
+            if (!TryUnwrapPublicWriteNullable(reasonProperty.GetValue(nativeState), "failure-reason", out object? reason, out stage)) return false;
+            state = new(hasChanges, requires, success, failure, reason?.ToString());
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex) { stage = $"write-state-invocation:{SummarizeException(ex)}"; return false; }
+    }
+
+    private static bool TryReadPublicGameTime(object? nullable, string label, out double? rawTime, out string stage)
+    {
+        rawTime = null;
+        if (!TryUnwrapPublicWriteNullable(nullable, label, out object? gameTime, out stage)) return false;
+        if (gameTime == null) { stage = "success"; return true; }
+        PropertyInfo? rawProperty = gameTime.GetType().GetProperty("RawTime", PublicInstance);
+        object? raw = rawProperty?.GetValue(gameTime);
+        if (raw == null) { stage = "write-time-raw-missing"; return false; }
+        rawTime = Convert.ToDouble(raw);
+        stage = "success";
+        return true;
+    }
+
+    private static bool TryUnwrapPublicWriteNullable(object? value, string label, out object? unwrapped, out string stage)
+    {
+        unwrapped = value;
+        stage = "success";
+        if (value == null) return true;
+        Type type = value.GetType();
+        if (!(type.FullName ?? type.Name).Contains("Nullable`1", StringComparison.Ordinal)) return true;
+        PropertyInfo? hasValue = type.GetProperty("HasValue", PublicInstance);
+        PropertyInfo? innerValue = type.GetProperty("Value", PublicInstance);
+        if (hasValue == null || innerValue == null)
+        { unwrapped = null; stage = $"write-{label}-nullable-contract-missing"; return false; }
+        if (hasValue.GetValue(value) is not bool present)
+        { unwrapped = null; stage = $"write-{label}-nullable-has-value-invalid"; return false; }
+        if (!present) { unwrapped = null; return true; }
+        unwrapped = innerValue.GetValue(value);
+        if (unwrapped == null) { stage = $"write-{label}-nullable-value-null"; return false; }
+        return true;
+    }
+
     internal static bool TryMatchRegularSaveSlot(
         object? saveDataProcessor,
         object? playerSaveProcessor,
@@ -320,6 +378,58 @@ internal static class CassetteSaveTransactionAdapter
             detail = ex.GetBaseException().Message;
             return false;
         }
+    }
+
+    internal static bool TrySubmitDefaultUrgentPersist(out string detail)
+    {
+        detail = string.Empty;
+        try
+        {
+            Type? requestType = FindType("PersistSaveChangeBundleRequest");
+            Type? bundleType = FindType("ePlayerSaveChangeBundleKey");
+            Type? writeType = FindType("eSaveFileWriteType");
+            Type? requestSystemType = FindType("RequestSystem");
+            if (requestType == null || bundleType?.IsEnum != true || writeType?.IsEnum != true || requestSystemType == null)
+            { detail = "public persist semantic types unavailable"; return false; }
+            object bundle = Enum.Parse(bundleType, "DEFAULT", ignoreCase: false);
+            object urgent = Enum.Parse(writeType, "URGENT", ignoreCase: false);
+            if (Convert.ToInt32(bundle) != 1 || Convert.ToInt32(urgent) != 0)
+            { detail = "public persist enum values did not match DEFAULT=1/URGENT=0"; return false; }
+            ConstructorInfo? constructor = requestType.GetConstructors(PublicInstance)
+                .SingleOrDefault(candidate => candidate.GetParameters().Length == 2 &&
+                    candidate.GetParameters()[1].ParameterType == writeType);
+            if (constructor == null) { detail = "public persist semantic constructor unavailable"; return false; }
+            Type bundleParameterType = constructor.GetParameters()[0].ParameterType;
+            object? bundleArgument = BuildPublicNullable(bundleParameterType, bundleType, bundle);
+            if (bundleArgument == null) { detail = "public DEFAULT nullable bundle unavailable"; return false; }
+            object request = constructor.Invoke(new[] { bundleArgument, urgent });
+            MethodInfo? submitDefinition = requestSystemType.GetMethods(PublicStatic)
+                .SingleOrDefault(method => string.Equals(method.Name, "SubmitRequest", StringComparison.Ordinal) &&
+                    method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1 &&
+                    method.GetParameters().Length == 1);
+            if (submitDefinition == null) { detail = "public RequestSystem.SubmitRequest<T> unavailable"; return false; }
+            submitDefinition.MakeGenericMethod(requestType).Invoke(null, new[] { request });
+            detail = "bundle='DEFAULT' writeType='URGENT' route='RequestSystem.SubmitRequest<T>'";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            detail = $"public persist invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    private static object? BuildPublicNullable(Type parameterType, Type valueType, object value)
+    {
+        if (parameterType == valueType) return value;
+        ConstructorInfo? single = parameterType.GetConstructor(PublicInstance, null, new[] { valueType }, null);
+        if (single != null) return single.Invoke(new[] { value });
+        ConstructorInfo? pair = parameterType.GetConstructors(PublicInstance).FirstOrDefault(candidate =>
+        {
+            ParameterInfo[] parameters = candidate.GetParameters();
+            return parameters.Length == 2 && parameters[0].ParameterType == typeof(bool) && parameters[1].ParameterType == valueType;
+        });
+        return pair?.Invoke(new[] { (object)true, value });
     }
 
     private static Type? FindType(string exactName, Assembly? preferredAssembly = null)

@@ -17902,6 +17902,8 @@ internal static class CassetteReceiptRandomization
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
+    private static CassetteDiskCommitRuntime _diskCommit = new();
+    private static long _activeSavePointer;
     private static CassetteDiagnosticSignatureDeduplicator _mostRecentQueueLogDeduper = new();
     private static CassetteDiagnosticSignatureDeduplicator _mostRecentResultLogDeduper = new();
     private static bool _unityReconciliationRequested;
@@ -17919,6 +17921,7 @@ internal static class CassetteReceiptRandomization
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
+            _diskCommit = new CassetteDiskCommitRuntime(); _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
@@ -18030,12 +18033,14 @@ internal static class CassetteReceiptRandomization
                 $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY stage='{stage}'; prior epoch suspended pending unique regular-save pointer join.");
     }
 
-    internal static void ActivateLoadedSave(int slot, string reason)
+    internal static void ActivateLoadedSave(int slot, long pointer, string reason)
     {
         long epoch;
         lock (Sync)
         {
             _runtime.ActivateSave(slot);
+            _activeSavePointer = pointer;
+            _diskCommit.Reset();
             epoch = _runtime.Epoch;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
@@ -18047,6 +18052,8 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             _runtime.DeactivateSave();
+            _activeSavePointer = 0;
+            _diskCommit.Reset();
         }
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }
@@ -18113,7 +18120,8 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             if (!_runtime.HasActiveSave || _runtime.Epoch != epoch) return;
-            if (verificationDue) _runtime.RecordVerification(nativeSong, status);
+            bool newlyVerifiedBag = verificationDue && _runtime.RecordVerification(nativeSong, status);
+            if (newlyVerifiedBag) _diskCommit.Stage(nativeSong);
             else _runtime.Observe(nativeSong, status);
             if (!_runtime.IsPending(nativeSong))
             {
@@ -18198,7 +18206,7 @@ internal static class CassetteReceiptRandomization
         if (activation.HasValue)
         {
             CassetteSaveActivation loaded = activation.Value;
-            ActivateLoadedSave(loaded.Slot, $"{loaded.Reason} generation={loaded.Generation} pointer=0x{loaded.Pointer:X} build={loaded.IncludesBuild}");
+            ActivateLoadedSave(loaded.Slot, loaded.Pointer, $"{loaded.Reason} generation={loaded.Generation} pointer=0x{loaded.Pointer:X} build={loaded.IncludesBuild}");
         }
 
         string? reason = null;
@@ -18217,6 +18225,59 @@ internal static class CassetteReceiptRandomization
         string[] ready;
         lock (Sync) ready = _runtime.Tick(elapsed).ToArray();
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
+        TickDiskCommit(elapsed);
+    }
+
+    private static void TickDiskCommit(TimeSpan elapsed)
+    {
+        object? processor; long epoch; int slot; long pointer; string[] songs; bool active;
+        lock (Sync)
+        {
+            if (_saveIdentity.Pending || !_runtime.HasActiveSave || !_diskCommit.HasWork) return;
+            processor = _playerSaveRequestProcessor; epoch = _runtime.Epoch;
+            slot = _runtime.ActiveSlot!.Value; pointer = _activeSavePointer;
+            songs = _diskCommit.Songs.ToArray(); active = _diskCommit.Active;
+        }
+        bool identityReadable = CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(processor, out long observedPointer, out _);
+        bool statusesRetained = identityReadable && observedPointer == pointer && songs.All(song =>
+            CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor!, song, out string? status) &&
+            (string.Equals(status, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(status, CassetteRandomizationPolicy.HaveDeposited, StringComparison.OrdinalIgnoreCase)));
+        if (!CassetteSaveTransactionAdapter.TryReadPublicWriteState(processor, out CassettePublicWriteState writeState, out string writeStage))
+        {
+            CassetteDiskCommitOutcome unavailableOutcome = CassetteDiskCommitOutcome.None;
+            if (active)
+            {
+                lock (Sync) unavailableOutcome = _diskCommit.ObserveUnavailable(
+                    epoch, slot, identityReadable ? observedPointer : 0, statusesRetained, elapsed);
+            }
+            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE DISK COMMIT DEFERRED stage='{writeStage}'.");
+            if (unavailableOutcome is CassetteDiskCommitOutcome.Failure or CassetteDiskCommitOutcome.Timeout or CassetteDiskCommitOutcome.Cancelled)
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT {unavailableOutcome.ToString().ToUpperInvariant()} epoch={epoch} slot={slot}; grant remains retryable.");
+            return;
+        }
+        if (!active)
+        {
+            bool began;
+            lock (Sync) began = _runtime.Epoch == epoch && _activeSavePointer == pointer &&
+                _diskCommit.TryBegin(epoch, slot, pointer, writeState);
+            if (!began) return;
+            string persistDetail = "status regression";
+            if (!statusesRetained || !CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out persistDetail))
+            {
+                lock (Sync) _diskCommit.Observe(epoch, slot, pointer, writeState, false, TimeSpan.Zero);
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT SUBMISSION FAILED detail='{persistDetail}'.");
+                return;
+            }
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT SUBMITTED epoch={epoch} slot={slot} songs='[{string.Join(",", songs)}]' {persistDetail}; completion pending.");
+            return;
+        }
+        CassetteDiskCommitOutcome outcome;
+        lock (Sync) outcome = _diskCommit.Observe(epoch, slot, observedPointer, writeState, statusesRetained, elapsed);
+        if (outcome is CassetteDiskCommitOutcome.Success)
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT VERIFIED epoch={epoch} slot={slot}; public write completion advanced.");
+        else if (outcome is CassetteDiskCommitOutcome.Failure or CassetteDiskCommitOutcome.Timeout or CassetteDiskCommitOutcome.Cancelled)
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT {outcome.ToString().ToUpperInvariant()} epoch={epoch} slot={slot}; grant remains retryable.");
     }
 
     private static void LogIdentityDiagnosticOnChange(string diagnostic)

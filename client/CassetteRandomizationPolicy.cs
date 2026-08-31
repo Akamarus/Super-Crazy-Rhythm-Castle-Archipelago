@@ -317,6 +317,115 @@ internal sealed class CassetteDiagnosticSignatureDeduplicator
     internal void Reset() => _lastSignature = null;
 }
 
+internal readonly record struct CassettePublicWriteState(
+    bool HasChanges,
+    bool RequiresWriteToDisk,
+    double? LastSuccessTime,
+    double? LastFailureTime,
+    string? FailureReason);
+
+internal enum CassetteDiskCommitOutcome { None, Pending, Success, Failure, Timeout, Cancelled }
+
+internal sealed class CassetteDiskCommitRuntime
+{
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private readonly HashSet<string> _songs = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _activeSongs = new(StringComparer.Ordinal);
+    private bool _active;
+    private bool _blocked;
+    private long _revision;
+    private long _activeRevision;
+    private long _epoch;
+    private int _slot;
+    private long _pointer;
+    private double? _baselineSuccess;
+    private double? _baselineFailure;
+    private string? _baselineFailureReason;
+    private TimeSpan _elapsed;
+
+    internal bool HasWork => _active || (_songs.Count > 0 && !_blocked);
+    internal bool Active => _active;
+    internal IReadOnlyList<string> Songs => (_active ? _activeSongs : _songs).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    internal void Stage(string song)
+    {
+        if (!_songs.Add(song)) return;
+        _revision++;
+        _blocked = false;
+    }
+    internal void Reset()
+    {
+        _songs.Clear(); _activeSongs.Clear(); _active = false; _blocked = false;
+        _revision = 0; _activeRevision = 0; _elapsed = TimeSpan.Zero;
+    }
+
+    internal bool TryBegin(long epoch, int slot, long pointer, CassettePublicWriteState state)
+    {
+        if (_active || _songs.Count == 0 || pointer == 0) return false;
+        _active = true; _epoch = epoch; _slot = slot; _pointer = pointer;
+        _activeSongs.Clear(); _activeSongs.UnionWith(_songs); _activeRevision = _revision;
+        _baselineSuccess = state.LastSuccessTime; _baselineFailure = state.LastFailureTime;
+        _baselineFailureReason = state.FailureReason;
+        _elapsed = TimeSpan.Zero;
+        return true;
+    }
+
+    internal CassetteDiskCommitOutcome Observe(
+        long epoch, int slot, long pointer, CassettePublicWriteState state,
+        bool statusesRetained, TimeSpan elapsed)
+    {
+        CassetteDiskCommitOutcome boundary = CheckBoundary(epoch, slot, pointer, statusesRetained);
+        if (boundary is not CassetteDiskCommitOutcome.Pending) return boundary;
+        bool failureAdvanced = state.LastFailureTime.HasValue &&
+            (!_baselineFailure.HasValue || state.LastFailureTime.Value > _baselineFailure.Value);
+        bool failureReasonChanged = !string.IsNullOrWhiteSpace(state.FailureReason) &&
+            !string.Equals(state.FailureReason, _baselineFailureReason, StringComparison.Ordinal);
+        if (failureAdvanced || failureReasonChanged)
+            return FinishFailure(CassetteDiskCommitOutcome.Failure);
+        bool successAdvanced = state.LastSuccessTime.HasValue &&
+            (!_baselineSuccess.HasValue || state.LastSuccessTime.Value > _baselineSuccess.Value);
+        if (!state.RequiresWriteToDisk && successAdvanced)
+        {
+            _active = false;
+            _songs.ExceptWith(_activeSongs);
+            _activeSongs.Clear();
+            _blocked = false;
+            return CassetteDiskCommitOutcome.Success;
+        }
+        return AdvanceTimeout(elapsed);
+    }
+
+    internal CassetteDiskCommitOutcome ObserveUnavailable(
+        long epoch, int slot, long pointer, bool statusesRetained, TimeSpan elapsed)
+    {
+        CassetteDiskCommitOutcome boundary = CheckBoundary(epoch, slot, pointer, statusesRetained);
+        return boundary is CassetteDiskCommitOutcome.Pending ? AdvanceTimeout(elapsed) : boundary;
+    }
+
+    private CassetteDiskCommitOutcome CheckBoundary(long epoch, int slot, long pointer, bool statusesRetained)
+    {
+        if (!_active) return CassetteDiskCommitOutcome.None;
+        if (epoch != _epoch || slot != _slot || pointer != _pointer)
+            return FinishFailure(CassetteDiskCommitOutcome.Cancelled);
+        if (!statusesRetained) return FinishFailure(CassetteDiskCommitOutcome.Failure);
+        return CassetteDiskCommitOutcome.Pending;
+    }
+
+    private CassetteDiskCommitOutcome AdvanceTimeout(TimeSpan elapsed)
+    {
+        if (elapsed > TimeSpan.Zero) _elapsed += elapsed;
+        if (_elapsed >= Timeout) return FinishFailure(CassetteDiskCommitOutcome.Timeout);
+        return CassetteDiskCommitOutcome.Pending;
+    }
+
+    private CassetteDiskCommitOutcome FinishFailure(CassetteDiskCommitOutcome outcome)
+    {
+        _active = false;
+        _activeSongs.Clear();
+        _blocked = _revision == _activeRevision;
+        return outcome;
+    }
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] RetryDelays =
@@ -403,11 +512,12 @@ internal sealed class CassetteSaveEpochRuntime
         _verificationElapsed.Remove(nativeSong);
     }
 
-    internal void RecordVerification(string nativeSong, string? nativeStatus)
+    internal bool RecordVerification(string nativeSong, string? nativeStatus)
     {
-        if (!IsPending(nativeSong)) return;
+        if (!IsPending(nativeSong)) return false;
         _verificationElapsed.Remove(nativeSong);
         Observe(nativeSong, nativeStatus);
+        return string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSatisfiedNativeStatus(string? status) =>

@@ -118,6 +118,7 @@ Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette r
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
 string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
+Equal(true, unityTick.Contains("TickDiskCommit(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded disk completion on the same monotonic elapsed time");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
@@ -140,6 +141,12 @@ Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_play
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
 Equal(true, captureProcessor.Contains("_saveIdentity.CaptureProcessor", StringComparison.Ordinal), "compatible post-selection processor can bind pending selection");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
+string diskCommitSource = ExtractMethods(receiptRandomizationSource, "private static void TickDiskCommit(").Single();
+Equal(true, diskCommitSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "verified cassette wave submits the narrow public persist transaction");
+Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringComparison.Ordinal), "disk transaction polls public write completion state");
+Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
+foreach (string prohibited in new[] { "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile" })
+    Equal(false, diskCommitSource.Contains(prohibited, StringComparison.Ordinal), $"disk transaction avoids prohibited broad/private path {prohibited}");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -549,6 +556,47 @@ staleVerification.RecordVerification("BADASS", null);
 Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "reload clears prior attempt and revalidates new epoch");
 Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
+var diskCommit = new CassetteDiskCommitRuntime();
+diskCommit.Stage("BADASS"); diskCommit.Stage("THE_HEIST"); diskCommit.Stage("BADASS");
+Equal(2, diskCommit.Songs.Count, "one reconciliation wave coalesces cassette grants");
+var dirtyWrite = new CassettePublicWriteState(true, false, 10, null, null);
+Equal(true, diskCommit.TryBegin(1, 4, 400, dirtyWrite), "dirty verified wave begins one disk transaction");
+Equal(false, diskCommit.TryBegin(1, 4, 400, dirtyWrite), "active wave cannot submit a duplicate persist");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(1, 4, 400, new(true, true, 10, null, null), true, TimeSpan.FromSeconds(1)), "required disk write remains pending");
+Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(1, 4, 400, new(false, false, 11, null, null), true, TimeSpan.FromSeconds(1)), "advanced successful write completes transaction");
+Equal(false, diskCommit.HasWork, "successful disk commit clears batched songs");
+
+diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "first verified wave begins");
+diskCommit.Stage("THE_HEIST");
+Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(2, 4, 401, new(false, false, 11, null, null), true, TimeSpan.Zero), "first wave can complete after a later grant verifies");
+Equal(true, diskCommit.HasWork, "grant verified after submission remains queued for its own disk transaction");
+Equal(1, diskCommit.Songs.Count, "successful write clears only the submitted wave");
+Equal("THE_HEIST", diskCommit.Songs[0], "later verified grant is never attributed to the earlier write");
+
+diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "failure case begins");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(2, 4, 401, new(true, false, 10, 12, "IO_ERROR"), true, TimeSpan.Zero), "advanced failure fails transaction");
+Equal(false, diskCommit.HasWork, "failed wave is bounded until a new epoch or newly verified song");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "timeout case begins");
+Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.Observe(2, 4, 401, dirtyWrite, true, TimeSpan.FromSeconds(10)), "bounded disk transaction times out");
+Equal(false, diskCommit.HasWork, "timed out wave cannot resubmit every frame");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "epoch-switch case begins");
+Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.Observe(3, 4, 401, dirtyWrite, true, TimeSpan.Zero), "epoch switch cancels transaction");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 401, dirtyWrite), "pointer-switch case begins");
+Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.Observe(3, 4, 402, dirtyWrite, true, TimeSpan.Zero), "pointer switch cancels transaction");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "status-regression case begins");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(3, 4, 402, dirtyWrite, false, TimeSpan.Zero), "cassette status regression fails closed");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "unreadable-state timeout case begins");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(3, 4, 402, true, TimeSpan.FromSeconds(9)), "temporarily unreadable write state remains pending within the bound");
+Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.ObserveUnavailable(3, 4, 402, true, TimeSpan.FromSeconds(1)), "unreadable write state cannot postpone timeout indefinitely");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "unreadable-state identity case begins");
+Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.ObserveUnavailable(3, 4, 403, true, TimeSpan.Zero), "identity replacement fails closed even when write state is unreadable");
+diskCommit.Reset();
+Equal(false, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "no verified songs means no persist");
+var alreadyDurableEpoch = new CassetteSaveEpochRuntime(); alreadyDurableEpoch.Receive("BADASS"); alreadyDurableEpoch.ActivateSave(4);
+alreadyDurableEpoch.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, alreadyDurableEpoch.IsPending("BADASS"), "already durable cassette status queues no grant or disk transaction");
+Console.WriteLine("PASS: cassette_disk_commit_transaction_is_bounded");
+
 
 foreach (var triggerGroup in CassetteCatalog.All
              .Where(x => x.SourceType == CassetteSourceType.LevelEarnedReward)
@@ -666,6 +714,20 @@ Equal(eSongCassetteStatus.HAVE_IN_BAG, semanticProcessor.LastRequest.CassetteSta
 Equal(ePlayerSaveChangeBundleKey.DEFAULT, semanticProcessor.LastRequest.Bundle, "request uses default native bundle");
 Equal(true, semanticProcessor.LastRequest.SemanticConstructorUsed, "submission uses semantic cassette constructor");
 Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submission detail identifies default bundle");
+var publicWriteProcessor = new PublicWriteProcessorFixture(new PublicWriteStateFixture());
+Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(publicWriteProcessor, out CassettePublicWriteState publicWriteState, out string publicWriteStage), "adapter reads the public write-completion contract");
+Equal(new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"), publicWriteState, "adapter returns exact public write-completion values");
+Equal("success", publicWriteStage, "public write-completion read reports success");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateSuccessNullableWriteStateFixture()), out _, out publicWriteStage), "private success-time nullable contract fails closed");
+Equal("write-success-time-nullable-contract-missing", publicWriteStage, "private success-time wrapper reports the exact public boundary failure");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), out _, out publicWriteStage), "private failure-reason nullable contract fails closed");
+Equal("write-failure-reason-nullable-contract-missing", publicWriteStage, "private failure-reason wrapper reports the exact public boundary failure");
+RequestSystem.Reset();
+Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
+Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, RequestSystem.LastRequest!.Bundle.Value, "persist request uses exact DEFAULT bundle");
+Equal(eSaveFileWriteType.URGENT, RequestSystem.LastRequest.WriteTypeToRequest, "persist request uses exact URGENT write type");
+Equal(true, persistDetail.Contains("DEFAULT", StringComparison.Ordinal) && persistDetail.Contains("URGENT", StringComparison.Ordinal), "persist detail records exact public semantics");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 foreach (string obsoleteDiagnostic in new[] { "CassetteSaveFingerprint", "TryGetLoadedSaveFingerprint", "TryGetProcessorSaveFingerprint", "TryBuildFingerprint", "UnwrapNullablePublic" })
@@ -679,7 +741,11 @@ Equal(false, processorIdentityAdapter.Contains("AllInstance", StringComparison.O
 string pointerJoinAdapter = ExtractMethods(adapterSource, "internal static bool TryMatchRegularSaveSlot(").Single();
 Equal(true, pointerJoinAdapter.Contains("PublicInstance", StringComparison.Ordinal), "regular-save pointer join uses public-only APIs");
 Equal(false, pointerJoinAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerJoinAdapter.Contains("AllStatic", StringComparison.Ordinal), "regular-save pointer join cannot bind non-public members");
-foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
+string persistAdapter = ExtractMethods(adapterSource, "internal static bool TrySubmitDefaultUrgentPersist(").Single();
+Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistAdapter.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
+Equal(false, persistAdapter.Contains("AllStatic", StringComparison.Ordinal) || persistAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk persist never resolves private APIs");
+Equal(true, persistAdapter.Contains("Convert.ToInt32(bundle) != 1", StringComparison.Ordinal) && persistAdapter.Contains("Convert.ToInt32(urgent) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
+foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
@@ -771,16 +837,76 @@ sealed class FakePlayerSavePublicState
 
 sealed record FakeGameStats(long PlayTimeInSeconds, DateTime LastPlayDateTimeUtc);
 
+sealed record FakeGameTime(double RawTime);
+
+sealed class PublicWriteProcessorFixture
+{
+    private readonly object _state;
+    public PublicWriteProcessorFixture(object state) => _state = state;
+    public object ObtainState() => _state;
+}
+
+sealed class PublicWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(true, new(8));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");
+}
+
+sealed class PrivateSuccessNullableWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public object GameTimeOfLastWriteToDisk => new PrivateNullable<FakeGameTime>(new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
+}
+
+sealed class PrivateReasonNullableWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
+    public object FailureReasonOfLastFailedAttemptToWriteToDisk => new PrivateNullable<string>("IO_ERROR");
+}
+
+sealed class PrivateNullable<T>
+{
+    private readonly T _value;
+    public PrivateNullable(T value) => _value = value;
+    private bool HasValue => true;
+    private T Value => _value;
+}
+
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
+enum eSaveFileWriteType { URGENT, NON_URGENT }
 enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
 enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
 
 sealed class PersistSaveChangeBundleRequest
 {
-    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey>? Bundle { get; init; }
+    public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType)
+    { Bundle = bundle; WriteTypeToRequest = writeType; }
+    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
+    public eSaveFileWriteType WriteTypeToRequest { get; }
 }
 
 sealed class PersistAllSaveChangeBundlesRequest { }
+
+static class RequestSystem
+{
+    public static int SubmitCount { get; private set; }
+    public static PersistSaveChangeBundleRequest? LastRequest { get; private set; }
+    public static void SubmitRequest<T>(T request)
+    {
+        SubmitCount++;
+        LastRequest = request as PersistSaveChangeBundleRequest;
+    }
+    public static void Reset() { SubmitCount = 0; LastRequest = null; }
+}
 
 sealed class PlayerSaveRequestProcessor
 {
