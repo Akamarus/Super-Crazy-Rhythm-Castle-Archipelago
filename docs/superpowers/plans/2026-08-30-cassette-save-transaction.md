@@ -4,7 +4,7 @@
 
 **Goal:** Persist every AP-owned cassette into the confirmed loaded save through the exact native semantic player-save request, with epoch-scoped authoritative verification and bounded retries.
 
-**Architecture:** AP ownership remains session-wide, while native satisfaction and outstanding attempts belong only to a monotonically increasing loaded-save epoch established by safe save-selection request postfixes. After that epoch exists, Unity-thread lifecycle points read before writing, submit `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)` through a compatible `PlayerSaveRequestProcessor`, and verify later; request return alone is never satisfaction. Live diagnostics proved the earlier `PersistSaveChangeBundleRequest`/`PersistAllSaveChangeBundlesRequest` assumption false because neither prefix ran during supported save and gameplay actions.
+**Architecture:** AP ownership remains session-wide, while native satisfaction and outstanding attempts belong only to a monotonically increasing loaded-save epoch. Exact save-state mutation postfixes enqueue expected-slot generations; the Unity keeper requires a matching non-null selected `(slot, PlayerSaveFilePublicState.Pointer)` to remain stable for two updates before activating an epoch. After that epoch exists, Unity-thread lifecycle points read before writing, submit `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)` through a compatible `PlayerSaveRequestProcessor`, and verify later; request return alone is never satisfaction.
 
 **Tech Stack:** C#/.NET 6, BepInEx 6 IL2CPP, Harmony, generated-interop reflection adapters, console regression projects, PowerShell build/validation scripts.
 
@@ -17,7 +17,11 @@
 - Do not call private save-manager/flush APIs or synthesize a persist request.
 - Do not patch `SelectedPlayerSaveSlotChangedEvent.HandleEvent`.
 - Do not rely on `PersistSaveChangeBundleRequest` or `PersistAllSaveChangeBundlesRequest`; live diagnostics observed no prefix entry for load, travel, title return, difficulty change, shutdown, or the durable Plant Pipes grant.
-- Begin an epoch only after a safe selection request completes and both selected-slot number and selected-state enquiries succeed; same-slot reselection begins a new epoch.
+- Broad selection-request postfixes are not authoritative and must not activate an epoch.
+- Exact callbacks for `SaveDataRequestProcessor.ChangeSelectedPlayerSaveSlot(Int32)`, `CreateNewPlayerSaveFileInEmptySlot(Int32)`, and `ProcessRequest(BuildPlayerSaveStateFromFileRequest)` enqueue only; they perform no native cassette read or write.
+- Begin an epoch only after the Unity keeper observes the signal's expected slot plus a non-null selected `PlayerSaveFilePublicState.Pointer` unchanged for two consecutive updates.
+- Slot change, pointer change, or one newly consumed Build generation for the selected slot advances the epoch; duplicate signals coalesce.
+- Room transitions never establish or replace an epoch.
 - Keep AP ownership session-wide, but never keep satisfaction process-wide. Bag/deposited status is terminal only in the epoch that authoritatively observed it.
 - Read before every write. Preserve `HAVE_IN_BAG` and `HAVE_DEPOSITED`.
 - Submit only `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)` through a compatible `PlayerSaveRequestProcessor` on the Unity thread.
@@ -30,9 +34,9 @@
 
 ## File Structure
 
-- Modify `client/CassetteRandomizationPolicy.cs`: replace persist-token staging with epoch-scoped read/apply/verify decisions and bounded retry state.
+- Modify `client/CassetteRandomizationPolicy.cs`: retain epoch-scoped read/apply/verify decisions and add pure expected-slot/native-pointer stabilization state.
 - Modify `client/CassetteSaveTransactionAdapter.cs`: retain selection and read adapters; expose exact semantic `DEFAULT` request submission; remove natural-persist bundle staging.
-- Modify `client/Plugin.cs`: retain safe epoch hooks, reconcile from safe Unity lifecycle points, use the Plant Pipes compatible processor pattern, and remove reliance on absent Persist hooks.
+- Modify `client/Plugin.cs`: install exact queue-only save mutation hooks, stabilize selected identity in the Unity keeper, reconcile only after activation, and retain the Plant Pipes compatible processor pattern.
 - Modify `client/tests/CassetteRandomization/Program.cs`: cover pure behavior, native-shaped request semantics, and production wiring.
 - Modify `docs/testing/2026-08-29-full-cassette-acceptance.md` and `docs/TESTING_AND_ISSUES.md`: record two-restart live acceptance.
 
@@ -139,38 +143,119 @@ git commit -m "fix(client): submit semantic cassette save requests"
 
 ---
 
-### Task 3: Safe Post-Epoch Unity Wiring
+### Task 3: Exact Final Loaded-Save Boundary and Unity Stabilization
 
 **Files:**
+- Modify: `client/CassetteRandomizationPolicy.cs`
 - Modify: `client/Plugin.cs`
 - Modify: `client/tests/CassetteRandomization/Program.cs`
 
 **Interfaces:**
-- Produces: `CassetteReceiptRandomization.TryReconcile(string reason)` and `TickPendingNativeGrants(TimeSpan elapsed)`.
-- Consumes: revised runtime/adapter and the existing Plant Pipes processor handoff.
-- Preserves: receipt recognition, source interception, normal machine deposit, and four safe selection postfixes.
+- Produces: `CassetteSaveBoundarySignalKind` values `Selection`, `Creation`, and `Build`.
+- Produces: `CassetteSaveIdentityStabilizer.Signal(int expectedSlot, CassetteSaveBoundarySignalKind kind)`, `Observe(int? selectedSlot, long selectedStatePointer)`, and `Reset()`.
+- Produces: an activation result containing `Slot`, `Pointer`, `Generation`, and `Reason` only after two matching Unity observations.
+- Consumes: `PlayerSaveManagementEnquiries.GetSelectedSaveFileSlotNumber()`, `TryGetSelectedSlotSaveFileState()`, and public `Il2CppObjectBase.Pointer`.
+- Preserves: AP receipt routing, epoch-scoped satisfaction, exact semantic request submission, bounded verification, normal machine insertion, and all prohibitions.
 
-- [ ] **Step 1: Write failing wiring tests**
+- [ ] **Step 1: Write failing stabilization behavior tests**
 
-Require hooks for `SelectPlayerSaveSlotRequest`, `SelectMostRecentlyUsedRegularPlayerSaveSlotRequest`, `EnsureAPlayerSaveSlotIsSelectedRequest`, and `CreateNewPlayerSaveFileInSlotRequest`. Require reconciliation to check synchronized compatibility plus active epoch, read before write, preserve bag/deposited, and delay verification. Require the Plant Pipes stateless processor handoff only after selected-save readability. Reject cassette Persist prefix/postfix registration, the unsafe selected-slot event, private flush APIs, and continuous submission.
+Add pure tests with explicit signals and observations:
+
+```csharp
+var stabilizer = new CassetteSaveIdentityStabilizer();
+stabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation);
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(0, 100), "old startup slot cannot satisfy slot-4 signal");
+Equal<CassetteSaveActivation?>(null, stabilizer.Observe(4, 400), "first matching observation is not stable");
+var activation = stabilizer.Observe(4, 400);
+Equal(4, activation!.Value.Slot, "slot 4 activates after two matching Unity observations");
+Equal(400L, activation.Value.Pointer, "activation records native state identity");
+```
+
+Also require:
+
+- a newer signal invalidates a stale candidate;
+- slot switch activates once;
+- same-slot pointer replacement activates once;
+- a new Build generation activates once when the same slot and pointer are reused;
+- duplicate create/build/change signals coalesce around one final identity;
+- repeated non-Build signals for the activated identity do not duplicate epochs;
+- `Observe` without an exact signal, including room-transition calls, cannot activate.
 
 - [ ] **Step 2: Run focused test and verify RED**
 
-Run Task 1 Step 2. Expected: FAIL because production still waits for absent Persist callbacks.
+```powershell
+dotnet run --project client/tests/CassetteRandomization/CassetteRandomization.Tests.csproj -c Release
+```
 
-- [ ] **Step 3: Retain epoch activation and remove absent-boundary code**
+Expected: FAIL because no expected-slot/native-pointer stabilizer exists.
 
-Keep `SaveSelectionPostfix` activation only after slot plus selected state succeed. Remove cassette Persist hook registrations, transaction queues, callbacks, and diagnostics used only by the disproven boundary. Do not infer an epoch from room/result/slot-data callbacks.
+- [ ] **Step 3: Implement the minimal pure stabilizer**
 
-- [ ] **Step 4: Implement read-before-write reconciliation**
+Keep signal generation, expected slot, an `includesBuild` marker, candidate identity, consecutive-match count, activated identity, and last-consumed Build generation. `Signal` for a different expected slot replaces the stale candidate. Signals for the same expected slot coalesce and preserve `includesBuild=true` if any signal was Build, even when a later Selection or Creation signal arrives. `Observe` ignores null slots, zero pointers, and slot mismatches; the first matching identity records a candidate and the second consecutive match may return one activation.
 
-Invoke `TryReconcile` after confirmed selection, AP history/receipt delivery, compatible processor capture, and existing safe scene/lifecycle points. Snapshot epoch/processor, read authoritatively, reject a stale epoch before submission, and wrap only the exact request invocation in `_applyingNativeGrant`. Record request return as verification-pending.
+Return an activation when:
 
-- [ ] **Step 5: Implement bounded delayed verification**
+- the stable slot differs from the activated slot;
+- the stable pointer differs from the activated pointer; or
+- the stable signal includes an unconsumed Build generation for the selected slot.
 
-The keeper advances only pending timers. On expiry, re-read on the Unity thread. Bag/deposited satisfies the current epoch; unearned permits only the next bounded attempt; epoch changes discard stale attempts and reevaluate from AP ownership.
+Consume a Build generation at most once. Return no activation for later non-Build signals with the same stable identity.
 
-- [ ] **Step 6: Run complete verification**
+- [ ] **Step 4: Run focused test to verify stabilizer GREEN**
+
+Run Step 2. Expected: every pure identity and generation case passes.
+
+- [ ] **Step 5: Write failing production-wiring tests**
+
+Require exact hook registration for:
+
+```text
+SaveDataRequestProcessor.ChangeSelectedPlayerSaveSlot(Int32)
+SaveDataRequestProcessor.CreateNewPlayerSaveFileInEmptySlot(Int32)
+SaveDataRequestProcessor.ProcessRequest(BuildPlayerSaveStateFromFileRequest)
+```
+
+Require callbacks to extract the exact expected slot and call only the queue/stabilizer signal API. Reject `TryReconcile`, native status reads, semantic submissions, and epoch activation inside those callbacks.
+
+Require the Unity keeper to:
+
+- read selected slot and selected public state;
+- use the public native `Pointer`;
+- feed the stabilizer every update only while a signal is pending;
+- call `ActivateLoadedSave` only from a returned stabilized activation.
+
+Require the four broad selection request postfixes not to call `ActivateLoadedSave`. Continue rejecting `SelectedPlayerSaveSlotChangedEvent.HandleEvent`, Persist hooks, private save APIs, forced deposit/unlock, and process-wide satisfaction.
+
+- [ ] **Step 6: Run focused test and verify wiring RED**
+
+Run Step 2. Expected: FAIL because broad selection postfixes still activate immediately and exact mutation hooks are absent.
+
+- [ ] **Step 7: Install exact queue-only mutation hooks**
+
+Add an exact-signature patch helper rather than matching every similarly named method. Postfixes receive:
+
+```csharp
+public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
+public static void BuiltPlayerSaveStatePostfix(object[]? __args)
+```
+
+For `ChangeSelectedPlayerSaveSlot` and `CreateNewPlayerSaveFileInEmptySlot`, extract the sole `Int32` argument and enqueue `Selection` or `Creation`. For `BuildPlayerSaveStateFromFileRequest`, extract its `SlotNumber` and enqueue `Build`. Missing/unreadable arguments fail closed and log once; callbacks perform no save enquiry or cassette work.
+
+The existing broad request postfixes become diagnostic-only or are removed. They do not activate/deactivate epochs.
+
+- [ ] **Step 8: Stabilize identity in the Unity keeper**
+
+On every keeper update with a pending signal:
+
+1. read the selected slot;
+2. read the selected public state;
+3. obtain its public `Pointer` as a non-zero `IntPtr`;
+4. call `Observe(selectedSlot, pointer.ToInt64())`;
+5. if an activation is returned, call `ActivateLoadedSave` with its exact slot/generation reason and queue reconciliation.
+
+A newer signal replaces stale candidate work. Room transition and other lifecycle callbacks remain reconciliation-only and never call the stabilizer's `Signal`.
+
+- [ ] **Step 9: Run complete verification**
 
 Run the focused suite and all 17 client projects, then:
 
@@ -182,11 +267,11 @@ git diff --check
 
 Expected: focused and 17/17 suites pass; build has 0 errors; validator and diff check pass; unrelated warnings do not increase.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```powershell
-git add client/Plugin.cs client/tests/CassetteRandomization/Program.cs
-git commit -m "fix(client): reconcile cassettes after save selection"
+git add client/CassetteRandomizationPolicy.cs client/Plugin.cs client/tests/CassetteRandomization/Program.cs
+git commit -m "fix(client): stabilize final loaded save identity"
 ```
 
 ---
@@ -198,7 +283,7 @@ git commit -m "fix(client): reconcile cassettes after save selection"
 - Modify: `docs/TESTING_AND_ISSUES.md`
 
 **Interfaces:**
-- Consumes: verified v0.68 client and retained v0.22 seed at `127.0.0.1:38281`, slot `Jack`.
+- Consumes: verified v0.68 client and fresh v0.22 seed `8302601` at `127.0.0.1:38282`, AP slot `Jack`, UI save slot 4.
 - Produces: auditable Badass/The Heist bag and deposited durability evidence.
 
 - [ ] **Step 1: Record automated evidence**
@@ -209,13 +294,13 @@ Document commits, RED/GREEN output, 17/17 result, no-install build, validator, d
 
 With the game closed, replace only `D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP\`. Do not replace APWorld v0.22.
 
-- [ ] **Step 3: Verify loaded-save ordering**
+- [ ] **Step 3: Verify final slot-4 stabilization before submission**
 
-Require startup, compatible routing, connection, epoch activation, processor availability, and read-before-write logs. Reject any submission before epoch activation.
+Require startup, compatible routing, and connection logs. The preliminary startup slot-0 selection must not authorize cassette submission. Create or select UI slot 4, then require exact mutation-signal logs, two matching non-null slot-4 pointer observations, and one slot-4 epoch activation before processor reconciliation or cassette submission. Reject any epoch created by room transition alone.
 
 - [ ] **Step 4: Restart before insertion**
 
-Let AP history restore Badass and The Heist. Require semantic submission followed by later authoritative `HAVE_IN_BAG`; owner confirms both in inventory. Close without insertion, relaunch the same slot, require a new epoch and `HAVE_IN_BAG` for both with no duplicate source checks or unnecessary resubmission.
+Let AP history restore Badass and The Heist. Require semantic submission followed by later authoritative `HAVE_IN_BAG`; owner confirms both in inventory. Close without insertion, relaunch UI slot 4, require an exact Build/selection signal, a new stabilized epoch (including if the numeric slot and native pointer are reused), and `HAVE_IN_BAG` for both with no duplicate source checks or unnecessary resubmission.
 
 - [ ] **Step 5: Restart after normal deposit**
 
