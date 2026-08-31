@@ -342,6 +342,13 @@ internal sealed class CassetteDiskCommitRuntime
     private double? _baselineFailure;
     private string? _baselineFailureReason;
     private TimeSpan _elapsed;
+    private bool _acquiring;
+    private bool _acquisitionDeferredReported;
+    private long _acquisitionRevision;
+    private long _acquisitionEpoch;
+    private int _acquisitionSlot;
+    private long _acquisitionPointer;
+    private TimeSpan _acquisitionElapsed;
 
     internal bool HasWork => _active || (_songs.Count > 0 && !_blocked);
     internal bool Active => _active;
@@ -356,17 +363,47 @@ internal sealed class CassetteDiskCommitRuntime
     {
         _songs.Clear(); _activeSongs.Clear(); _active = false; _blocked = false;
         _revision = 0; _activeRevision = 0; _elapsed = TimeSpan.Zero;
+        ClearAcquisition();
     }
 
     internal bool TryBegin(long epoch, int slot, long pointer, CassettePublicWriteState state)
     {
-        if (_active || _songs.Count == 0 || pointer == 0) return false;
+        if (_active || _blocked || _songs.Count == 0 || pointer == 0) return false;
+        ClearAcquisition();
         _active = true; _epoch = epoch; _slot = slot; _pointer = pointer;
         _activeSongs.Clear(); _activeSongs.UnionWith(_songs); _activeRevision = _revision;
         _baselineSuccess = state.LastSuccessTime; _baselineFailure = state.LastFailureTime;
         _baselineFailureReason = state.FailureReason;
         _elapsed = TimeSpan.Zero;
         return true;
+    }
+
+    internal CassetteDiskCommitOutcome ObservePreSubmitUnavailable(
+        long epoch, int slot, long pointer, bool identityReadable, long observedPointer,
+        bool statusesRetained, TimeSpan elapsed, out bool reportDeferred)
+    {
+        reportDeferred = false;
+        if (_active || _songs.Count == 0 || _blocked) return CassetteDiskCommitOutcome.None;
+        if (!_acquiring)
+            StartAcquisition(epoch, slot, pointer);
+        else if (_acquisitionRevision != _revision)
+            StartAcquisition(epoch, slot, pointer);
+        else if (_acquisitionEpoch != epoch || _acquisitionSlot != slot || _acquisitionPointer != pointer)
+            return FinishPreSubmitFailure(CassetteDiskCommitOutcome.Cancelled);
+
+        if (!_acquisitionDeferredReported)
+        {
+            _acquisitionDeferredReported = true;
+            reportDeferred = true;
+        }
+        if (pointer == 0 || (identityReadable && observedPointer != pointer))
+            return FinishPreSubmitFailure(CassetteDiskCommitOutcome.Cancelled);
+        if (identityReadable && !statusesRetained)
+            return FinishPreSubmitFailure(CassetteDiskCommitOutcome.Failure);
+        if (elapsed > TimeSpan.Zero) _acquisitionElapsed += elapsed;
+        return _acquisitionElapsed >= Timeout
+            ? FinishPreSubmitFailure(CassetteDiskCommitOutcome.Timeout)
+            : CassetteDiskCommitOutcome.Pending;
     }
 
     internal CassetteDiskCommitOutcome Observe(
@@ -423,6 +460,29 @@ internal sealed class CassetteDiskCommitRuntime
         _activeSongs.Clear();
         _blocked = _revision == _activeRevision;
         return outcome;
+    }
+
+    private void StartAcquisition(long epoch, int slot, long pointer)
+    {
+        _acquiring = true; _acquisitionDeferredReported = false;
+        _acquisitionRevision = _revision; _acquisitionEpoch = epoch;
+        _acquisitionSlot = slot; _acquisitionPointer = pointer;
+        _acquisitionElapsed = TimeSpan.Zero;
+    }
+
+    private CassetteDiskCommitOutcome FinishPreSubmitFailure(CassetteDiskCommitOutcome outcome)
+    {
+        ClearAcquisition();
+        _blocked = true;
+        return outcome;
+    }
+
+    private void ClearAcquisition()
+    {
+        _acquiring = false; _acquisitionDeferredReported = false;
+        _acquisitionRevision = 0; _acquisitionEpoch = 0;
+        _acquisitionSlot = 0; _acquisitionPointer = 0;
+        _acquisitionElapsed = TimeSpan.Zero;
     }
 }
 

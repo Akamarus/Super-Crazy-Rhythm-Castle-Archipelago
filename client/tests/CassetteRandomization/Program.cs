@@ -590,6 +590,29 @@ Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(3, 4, 402
 Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.ObserveUnavailable(3, 4, 402, true, TimeSpan.FromSeconds(1)), "unreadable write state cannot postpone timeout indefinitely");
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "unreadable-state identity case begins");
 Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.ObserveUnavailable(3, 4, 403, true, TimeSpan.Zero), "identity replacement fails closed even when write state is unreadable");
+diskCommit.Reset(); diskCommit.Stage("BADASS");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromSeconds(9), out bool reportDeferred), "pre-submit state acquisition remains pending within its bound");
+Equal(true, reportDeferred, "pre-submit acquisition reports its first deferred read");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromMilliseconds(999), out reportDeferred), "pre-submit acquisition remains pending immediately before timeout");
+Equal(false, reportDeferred, "repeated pre-submit failure is not reported again");
+Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromMilliseconds(1), out reportDeferred), "pre-submit acquisition times out after ten seconds");
+Equal(false, reportDeferred, "terminal timeout does not duplicate the initial deferred report");
+Equal(false, diskCommit.HasWork, "timed-out pre-submit wave is blocked");
+Equal(CassetteDiskCommitOutcome.None, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromSeconds(10), out reportDeferred), "blocked pre-submit wave cannot restart itself");
+Equal(false, reportDeferred, "blocked pre-submit wave emits no further deferred reports");
+diskCommit.Stage("THE_HEIST");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.Zero, out reportDeferred), "new revision unblocks pre-submit acquisition");
+Equal(true, reportDeferred, "new work revision receives one new deferred report");
+diskCommit.Reset(); diskCommit.Stage("BADASS");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(5, 4, 405, true, 405, true, TimeSpan.Zero, out reportDeferred), "matching identity begins pre-submit acquisition");
+Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.ObservePreSubmitUnavailable(5, 4, 405, true, 406, false, TimeSpan.Zero, out reportDeferred), "readable pointer change fails closed during pre-submit acquisition");
+Equal(false, diskCommit.HasWork, "identity-changed pre-submit wave is blocked until reset");
+diskCommit.Reset(); diskCommit.Stage("BADASS");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObservePreSubmitUnavailable(6, 4, 406, true, 406, false, TimeSpan.Zero, out reportDeferred), "status regression fails closed before submission");
+diskCommit.Reset(); diskCommit.Stage("BADASS");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(7, 4, 407, true, 407, true, TimeSpan.FromSeconds(9), out reportDeferred), "identity reset starts a fresh acquisition bound");
+Equal(true, diskCommit.TryBegin(7, 4, 407, dirtyWrite), "readable state begins transaction after pre-submit acquisition");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(7, 4, 407, dirtyWrite, true, TimeSpan.FromSeconds(9)), "pre-submit acquisition time is not charged to submitted write confirmation");
 diskCommit.Reset();
 Equal(false, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "no verified songs means no persist");
 var alreadyDurableEpoch = new CassetteSaveEpochRuntime(); alreadyDurableEpoch.Receive("BADASS"); alreadyDurableEpoch.ActivateSave(4);
@@ -732,6 +755,12 @@ Equal("write-state-has-changes-get-invocation:NullReferenceException:has-changes
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new ThrowingSuccessNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "throwing success nullable fails closed");
 Equal(default(CassettePublicWriteState), failedWriteState, "throwing success nullable exposes no partial write state");
 Equal("write-success-time-nullable-has-value-get-invocation:NullReferenceException:success-has-value", publicWriteStage, "throwing success nullable identifies its exact wrapper stage");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new EmptyInteropNullableWriteStateFixture()), out CassettePublicWriteState emptyNullableWriteState, out publicWriteStage), "IL2CPP empty nullable getter returns are normalized");
+Equal(new CassettePublicWriteState(true, true, null, null, null), emptyNullableWriteState, "all three empty IL2CPP write-state nullable values remain absent");
+Equal("success", publicWriteStage, "empty IL2CPP nullable write state reports success");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new UnrelatedThrowingInteropNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "unrelated NRE from an IL2CPP nullable getter fails closed");
+Equal(default(CassettePublicWriteState), failedWriteState, "unrelated nullable getter NRE exposes no partial write state");
+Equal("write-state-success-time-get-invocation:NullReferenceException:not-interop-empty", publicWriteStage, "unrelated nullable getter NRE retains its exact failure stage");
 Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
 Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
 Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
@@ -904,6 +933,24 @@ sealed class ThrowingSuccessNullableWriteStateFixture
     public ThrowingNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(new(10));
     public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
+}
+
+sealed class EmptyInteropNullableWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => true;
+    public Il2CppSystem.Nullable<FakeGameTime> GameTimeOfLastWriteToDisk => Il2CppSystem.Nullable<FakeGameTime>.EmptyFromInterop();
+    public Il2CppSystem.Nullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => Il2CppSystem.Nullable<FakeGameTime>.EmptyFromInterop();
+    public Il2CppSystem.Nullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => Il2CppSystem.Nullable<string>.EmptyFromInterop();
+}
+
+sealed class UnrelatedThrowingInteropNullableWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => true;
+    public Il2CppSystem.Nullable<FakeGameTime> GameTimeOfLastWriteToDisk => throw new NullReferenceException("not-interop-empty");
+    public Il2CppSystem.Nullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
+    public Il2CppSystem.Nullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
 }
 
 sealed class ThrowingNullable<T>

@@ -18246,12 +18246,18 @@ internal static class CassetteReceiptRandomization
         if (!CassetteSaveTransactionAdapter.TryReadPublicWriteState(processor, out CassettePublicWriteState writeState, out string writeStage))
         {
             CassetteDiskCommitOutcome unavailableOutcome = CassetteDiskCommitOutcome.None;
-            if (active)
+            bool reportDeferred = false;
+            lock (Sync)
             {
-                lock (Sync) unavailableOutcome = _diskCommit.ObserveUnavailable(
-                    epoch, slot, identityReadable ? observedPointer : 0, statusesRetained, elapsed);
+                unavailableOutcome = active
+                    ? _diskCommit.ObserveUnavailable(
+                        epoch, slot, identityReadable ? observedPointer : 0, statusesRetained, elapsed)
+                    : _diskCommit.ObservePreSubmitUnavailable(
+                        epoch, slot, pointer, identityReadable, identityReadable ? observedPointer : 0,
+                        statusesRetained, elapsed, out reportDeferred);
             }
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE DISK COMMIT DEFERRED stage='{writeStage}'.");
+            if (reportDeferred)
+                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE DISK COMMIT DEFERRED stage='{writeStage}'.");
             if (unavailableOutcome is CassetteDiskCommitOutcome.Failure or CassetteDiskCommitOutcome.Timeout or CassetteDiskCommitOutcome.Cancelled)
                 Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT {unavailableOutcome.ToString().ToUpperInvariant()} epoch={epoch} slot={slot}; grant remains retryable.");
             return;

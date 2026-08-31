@@ -141,13 +141,13 @@ internal static class CassetteSaveTransactionAdapter
             stage = "write-state-requires-write-get";
             bool requires = Convert.ToBoolean(requiresProperty.GetValue(nativeState));
             stage = "write-state-success-time-get";
-            object? successValue = successProperty.GetValue(nativeState);
+            object? successValue = ReadPublicNullableProperty(successProperty, nativeState);
             if (!TryReadPublicGameTime(successValue, "success-time", out double? success, out stage)) return false;
             stage = "write-state-failure-time-get";
-            object? failureValue = failureProperty.GetValue(nativeState);
+            object? failureValue = ReadPublicNullableProperty(failureProperty, nativeState);
             if (!TryReadPublicGameTime(failureValue, "failure-time", out double? failure, out stage)) return false;
             stage = "write-state-failure-reason-get";
-            object? reasonValue = reasonProperty.GetValue(nativeState);
+            object? reasonValue = ReadPublicNullableProperty(reasonProperty, nativeState);
             if (!TryUnwrapPublicWriteNullable(reasonValue, "failure-reason", out object? reason, out stage)) return false;
             stage = "write-state-failure-reason-format";
             string? failureReason = reason?.ToString();
@@ -156,6 +156,25 @@ internal static class CassetteSaveTransactionAdapter
             return true;
         }
         catch (Exception ex) { stage = $"{stage}-invocation:{SummarizeException(ex)}"; return false; }
+    }
+
+    private static object? ReadPublicNullableProperty(PropertyInfo property, object target)
+    {
+        try { return property.GetValue(target); }
+        catch (TargetInvocationException ex) when (IsEmptyIl2CppNullableReturn(property, ex)) { return null; }
+    }
+
+    private static bool IsEmptyIl2CppNullableReturn(PropertyInfo property, TargetInvocationException exception)
+    {
+        Type propertyType = property.PropertyType;
+        if (!propertyType.IsGenericType ||
+            !string.Equals(propertyType.GetGenericTypeDefinition().FullName, "Il2CppSystem.Nullable`1", StringComparison.Ordinal))
+            return false;
+        Exception? inner = exception.InnerException;
+        return inner is NullReferenceException &&
+            string.Equals(inner.TargetSite?.Name, "CreateGCHandle", StringComparison.Ordinal) &&
+            string.Equals(inner.TargetSite?.DeclaringType?.FullName,
+                "Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase", StringComparison.Ordinal);
     }
 
     private static bool TryReadPublicGameTime(object? nullable, string label, out double? rawTime, out string stage)
