@@ -126,6 +126,7 @@ internal static class CassetteSaveTransactionAdapter
         state = default; stage = "write-state-start";
         try
         {
+            stage = "write-state-obtain";
             if (!TryObtainPublicState(processor, "write-state", out object? nativeState, out stage)) return false;
             Type type = nativeState!.GetType();
             PropertyInfo? hasChangesProperty = type.GetProperty("HasChanges", PublicInstance);
@@ -135,16 +136,26 @@ internal static class CassetteSaveTransactionAdapter
             PropertyInfo? reasonProperty = type.GetProperty("FailureReasonOfLastFailedAttemptToWriteToDisk", PublicInstance);
             if (hasChangesProperty == null || requiresProperty == null || successProperty == null || failureProperty == null || reasonProperty == null)
             { stage = "write-state-contract-missing"; return false; }
+            stage = "write-state-has-changes-get";
             bool hasChanges = Convert.ToBoolean(hasChangesProperty.GetValue(nativeState));
+            stage = "write-state-requires-write-get";
             bool requires = Convert.ToBoolean(requiresProperty.GetValue(nativeState));
-            if (!TryReadPublicGameTime(successProperty.GetValue(nativeState), "success-time", out double? success, out stage)) return false;
-            if (!TryReadPublicGameTime(failureProperty.GetValue(nativeState), "failure-time", out double? failure, out stage)) return false;
-            if (!TryUnwrapPublicWriteNullable(reasonProperty.GetValue(nativeState), "failure-reason", out object? reason, out stage)) return false;
-            state = new(hasChanges, requires, success, failure, reason?.ToString());
+            stage = "write-state-success-time-get";
+            object? successValue = successProperty.GetValue(nativeState);
+            if (!TryReadPublicGameTime(successValue, "success-time", out double? success, out stage)) return false;
+            stage = "write-state-failure-time-get";
+            object? failureValue = failureProperty.GetValue(nativeState);
+            if (!TryReadPublicGameTime(failureValue, "failure-time", out double? failure, out stage)) return false;
+            stage = "write-state-failure-reason-get";
+            object? reasonValue = reasonProperty.GetValue(nativeState);
+            if (!TryUnwrapPublicWriteNullable(reasonValue, "failure-reason", out object? reason, out stage)) return false;
+            stage = "write-state-failure-reason-format";
+            string? failureReason = reason?.ToString();
+            state = new(hasChanges, requires, success, failure, failureReason);
             stage = "success";
             return true;
         }
-        catch (Exception ex) { stage = $"write-state-invocation:{SummarizeException(ex)}"; return false; }
+        catch (Exception ex) { stage = $"{stage}-invocation:{SummarizeException(ex)}"; return false; }
     }
 
     private static bool TryReadPublicGameTime(object? nullable, string label, out double? rawTime, out string stage)
@@ -153,8 +164,10 @@ internal static class CassetteSaveTransactionAdapter
         if (!TryUnwrapPublicWriteNullable(nullable, label, out object? gameTime, out stage)) return false;
         if (gameTime == null) { stage = "success"; return true; }
         PropertyInfo? rawProperty = gameTime.GetType().GetProperty("RawTime", PublicInstance);
-        object? raw = rawProperty?.GetValue(gameTime);
-        if (raw == null) { stage = "write-time-raw-missing"; return false; }
+        if (rawProperty == null) { stage = $"write-{label}-raw-missing"; return false; }
+        stage = $"write-{label}-raw-get";
+        object? raw = rawProperty.GetValue(gameTime);
+        if (raw == null) { stage = $"write-{label}-raw-null"; return false; }
         rawTime = Convert.ToDouble(raw);
         stage = "success";
         return true;
@@ -171,9 +184,11 @@ internal static class CassetteSaveTransactionAdapter
         PropertyInfo? innerValue = type.GetProperty("Value", PublicInstance);
         if (hasValue == null || innerValue == null)
         { unwrapped = null; stage = $"write-{label}-nullable-contract-missing"; return false; }
+        stage = $"write-{label}-nullable-has-value-get";
         if (hasValue.GetValue(value) is not bool present)
         { unwrapped = null; stage = $"write-{label}-nullable-has-value-invalid"; return false; }
         if (!present) { unwrapped = null; return true; }
+        stage = $"write-{label}-nullable-value-get";
         unwrapped = innerValue.GetValue(value);
         if (unwrapped == null) { stage = $"write-{label}-nullable-value-null"; return false; }
         return true;
@@ -278,6 +293,7 @@ internal static class CassetteSaveTransactionAdapter
         MethodInfo? obtainState = processor.GetType().GetMethod(
             "ObtainState", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
         if (obtainState == null) { stage = $"{label}-obtain-state-missing"; return false; }
+        stage = $"{label}-obtain-state-invoke";
         state = obtainState.Invoke(processor, null);
         if (state == null) { stage = $"{label}-state-null"; return false; }
         return true;

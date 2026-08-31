@@ -723,6 +723,16 @@ Equal("write-success-time-nullable-contract-missing", publicWriteStage, "private
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), out _, out publicWriteStage), "private failure-reason nullable contract fails closed");
 Equal("write-failure-reason-nullable-contract-missing", publicWriteStage, "private failure-reason wrapper reports the exact public boundary failure");
 RequestSystem.Reset();
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new ThrowingObtainPublicWriteProcessorFixture(), out CassettePublicWriteState failedWriteState, out publicWriteStage), "throwing ObtainState fails closed");
+Equal(default(CassettePublicWriteState), failedWriteState, "throwing ObtainState exposes no partial write state");
+Equal("write-state-obtain-state-invoke-invocation:NullReferenceException:obtain-state", publicWriteStage, "throwing ObtainState identifies its exact invocation stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new ThrowingHasChangesWriteStateFixture()), out failedWriteState, out publicWriteStage), "throwing HasChanges fails closed");
+Equal(default(CassettePublicWriteState), failedWriteState, "throwing HasChanges exposes no partial write state");
+Equal("write-state-has-changes-get-invocation:NullReferenceException:has-changes", publicWriteStage, "throwing HasChanges identifies its exact getter stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new ThrowingSuccessNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "throwing success nullable fails closed");
+Equal(default(CassettePublicWriteState), failedWriteState, "throwing success nullable exposes no partial write state");
+Equal("write-success-time-nullable-has-value-get-invocation:NullReferenceException:success-has-value", publicWriteStage, "throwing success nullable identifies its exact wrapper stage");
+Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
 Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
 Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
 Equal(ePlayerSaveChangeBundleKey.DEFAULT, RequestSystem.LastRequest!.Bundle.Value, "persist request uses exact DEFAULT bundle");
@@ -846,6 +856,11 @@ sealed class PublicWriteProcessorFixture
     public object ObtainState() => _state;
 }
 
+sealed class ThrowingObtainPublicWriteProcessorFixture
+{
+    public object ObtainState() => throw new NullReferenceException("obtain-state");
+}
+
 sealed class PublicWriteStateFixture
 {
     public bool HasChanges => true;
@@ -871,6 +886,32 @@ sealed class PrivateReasonNullableWriteStateFixture
     public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
     public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
     public object FailureReasonOfLastFailedAttemptToWriteToDisk => new PrivateNullable<string>("IO_ERROR");
+}
+
+sealed class ThrowingHasChangesWriteStateFixture
+{
+    public bool HasChanges => throw new NullReferenceException("has-changes");
+    public bool RequiresWriteToDisk => false;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(false, new(0));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
+}
+
+sealed class ThrowingSuccessNullableWriteStateFixture
+{
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public ThrowingNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(false, new(0));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
+}
+
+sealed class ThrowingNullable<T>
+{
+    private readonly T _value;
+    public ThrowingNullable(T value) => _value = value;
+    public bool HasValue => throw new NullReferenceException("success-has-value");
+    public T Value => _value;
 }
 
 sealed class PrivateNullable<T>
