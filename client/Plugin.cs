@@ -120,6 +120,7 @@ public sealed class Plugin : BasePlugin
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix));
+        patched += PatchExactMethod("SaveDataState", "set_SelectedPlayerSaveSlot", "Nullable`1", nameof(CassetteSaveTransactionPatches.SelectedSlotSetterDiagnosticPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += PatchGarageScoredSongSequenceStep();
@@ -11635,6 +11636,34 @@ internal static class CassetteSaveTransactionPatches
         }
 
         LogPublicSelectionDiagnosticOnce(methodIdentity, detail);
+    }
+
+    public static void SelectedSlotSetterDiagnosticPostfix(object[]? __args, MethodBase __originalMethod)
+    {
+        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataState"}.{__originalMethod?.Name ?? "set_SelectedPlayerSaveSlot"}(Nullable<Int32>)";
+        if (__args == null || __args.Length != 1)
+        {
+            LogExtractionFailureOnce(methodIdentity, __args == null
+                ? "arguments were null"
+                : $"expected one nullable slot argument, received {__args.Length}");
+            return;
+        }
+
+        object? rawSlot = ReflectionUtil.UnwrapNullable(__args[0]);
+        if (rawSlot == null)
+        {
+            LogPublicSelectionDiagnosticOnce(methodIdentity, "slot=<empty>");
+            return;
+        }
+        try
+        {
+            int slot = Convert.ToInt32(rawSlot);
+            LogPublicSelectionDiagnosticOnce(methodIdentity, $"slot={slot}");
+        }
+        catch (Exception ex)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"nullable slot conversion failed ({ex.GetBaseException().GetType().Name})");
+        }
     }
 
     private static void LogPublicSelectionDiagnosticOnce(string identity, string detail)

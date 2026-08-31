@@ -54,6 +54,7 @@ foreach (string diagnosticRequest in new[]
     "EnsurePlayerSaveFileExistsInSelectedSlotRequest",
 })
     Equal(true, pluginSource.Contains($"PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"{diagnosticRequest}\", nameof(CassetteSaveTransactionPatches.PublicSelectionDiagnosticPostfix))", StringComparison.Ordinal), $"diagnostic-only exact hook installed for {diagnosticRequest}");
+Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataState\", \"set_SelectedPlayerSaveSlot\", \"Nullable`1\", nameof(CassetteSaveTransactionPatches.SelectedSlotSetterDiagnosticPostfix))", StringComparison.Ordinal), "diagnostic-only exact selected-slot setter hook installed");
 
 static string ExtractClass(string source, string className)
 {
@@ -92,6 +93,11 @@ Equal(true, publicSelectionDiagnostic.Contains("EnsureAPlayerSaveSlotIsSelectedR
 Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "public selection diagnostics are bounded by identity/value");
 foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
+string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
+Equal(true, selectedSlotSetterDiagnostic.Contains("ReflectionUtil.UnwrapNullable", StringComparison.Ordinal), "selected-slot setter safely unwraps generated nullable value");
+Equal(true, selectedSlotSetterDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "selected-slot setter logging is bounded");
+foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, selectedSlotSetterDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"selected-slot setter diagnostic forbids semantic call {prohibitedCall}");
 string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
