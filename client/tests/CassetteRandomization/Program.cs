@@ -73,6 +73,9 @@ string persistPrefixSource = ExtractMethods(pluginSource, "public static void Pe
 Equal(true, persistPrefixSource.Contains("TryBeginNativePersist(request, out __state)", StringComparison.Ordinal), "persist prefix delegates only the exact natural request");
 Equal(false, persistPrefixSource.Contains("TryBeginNativePersist(__instance", StringComparison.Ordinal), "natural SaveDataRequestProcessor is never used for player cassette state");
 Equal(false, persistPrefixSource.Contains("return false", StringComparison.Ordinal), "persist prefix never suppresses the native persist");
+Equal(true, persistPrefixSource.Contains("__originalMethod", StringComparison.Ordinal), "persist diagnostic records the exact original method");
+Equal(true, persistPrefixSource.Contains("request?.GetType().FullName", StringComparison.Ordinal), "persist diagnostic records the exact request type");
+Equal(true, persistPrefixSource.Contains("tokenBegan={began}", StringComparison.Ordinal), "persist diagnostic records whether a transaction token began");
 string persistPostfix = ExtractMethods(pluginSource, "public static void PersistPostfix(").Single();
 Equal(true, persistPostfix.Contains("SchedulePersistVerification(__state)", StringComparison.Ordinal), "persist postfix schedules verification");
 
@@ -81,8 +84,17 @@ Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryGetPers
 Equal(true, transactionBegin.Contains("processor = _playerSaveRequestProcessor;", StringComparison.Ordinal), "persist transaction uses the captured PlayerSaveRequestProcessor");
 Equal(true, transactionBegin.Contains("if (processor == null)", StringComparison.Ordinal), "persist transaction fails closed without a captured player processor");
 Equal(false, transactionBegin.Contains("_playerSaveRequestProcessor = processor;", StringComparison.Ordinal), "persist transaction never overwrites the captured player processor with SaveDataRequestProcessor");
+foreach (string failReason in new[] { "missing-request", "missing-or-empty-bundle", "slot-data-unsynchronized", "routing-disabled", "inactive-save-epoch", "missing-player-save-request-processor" })
+    Equal(true, transactionBegin.Contains($"LogPersistFailClosedOnce(\"{failReason}\")", StringComparison.Ordinal), $"persist diagnostic identifies {failReason}");
 Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong", StringComparison.Ordinal), "persist prefix authoritatively rereads before staging");
 Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryStageHaveInBag(processor, nativeSong, nativeBundle", StringComparison.Ordinal), "persist prefix stages into the natural bundle");
+string persistFailureLogger = ExtractMethods(pluginSource, "private static void LogPersistFailClosedOnce(").Single();
+Equal(true, persistFailureLogger.Contains("LoggedPersistFailReasons.Add(reason)", StringComparison.Ordinal), "persist fail-closed diagnostics are emitted only once per reason");
+Equal(true, persistFailureLogger.Contains("CASSETTE PERSIST FAIL-CLOSED reason='{reason}'", StringComparison.Ordinal), "persist fail-closed diagnostic includes its exact reason");
+
+string cassetteProcessorCapture = ExtractMethods(pluginSource, "internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)").Single();
+Equal(true, cassetteProcessorCapture.Contains("CASSETTE PLAYER PROCESSOR CAPTURED", StringComparison.Ordinal), "compatible player processor capture is observable");
+Equal(false, cassetteProcessorCapture.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "processor diagnostic performs no native cassette write");
 
 string periodicKeeper = ExtractMethods(pluginSource, "internal static void TickPendingNativeGrants(").Single();
 Equal(false, periodicKeeper.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "periodic reconciliation submits no cassette request");

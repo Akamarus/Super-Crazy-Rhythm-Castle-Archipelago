@@ -11541,13 +11541,18 @@ internal static class CassetteSaveTransactionPatches
             CassetteReceiptRandomization.DeactivateLoadedSave(reason);
     }
 
-    public static void PersistPrefix(object[]? __args, ref CassettePersistToken? __state)
+    public static void PersistPrefix(MethodBase? __originalMethod, object[]? __args, ref CassettePersistToken? __state)
     {
         object? request = __args?.FirstOrDefault(argument =>
             argument != null &&
             (string.Equals(argument.GetType().Name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal) ||
              string.Equals(argument.GetType().Name, "PersistAllSaveChangeBundlesRequest", StringComparison.Ordinal)));
-        CassetteReceiptRandomization.TryBeginNativePersist(request, out __state);
+        bool began = CassetteReceiptRandomization.TryBeginNativePersist(request, out __state);
+        string methodName = __originalMethod == null
+            ? "<missing>"
+            : $"{__originalMethod.DeclaringType?.FullName ?? "<unknown-owner>"}.{__originalMethod.Name}";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE PERSIST PREFIX method='{methodName}' request='{request?.GetType().FullName ?? "<missing>"}' tokenBegan={began}.");
     }
 
     public static void PersistPostfix(CassettePersistToken? __state)
@@ -18152,6 +18157,7 @@ internal static class CassetteReceiptRandomization
     private static readonly object Sync = new();
     private static readonly Queue<CassettePersistToken> PendingPersistVerifications = new();
     private static readonly Queue<CassettePersistToken> ReadyPersistVerifications = new();
+    private static readonly HashSet<string> LoggedPersistFailReasons = new(StringComparer.Ordinal);
     private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
@@ -18168,6 +18174,7 @@ internal static class CassetteReceiptRandomization
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime();
             PendingPersistVerifications.Clear();
             ReadyPersistVerifications.Clear();
+            LoggedPersistFailReasons.Clear();
         }
     }
 
@@ -18195,7 +18202,14 @@ internal static class CassetteReceiptRandomization
     internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)
     {
         if (instance == null || !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal)) return;
-        lock (Sync) _playerSaveRequestProcessor = instance;
+        bool changed;
+        lock (Sync)
+        {
+            changed = !ReferenceEquals(_playerSaveRequestProcessor, instance);
+            _playerSaveRequestProcessor = instance;
+        }
+        if (changed)
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE PLAYER PROCESSOR CAPTURED type='{instance.GetType().FullName}'.");
         if (reconcileNow) OnLifecyclePoint("player save request processor activity");
     }
 
@@ -18232,19 +18246,42 @@ internal static class CassetteReceiptRandomization
     internal static bool TryBeginNativePersist(object? request, out CassettePersistToken? token)
     {
         token = null;
-        if (request == null ||
-            !CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName) ||
-            nativeBundle == null)
+        if (request == null)
+        {
+            LogPersistFailClosedOnce("missing-request");
             return false;
+        }
+        if (!CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName) ||
+            nativeBundle == null)
+        {
+            LogPersistFailClosedOnce("missing-or-empty-bundle");
+            return false;
+        }
 
         lock (Sync)
         {
-            if (!_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave)
+            if (!_slotDataSynchronized)
+            {
+                LogPersistFailClosedOnce("slot-data-unsynchronized");
                 return false;
+            }
+            if (!Enabled)
+            {
+                LogPersistFailClosedOnce("routing-disabled");
+                return false;
+            }
+            if (!_runtime.HasActiveSave)
+            {
+                LogPersistFailClosedOnce("inactive-save-epoch");
+                return false;
+            }
 
             object? processor = _playerSaveRequestProcessor;
             if (processor == null)
+            {
+                LogPersistFailClosedOnce("missing-player-save-request-processor");
                 return false;
+            }
 
             foreach (CassetteDefinition entry in CassetteCatalog.All)
             {
@@ -18276,6 +18313,16 @@ internal static class CassetteReceiptRandomization
             }
             return true;
         }
+    }
+
+    private static void LogPersistFailClosedOnce(string reason)
+    {
+        lock (Sync)
+        {
+            if (!LoggedPersistFailReasons.Add(reason))
+                return;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE PERSIST FAIL-CLOSED reason='{reason}'.");
     }
 
     internal static void SchedulePersistVerification(CassettePersistToken? token)
