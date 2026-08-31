@@ -457,6 +457,56 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
     }
 }
 
+internal readonly record struct CassetteRegularSavePointerJoinSnapshot(
+    long Generation,
+    bool Pending,
+    object? SaveDataProcessor,
+    object? PlayerSaveProcessor)
+{
+    internal CassetteSaveActivation? Activation => null;
+    internal bool Ready => Pending && SaveDataProcessor != null && PlayerSaveProcessor != null;
+}
+
+internal sealed class CassetteRegularSavePointerJoinProbe
+{
+    private long _generation;
+    private object? _saveDataProcessor;
+    private object? _playerSaveProcessor;
+
+    internal bool Pending { get; private set; }
+
+    internal long Queue(object saveDataProcessor)
+    {
+        _generation++;
+        _saveDataProcessor = saveDataProcessor;
+        _playerSaveProcessor = null;
+        Pending = true;
+        return _generation;
+    }
+
+    internal bool CapturePlayerProcessor(object? processor)
+    {
+        if (!Pending || processor == null) return false;
+        _playerSaveProcessor = processor;
+        return true;
+    }
+
+    internal CassetteRegularSavePointerJoinSnapshot Capture() =>
+        new(_generation, Pending, _saveDataProcessor, _playerSaveProcessor);
+
+    internal bool TryConsume(CassetteRegularSavePointerJoinSnapshot snapshot)
+    {
+        if (!snapshot.Ready || !Pending || snapshot.Generation != _generation ||
+            !ReferenceEquals(snapshot.SaveDataProcessor, _saveDataProcessor) ||
+            !ReferenceEquals(snapshot.PlayerSaveProcessor, _playerSaveProcessor))
+            return false;
+        Pending = false;
+        _saveDataProcessor = null;
+        _playerSaveProcessor = null;
+        return true;
+    }
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] RetryDelays =

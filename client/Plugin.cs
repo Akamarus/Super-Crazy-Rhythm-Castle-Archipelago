@@ -11598,7 +11598,7 @@ internal static class CassetteSaveTransactionPatches
         CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
     }
 
-    public static void PublicSelectionDiagnosticPostfix(object[]? __args, MethodBase __originalMethod)
+    public static void PublicSelectionDiagnosticPostfix(object? __instance, object[]? __args, MethodBase __originalMethod)
     {
         string requestIdentity = __originalMethod?.GetParameters().SingleOrDefault()?.ParameterType.Name ?? "<unknown-request>";
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
@@ -11634,7 +11634,7 @@ internal static class CassetteSaveTransactionPatches
         {
             detail = "identity-only";
             if (string.Equals(requestIdentity, "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", StringComparison.Ordinal))
-                CassetteReceiptRandomization.QueueMostRecentSelectionIdentityDiagnostic();
+                CassetteReceiptRandomization.QueueMostRecentSelectionIdentityDiagnostic(__instance);
         }
 
         LogPublicSelectionDiagnosticOnce(methodIdentity, detail);
@@ -17954,6 +17954,7 @@ internal static class CassetteReceiptRandomization
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
+    private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
@@ -17968,6 +17969,7 @@ internal static class CassetteReceiptRandomization
         {
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
+            _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
@@ -18004,6 +18006,7 @@ internal static class CassetteReceiptRandomization
             changed = !ReferenceEquals(_playerSaveRequestProcessor, instance);
             _playerSaveRequestProcessor = instance;
             boundaryBound = _saveIdentity.CaptureProcessor(instance);
+            _regularSavePointerJoinProbe.CapturePlayerProcessor(instance);
         }
         if (changed)
             Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE PLAYER PROCESSOR CAPTURED type='{instance.GetType().FullName}'.");
@@ -18045,9 +18048,20 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY QUEUED slot={expectedSlot} kind='{kind}'; prior epoch suspended.");
     }
 
-    internal static void QueueMostRecentSelectionIdentityDiagnostic()
+    internal static void QueueMostRecentSelectionIdentityDiagnostic(object? saveDataProcessor)
     {
-        Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT selection observed; static selected-save enquiry is non-authoritative.");
+        if (saveDataProcessor == null || !string.Equals(saveDataProcessor.GetType().Name, "SaveDataRequestProcessor", StringComparison.Ordinal))
+        {
+            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT pointer join rejected: SaveDataRequestProcessor unavailable.");
+            return;
+        }
+        lock (Sync)
+        {
+            _regularSavePointerJoinProbe.Queue(saveDataProcessor);
+            if (CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor))
+                _regularSavePointerJoinProbe.CapturePlayerProcessor(_playerSaveRequestProcessor);
+        }
+        Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT regular-save pointer join queued; diagnostic is non-authoritative.");
     }
 
     internal static void ActivateLoadedSave(int slot, string reason)
@@ -18161,6 +18175,28 @@ internal static class CassetteReceiptRandomization
 
     internal static void TickUnity(TimeSpan elapsed)
     {
+        CassetteRegularSavePointerJoinSnapshot joinSnapshot;
+        lock (Sync) joinSnapshot = _regularSavePointerJoinProbe.Capture();
+        if (joinSnapshot.Ready)
+        {
+            bool joined = CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(
+                joinSnapshot.SaveDataProcessor,
+                joinSnapshot.PlayerSaveProcessor,
+                out int joinedSlot,
+                out IReadOnlyList<CassetteRegularSavePointerEntry> regularEntries,
+                out string joinStage);
+            bool consume;
+            lock (Sync) consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
+            if (consume)
+            {
+                string fingerprints = string.Join(",", regularEntries.Select(entry =>
+                    $"slot={entry.Slot}:pointer=0x{entry.Pointer:X}:lastPlayUtcTicks={entry.LastPlayDateTimeUtcTicks}"));
+                Plugin.LoggerInstance?.LogWarning(joined
+                    ? $"[SCRC-AP] CASSETTE REGULAR SAVE POINTER JOIN outcome='UniqueMatch' uiSlot={joinedSlot} entries='[{fingerprints}]' nonAuthoritative=true."
+                    : $"[SCRC-AP] CASSETTE REGULAR SAVE POINTER JOIN outcome='ReadFailure' stage='{joinStage}' entries='[{fingerprints}]' nonAuthoritative=true.");
+            }
+        }
+
         CassetteSaveActivation? activation = null;
         CassetteProcessorSaveIdentitySnapshot identitySnapshot;
         lock (Sync) identitySnapshot = _saveIdentity.Capture();

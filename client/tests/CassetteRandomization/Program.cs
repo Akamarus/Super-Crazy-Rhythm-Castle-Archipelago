@@ -94,6 +94,7 @@ Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce
 foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
 Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed identity probe");
+Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic(__instance)", StringComparison.Ordinal), "MostRecent postfix passes only exact owner into bounded diagnostic queue");
 string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
 Equal(true, queueMostRecentProbe.Contains("non-authoritative", StringComparison.Ordinal), "most-recent static identity remains explicitly non-authoritative");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
@@ -131,6 +132,11 @@ string unityTick = ExtractMethods(receiptRandomizationSource, "internal static v
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
+Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
+Equal(true, unityTick.Contains("nonAuthoritative=true", StringComparison.Ordinal), "pointer-join result is explicitly non-authoritative");
+string joinBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
+foreach (string prohibitedCall in new[] { "_saveIdentity.SignalSelection", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, joinBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"pointer-join diagnostic forbids semantic call {prohibitedCall}");
 Equal(false, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordinal), "Unity keeper never authorizes from stale static selected-save enquiry");
 Equal(true, unityTick.Contains("_saveIdentity.Observe", StringComparison.Ordinal), "Unity keeper feeds processor identity into authoritative stabilizer");
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
@@ -327,6 +333,31 @@ snapshotProbe.SignalSelection();
 Equal(false, processorSnapshot.IsCurrent(snapshotProbe), "newer generation invalidates captured snapshot");
 Equal(true, snapshotProbe.WaitingForCapture, "invalidated snapshot cannot clear current waiting state");
 Console.WriteLine("PASS: processor_probe_snapshot_is_atomic_and_replacement_safe");
+
+var joinProbe = new CassetteRegularSavePointerJoinProbe();
+object saveDataProcessorA = new();
+object playerProcessorA = new();
+long joinGenerationA = joinProbe.Queue(saveDataProcessorA);
+Equal(true, joinProbe.Pending, "MostRecent queues bounded pointer-join diagnostic");
+Equal(false, joinProbe.CapturePlayerProcessor(null), "null player processor cannot arm join");
+Equal(true, joinProbe.CapturePlayerProcessor(playerProcessorA), "compatible later player processor arms join");
+var joinSnapshotA = joinProbe.Capture();
+Equal(joinGenerationA, joinSnapshotA.Generation, "join snapshot captures generation");
+Equal(true, ReferenceEquals(saveDataProcessorA, joinSnapshotA.SaveDataProcessor), "join snapshot pairs save-data processor");
+Equal(true, ReferenceEquals(playerProcessorA, joinSnapshotA.PlayerSaveProcessor), "join snapshot pairs player processor");
+Equal<CassetteSaveActivation?>(null, joinSnapshotA.Activation, "pointer-join diagnostic cannot activate epoch");
+object saveDataProcessorB = new();
+long joinGenerationB = joinProbe.Queue(saveDataProcessorB);
+Equal(false, joinProbe.TryConsume(joinSnapshotA), "newer generation rejects stale join result");
+Equal(true, joinProbe.Pending, "stale result leaves current diagnostic pending");
+object playerProcessorB = new();
+joinProbe.CapturePlayerProcessor(playerProcessorB);
+var joinSnapshotB = joinProbe.Capture();
+Equal(joinGenerationB, joinSnapshotB.Generation, "replacement snapshot uses current generation");
+Equal(true, joinProbe.TryConsume(joinSnapshotB), "current diagnostic consumes exactly once");
+Equal(false, joinProbe.Pending, "consumed diagnostic is bounded");
+Equal(false, joinProbe.TryConsume(joinSnapshotB), "diagnostic cannot consume twice");
+Console.WriteLine("PASS: regular_save_pointer_join_probe_is_bounded_and_non_authoritative");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
@@ -643,6 +674,37 @@ Equal("processor-fingerprint-obtain-state-missing", processorFingerprintStage, "
 Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out authorityStage), "authoritative identity rejects private-only ObtainState");
 Equal("processor-identity-obtain-state-missing", authorityStage, "authoritative identity fails closed at public method boundary");
 
+var slot3SaveProcessor = new SaveDataProcessorFixture(new SaveDataStateFixture(
+    new Dictionary<int, RegularSaveStateFixture?>
+    {
+        [3] = new(new IntPtr(0x700), 3000),
+        [4] = new(new IntPtr(0x800), 4000),
+    }));
+Equal(true, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProcessor, transactionProcessor, out int matchedSlot, out IReadOnlyList<CassetteRegularSavePointerEntry> regularEntries, out string joinStage), "pointer join finds unique processor-local regular save");
+Equal(3, matchedSlot, "pointer join identifies UI slot 3");
+Equal(2, regularEntries.Count, "pointer join returns bounded regular-save fingerprints");
+Equal("success", joinStage, "unique pointer join succeeds");
+var slot4JoinProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG, new IntPtr(0x800)));
+Equal(true, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProcessor, slot4JoinProcessor, out matchedSlot, out _, out joinStage), "pointer join supports a distinct slot pointer");
+Equal(4, matchedSlot, "pointer join identifies UI slot 4");
+var zeroMatchProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG, new IntPtr(0x900)));
+Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProcessor, zeroMatchProcessor, out _, out _, out joinStage), "zero pointer matches fail closed");
+Equal("match-count:0", joinStage, "zero match has explicit stage");
+var duplicateSaveProcessor = new SaveDataProcessorFixture(new SaveDataStateFixture(new Dictionary<int, RegularSaveStateFixture?>
+{
+    [3] = new(new IntPtr(0x700), 3000),
+    [4] = new(new IntPtr(0x700), 4000),
+}));
+Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(duplicateSaveProcessor, transactionProcessor, out _, out _, out joinStage), "duplicate pointer matches fail closed");
+Equal("match-count:2", joinStage, "duplicate match has explicit stage");
+var nullEntryProcessor = new SaveDataProcessorFixture(new SaveDataStateFixture(new Dictionary<int, RegularSaveStateFixture?> { [3] = null }));
+Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(nullEntryProcessor, transactionProcessor, out _, out _, out joinStage), "null regular save fails closed");
+Equal("entry-value-null", joinStage, "null entry has explicit stage");
+Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(new SaveDataProcessorFixture(new BadKeySaveDataStateFixture()), transactionProcessor, out _, out _, out joinStage), "slot conversion failure fails closed");
+Equal(true, joinStage.StartsWith("entry-key-convert:", StringComparison.Ordinal), "slot conversion failure has explicit stage");
+Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(new SaveDataProcessorFixture(new ThrowingSaveDataStateFixture()), transactionProcessor, out _, out _, out joinStage), "enumeration failure fails closed");
+Equal(true, joinStage.StartsWith("enumeration:", StringComparison.Ordinal), "enumeration failure has explicit stage");
+
 var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
 Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
 Equal(true, CassetteSaveTransactionAdapter.TrySubmitHaveInBag(semanticProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string submitDetail), "adapter submits semantic cassette request");
@@ -665,6 +727,9 @@ Equal(false, processorFingerprintAdapter.Contains("AllInstance", StringCompariso
 string processorIdentityAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveIdentity(").Single();
 Equal(true, processorIdentityAdapter.Contains("PublicInstance", StringComparison.Ordinal), "authoritative processor identity uses public-only state lookup");
 Equal(false, processorIdentityAdapter.Contains("AllInstance", StringComparison.Ordinal), "authoritative processor identity cannot invoke private state access");
+string pointerJoinAdapter = ExtractMethods(adapterSource, "internal static bool TryMatchRegularSaveSlot(").Single();
+Equal(true, pointerJoinAdapter.Contains("PublicInstance", StringComparison.Ordinal), "regular-save pointer join uses public-only APIs");
+Equal(false, pointerJoinAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerJoinAdapter.Contains("AllStatic", StringComparison.Ordinal), "regular-save pointer join cannot bind non-public members");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
@@ -821,15 +886,45 @@ static class PrivateOnlyFixture
 sealed class TransactionSaveState
 {
     private readonly eSongCassetteStatus _status;
-    public TransactionSaveState(eSongCassetteStatus status)
+    public TransactionSaveState(eSongCassetteStatus status, IntPtr? pointer = null)
     {
         _status = status;
-        Pointer = new IntPtr(0x700);
+        Pointer = pointer ?? new IntPtr(0x700);
         GameStats = new FakeGameStats(777, new DateTime(2026, 8, 31, 13, 0, 0, DateTimeKind.Utc));
     }
     public IntPtr Pointer { get; }
     public FakeGameStats GameStats { get; }
     public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => _status;
+}
+
+sealed class SaveDataProcessorFixture
+{
+    private readonly object _state;
+    public SaveDataProcessorFixture(object state) => _state = state;
+    public object ObtainState() => _state;
+}
+
+sealed record RegularSaveStateFixture(IntPtr Pointer, long LastPlayTicks)
+{
+    public FakeGameStats GameStats { get; } = new(1, new DateTime(LastPlayTicks, DateTimeKind.Utc));
+}
+
+sealed record SaveDataStateFixture(Dictionary<int, RegularSaveStateFixture?> RegularPlayerSaves);
+
+sealed class BadKeySaveDataStateFixture
+{
+    public Dictionary<string, RegularSaveStateFixture> RegularPlayerSaves { get; } =
+        new() { ["not-a-slot"] = new(new IntPtr(0x700), 3000) };
+}
+
+sealed class ThrowingSaveDataStateFixture
+{
+    public ThrowingEnumerable RegularPlayerSaves { get; } = new();
+}
+
+sealed class ThrowingEnumerable
+{
+    public System.Collections.IEnumerator GetEnumerator() => throw new InvalidOperationException("enumeration failed");
 }
 
 sealed class RecordSongCassetteStatusInSaveDataRequest

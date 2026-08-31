@@ -12,6 +12,11 @@ internal readonly record struct CassetteSaveFingerprint(
     string IGotMoneyStatus,
     string BadassStatus);
 
+internal readonly record struct CassetteRegularSavePointerEntry(
+    int Slot,
+    long Pointer,
+    long LastPlayDateTimeUtcTicks);
+
 internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -184,6 +189,112 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"processor-identity-invocation:{SummarizeException(ex)}";
             return false;
         }
+    }
+
+    internal static bool TryMatchRegularSaveSlot(
+        object? saveDataProcessor,
+        object? playerSaveProcessor,
+        out int matchedSlot,
+        out IReadOnlyList<CassetteRegularSavePointerEntry> entries,
+        out string stage)
+    {
+        matchedSlot = default;
+        var foundEntries = new List<CassetteRegularSavePointerEntry>();
+        entries = foundEntries;
+        stage = "join-start";
+        try
+        {
+            if (!TryObtainPublicState(saveDataProcessor, "save-data", out object? saveDataState, out stage)) return false;
+            if (!TryObtainPublicState(playerSaveProcessor, "player-save", out object? playerState, out stage)) return false;
+            if (!TryReadPublicPointer(playerState!, "player-save", out long playerPointer, out stage)) return false;
+
+            PropertyInfo? savesProperty = saveDataState!.GetType().GetProperty("RegularPlayerSaves", PublicInstance);
+            object? saves = savesProperty?.GetValue(saveDataState);
+            if (saves == null) { stage = "regular-saves-null"; return false; }
+            MethodInfo? getEnumerator = saves.GetType().GetMethod(
+                "GetEnumerator", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
+            if (getEnumerator == null) { stage = "enumerator-missing"; return false; }
+
+            object? enumerator;
+            try { enumerator = getEnumerator.Invoke(saves, null); }
+            catch (Exception ex) { stage = $"enumeration:{SummarizeException(ex)}"; return false; }
+            if (enumerator == null) { stage = "enumerator-null"; return false; }
+            try
+            {
+                MethodInfo? moveNext = enumerator.GetType().GetMethod(
+                    "MoveNext", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
+                PropertyInfo? currentProperty = enumerator.GetType().GetProperty("Current", PublicInstance);
+                if (moveNext == null || currentProperty == null) { stage = "enumerator-contract-missing"; return false; }
+                for (int count = 0; count < 32; count++)
+                {
+                    bool hasNext;
+                    try { hasNext = Convert.ToBoolean(moveNext.Invoke(enumerator, null)); }
+                    catch (Exception ex) { stage = $"enumeration:{SummarizeException(ex)}"; return false; }
+                    if (!hasNext) break;
+                    object? pair = currentProperty.GetValue(enumerator);
+                    if (pair == null) { stage = "entry-null"; return false; }
+                    object? rawKey = pair.GetType().GetProperty("Key", PublicInstance)?.GetValue(pair);
+                    int slot;
+                    try { slot = Convert.ToInt32(rawKey); }
+                    catch (Exception ex) { stage = $"entry-key-convert:{SummarizeException(ex)}"; return false; }
+                    object? value = pair.GetType().GetProperty("Value", PublicInstance)?.GetValue(pair);
+                    if (value == null) { stage = "entry-value-null"; return false; }
+                    if (!TryReadPublicPointer(value, $"entry-{slot}", out long pointer, out stage)) return false;
+                    PropertyInfo? gameStatsProperty = value.GetType().GetProperty("GameStats", PublicInstance);
+                    object? gameStats = gameStatsProperty?.GetValue(value);
+                    PropertyInfo? lastPlayProperty = gameStats?.GetType().GetProperty("LastPlayDateTimeUtc", PublicInstance);
+                    object? lastPlay = lastPlayProperty?.GetValue(gameStats);
+                    object? rawTicks = lastPlay?.GetType().GetProperty("Ticks", PublicInstance)?.GetValue(lastPlay);
+                    long ticks;
+                    try { ticks = Convert.ToInt64(rawTicks); }
+                    catch (Exception ex) { stage = $"entry-{slot}-ticks-convert:{SummarizeException(ex)}"; return false; }
+                    foundEntries.Add(new(slot, pointer, ticks));
+                }
+                if (foundEntries.Count == 32) { stage = "entry-limit"; return false; }
+            }
+            finally
+            {
+                if (enumerator is IDisposable disposable) disposable.Dispose();
+                else enumerator.GetType().GetMethod("Dispose", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null)?.Invoke(enumerator, null);
+            }
+
+            CassetteRegularSavePointerEntry[] matches = foundEntries.Where(entry => entry.Pointer == playerPointer).ToArray();
+            if (matches.Length != 1) { stage = $"match-count:{matches.Length}"; return false; }
+            matchedSlot = matches[0].Slot;
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            matchedSlot = default;
+            stage = $"join-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    private static bool TryObtainPublicState(object? processor, string label, out object? state, out string stage)
+    {
+        state = null;
+        stage = $"{label}-start";
+        if (processor == null) { stage = $"{label}-processor-null"; return false; }
+        MethodInfo? obtainState = processor.GetType().GetMethod(
+            "ObtainState", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (obtainState == null) { stage = $"{label}-obtain-state-missing"; return false; }
+        state = obtainState.Invoke(processor, null);
+        if (state == null) { stage = $"{label}-state-null"; return false; }
+        return true;
+    }
+
+    private static bool TryReadPublicPointer(object state, string label, out long pointerValue, out string stage)
+    {
+        pointerValue = 0;
+        PropertyInfo? pointerProperty = state.GetType().GetProperty("Pointer", PublicInstance);
+        object? rawPointer = pointerProperty?.GetValue(state);
+        if (rawPointer is not IntPtr pointer) { stage = $"{label}-pointer-missing"; return false; }
+        if (pointer == IntPtr.Zero) { stage = $"{label}-pointer-zero"; return false; }
+        pointerValue = pointer.ToInt64();
+        stage = "success";
+        return true;
     }
 
     private static bool TryBuildFingerprint(object currentState, out CassetteSaveFingerprint fingerprint, out string stage)
