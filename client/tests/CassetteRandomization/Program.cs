@@ -550,6 +550,8 @@ Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(transa
 Equal("success", processorFingerprintStage, "processor-local fingerprint success stage");
 Equal(0x700L, processorPointer, "processor-local fingerprint reads public pointer");
 Equal(777L, processorFingerprint.PlayTimeInSeconds, "processor-local fingerprint reads selected processor playtime");
+Equal(false, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(new PrivateOnlyFixture.PlayerSaveRequestProcessor(), out _, out _, out processorFingerprintStage), "processor fingerprint rejects private-only ObtainState");
+Equal("processor-fingerprint-obtain-state-missing", processorFingerprintStage, "private ObtainState fails closed");
 
 var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
 Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
@@ -567,6 +569,9 @@ string buildFingerprintAdapter = ExtractMethods(adapterSource, "private static b
 Equal(true, fingerprintAdapter.Contains("PublicStatic", StringComparison.Ordinal) && buildFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "fingerprint uses explicit public-only reflection flags");
 Equal(false, fingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || fingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "fingerprint never binds non-public members");
 Equal(false, buildFingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || buildFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "shared fingerprint fields never bind non-public members");
+string processorFingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveFingerprint(").Single();
+Equal(true, processorFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "processor fingerprint uses public-only ObtainState lookup");
+Equal(false, processorFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "processor fingerprint cannot invoke private ObtainState");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
@@ -699,7 +704,7 @@ sealed class PlayerSaveRequestProcessor
 
     public PlayerSaveRequestProcessor(TransactionSaveState state) => _state = state;
 
-    private TransactionSaveState ObtainState()
+    public TransactionSaveState ObtainState()
     {
         ObtainStateCalls++;
         return _state;
@@ -709,6 +714,14 @@ sealed class PlayerSaveRequestProcessor
     {
         ProcessRequestCalls++;
         LastRequest = request;
+    }
+}
+
+static class PrivateOnlyFixture
+{
+    public sealed class PlayerSaveRequestProcessor
+    {
+        private TransactionSaveState ObtainState() => new(eSongCassetteStatus.HAVE_IN_BAG);
     }
 }
 

@@ -126,7 +126,7 @@ internal static class CassetteSaveTransactionAdapter
                 stage = "processor-fingerprint-incompatible";
                 return false;
             }
-            MethodInfo? obtainState = processor!.GetType().GetMethods(AllInstance)
+            MethodInfo? obtainState = processor!.GetType().GetMethods(PublicInstance)
                 .FirstOrDefault(method =>
                     string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
                     method.GetParameters().Length == 0);
