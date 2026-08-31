@@ -100,6 +100,62 @@ internal static class CassetteSaveTransactionAdapter
             object? currentState = UnwrapNullablePublic(getState.Invoke(null, null));
             if (currentState == null) { stage = "fingerprint-state-null"; return false; }
 
+            return TryBuildFingerprint(currentState, out fingerprint, out stage);
+        }
+        catch (Exception ex)
+        {
+            fingerprint = default;
+            stage = $"fingerprint-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryGetProcessorSaveFingerprint(
+        object? processor,
+        out long statePointer,
+        out CassetteSaveFingerprint fingerprint,
+        out string stage)
+    {
+        statePointer = 0;
+        fingerprint = default;
+        stage = "processor-fingerprint-start";
+        try
+        {
+            if (!IsCompatiblePlayerSaveRequestProcessor(processor))
+            {
+                stage = "processor-fingerprint-incompatible";
+                return false;
+            }
+            MethodInfo? obtainState = processor!.GetType().GetMethods(AllInstance)
+                .FirstOrDefault(method =>
+                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
+                    method.GetParameters().Length == 0);
+            if (obtainState == null) { stage = "processor-fingerprint-obtain-state-missing"; return false; }
+            object? currentState = obtainState.Invoke(processor, null);
+            if (currentState == null) { stage = "processor-fingerprint-state-null"; return false; }
+            PropertyInfo? pointerProperty = currentState.GetType().GetProperty("Pointer", PublicInstance);
+            object? rawPointer = pointerProperty?.GetValue(currentState);
+            if (rawPointer is not IntPtr pointer) { stage = "processor-fingerprint-pointer-missing"; return false; }
+            if (pointer == IntPtr.Zero) { stage = "processor-fingerprint-pointer-zero"; return false; }
+            statePointer = pointer.ToInt64();
+            return TryBuildFingerprint(currentState, out fingerprint, out stage);
+        }
+        catch (Exception ex)
+        {
+            statePointer = 0;
+            fingerprint = default;
+            stage = $"processor-fingerprint-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    private static bool TryBuildFingerprint(object currentState, out CassetteSaveFingerprint fingerprint, out string stage)
+    {
+        fingerprint = default;
+        stage = "fingerprint-start";
+        try
+        {
+
             PropertyInfo? gameStatsProperty = currentState.GetType().GetProperty("GameStats", PublicInstance);
             object? gameStats = gameStatsProperty?.GetValue(currentState);
             if (gameStats == null) { stage = "fingerprint-game-stats-missing"; return false; }

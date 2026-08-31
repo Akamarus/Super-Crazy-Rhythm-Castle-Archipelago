@@ -199,6 +199,71 @@ internal sealed class CassetteMostRecentIdentityProbe
     }
 }
 
+internal enum CassetteProcessorIdentityProbeKind
+{
+    None,
+    ReadFailure,
+    FirstObservation,
+    Stable,
+    Changed,
+}
+
+internal readonly record struct CassetteProcessorIdentityProbeResult(
+    CassetteProcessorIdentityProbeKind Kind,
+    long Pointer,
+    string Stage)
+{
+    internal CassetteSaveActivation? Activation => null;
+}
+
+internal sealed class CassetteProcessorIdentityProbe
+{
+    private long _generation;
+    private long _candidatePointer;
+
+    internal long Generation => _generation;
+    internal bool WaitingForCapture { get; private set; }
+    internal bool Pending { get; private set; }
+
+    internal void SignalSelection()
+    {
+        _generation++;
+        WaitingForCapture = true;
+        Pending = false;
+        _candidatePointer = 0;
+    }
+
+    internal bool CaptureAfterSelection()
+    {
+        if (!WaitingForCapture) return false;
+        WaitingForCapture = false;
+        Pending = true;
+        _candidatePointer = 0;
+        return true;
+    }
+
+    internal CassetteProcessorIdentityProbeResult Observe(long generation, bool readable, long pointer, string stage)
+    {
+        if (!Pending || generation != _generation) return new(CassetteProcessorIdentityProbeKind.None, 0, stage);
+        if (!readable)
+        {
+            Pending = false;
+            return new(CassetteProcessorIdentityProbeKind.ReadFailure, 0, stage);
+        }
+        if (_candidatePointer == 0)
+        {
+            _candidatePointer = pointer;
+            return new(CassetteProcessorIdentityProbeKind.FirstObservation, pointer, stage);
+        }
+        bool stable = _candidatePointer == pointer;
+        Pending = false;
+        return new(
+            stable ? CassetteProcessorIdentityProbeKind.Stable : CassetteProcessorIdentityProbeKind.Changed,
+            pointer,
+            stage);
+    }
+}
+
 internal sealed class CassetteSaveIdentityStabilizer
 {
     private long _generation;

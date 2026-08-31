@@ -136,6 +136,7 @@ Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison
 Equal(true, unityTick.Contains("expectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes expected slot, actual slot, and pointer");
 Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringComparison.Ordinal) && unityTick.Contains("_mostRecentIdentityProbe.Observe", StringComparison.Ordinal), "Unity keeper consumes bounded most-recent probe");
 Equal(true, unityTick.Contains("TryGetLoadedSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads fixed public-state fingerprint");
+Equal(true, unityTick.Contains("TryGetProcessorSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads processor-local public-state fingerprint");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHaveInBag" })
 {
     string probeBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
@@ -144,6 +145,9 @@ foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHave
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
 Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
+Equal(true, queueBoundary.Contains("_processorIdentityProbe.SignalSelection", StringComparison.Ordinal), "exact selection invalidates old processor probe generation");
+string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
+Equal(true, captureProcessor.Contains("_processorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "only a post-selection processor callback arms processor probe");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
@@ -212,6 +216,32 @@ probeResult = probe.Observe(readable: false, slot: 0, pointer: 0, stage: "state-
 Equal(CassetteMostRecentIdentityProbeKind.ReadFailure, probeResult.Kind, "read failure reports bounded stage");
 Equal(false, probe.Pending, "failed probe clears without retry loop");
 Console.WriteLine("PASS: most_recent_identity_probe_is_bounded_and_non_authoritative");
+
+var processorProbe = new CassetteProcessorIdentityProbe();
+Equal(false, processorProbe.CaptureAfterSelection(), "pre-selection processor capture cannot arm probe");
+processorProbe.SignalSelection();
+Equal(true, processorProbe.WaitingForCapture, "selection waits for a later processor capture");
+Equal(false, processorProbe.Pending, "selection alone does not read processor state");
+Equal(true, processorProbe.CaptureAfterSelection(), "post-selection processor capture arms probe");
+Equal(true, processorProbe.Pending, "post-selection capture queues bounded Unity probe");
+long processorProbeGeneration = processorProbe.Generation;
+var processorProbeResult = processorProbe.Observe(processorProbeGeneration, readable: true, pointer: 300, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.FirstObservation, processorProbeResult.Kind, "processor probe requires confirmation");
+processorProbeResult = processorProbe.Observe(processorProbeGeneration, readable: true, pointer: 300, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.Stable, processorProbeResult.Kind, "processor probe reports stable second observation");
+Equal(false, processorProbe.Pending, "processor probe clears after two observations");
+Equal<CassetteSaveActivation?>(null, processorProbeResult.Activation, "processor diagnostic cannot activate epoch");
+processorProbe.SignalSelection();
+processorProbe.CaptureAfterSelection();
+long staleProcessorProbeGeneration = processorProbe.Generation;
+processorProbe.SignalSelection();
+Equal(false, processorProbe.Pending, "new selection invalidates prior generation capture");
+Equal(true, processorProbe.WaitingForCapture, "new selection requires a new processor callback");
+processorProbe.CaptureAfterSelection();
+processorProbeResult = processorProbe.Observe(staleProcessorProbeGeneration, readable: true, pointer: 999, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.None, processorProbeResult.Kind, "stale generation observation cannot affect current probe");
+Equal(true, processorProbe.Pending, "stale generation observation leaves current probe pending");
+Console.WriteLine("PASS: processor_identity_probe_requires_post_selection_capture");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
@@ -516,6 +546,10 @@ var transactionProcessor = new PlayerSaveRequestProcessor(transactionState);
 Equal(true, CassetteSaveTransactionAdapter.TryReadCassetteStatus(transactionProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string? transactionStatus), "transaction adapter reads current processor state");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), transactionStatus, "transaction adapter returns authoritative cassette status");
 Equal(1, transactionProcessor.ObtainStateCalls, "transaction read obtains current state for each call");
+Equal(true, CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(transactionProcessor, out long processorPointer, out CassetteSaveFingerprint processorFingerprint, out string processorFingerprintStage), "processor-local fingerprint reads captured processor state");
+Equal("success", processorFingerprintStage, "processor-local fingerprint success stage");
+Equal(0x700L, processorPointer, "processor-local fingerprint reads public pointer");
+Equal(777L, processorFingerprint.PlayTimeInSeconds, "processor-local fingerprint reads selected processor playtime");
 
 var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
 Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
@@ -529,8 +563,10 @@ Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submiss
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string fingerprintAdapter = ExtractMethods(adapterSource, "internal static bool TryGetLoadedSaveFingerprint(").Single();
-Equal(true, fingerprintAdapter.Contains("PublicStatic", StringComparison.Ordinal) && fingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "fingerprint uses explicit public-only reflection flags");
+string buildFingerprintAdapter = ExtractMethods(adapterSource, "private static bool TryBuildFingerprint(").Single();
+Equal(true, fingerprintAdapter.Contains("PublicStatic", StringComparison.Ordinal) && buildFingerprintAdapter.Contains("PublicInstance", StringComparison.Ordinal), "fingerprint uses explicit public-only reflection flags");
 Equal(false, fingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || fingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "fingerprint never binds non-public members");
+Equal(false, buildFingerprintAdapter.Contains("AllStatic", StringComparison.Ordinal) || buildFingerprintAdapter.Contains("AllInstance", StringComparison.Ordinal), "shared fingerprint fields never bind non-public members");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
@@ -679,7 +715,14 @@ sealed class PlayerSaveRequestProcessor
 sealed class TransactionSaveState
 {
     private readonly eSongCassetteStatus _status;
-    public TransactionSaveState(eSongCassetteStatus status) => _status = status;
+    public TransactionSaveState(eSongCassetteStatus status)
+    {
+        _status = status;
+        Pointer = new IntPtr(0x700);
+        GameStats = new FakeGameStats(777, new DateTime(2026, 8, 31, 13, 0, 0, DateTimeKind.Utc));
+    }
+    public IntPtr Pointer { get; }
+    public FakeGameStats GameStats { get; }
     public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => _status;
 }
 
