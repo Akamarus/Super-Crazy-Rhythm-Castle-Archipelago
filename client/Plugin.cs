@@ -18163,11 +18163,16 @@ internal static class CassetteReceiptRandomization
             CassetteMostRecentIdentityProbeResult probeResult;
             lock (Sync) probeResult = _mostRecentIdentityProbe.Observe(
                 probeReadable, probeSlot, probePointer, probeStage);
+            bool fingerprintReadable = CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(
+                out CassetteSaveFingerprint fingerprint, out string fingerprintStage);
             string probeIdentity = probeReadable
                 ? $"slot={probeSlot} pointer=0x{probePointer:X}"
                 : "slot=<unavailable> pointer=<unavailable>";
+            string fingerprintDetail = fingerprintReadable
+                ? $"stateType='{fingerprint.StateType}' playTimeSeconds={fingerprint.PlayTimeInSeconds} lastPlayUtcTicks={fingerprint.LastPlayDateTimeUtcTicks} I_GOT_MONEY='{fingerprint.IGotMoneyStatus}' BADASS='{fingerprint.BadassStatus}'"
+                : $"fingerprintUnavailable='{fingerprintStage}'";
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] CASSETTE MOST-RECENT IDENTITY PROBE outcome='{probeResult.Kind}' {probeIdentity} stage='{probeStage}'.");
+                $"[SCRC-AP] CASSETTE MOST-RECENT IDENTITY PROBE outcome='{probeResult.Kind}' {probeIdentity} stage='{probeStage}' {fingerprintDetail}.");
         }
 
         CassetteSaveActivation? activation = null;

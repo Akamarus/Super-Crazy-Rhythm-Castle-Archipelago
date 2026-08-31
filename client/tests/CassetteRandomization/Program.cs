@@ -135,6 +135,12 @@ Equal(true, unityTick.Contains("ObserveDetailed", StringComparison.Ordinal), "Un
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
 Equal(true, unityTick.Contains("expectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes expected slot, actual slot, and pointer");
 Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringComparison.Ordinal) && unityTick.Contains("_mostRecentIdentityProbe.Observe", StringComparison.Ordinal), "Unity keeper consumes bounded most-recent probe");
+Equal(true, unityTick.Contains("TryGetLoadedSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads fixed public-state fingerprint");
+foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHaveInBag" })
+{
+    string probeBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
+    Equal(false, probeBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"diagnostic probe block forbids semantic call {prohibitedCall}");
+}
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
 Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
@@ -473,6 +479,13 @@ Equal(4, identitySlot, "loaded save identity preserves slot");
 Equal(0x400L, identityPointer, "loaded save identity preserves pointer");
 Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out string identityStage), "diagnostic identity overload succeeds");
 Equal("success", identityStage, "identity success stage is bounded");
+Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out CassetteSaveFingerprint fingerprint, out string fingerprintStage), "diagnostic fingerprint reads fixed public fields");
+Equal("success", fingerprintStage, "fingerprint success stage is bounded");
+Equal(nameof(FakePlayerSavePublicState), fingerprint.StateType, "fingerprint records safe runtime type identity");
+Equal(1234L, fingerprint.PlayTimeInSeconds, "fingerprint records play time");
+Equal(new DateTime(2026, 8, 31, 12, 0, 0, DateTimeKind.Utc).Ticks, fingerprint.LastPlayDateTimeUtcTicks, "fingerprint records last-play ticks");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), fingerprint.IGotMoneyStatus, "fingerprint records I Got Money cassette status");
+Equal(nameof(eSongCassetteStatus.INVALID), fingerprint.BadassStatus, "fingerprint records Badass cassette status");
 PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: false, value: 0);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "empty slot fails closed");
 Equal("slot-empty", identityStage, "empty slot has exact stage");
@@ -483,6 +496,8 @@ Equal("state-null", identityStage, "null state has exact stage");
 PlayerSaveManagementEnquiries.SelectedState = new object();
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "missing pointer fails closed");
 Equal("pointer-missing", identityStage, "missing pointer has exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveFingerprint(out _, out fingerprintStage), "missing fingerprint fields fail closed");
+Equal("fingerprint-game-stats-missing", fingerprintStage, "fingerprint failure names exact missing field stage");
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(IntPtr.Zero);
 Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "zero pointer fails closed");
 Equal("pointer-zero", identityStage, "zero pointer has exact stage");
@@ -581,12 +596,23 @@ sealed class FakeIl2CppNullable<T>
 
 sealed class FakePlayerSavePublicState
 {
-    public FakePlayerSavePublicState(IntPtr pointer) => Pointer = pointer;
+    public FakePlayerSavePublicState(IntPtr pointer)
+    {
+        Pointer = pointer;
+        GameStats = new FakeGameStats(
+            1234,
+            new DateTime(2026, 8, 31, 12, 0, 0, DateTimeKind.Utc));
+    }
     public IntPtr Pointer { get; }
+    public FakeGameStats GameStats { get; }
+    public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) =>
+        song == ePlayableSong.I_GOT_MONEY ? eSongCassetteStatus.HAVE_IN_BAG : eSongCassetteStatus.INVALID;
 }
 
+sealed record FakeGameStats(long PlayTimeInSeconds, DateTime LastPlayDateTimeUtc);
+
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
-enum ePlayableSong { INVALID, QUIERES_BAILAR }
+enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
 enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
 
 sealed class PersistSaveChangeBundleRequest
