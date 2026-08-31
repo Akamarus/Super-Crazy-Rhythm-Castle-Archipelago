@@ -142,6 +142,10 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
     private object? _processor;
     private long _candidatePointer;
     private int _matchingObservations;
+    private CassetteSaveBoundarySignalKind _reason;
+    private bool _includesBuild;
+    private int? _activatedSlot;
+    private long _activatedPointer;
 
     internal long SuspendUnresolved()
     {
@@ -153,13 +157,16 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
         return _generation;
     }
 
-    internal long SignalSelection(int expectedSlot, object? processor)
+    internal long Signal(int expectedSlot, CassetteSaveBoundarySignalKind kind, object? processor)
     {
+        bool coalescesSameSlot = Pending && _expectedSlot == expectedSlot;
+        bool retainedBuild = coalescesSameSlot && _includesBuild;
         _generation++;
         _expectedSlot = expectedSlot;
         _processor = processor;
-        _candidatePointer = 0;
-        _matchingObservations = 0;
+        _reason = kind;
+        _includesBuild = retainedBuild || kind == CassetteSaveBoundarySignalKind.Build;
+        ResetCandidate();
         Pending = true;
         return _generation;
     }
@@ -206,18 +213,27 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
         if (_matchingObservations < 2) return null;
 
         Pending = false;
+        bool identityChanged = _activatedSlot != _expectedSlot.Value || _activatedPointer != pointer;
+        bool requiresNewEpoch = identityChanged || _reason == CassetteSaveBoundarySignalKind.Creation || _includesBuild;
+        if (!requiresNewEpoch) return null;
+        _activatedSlot = _expectedSlot.Value;
+        _activatedPointer = pointer;
         return new CassetteSaveActivation(
             _expectedSlot.Value,
             pointer,
             _generation,
-            CassetteSaveBoundarySignalKind.Selection,
-            IncludesBuild: false);
+            _reason,
+            _includesBuild);
     }
 
     internal void Reset()
     {
         _expectedSlot = null;
         _processor = null;
+        _reason = CassetteSaveBoundarySignalKind.Selection;
+        _includesBuild = false;
+        _activatedSlot = null;
+        _activatedPointer = 0;
         _candidatePointer = 0;
         _matchingObservations = 0;
         Pending = false;

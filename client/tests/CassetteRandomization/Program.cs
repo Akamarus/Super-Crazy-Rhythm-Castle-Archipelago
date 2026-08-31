@@ -121,7 +121,7 @@ Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordina
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
-Equal(true, unityTick.Contains("_saveIdentity.SignalSelection(joinedSlot, joinSnapshot.PlayerSaveProcessor)", StringComparison.Ordinal), "only unique join resolves real UI slot into processor stabilizer");
+Equal(true, unityTick.Contains("_saveIdentity.Signal(joinedSlot, CassetteSaveBoundarySignalKind.Selection, joinSnapshot.PlayerSaveProcessor)", StringComparison.Ordinal), "only unique join resolves real UI slot into processor stabilizer");
 Equal(true, unityTick.Contains("awaiting two stable processor observations", StringComparison.Ordinal), "join cannot activate before processor pointer confirmation");
 Equal(true, unityTick.Contains("_mostRecentResultLogDeduper.ShouldLog(resultSignature)", StringComparison.Ordinal), "identical pointer-join results are deduplicated");
 string joinBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
@@ -132,8 +132,9 @@ Equal(true, unityTick.Contains("_saveIdentity.Observe", StringComparison.Ordinal
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
 Equal(true, unityTick.Contains("identitySnapshot.ExpectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes exact UI slot and processor-local pointer");
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
-Equal(true, queueBoundary.Contains("_saveIdentity.SignalSelection", StringComparison.Ordinal), "exact UI selection records authoritative managed signal");
-Equal(true, queueBoundary.Contains("_regularSavePointerJoinProbe.Cancel", StringComparison.Ordinal), "exact UI selection supersedes pending MostRecent generation");
+Equal(true, queueBoundary.Contains("_saveIdentity.Signal(expectedSlot, kind, processor)", StringComparison.Ordinal), "every exact boundary kind records an authoritative managed signal");
+Equal(true, queueBoundary.Contains("_regularSavePointerJoinProbe.Cancel", StringComparison.Ordinal), "every exact boundary supersedes pending MostRecent generation");
+Equal(false, queueBoundary.Contains("if (kind == CassetteSaveBoundarySignalKind.Selection)", StringComparison.Ordinal), "Creation and Build cannot bypass stabilizer signaling");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
 Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal), "selection binds only a compatible preexisting processor");
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
@@ -158,7 +159,7 @@ foreach (string invalidEntry in new[] { "processor-null", "processor-wrong-type"
     var priorEpoch = new CassetteSaveEpochRuntime();
     priorEpoch.ActivateSave(4);
     var invalidBoundary = new CassetteProcessorSaveIdentityStabilizer();
-    invalidBoundary.SignalSelection(4, new object());
+    invalidBoundary.Signal(4, CassetteSaveBoundarySignalKind.Selection, new object());
     invalidBoundary.Observe(invalidBoundary.Capture().Generation, invalidBoundary.Capture().Processor, true, 400, "success");
     invalidBoundary.Observe(invalidBoundary.Capture().Generation, invalidBoundary.Capture().Processor, true, 400, "success");
     invalidBoundary.SuspendUnresolved();
@@ -167,7 +168,7 @@ foreach (string invalidEntry in new[] { "processor-null", "processor-wrong-type"
     Equal<int?>(null, invalidBoundary.Capture().ExpectedSlot, $"{invalidEntry} cannot leave old slot authoritative");
 }
 object slot3Processor = new();
-long slot3Generation = processorStabilizer.SignalSelection(3, slot3Processor);
+long slot3Generation = processorStabilizer.Signal(3, CassetteSaveBoundarySignalKind.Selection, slot3Processor);
 var processorBoundarySnapshot = processorStabilizer.Capture();
 Equal(true, processorBoundarySnapshot.Pending, "selection suspends prior epoch");
 Equal(3, processorBoundarySnapshot.ExpectedSlot, "selection binds exact UI slot");
@@ -178,7 +179,7 @@ Equal(3, slot3Activation!.Value.Slot, "slot 3 activates after two matching proce
 Equal(300L, slot3Activation.Value.Pointer, "slot 3 activation uses processor-local state pointer");
 
 object slot4Processor = new();
-long slot4Generation = processorStabilizer.SignalSelection(4, null);
+long slot4Generation = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, null);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(slot4Generation, null, readable: false, pointer: 0, "processor-missing"), "missing processor remains suspended");
 Equal(true, processorStabilizer.CaptureProcessor(slot4Processor), "later compatible processor capture binds pending selection");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(slot4Generation, slot4Processor, readable: true, pointer: 400, "success"), "post-selection processor first observation cannot activate");
@@ -186,14 +187,14 @@ var slot4Activation = processorStabilizer.Observe(slot4Generation, slot4Processo
 Equal(4, slot4Activation!.Value.Slot, "slot 4 creates a distinct epoch");
 Equal(400L, slot4Activation.Value.Pointer, "slot 4 uses distinct processor-local pointer");
 
-long pointerChangeGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+long pointerChangeGeneration = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, slot4Processor);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 401, "success"), "pointer candidate starts with first observation");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 402, "success"), "pointer change resets stability");
 var pointerChangeActivation = processorStabilizer.Observe(pointerChangeGeneration, slot4Processor, true, 402, "success");
 Equal(402L, pointerChangeActivation!.Value.Pointer, "only repeated replacement pointer activates");
 
-long staleGeneration = processorStabilizer.SignalSelection(3, slot3Processor);
-long currentGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+long staleGeneration = processorStabilizer.Signal(3, CassetteSaveBoundarySignalKind.Selection, slot3Processor);
+long currentGeneration = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, slot4Processor);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(staleGeneration, slot3Processor, true, 333, "success"), "stale generation cannot activate");
 Equal(true, processorStabilizer.Capture().Pending, "stale observation leaves current selection suspended");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGeneration, new object(), true, 444, "success"), "wrong processor cannot activate");
@@ -201,25 +202,73 @@ Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGenerati
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(currentGeneration, slot4Processor, true, 444, "success"), "successful read after failures still requires two observations");
 Equal(4, processorStabilizer.Observe(currentGeneration, slot4Processor, true, 444, "success")!.Value.Slot, "current generation eventually activates");
 
-long failedInterruptionGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+long failedInterruptionGeneration = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, slot4Processor);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(failedInterruptionGeneration, slot4Processor, true, 450, "success"), "failed-interruption sequence records first sample");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(failedInterruptionGeneration, slot4Processor, false, 0, "obtain-state-failed"), "failed read interrupts confirmation");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(failedInterruptionGeneration, slot4Processor, true, 450, "success"), "sample after failed read is a new first sample");
 Equal(4, processorStabilizer.Observe(failedInterruptionGeneration, slot4Processor, true, 450, "success")!.Value.Slot, "two consecutive samples after failed read activate");
 
-long wrongProcessorGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+long wrongProcessorGeneration = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, slot4Processor);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(wrongProcessorGeneration, slot4Processor, true, 460, "success"), "wrong-processor sequence records first sample");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(wrongProcessorGeneration, new object(), true, 460, "success"), "wrong processor interrupts confirmation");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(wrongProcessorGeneration, slot4Processor, true, 460, "success"), "sample after wrong processor is a new first sample");
 Equal(4, processorStabilizer.Observe(wrongProcessorGeneration, slot4Processor, true, 460, "success")!.Value.Slot, "two consecutive samples after wrong processor activate");
 
-long oldInterruptionGeneration = processorStabilizer.SignalSelection(3, slot3Processor);
-long staleInterruptionGeneration = processorStabilizer.SignalSelection(4, slot4Processor);
+long oldInterruptionGeneration = processorStabilizer.Signal(3, CassetteSaveBoundarySignalKind.Selection, slot3Processor);
+long staleInterruptionGeneration = processorStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, slot4Processor);
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(staleInterruptionGeneration, slot4Processor, true, 470, "success"), "stale-generation sequence records first sample");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(oldInterruptionGeneration, slot3Processor, true, 370, "success"), "stale generation interrupts current confirmation");
 Equal<CassetteSaveActivation?>(null, processorStabilizer.Observe(staleInterruptionGeneration, slot4Processor, true, 470, "success"), "sample after stale generation is a new first sample");
 Equal(4, processorStabilizer.Observe(staleInterruptionGeneration, slot4Processor, true, 470, "success")!.Value.Slot, "two consecutive samples after stale generation activate");
 Console.WriteLine("PASS: processor_local_save_identity_stabilization");
+
+var creationStabilizer = new CassetteProcessorSaveIdentityStabilizer();
+object freshProcessor = new();
+long mostRecentGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, freshProcessor);
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(mostRecentGeneration, freshProcessor, true, 400, "success"), "MostRecent first observation waits");
+Equal(4, creationStabilizer.Observe(mostRecentGeneration, freshProcessor, true, 400, "success")!.Value.Slot, "MostRecent establishes initial fresh-save epoch");
+long creationGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation, freshProcessor);
+Equal(true, creationStabilizer.Capture().Pending, "Creation immediately suspends the MostRecent epoch");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(creationGeneration, freshProcessor, true, 400, "success"), "Creation requires a first post-signal observation");
+var creationActivation = creationStabilizer.Observe(creationGeneration, freshProcessor, true, 400, "success");
+Equal(CassetteSaveBoundarySignalKind.Creation, creationActivation!.Value.Reason, "Creation preserves activation reason");
+Equal(false, creationActivation.Value.IncludesBuild, "Creation does not invent Build inclusion");
+
+long buildGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build, freshProcessor);
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(buildGeneration, freshProcessor, true, 400, "success"), "Build requires a first post-signal observation even when pointer is reused");
+var buildActivation = creationStabilizer.Observe(buildGeneration, freshProcessor, true, 400, "success");
+Equal(CassetteSaveBoundarySignalKind.Build, buildActivation!.Value.Reason, "Build preserves activation reason");
+Equal(true, buildActivation.Value.IncludesBuild, "Build activation retains Build inclusion");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(buildGeneration, freshProcessor, true, 400, "success"), "one Build generation activates at most once");
+
+long coalescedBuildGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build, freshProcessor);
+long coalescedCreationGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation, freshProcessor);
+Equal(true, coalescedCreationGeneration > coalescedBuildGeneration, "newer compatible signal advances generation");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(coalescedBuildGeneration, freshProcessor, true, 400, "success"), "stale coalesced Build cannot activate");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(coalescedCreationGeneration, freshProcessor, true, 400, "success"), "coalesced generation still requires two fresh observations");
+var coalescedActivation = creationStabilizer.Observe(coalescedCreationGeneration, freshProcessor, true, 400, "success");
+Equal(true, coalescedActivation!.Value.IncludesBuild, "same-slot coalescing retains Build semantics");
+Equal(CassetteSaveBoundarySignalKind.Creation, coalescedActivation.Value.Reason, "coalesced activation preserves latest exact reason");
+
+long duplicateSelectionGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Selection, freshProcessor);
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(duplicateSelectionGeneration, freshProcessor, true, 400, "success"), "duplicate Selection first observation waits");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(duplicateSelectionGeneration, freshProcessor, true, 400, "success"), "duplicate Selection for activated identity does not create another epoch");
+Equal(false, creationStabilizer.Capture().Pending, "confirmed duplicate Selection resumes without duplicate activation");
+
+long replacedBuildGeneration = creationStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Build, freshProcessor);
+long differentSlotGeneration = creationStabilizer.Signal(3, CassetteSaveBoundarySignalKind.Selection, freshProcessor);
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(replacedBuildGeneration, freshProcessor, true, 400, "success"), "different-slot signal rejects stale Build generation");
+Equal<CassetteSaveActivation?>(null, creationStabilizer.Observe(differentSlotGeneration, freshProcessor, true, 300, "success"), "different slot first observation waits");
+var differentSlotActivation = creationStabilizer.Observe(differentSlotGeneration, freshProcessor, true, 300, "success");
+Equal(false, differentSlotActivation!.Value.IncludesBuild, "different slot replaces stale Build inclusion");
+Equal(CassetteSaveBoundarySignalKind.Selection, differentSlotActivation.Value.Reason, "different slot preserves Selection reason");
+
+var laterCaptureStabilizer = new CassetteProcessorSaveIdentityStabilizer();
+long laterCaptureGeneration = laterCaptureStabilizer.Signal(4, CassetteSaveBoundarySignalKind.Creation, null);
+Equal(true, laterCaptureStabilizer.CaptureProcessor(freshProcessor), "Creation can bind a compatible later processor capture");
+Equal<CassetteSaveActivation?>(null, laterCaptureStabilizer.Observe(laterCaptureGeneration, freshProcessor, true, 401, "success"), "later capture first observation waits");
+Equal(CassetteSaveBoundarySignalKind.Creation, laterCaptureStabilizer.Observe(laterCaptureGeneration, freshProcessor, true, 401, "success")!.Value.Reason, "later capture completes Creation generation");
+Console.WriteLine("PASS: creation_and_build_boundaries_reactivate_once");
 
 var queueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
 Equal(true, queueLogDeduper.ShouldLog("queued"), "first MostRecent queue outcome logs");
@@ -568,7 +617,7 @@ Equal(true, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProc
 Equal(4, matchedSlot, "pointer join identifies UI slot 4");
 var startupAuthority = new CassetteProcessorSaveIdentityStabilizer();
 startupAuthority.SuspendUnresolved();
-long resolvedStartupGeneration = startupAuthority.SignalSelection(matchedSlot, slot4JoinProcessor);
+long resolvedStartupGeneration = startupAuthority.Signal(matchedSlot, CassetteSaveBoundarySignalKind.Selection, slot4JoinProcessor);
 Equal<CassetteSaveActivation?>(null, startupAuthority.Observe(resolvedStartupGeneration, slot4JoinProcessor, true, 0x800, "success"), "startup slot 4 cannot activate on join alone or first pointer sample");
 var startupSlot4Activation = startupAuthority.Observe(resolvedStartupGeneration, slot4JoinProcessor, true, 0x800, "success");
 Equal(4, startupSlot4Activation!.Value.Slot, "startup slot 4 activates only after unique join and two stable samples");

@@ -17986,18 +17986,15 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
-            if (kind == CassetteSaveBoundarySignalKind.Selection)
-            {
-                _regularSavePointerJoinProbe.Cancel();
-                object? processor = CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)
-                    ? _playerSaveRequestProcessor
-                    : null;
-                _saveIdentity.SignalSelection(expectedSlot, processor);
-            }
+            _regularSavePointerJoinProbe.Cancel();
+            object? processor = CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)
+                ? _playerSaveRequestProcessor
+                : null;
+            _saveIdentity.Signal(expectedSlot, kind, processor);
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
         }
-        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY QUEUED slot={expectedSlot} kind='{kind}'; prior epoch suspended.");
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY PENDING slot={expectedSlot} kind='{kind}'; prior epoch suspended pending two stable processor observations.");
     }
 
     internal static void BeginMostRecentSelectionBoundary(object? saveDataProcessor)
@@ -18159,7 +18156,7 @@ internal static class CassetteReceiptRandomization
             {
                 consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
                 if (consume && joined)
-                    _saveIdentity.SignalSelection(joinedSlot, joinSnapshot.PlayerSaveProcessor);
+                    _saveIdentity.Signal(joinedSlot, CassetteSaveBoundarySignalKind.Selection, joinSnapshot.PlayerSaveProcessor);
             }
             if (consume)
             {
