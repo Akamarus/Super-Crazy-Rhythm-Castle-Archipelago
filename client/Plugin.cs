@@ -17957,6 +17957,8 @@ internal static class CassetteReceiptRandomization
     private static CassetteMostRecentIdentityProbe _mostRecentIdentityProbe = new();
     private static CassetteProcessorIdentityProbe _processorIdentityProbe = new();
     private static object? _processorIdentityProbeProcessor;
+    private static CassetteProcessorIdentityProbe _preexistingProcessorIdentityProbe = new();
+    private static object? _preexistingProcessorIdentityProbeProcessor;
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
@@ -17974,6 +17976,8 @@ internal static class CassetteReceiptRandomization
             _mostRecentIdentityProbe = new CassetteMostRecentIdentityProbe();
             _processorIdentityProbe = new CassetteProcessorIdentityProbe();
             _processorIdentityProbeProcessor = null;
+            _preexistingProcessorIdentityProbe = new CassetteProcessorIdentityProbe();
+            _preexistingProcessorIdentityProbeProcessor = null;
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
@@ -18044,6 +18048,13 @@ internal static class CassetteReceiptRandomization
             {
                 _processorIdentityProbe.SignalSelection();
                 _processorIdentityProbeProcessor = null;
+                _preexistingProcessorIdentityProbe.SignalSelection();
+                _preexistingProcessorIdentityProbeProcessor = null;
+                if (CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor) &&
+                    _preexistingProcessorIdentityProbe.CaptureAfterSelection())
+                {
+                    _preexistingProcessorIdentityProbeProcessor = _playerSaveRequestProcessor;
+                }
             }
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
@@ -18168,32 +18179,8 @@ internal static class CassetteReceiptRandomization
 
     internal static void TickUnity(TimeSpan elapsed)
     {
-        bool processorProbePending;
-        long processorProbeGeneration;
-        object? processorProbeProcessor;
-        lock (Sync)
-        {
-            processorProbePending = _processorIdentityProbe.Pending;
-            processorProbeGeneration = _processorIdentityProbe.Generation;
-            processorProbeProcessor = _processorIdentityProbeProcessor;
-        }
-        if (processorProbePending)
-        {
-            bool processorFingerprintReadable = CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(
-                processorProbeProcessor,
-                out long processorStatePointer,
-                out CassetteSaveFingerprint processorFingerprint,
-                out string processorFingerprintStage);
-            CassetteProcessorIdentityProbeResult processorProbeResult;
-            lock (Sync) processorProbeResult = _processorIdentityProbe.Observe(
-                processorProbeGeneration, processorFingerprintReadable, processorStatePointer, processorFingerprintStage);
-            string processorFingerprintDetail = processorFingerprintReadable
-                ? $"pointer=0x{processorStatePointer:X} stateType='{processorFingerprint.StateType}' playTimeSeconds={processorFingerprint.PlayTimeInSeconds} lastPlayUtcTicks={processorFingerprint.LastPlayDateTimeUtcTicks} I_GOT_MONEY='{processorFingerprint.IGotMoneyStatus}' BADASS='{processorFingerprint.BadassStatus}'"
-                : $"pointer=<unavailable> fingerprintUnavailable='{processorFingerprintStage}'";
-            if (processorProbeResult.Kind != CassetteProcessorIdentityProbeKind.None)
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] CASSETTE PROCESSOR IDENTITY PROBE generation={processorProbeGeneration} outcome='{processorProbeResult.Kind}' {processorFingerprintDetail}.");
-        }
+        TickProcessorIdentityProbe("preexisting-processor", _preexistingProcessorIdentityProbe, _preexistingProcessorIdentityProbeProcessor);
+        TickProcessorIdentityProbe("post-selection-capture", _processorIdentityProbe, _processorIdentityProbeProcessor);
 
         bool probePending;
         lock (Sync) probePending = _mostRecentIdentityProbe.Pending;
@@ -18264,6 +18251,35 @@ internal static class CassetteReceiptRandomization
         string[] ready;
         lock (Sync) ready = _runtime.Tick(elapsed).ToArray();
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
+    }
+
+    private static void TickProcessorIdentityProbe(
+        string source,
+        CassetteProcessorIdentityProbe probe,
+        object? processor)
+    {
+        bool pending;
+        long generation;
+        lock (Sync)
+        {
+            pending = probe.Pending;
+            generation = probe.Generation;
+        }
+        if (!pending) return;
+
+        bool readable = CassetteSaveTransactionAdapter.TryGetProcessorSaveFingerprint(
+            processor,
+            out long statePointer,
+            out CassetteSaveFingerprint fingerprint,
+            out string stage);
+        CassetteProcessorIdentityProbeResult result;
+        lock (Sync) result = probe.Observe(generation, readable, statePointer, stage);
+        if (result.Kind == CassetteProcessorIdentityProbeKind.None) return;
+        string detail = readable
+            ? $"pointer=0x{statePointer:X} stateType='{fingerprint.StateType}' playTimeSeconds={fingerprint.PlayTimeInSeconds} lastPlayUtcTicks={fingerprint.LastPlayDateTimeUtcTicks} I_GOT_MONEY='{fingerprint.IGotMoneyStatus}' BADASS='{fingerprint.BadassStatus}'"
+            : $"pointer=<unavailable> fingerprintUnavailable='{stage}'";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE PROCESSOR IDENTITY PROBE source='{source}' generation={generation} outcome='{result.Kind}' {detail}.");
     }
 
     private static void LogIdentityDiagnosticOnChange(string diagnostic)

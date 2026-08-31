@@ -136,7 +136,10 @@ Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison
 Equal(true, unityTick.Contains("expectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes expected slot, actual slot, and pointer");
 Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringComparison.Ordinal) && unityTick.Contains("_mostRecentIdentityProbe.Observe", StringComparison.Ordinal), "Unity keeper consumes bounded most-recent probe");
 Equal(true, unityTick.Contains("TryGetLoadedSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads fixed public-state fingerprint");
-Equal(true, unityTick.Contains("TryGetProcessorSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads processor-local public-state fingerprint");
+string processorProbeTick = ExtractMethods(receiptRandomizationSource, "private static void TickProcessorIdentityProbe(").Single();
+Equal(true, processorProbeTick.Contains("TryGetProcessorSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads processor-local public-state fingerprint");
+foreach (string prohibitedCall in new[] { "_saveIdentity", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, processorProbeTick.Contains(prohibitedCall, StringComparison.Ordinal), $"processor diagnostic helper forbids semantic call {prohibitedCall}");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHaveInBag" })
 {
     string probeBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
@@ -146,8 +149,13 @@ string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal stat
 Equal(true, queueBoundary.Contains("_saveIdentity.Signal", StringComparison.Ordinal), "exact boundary callback records managed signal");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
 Equal(true, queueBoundary.Contains("_processorIdentityProbe.SignalSelection", StringComparison.Ordinal), "exact selection invalidates old processor probe generation");
+Equal(true, queueBoundary.Contains("_preexistingProcessorIdentityProbe.SignalSelection", StringComparison.Ordinal), "exact selection invalidates old preexisting-processor generation");
+Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal) && queueBoundary.Contains("_preexistingProcessorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "preexisting probe arms only from compatible processor present at selection");
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
 Equal(true, captureProcessor.Contains("_processorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "only a post-selection processor callback arms processor probe");
+Equal(false, captureProcessor.Contains("_preexistingProcessorIdentityProbe.CaptureAfterSelection", StringComparison.Ordinal), "later capture cannot masquerade as preexisting processor");
+Equal(true, receiptRandomizationSource.Contains("TickProcessorIdentityProbe(\"preexisting-processor\"", StringComparison.Ordinal), "preexisting processor log has distinct source label");
+Equal(true, receiptRandomizationSource.Contains("TickProcessorIdentityProbe(\"post-selection-capture\"", StringComparison.Ordinal), "post-selection capture log has distinct source label");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
@@ -242,6 +250,26 @@ processorProbeResult = processorProbe.Observe(staleProcessorProbeGeneration, rea
 Equal(CassetteProcessorIdentityProbeKind.None, processorProbeResult.Kind, "stale generation observation cannot affect current probe");
 Equal(true, processorProbe.Pending, "stale generation observation leaves current probe pending");
 Console.WriteLine("PASS: processor_identity_probe_requires_post_selection_capture");
+
+var preexistingProbe = new CassetteProcessorIdentityProbe();
+preexistingProbe.SignalSelection();
+Equal(false, preexistingProbe.Pending, "selection with no preexisting processor remains unarmed");
+preexistingProbe.SignalSelection();
+Equal(true, preexistingProbe.CaptureAfterSelection(), "compatible preexisting processor arms at selection");
+long preexistingGeneration = preexistingProbe.Generation;
+var preexistingResult = preexistingProbe.Observe(preexistingGeneration, readable: true, pointer: 444, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.FirstObservation, preexistingResult.Kind, "preexisting probe first observation is bounded");
+preexistingResult = preexistingProbe.Observe(preexistingGeneration, readable: true, pointer: 444, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.Stable, preexistingResult.Kind, "preexisting probe confirms second observation");
+Equal(false, preexistingProbe.Pending, "preexisting probe clears after confirmation");
+Equal<CassetteSaveActivation?>(null, preexistingResult.Activation, "preexisting diagnostic cannot activate epoch");
+preexistingProbe.SignalSelection();
+preexistingProbe.CaptureAfterSelection();
+long invalidatedPreexistingGeneration = preexistingProbe.Generation;
+preexistingProbe.SignalSelection();
+preexistingResult = preexistingProbe.Observe(invalidatedPreexistingGeneration, readable: true, pointer: 555, stage: "success");
+Equal(CassetteProcessorIdentityProbeKind.None, preexistingResult.Kind, "new selection rejects stale preexisting result");
+Console.WriteLine("PASS: preexisting_processor_probe_is_bounded_and_non_authoritative");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
