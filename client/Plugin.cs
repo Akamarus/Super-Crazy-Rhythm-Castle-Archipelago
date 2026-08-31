@@ -11546,9 +11546,26 @@ internal static class MusicLabSequencePatches
 
 internal static class CassetteSaveTransactionPatches
 {
+    private static readonly HashSet<string> ExtractionFailures = new(StringComparer.Ordinal);
+
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
-        if (__args == null || __args.Length != 1 || __args[0] is not int slot) return;
+        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{__originalMethod?.Name ?? "<unknown>"}(Int32)";
+        if (__args == null)
+        {
+            LogExtractionFailureOnce(methodIdentity, "arguments were null");
+            return;
+        }
+        if (__args.Length != 1)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"expected one argument, received {__args.Length}");
+            return;
+        }
+        if (__args[0] is not int slot)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"slot argument was not boxed Int32 (actual={__args[0]?.GetType().Name ?? "<null>"})");
+            return;
+        }
         CassetteSaveBoundarySignalKind kind = string.Equals(
             __originalMethod?.Name, "CreateNewPlayerSaveFileInEmptySlot", StringComparison.Ordinal)
             ? CassetteSaveBoundarySignalKind.Creation
@@ -11556,11 +11573,33 @@ internal static class CassetteSaveTransactionPatches
         CassetteReceiptRandomization.QueueSaveBoundarySignal(slot, kind);
     }
 
-    public static void BuiltPlayerSaveStatePostfix(object[]? __args)
+    public static void BuiltPlayerSaveStatePostfix(object[]? __args, MethodBase __originalMethod)
     {
+        const string requestIdentity = "BuildPlayerSaveStateFromFileRequest";
+        string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
         object? request = ReflectionUtil.FindArg(__args, "BuildPlayerSaveStateFromFileRequest");
-        int? slot = request == null ? null : ReflectionUtil.ReadInt(request, "SlotNumber");
-        if (slot.HasValue) CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
+        if (request == null)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"{requestIdentity} argument was missing");
+            return;
+        }
+        int? slot = ReflectionUtil.ReadInt(request, "SlotNumber");
+        if (!slot.HasValue)
+        {
+            LogExtractionFailureOnce(methodIdentity, $"{requestIdentity}.SlotNumber was unreadable");
+            return;
+        }
+        CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
+    }
+
+    private static void LogExtractionFailureOnce(string identity, string reason)
+    {
+        string key = $"{identity}|{reason}";
+        lock (ExtractionFailures)
+        {
+            if (!ExtractionFailures.Add(key)) return;
+        }
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY ARGUMENT REJECTED target='{identity}' reason='{reason}'; callback failed closed.");
     }
 }
 
