@@ -17955,8 +17955,6 @@ internal static class CassetteReceiptRandomization
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
-    private static CassetteDiagnosticSignatureDeduplicator _regularSavePointerJoinLogDeduper = new();
-    private static bool _regularSavePointerJoinQueueLogged;
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
@@ -17972,8 +17970,6 @@ internal static class CassetteReceiptRandomization
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
-            _regularSavePointerJoinLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
-            _regularSavePointerJoinQueueLogged = false;
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
         }
     }
@@ -18041,6 +18037,7 @@ internal static class CassetteReceiptRandomization
         {
             if (kind == CassetteSaveBoundarySignalKind.Selection)
             {
+                _regularSavePointerJoinProbe.Cancel();
                 object? processor = CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)
                     ? _playerSaveRequestProcessor
                     : null;
@@ -18059,17 +18056,16 @@ internal static class CassetteReceiptRandomization
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT pointer join rejected: SaveDataRequestProcessor unavailable.");
             return;
         }
-        bool logQueue;
         lock (Sync)
         {
+            _saveIdentity.SuspendUnresolved();
             _regularSavePointerJoinProbe.Queue(saveDataProcessor);
             if (CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor))
                 _regularSavePointerJoinProbe.CapturePlayerProcessor(_playerSaveRequestProcessor);
-            logQueue = !_regularSavePointerJoinQueueLogged;
-            _regularSavePointerJoinQueueLogged = true;
+            _unityReconciliationRequested = false;
+            _unityReconciliationReason = string.Empty;
         }
-        if (logQueue)
-            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE MOST-RECENT regular-save pointer join queued; identical queue notices suppressed; diagnostic is non-authoritative.");
+        Plugin.LoggerInstance?.LogWarning("[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY QUEUED; prior epoch suspended pending unique regular-save pointer join.");
     }
 
     internal static void ActivateLoadedSave(int slot, string reason)
@@ -18194,20 +18190,19 @@ internal static class CassetteReceiptRandomization
                 out IReadOnlyList<CassetteRegularSavePointerEntry> regularEntries,
                 out string joinStage);
             bool consume;
-            lock (Sync) consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
+            lock (Sync)
+            {
+                consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
+                if (consume && joined)
+                    _saveIdentity.SignalSelection(joinedSlot, joinSnapshot.PlayerSaveProcessor);
+            }
             if (consume)
             {
                 string fingerprints = string.Join(",", regularEntries.Select(entry =>
                     $"slot={entry.Slot}:pointer=0x{entry.Pointer:X}:lastPlayUtcTicks={entry.LastPlayDateTimeUtcTicks}"));
-                string signature = joined
-                    ? $"success|slot={joinedSlot}|{fingerprints}"
-                    : $"failure|stage={joinStage}|{fingerprints}";
-                bool logResult;
-                lock (Sync) logResult = _regularSavePointerJoinLogDeduper.ShouldLog(signature);
-                if (logResult)
-                    Plugin.LoggerInstance?.LogWarning(joined
-                        ? $"[SCRC-AP] CASSETTE REGULAR SAVE POINTER JOIN outcome='UniqueMatch' uiSlot={joinedSlot} entries='[{fingerprints}]' nonAuthoritative=true."
-                        : $"[SCRC-AP] CASSETTE REGULAR SAVE POINTER JOIN outcome='ReadFailure' stage='{joinStage}' entries='[{fingerprints}]' nonAuthoritative=true.");
+                Plugin.LoggerInstance?.LogWarning(joined
+                    ? $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY RESOLVED uiSlot={joinedSlot} entries='[{fingerprints}]'; awaiting two stable processor observations."
+                    : $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY UNRESOLVED stage='{joinStage}' entries='[{fingerprints}]'; epoch remains suspended.");
             }
         }
 

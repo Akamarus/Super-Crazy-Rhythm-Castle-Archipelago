@@ -380,6 +380,16 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
     private long _candidatePointer;
     private int _matchingObservations;
 
+    internal long SuspendUnresolved()
+    {
+        _generation++;
+        _expectedSlot = null;
+        _processor = null;
+        ResetCandidate();
+        Pending = true;
+        return _generation;
+    }
+
     internal long SignalSelection(int expectedSlot, object? processor)
     {
         _generation++;
@@ -395,7 +405,7 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
 
     internal bool CaptureProcessor(object processor)
     {
-        if (!Pending) return false;
+        if (!Pending || !_expectedSlot.HasValue) return false;
         if (ReferenceEquals(_processor, processor)) return false;
         _processor = processor;
         _candidatePointer = 0;
@@ -463,7 +473,6 @@ internal readonly record struct CassetteRegularSavePointerJoinSnapshot(
     object? SaveDataProcessor,
     object? PlayerSaveProcessor)
 {
-    internal CassetteSaveActivation? Activation => null;
     internal bool Ready => Pending && SaveDataProcessor != null && PlayerSaveProcessor != null;
 }
 
@@ -505,20 +514,14 @@ internal sealed class CassetteRegularSavePointerJoinProbe
         _playerSaveProcessor = null;
         return true;
     }
-}
 
-internal sealed class CassetteDiagnosticSignatureDeduplicator
-{
-    private string? _lastSignature;
-
-    internal bool ShouldLog(string signature)
+    internal void Cancel()
     {
-        if (string.Equals(_lastSignature, signature, StringComparison.Ordinal)) return false;
-        _lastSignature = signature;
-        return true;
+        _generation++;
+        Pending = false;
+        _saveDataProcessor = null;
+        _playerSaveProcessor = null;
     }
-
-    internal void Reset() => _lastSignature = null;
 }
 
 internal sealed class CassetteSaveEpochRuntime

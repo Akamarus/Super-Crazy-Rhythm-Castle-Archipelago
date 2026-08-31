@@ -93,12 +93,12 @@ Equal(true, publicSelectionDiagnostic.Contains("EnsureAPlayerSaveSlotIsSelectedR
 Equal(true, publicSelectionDiagnostic.Contains("LogPublicSelectionDiagnosticOnce", StringComparison.Ordinal), "public selection diagnostics are bounded by identity/value");
 foreach (string prohibitedCall in new[] { "QueueSaveBoundarySignal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, publicSelectionDiagnostic.Contains(prohibitedCall, StringComparison.Ordinal), $"public selection diagnostic forbids semantic call {prohibitedCall}");
-Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed identity probe");
-Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic(__instance)", StringComparison.Ordinal), "MostRecent postfix passes only exact owner into bounded diagnostic queue");
+Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic", StringComparison.Ordinal), "most-recent postfix queues managed unresolved boundary");
+Equal(true, publicSelectionDiagnostic.Contains("QueueMostRecentSelectionIdentityDiagnostic(__instance)", StringComparison.Ordinal), "MostRecent postfix passes only exact owner into bounded boundary queue");
 string queueMostRecentProbe = ExtractMethods(pluginSource, "internal static void QueueMostRecentSelectionIdentityDiagnostic(").Single();
-Equal(true, queueMostRecentProbe.Contains("non-authoritative", StringComparison.Ordinal), "most-recent static identity remains explicitly non-authoritative");
-Equal(true, queueMostRecentProbe.Contains("_regularSavePointerJoinQueueLogged", StringComparison.Ordinal), "identical pointer-join queue notices are suppressed");
-foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+Equal(true, queueMostRecentProbe.Contains("_saveIdentity.SuspendUnresolved", StringComparison.Ordinal), "MostRecent immediately suspends prior epoch without inventing a slot");
+Equal(true, queueMostRecentProbe.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "MostRecent clears prior reconciliation intent");
+foreach (string prohibitedCall in new[] { "_saveIdentity.SignalSelection", "ActivateLoadedSave", "DeactivateLoadedSave", "TryGetLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, queueMostRecentProbe.Contains(prohibitedCall, StringComparison.Ordinal), $"most-recent probe queue forbids semantic call {prohibitedCall}");
 string selectedSlotSetterDiagnostic = ExtractMethods(pluginSource, "public static void SelectedSlotSetterDiagnosticPostfix(").Single();
 Equal(true, selectedSlotSetterDiagnostic.Contains("ReflectionUtil.UnwrapNullable", StringComparison.Ordinal), "selected-slot setter safely unwraps generated nullable value");
@@ -134,17 +134,18 @@ Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordina
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
-Equal(true, unityTick.Contains("nonAuthoritative=true", StringComparison.Ordinal), "pointer-join result is explicitly non-authoritative");
-Equal(true, unityTick.Contains("_regularSavePointerJoinLogDeduper.ShouldLog(signature)", StringComparison.Ordinal), "pointer-join results are signature-deduplicated");
+Equal(true, unityTick.Contains("_saveIdentity.SignalSelection(joinedSlot, joinSnapshot.PlayerSaveProcessor)", StringComparison.Ordinal), "only unique join resolves real UI slot into processor stabilizer");
+Equal(true, unityTick.Contains("awaiting two stable processor observations", StringComparison.Ordinal), "join cannot activate before processor pointer confirmation");
 string joinBlock = unityTick[..unityTick.IndexOf("CassetteSaveActivation? activation", StringComparison.Ordinal)];
-foreach (string prohibitedCall in new[] { "_saveIdentity.SignalSelection", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
-    Equal(false, joinBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"pointer-join diagnostic forbids semantic call {prohibitedCall}");
+foreach (string prohibitedCall in new[] { "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
+    Equal(false, joinBlock.Contains(prohibitedCall, StringComparison.Ordinal), $"pointer join cannot directly perform semantic call {prohibitedCall}");
 Equal(false, unityTick.Contains("TryGetLoadedSaveIdentity", StringComparison.Ordinal), "Unity keeper never authorizes from stale static selected-save enquiry");
 Equal(true, unityTick.Contains("_saveIdentity.Observe", StringComparison.Ordinal), "Unity keeper feeds processor identity into authoritative stabilizer");
 Equal(true, unityTick.Contains("LogIdentityDiagnosticOnChange", StringComparison.Ordinal), "Unity keeper logs identity stabilization only on change");
 Equal(true, unityTick.Contains("identitySnapshot.ExpectedSlot", StringComparison.Ordinal) && unityTick.Contains("selectedStatePointer", StringComparison.Ordinal), "Unity diagnostic includes exact UI slot and processor-local pointer");
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
 Equal(true, queueBoundary.Contains("_saveIdentity.SignalSelection", StringComparison.Ordinal), "exact UI selection records authoritative managed signal");
+Equal(true, queueBoundary.Contains("_regularSavePointerJoinProbe.Cancel", StringComparison.Ordinal), "exact UI selection supersedes pending MostRecent generation");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
 Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal), "selection binds only a compatible preexisting processor");
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
@@ -202,6 +203,10 @@ Equal(false, stabilizer.BoundaryPending, "reset clears pending boundary");
 Console.WriteLine("PASS: final_save_identity_stabilization");
 
 var processorStabilizer = new CassetteProcessorSaveIdentityStabilizer();
+long unresolvedGeneration = processorStabilizer.SuspendUnresolved();
+Equal(true, processorStabilizer.Capture().Pending, "MostRecent immediately suspends prior epoch");
+Equal<int?>(null, processorStabilizer.Capture().ExpectedSlot, "MostRecent starts without trusting a UI slot");
+Equal(false, processorStabilizer.CaptureProcessor(new object()), "unresolved boundary cannot bind player processor before unique join");
 object slot3Processor = new();
 long slot3Generation = processorStabilizer.SignalSelection(3, slot3Processor);
 var processorBoundarySnapshot = processorStabilizer.Capture();
@@ -347,7 +352,6 @@ var joinSnapshotA = joinProbe.Capture();
 Equal(joinGenerationA, joinSnapshotA.Generation, "join snapshot captures generation");
 Equal(true, ReferenceEquals(saveDataProcessorA, joinSnapshotA.SaveDataProcessor), "join snapshot pairs save-data processor");
 Equal(true, ReferenceEquals(playerProcessorA, joinSnapshotA.PlayerSaveProcessor), "join snapshot pairs player processor");
-Equal<CassetteSaveActivation?>(null, joinSnapshotA.Activation, "pointer-join diagnostic cannot activate epoch");
 object saveDataProcessorB = new();
 long joinGenerationB = joinProbe.Queue(saveDataProcessorB);
 Equal(false, joinProbe.TryConsume(joinSnapshotA), "newer generation rejects stale join result");
@@ -359,17 +363,13 @@ Equal(joinGenerationB, joinSnapshotB.Generation, "replacement snapshot uses curr
 Equal(true, joinProbe.TryConsume(joinSnapshotB), "current diagnostic consumes exactly once");
 Equal(false, joinProbe.Pending, "consumed diagnostic is bounded");
 Equal(false, joinProbe.TryConsume(joinSnapshotB), "diagnostic cannot consume twice");
-Console.WriteLine("PASS: regular_save_pointer_join_probe_is_bounded_and_non_authoritative");
-
-var joinLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
-Equal(true, joinLogDeduper.ShouldLog("success|slot=3|p=700|t=3000"), "first join result logs");
-Equal(false, joinLogDeduper.ShouldLog("success|slot=3|p=700|t=3000"), "identical join result is suppressed");
-Equal(true, joinLogDeduper.ShouldLog("success|slot=4|p=800|t=4000"), "changed slot/fingerprint logs");
-Equal(true, joinLogDeduper.ShouldLog("failure|match-count:0"), "changed outcome logs");
-Equal(false, joinLogDeduper.ShouldLog("failure|match-count:0"), "identical failure is suppressed");
-joinLogDeduper.Reset();
-Equal(true, joinLogDeduper.ShouldLog("failure|match-count:0"), "configure reset permits fresh diagnostic");
-Console.WriteLine("PASS: pointer_join_diagnostics_are_signature_deduplicated");
+long cancelledJoinGeneration = joinProbe.Queue(saveDataProcessorA);
+joinProbe.CapturePlayerProcessor(playerProcessorA);
+var cancelledJoinSnapshot = joinProbe.Capture();
+joinProbe.Cancel();
+Equal(false, joinProbe.TryConsume(cancelledJoinSnapshot), "exact Selection cancels pending MostRecent generation");
+Equal(false, joinProbe.Pending, "cancelled MostRecent no longer resolves");
+Console.WriteLine("PASS: regular_save_pointer_join_probe_is_bounded_and_generation_safe");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");
@@ -699,9 +699,18 @@ Equal("success", joinStage, "unique pointer join succeeds");
 var slot4JoinProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG, new IntPtr(0x800)));
 Equal(true, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProcessor, slot4JoinProcessor, out matchedSlot, out _, out joinStage), "pointer join supports a distinct slot pointer");
 Equal(4, matchedSlot, "pointer join identifies UI slot 4");
+var startupAuthority = new CassetteProcessorSaveIdentityStabilizer();
+startupAuthority.SuspendUnresolved();
+long resolvedStartupGeneration = startupAuthority.SignalSelection(matchedSlot, slot4JoinProcessor);
+Equal<CassetteSaveActivation?>(null, startupAuthority.Observe(resolvedStartupGeneration, slot4JoinProcessor, true, 0x800, "success"), "startup slot 4 cannot activate on join alone or first pointer sample");
+var startupSlot4Activation = startupAuthority.Observe(resolvedStartupGeneration, slot4JoinProcessor, true, 0x800, "success");
+Equal(4, startupSlot4Activation!.Value.Slot, "startup slot 4 activates only after unique join and two stable samples");
 var zeroMatchProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG, new IntPtr(0x900)));
 Equal(false, CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(slot3SaveProcessor, zeroMatchProcessor, out _, out _, out joinStage), "zero pointer matches fail closed");
 Equal("match-count:0", joinStage, "zero match has explicit stage");
+startupAuthority.SuspendUnresolved();
+Equal(true, startupAuthority.Capture().Pending, "failed startup join leaves prior epoch suspended");
+Equal<int?>(null, startupAuthority.Capture().ExpectedSlot, "failed startup join never invents UI slot");
 var duplicateSaveProcessor = new SaveDataProcessorFixture(new SaveDataStateFixture(new Dictionary<int, RegularSaveStateFixture?>
 {
     [3] = new(new IntPtr(0x700), 3000),
