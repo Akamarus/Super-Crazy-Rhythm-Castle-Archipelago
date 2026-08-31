@@ -413,10 +413,14 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
         long pointer,
         string stage)
     {
-        if (!Pending || generation != _generation ||
+        if (!Pending) return null;
+        if (generation != _generation ||
             processor == null || !ReferenceEquals(processor, _processor) ||
             !readable || pointer == 0 || !_expectedSlot.HasValue)
+        {
+            ResetCandidate();
             return null;
+        }
 
         if (_candidatePointer != pointer)
         {
@@ -444,6 +448,12 @@ internal sealed class CassetteProcessorSaveIdentityStabilizer
         _candidatePointer = 0;
         _matchingObservations = 0;
         Pending = false;
+    }
+
+    private void ResetCandidate()
+    {
+        _candidatePointer = 0;
+        _matchingObservations = 0;
     }
 }
 
