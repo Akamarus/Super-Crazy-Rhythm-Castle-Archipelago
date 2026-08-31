@@ -138,6 +138,8 @@ Equal(true, unityTick.Contains("_mostRecentIdentityProbe.Pending", StringCompari
 Equal(true, unityTick.Contains("TryGetLoadedSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads fixed public-state fingerprint");
 string processorProbeTick = ExtractMethods(receiptRandomizationSource, "private static void TickProcessorIdentityProbe(").Single();
 Equal(true, processorProbeTick.Contains("TryGetProcessorSaveFingerprint", StringComparison.Ordinal), "bounded Unity probe reads processor-local public-state fingerprint");
+Equal(true, unityTick.Contains("lock (Sync)", StringComparison.Ordinal) && unityTick.Contains("CassetteProcessorIdentityProbeSnapshot.Capture", StringComparison.Ordinal), "Unity keeper snapshots probe generation and processor atomically");
+Equal(true, processorProbeTick.Contains("snapshot.IsCurrent", StringComparison.Ordinal), "processor probe rejects detached or replaced snapshots before consumption");
 foreach (string prohibitedCall in new[] { "_saveIdentity", "ActivateLoadedSave", "TryReconcile", "TrySubmitHaveInBag" })
     Equal(false, processorProbeTick.Contains(prohibitedCall, StringComparison.Ordinal), $"processor diagnostic helper forbids semantic call {prohibitedCall}");
 foreach (string prohibitedCall in new[] { "_saveIdentity.Signal", "TrySubmitHaveInBag" })
@@ -270,6 +272,22 @@ preexistingProbe.SignalSelection();
 preexistingResult = preexistingProbe.Observe(invalidatedPreexistingGeneration, readable: true, pointer: 555, stage: "success");
 Equal(CassetteProcessorIdentityProbeKind.None, preexistingResult.Kind, "new selection rejects stale preexisting result");
 Console.WriteLine("PASS: preexisting_processor_probe_is_bounded_and_non_authoritative");
+
+var snapshotProbe = new CassetteProcessorIdentityProbe();
+snapshotProbe.SignalSelection();
+snapshotProbe.CaptureAfterSelection();
+object snapshotProcessor = new();
+var processorSnapshot = CassetteProcessorIdentityProbeSnapshot.Capture(snapshotProbe, snapshotProcessor);
+Equal(true, processorSnapshot.Pending, "snapshot captures pending state");
+Equal(true, ReferenceEquals(snapshotProcessor, processorSnapshot.Processor), "snapshot captures paired processor");
+var replacementProbe = new CassetteProcessorIdentityProbe();
+replacementProbe.SignalSelection();
+replacementProbe.CaptureAfterSelection();
+Equal(false, processorSnapshot.IsCurrent(replacementProbe), "detached snapshot cannot consume replacement probe");
+snapshotProbe.SignalSelection();
+Equal(false, processorSnapshot.IsCurrent(snapshotProbe), "newer generation invalidates captured snapshot");
+Equal(true, snapshotProbe.WaitingForCapture, "invalidated snapshot cannot clear current waiting state");
+Console.WriteLine("PASS: processor_probe_snapshot_is_atomic_and_replacement_safe");
 
 IReadOnlyList<string> submitMethods = ExtractMethods(pluginSource, "private static bool TrySubmitHaveInBag(");
 Equal(0, submitMethods.Count, "obsolete direct Money cassette submission path is removed");

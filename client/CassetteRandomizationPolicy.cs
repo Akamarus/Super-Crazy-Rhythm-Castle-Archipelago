@@ -216,6 +216,21 @@ internal readonly record struct CassetteProcessorIdentityProbeResult(
     internal CassetteSaveActivation? Activation => null;
 }
 
+internal readonly record struct CassetteProcessorIdentityProbeSnapshot(
+    CassetteProcessorIdentityProbe Probe,
+    long Generation,
+    bool Pending,
+    object? Processor)
+{
+    internal static CassetteProcessorIdentityProbeSnapshot Capture(
+        CassetteProcessorIdentityProbe probe,
+        object? processor) =>
+        new(probe, probe.Generation, probe.Pending, processor);
+
+    internal bool IsCurrent(CassetteProcessorIdentityProbe currentProbe) =>
+        ReferenceEquals(Probe, currentProbe) && Generation == currentProbe.Generation;
+}
+
 internal sealed class CassetteProcessorIdentityProbe
 {
     private long _generation;
