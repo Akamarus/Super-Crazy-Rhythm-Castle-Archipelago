@@ -55,12 +55,8 @@ foreach (string selectionRequest in new[]
         pluginSource.Contains($"PatchMethodsByParameter(\"ProcessRequest\", \"{selectionRequest}\", nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix))", StringComparison.Ordinal),
         $"safe save-selection hook installed for {selectionRequest}");
 }
-foreach (string persistRequest in new[] { "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
-{
-    Equal(true,
-        pluginSource.Contains($"PatchMethodsByParameterWithPrefixAndPostfix(\n            \"ProcessRequest\",\n            \"{persistRequest}\",\n            nameof(CassetteSaveTransactionPatches.PersistPrefix),\n            nameof(CassetteSaveTransactionPatches.PersistPostfix))", StringComparison.Ordinal),
-        $"natural persist prefix/postfix installed for {persistRequest}");
-}
+Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPrefix)", StringComparison.Ordinal), "absent Persist boundary is not hooked");
+Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPostfix)", StringComparison.Ordinal), "absent Persist postfix is not hooked");
 
 string selectionPostfix = ExtractMethods(pluginSource, "public static void SaveSelectionPostfix(").Single();
 Equal(true, selectionPostfix.Contains("CassetteSaveTransactionAdapter.TryGetLoadedSave(out int slot)", StringComparison.Ordinal), "selection postfix verifies the loaded save");
@@ -69,36 +65,22 @@ Equal(true, selectionPostfix.Contains("DeactivateLoadedSave(", StringComparison.
 string activateLoadedSave = ExtractMethods(pluginSource, "internal static void ActivateLoadedSave(").Single();
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
-string persistPrefixSource = ExtractMethods(pluginSource, "public static void PersistPrefix(").Single();
-Equal(true, persistPrefixSource.Contains("TryBeginNativePersist(request, out __state)", StringComparison.Ordinal), "persist prefix delegates only the exact natural request");
-Equal(false, persistPrefixSource.Contains("TryBeginNativePersist(__instance", StringComparison.Ordinal), "natural SaveDataRequestProcessor is never used for player cassette state");
-Equal(false, persistPrefixSource.Contains("return false", StringComparison.Ordinal), "persist prefix never suppresses the native persist");
-Equal(true, persistPrefixSource.Contains("__originalMethod", StringComparison.Ordinal), "persist diagnostic records the exact original method");
-Equal(true, persistPrefixSource.Contains("request?.GetType().FullName", StringComparison.Ordinal), "persist diagnostic records the exact request type");
-Equal(true, persistPrefixSource.Contains("tokenBegan={began}", StringComparison.Ordinal), "persist diagnostic records whether a transaction token began");
-string persistPostfix = ExtractMethods(pluginSource, "public static void PersistPostfix(").Single();
-Equal(true, persistPostfix.Contains("SchedulePersistVerification(__state)", StringComparison.Ordinal), "persist postfix schedules verification");
-
-string transactionBegin = ExtractMethods(pluginSource, "internal static bool TryBeginNativePersist(").Single();
-Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryGetPersistBundle(request, out object? nativeBundle, out string bundleName)", StringComparison.Ordinal), "persist prefix preserves the natural native bundle");
-Equal(true, transactionBegin.Contains("processor = _playerSaveRequestProcessor;", StringComparison.Ordinal), "persist transaction uses the captured PlayerSaveRequestProcessor");
-Equal(true, transactionBegin.Contains("if (processor == null)", StringComparison.Ordinal), "persist transaction fails closed without a captured player processor");
-Equal(false, transactionBegin.Contains("_playerSaveRequestProcessor = processor;", StringComparison.Ordinal), "persist transaction never overwrites the captured player processor with SaveDataRequestProcessor");
-foreach (string failReason in new[] { "missing-request", "missing-or-empty-bundle", "slot-data-unsynchronized", "routing-disabled", "inactive-save-epoch", "missing-player-save-request-processor" })
-    Equal(true, transactionBegin.Contains($"LogPersistFailClosedOnce(\"{failReason}\")", StringComparison.Ordinal), $"persist diagnostic identifies {failReason}");
-Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor, entry.NativeSong", StringComparison.Ordinal), "persist prefix authoritatively rereads before staging");
-Equal(true, transactionBegin.Contains("CassetteSaveTransactionAdapter.TryStageHaveInBag(processor, nativeSong, nativeBundle", StringComparison.Ordinal), "persist prefix stages into the natural bundle");
-string persistFailureLogger = ExtractMethods(pluginSource, "private static void LogPersistFailClosedOnce(").Single();
-Equal(true, persistFailureLogger.Contains("LoggedPersistFailReasons.Add(reason)", StringComparison.Ordinal), "persist fail-closed diagnostics are emitted only once per reason");
-Equal(true, persistFailureLogger.Contains("CASSETTE PERSIST FAIL-CLOSED reason='{reason}'", StringComparison.Ordinal), "persist fail-closed diagnostic includes its exact reason");
+string reconcileSource = ExtractMethods(pluginSource, "internal static void TryReconcile(").Single();
+Equal(true, reconcileSource.Contains("TryReconcileSong(song", StringComparison.Ordinal), "reconciliation delegates each epoch-pending song");
+string reconcileSongSource = ExtractMethods(pluginSource, "private static void TryReconcileSong(").Single();
+Equal(true, reconcileSongSource.Contains("TryReadCassetteStatus(processor!, nativeSong", StringComparison.Ordinal), "reconciliation reads before writing");
+Equal(true, reconcileSongSource.Contains("TrySubmitHaveInBag(processor!, nativeSong", StringComparison.Ordinal), "reconciliation uses exact semantic request adapter");
+Equal(false, reconcileSongSource.Contains("HAVE_DEPOSITED", StringComparison.Ordinal), "reconciliation never submits deposited status");
 
 string cassetteProcessorCapture = ExtractMethods(pluginSource, "internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)").Single();
 Equal(true, cassetteProcessorCapture.Contains("CASSETTE PLAYER PROCESSOR CAPTURED", StringComparison.Ordinal), "compatible player processor capture is observable");
 Equal(false, cassetteProcessorCapture.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "processor diagnostic performs no native cassette write");
+string cassetteProcessorFallback = ExtractMethods(pluginSource, "private static bool EnsureCassetteProcessorAvailable(").Single();
+Equal(true, cassetteProcessorFallback.Contains("CassetteSaveTransactionAdapter.TryGetLoadedSave(out _)", StringComparison.Ordinal), "stateless processor fallback requires readable selected save");
+Equal(true, cassetteProcessorFallback.Contains("PlayerSaveRequestProcessor", StringComparison.Ordinal), "stateless fallback constructs only the proven processor type");
 
 string periodicKeeper = ExtractMethods(pluginSource, "internal static void TickPendingNativeGrants(").Single();
-Equal(false, periodicKeeper.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "periodic reconciliation submits no cassette request");
-Equal(false, periodicKeeper.Contains("TryStageHaveInBag", StringComparison.Ordinal), "periodic reconciliation cannot stage cassette writes");
+Equal(true, periodicKeeper.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "periodic keeper advances only bounded verification timers");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
 Console.WriteLine("PASS: safe_save_lifecycle_production_wiring");
 
@@ -304,7 +286,7 @@ preSelection.Receive("BADASS");
 preSelection.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, preSelection.HasActiveSave, "receipt before save selection remains inactive");
 Equal(false, preSelection.IsPending("BADASS"), "pre-selection observation cannot make a cassette pending in a save");
-Equal(0, preSelection.BeginPersist("DEFAULT").StagedSongs.Count, "no staging before a confirmed save load");
+Equal(false, preSelection.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "no semantic request before a confirmed save load");
 Console.WriteLine("PASS: receipt_before_save_selection_never_reads_writes_or_satisfies");
 
 var preSlotBag = new CassetteSaveEpochRuntime();
@@ -328,11 +310,11 @@ var depositedSaveA = new CassetteSaveEpochRuntime();
 depositedSaveA.Receive("BADASS");
 depositedSaveA.ActivateSave(1);
 depositedSaveA.Observe("BADASS", CassetteRandomizationPolicy.HaveDeposited);
-Equal(0, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "deposited save A is not rewritten");
+Equal(false, depositedSaveA.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveDeposited, true), "deposited save A is not rewritten");
 depositedSaveA.ActivateSave(2);
 Equal(2L, depositedSaveA.Epoch, "switching to a different valid slot creates a new epoch");
 Equal(true, depositedSaveA.IsPending("BADASS"), "deposited save A does not terminal-cache unowned save B");
-Equal(1, depositedSaveA.BeginPersist("DEFAULT").StagedSongs.Count, "unowned save B stages its owned cassette");
+Equal(true, depositedSaveA.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unowned save B can receive its owned cassette");
 Console.WriteLine("PASS: deposited_in_save_a_does_not_terminal_cache_save_b");
 
 var depositedRevalidation = new CassetteSaveEpochRuntime();
@@ -341,7 +323,7 @@ depositedRevalidation.ActivateSave(1);
 depositedRevalidation.Observe("ZEN", CassetteRandomizationPolicy.HaveDeposited);
 depositedRevalidation.ActivateSave(1);
 depositedRevalidation.Observe("ZEN", CassetteRandomizationPolicy.HaveDeposited);
-Equal(0, depositedRevalidation.BeginPersist("DEFAULT").StagedSongs.Count, "deposited cassette remains unwritten after reloading its save");
+Equal(false, depositedRevalidation.CanSubmit("ZEN", CassetteRandomizationPolicy.HaveDeposited, true), "deposited cassette remains unwritten after reloading its save");
 Console.WriteLine("PASS: deposited_is_never_rewritten_within_or_after_reloading_its_save");
 
 var lifecycleNeutral = new CassetteSaveEpochRuntime();
@@ -350,62 +332,30 @@ lifecycleNeutral.ActivateSave(4);
 lifecycleNeutral.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 lifecycleNeutral.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(1L, lifecycleNeutral.Epoch, "observations do not create or replace a save epoch");
-Equal(0, lifecycleNeutral.BeginPersist("DEFAULT").StagedSongs.Count, "broad lifecycle-neutral observations do not rewrite a satisfied cassette");
+Equal(false, lifecycleNeutral.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveInBag, true), "broad lifecycle-neutral observations do not rewrite a satisfied cassette");
 Console.WriteLine("PASS: broad_lifecycle_notifications_do_not_create_or_replace_a_save_epoch");
 
-var persistPrefix = new CassetteSaveEpochRuntime();
-persistPrefix.Receive("BADASS");
-persistPrefix.ActivateSave(3);
-Equal(true, persistPrefix.IsPending("BADASS"), "unowned receipt is pending in an active save");
-var midLevelToken = persistPrefix.BeginPersist("MID_LEVEL");
-SequenceEqual(new[] { "BADASS" }, midLevelToken.StagedSongs, "persist prefix stages the missing cassette");
-Equal(true, persistPrefix.IsPending("BADASS"), "staging alone does not satisfy a cassette");
-persistPrefix.CompletePersist(midLevelToken, _ => CassetteRandomizationPolicy.HaveInBag);
-Equal(false, persistPrefix.IsPending("BADASS"), "post-persist authoritative bag read satisfies the cassette");
-Console.WriteLine("PASS: unowned_receipt_is_staged_only_inside_the_natural_persist_prefix");
+var semantic = new CassetteSaveEpochRuntime();
+semantic.Receive("BADASS");
+semantic.ActivateSave(3);
+Equal(false, semantic.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, false), "missing processor fails closed");
+Equal(true, semantic.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "active epoch and unearned read permit semantic request");
+semantic.RecordSubmission("BADASS");
+Equal(false, semantic.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "submitted request waits for delayed verification");
+Equal(0, semantic.Tick(TimeSpan.FromMilliseconds(249)).Count, "verification is delayed");
+SequenceEqual(new[] { "BADASS" }, semantic.Tick(TimeSpan.FromMilliseconds(1)), "first bounded delay schedules authoritative verification");
+semantic.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, semantic.IsPending("BADASS"), "later authoritative bag read satisfies this epoch");
+Console.WriteLine("PASS: post_epoch_semantic_request_requires_delayed_verification");
 
-var persistAll = new CassetteSaveEpochRuntime();
-persistAll.Receive("BADASS");
-persistAll.ActivateSave(3);
-var defaultToken = persistAll.BeginPersist("DEFAULT");
-Equal("DEFAULT", defaultToken.Bundle, "persist-all stages into the default bundle");
-SequenceEqual(new[] { "BADASS" }, defaultToken.StagedSongs, "persist-all stages the owned missing cassette");
-Console.WriteLine("PASS: persist_all_stages_default_then_uses_the_original_native_commit");
-
-var selectionDuringPersist = new CassetteSaveEpochRuntime();
-selectionDuringPersist.Receive("BADASS");
-selectionDuringPersist.ActivateSave(1);
-var stalePersist = selectionDuringPersist.BeginPersist("DEFAULT");
-selectionDuringPersist.ActivateSave(2);
-selectionDuringPersist.CompletePersist(stalePersist, _ => CassetteRandomizationPolicy.HaveInBag);
-Equal(true, selectionDuringPersist.IsPending("BADASS"), "selection change during persist cannot satisfy the new save");
-Console.WriteLine("PASS: selection_change_during_persist_does_not_satisfy_the_new_save");
-
-var failedAuthoritativeRead = new CassetteSaveEpochRuntime();
-failedAuthoritativeRead.Receive("BADASS");
-failedAuthoritativeRead.ActivateSave(5);
-var failedReadToken = failedAuthoritativeRead.BeginPersist("DEFAULT");
-failedAuthoritativeRead.CompletePersist(failedReadToken, _ => null);
-Equal(true, failedAuthoritativeRead.IsPending("BADASS"), "authoritative read failure leaves cassette pending");
-Equal(1, failedAuthoritativeRead.BeginPersist("DEFAULT").StagedSongs.Count, "authoritative read failure retries at a later persist boundary");
-Console.WriteLine("PASS: authoritative_failure_at_persist_boundary_fails_closed");
-
-string[] callerStagedSongs = { "BADASS" };
-var callerToken = new CassettePersistToken(1, 1, "DEFAULT", callerStagedSongs);
-callerStagedSongs[0] = "TAMPERED";
-SequenceEqual(new[] { "BADASS" }, callerToken.StagedSongs, "persist token copies caller-owned staged songs");
-var immutablePersist = new CassetteSaveEpochRuntime();
-immutablePersist.Receive("BADASS");
-immutablePersist.ActivateSave(1);
-var immutableToken = immutablePersist.BeginPersist("DEFAULT");
-if (immutableToken.StagedSongs is string[] exposedStagedSongs)
-    exposedStagedSongs[0] = "TAMPERED";
-immutablePersist.CompletePersist(immutableToken, song =>
-    string.Equals(song, "BADASS", StringComparison.Ordinal)
-        ? CassetteRandomizationPolicy.HaveInBag
-        : null);
-Equal(false, immutablePersist.IsPending("BADASS"), "caller cannot redirect staged completion through a mutable token snapshot");
-Console.WriteLine("PASS: persist_token_staged_song_snapshot_is_immutable_to_callers");
+var staleVerification = new CassetteSaveEpochRuntime();
+staleVerification.Receive("BADASS");
+staleVerification.ActivateSave(1);
+staleVerification.RecordSubmission("BADASS");
+staleVerification.ActivateSave(2);
+staleVerification.RecordVerification("BADASS", null);
+Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "reload clears prior attempt and revalidates new epoch");
+Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
 var disabledReceipt = new CassetteReceiptRuntime(); disabledReceipt.Configure(false); disabledReceipt.NoteReceived("Money Cassette"); disabledReceipt.OnLifecyclePoint();
 Equal(false, disabledReceipt.TryBeginReconcileAttempt(out _), "disabled session preserves vanilla");
@@ -435,34 +385,23 @@ Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSave(out int selectedSlot
 Equal(4, selectedSlot, "loaded save returns selected slot number");
 
 var transactionState = new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG);
-var transactionProcessor = new TransactionProcessor(transactionState);
+var transactionProcessor = new PlayerSaveRequestProcessor(transactionState);
 Equal(true, CassetteSaveTransactionAdapter.TryReadCassetteStatus(transactionProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string? transactionStatus), "transaction adapter reads current processor state");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), transactionStatus, "transaction adapter returns authoritative cassette status");
 Equal(1, transactionProcessor.ObtainStateCalls, "transaction read obtains current state for each call");
 
-var exactBundle = ePlayerSaveChangeBundleKey.CAMPAIGN;
-var singlePersist = new PersistSaveChangeBundleRequest { Bundle = new FakeIl2CppNullable<ePlayerSaveChangeBundleKey>(hasValue: true, value: exactBundle) };
-Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(singlePersist, out object? singleBundle, out string singleBundleName), "single persist exposes native bundle");
-Equal(true, Equals(exactBundle, singleBundle), "single persist preserves exact native bundle value");
-Equal(nameof(ePlayerSaveChangeBundleKey.CAMPAIGN), singleBundleName, "single persist reports exact bundle name");
-Equal(false, CassetteSaveTransactionAdapter.TryGetPersistBundle(
-    new PersistSaveChangeBundleRequest { Bundle = new FakeIl2CppNullable<ePlayerSaveChangeBundleKey>(hasValue: false, value: default) },
-    out _, out _), "single persist rejects empty IL2CPP nullable bundle");
-Equal(true, CassetteSaveTransactionAdapter.TryGetPersistBundle(new PersistAllSaveChangeBundlesRequest(), out object? allBundle, out string allBundleName), "persist-all resolves default bundle");
-Equal(ePlayerSaveChangeBundleKey.DEFAULT, (ePlayerSaveChangeBundleKey)allBundle!, "persist-all uses native default bundle");
-Equal(nameof(ePlayerSaveChangeBundleKey.DEFAULT), allBundleName, "persist-all reports default bundle name");
-
-var stagingProcessor = new TransactionProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
-Equal(true, CassetteSaveTransactionAdapter.TryStageHaveInBag(stagingProcessor, nameof(ePlayableSong.QUIERES_BAILAR), exactBundle, out string stageDetail), "transaction adapter stages cassette in memory");
-Equal(1, stagingProcessor.ProcessRequestCalls, "staging processes exactly one semantic request");
-Equal(ePlayableSong.QUIERES_BAILAR, stagingProcessor.LastRequest!.Song, "staging request receives native song");
-Equal(eSongCassetteStatus.HAVE_IN_BAG, stagingProcessor.LastRequest.CassetteStatus, "staging request receives bag status");
-Equal(exactBundle, stagingProcessor.LastRequest.Bundle, "staging request preserves supplied native bundle");
-Equal(true, stagingProcessor.LastRequest.SemanticConstructorUsed, "staging uses semantic cassette constructor");
-Equal(true, stageDetail.Contains("CAMPAIGN", StringComparison.Ordinal), "staging detail identifies supplied bundle");
+var semanticProcessor = new PlayerSaveRequestProcessor(new TransactionSaveState(eSongCassetteStatus.INVALID));
+Equal(true, CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(semanticProcessor), "exact player processor is compatible");
+Equal(true, CassetteSaveTransactionAdapter.TrySubmitHaveInBag(semanticProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string submitDetail), "adapter submits semantic cassette request");
+Equal(1, semanticProcessor.ProcessRequestCalls, "submission processes exactly one semantic request");
+Equal(ePlayableSong.QUIERES_BAILAR, semanticProcessor.LastRequest!.Song, "request receives native song");
+Equal(eSongCassetteStatus.HAVE_IN_BAG, semanticProcessor.LastRequest.CassetteStatus, "request receives bag status");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, semanticProcessor.LastRequest.Bundle, "request uses default native bundle");
+Equal(true, semanticProcessor.LastRequest.SemanticConstructorUsed, "submission uses semantic cassette constructor");
+Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submission detail identifies default bundle");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
-foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent" })
+foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
@@ -548,14 +487,14 @@ sealed class PersistSaveChangeBundleRequest
 
 sealed class PersistAllSaveChangeBundlesRequest { }
 
-sealed class TransactionProcessor
+sealed class PlayerSaveRequestProcessor
 {
     private readonly TransactionSaveState _state;
     public int ObtainStateCalls { get; private set; }
     public int ProcessRequestCalls { get; private set; }
     public RecordSongCassetteStatusInSaveDataRequest? LastRequest { get; private set; }
 
-    public TransactionProcessor(TransactionSaveState state) => _state = state;
+    public PlayerSaveRequestProcessor(TransactionSaveState state) => _state = state;
 
     private TransactionSaveState ObtainState()
     {

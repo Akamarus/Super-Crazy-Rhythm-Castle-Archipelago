@@ -110,27 +110,18 @@ internal static class CassetteRandomizationPolicy
     private static CassetteSourceDecision Allow(string detail)=>new(true,Array.Empty<string>(),Array.Empty<string>(),detail);
 }
 
-internal sealed record CassettePersistToken
-{
-    internal CassettePersistToken(long epoch, int slot, string bundle, IReadOnlyList<string> stagedSongs)
-    {
-        Epoch = epoch;
-        Slot = slot;
-        Bundle = bundle;
-        StagedSongs = Array.AsReadOnly(stagedSongs.ToArray());
-    }
-
-    internal long Epoch { get; }
-    internal int Slot { get; }
-    internal string Bundle { get; }
-    internal IReadOnlyList<string> StagedSongs { get; }
-}
-
 internal sealed class CassetteSaveEpochRuntime
 {
+    private static readonly TimeSpan[] RetryDelays =
+    {
+        TimeSpan.FromMilliseconds(250),
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(3),
+    };
     private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
     private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _inFlightThisEpoch = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _attemptsThisEpoch = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TimeSpan> _verificationElapsed = new(StringComparer.Ordinal);
 
     internal long Epoch { get; private set; }
     internal int? ActiveSlot { get; private set; }
@@ -141,14 +132,16 @@ internal sealed class CassetteSaveEpochRuntime
         Epoch++;
         ActiveSlot = slot;
         _satisfiedThisEpoch.Clear();
-        _inFlightThisEpoch.Clear();
+        _attemptsThisEpoch.Clear();
+        _verificationElapsed.Clear();
     }
 
     internal void DeactivateSave()
     {
         ActiveSlot = null;
         _satisfiedThisEpoch.Clear();
-        _inFlightThisEpoch.Clear();
+        _attemptsThisEpoch.Clear();
+        _verificationElapsed.Clear();
     }
 
     internal void Receive(string nativeSong)
@@ -159,50 +152,55 @@ internal sealed class CassetteSaveEpochRuntime
     internal bool IsPending(string nativeSong) =>
         HasActiveSave && _owned.Contains(nativeSong) && !_satisfiedThisEpoch.Contains(nativeSong);
 
+    internal IReadOnlyList<string> PendingSongs => HasActiveSave
+        ? _owned.Where(IsPending).OrderBy(song => song, StringComparer.Ordinal).ToArray()
+        : Array.Empty<string>();
+
+    internal bool CanSubmit(string nativeSong, string? nativeStatus, bool processorAvailable) =>
+        IsPending(nativeSong) &&
+        processorAvailable &&
+        CassetteRandomizationPolicy.IsUnearned(nativeStatus) &&
+        !_verificationElapsed.ContainsKey(nativeSong) &&
+        (!_attemptsThisEpoch.TryGetValue(nativeSong, out int attempts) || attempts < RetryDelays.Length);
+
+    internal void RecordSubmission(string nativeSong)
+    {
+        if (!IsPending(nativeSong)) return;
+        _attemptsThisEpoch[nativeSong] = _attemptsThisEpoch.TryGetValue(nativeSong, out int attempts) ? attempts + 1 : 1;
+        _verificationElapsed[nativeSong] = TimeSpan.Zero;
+    }
+
+    internal void RecordSubmissionFailure(string nativeSong) => _verificationElapsed.Remove(nativeSong);
+
+    internal IReadOnlyList<string> Tick(TimeSpan elapsed)
+    {
+        if (!HasActiveSave || elapsed <= TimeSpan.Zero) return Array.Empty<string>();
+        var ready = new List<string>();
+        foreach (string song in _verificationElapsed.Keys.ToArray())
+        {
+            TimeSpan total = _verificationElapsed[song] + elapsed;
+            _verificationElapsed[song] = total;
+            int attempt = _attemptsThisEpoch.TryGetValue(song, out int count) ? count : 1;
+            TimeSpan delay = RetryDelays[Math.Clamp(attempt - 1, 0, RetryDelays.Length - 1)];
+            if (total >= delay) ready.Add(song);
+        }
+        return ready;
+    }
+
     internal void Observe(string nativeSong, string? nativeStatus)
     {
         if (!HasActiveSave || !_owned.Contains(nativeSong) || !IsSatisfiedNativeStatus(nativeStatus))
             return;
 
         _satisfiedThisEpoch.Add(nativeSong);
-        _inFlightThisEpoch.Remove(nativeSong);
+        _verificationElapsed.Remove(nativeSong);
     }
 
-    internal CassettePersistToken BeginPersist(string bundle)
+    internal void RecordVerification(string nativeSong, string? nativeStatus)
     {
-        if (!HasActiveSave)
-            return new(Epoch, -1, bundle, Array.Empty<string>());
-
-        string[] stagedSongs = _owned
-            .Where(song => !_satisfiedThisEpoch.Contains(song) && !_inFlightThisEpoch.Contains(song))
-            .OrderBy(song => song, StringComparer.Ordinal)
-            .ToArray();
-        foreach (string song in stagedSongs)
-            _inFlightThisEpoch.Add(song);
-        return new(Epoch, ActiveSlot!.Value, bundle, stagedSongs);
-    }
-
-    internal void CompletePersist(CassettePersistToken token, Func<string, string?> readStatus)
-    {
-        if (!HasActiveSave || token.Epoch != Epoch || token.Slot != ActiveSlot)
-            return;
-
-        foreach (string song in token.StagedSongs.Distinct(StringComparer.Ordinal))
-        {
-            string? status;
-            try
-            {
-                status = readStatus(song);
-            }
-            catch
-            {
-                status = null;
-            }
-
-            _inFlightThisEpoch.Remove(song);
-            if (_owned.Contains(song) && IsSatisfiedNativeStatus(status))
-                _satisfiedThisEpoch.Add(song);
-        }
+        if (!IsPending(nativeSong)) return;
+        _verificationElapsed.Remove(nativeSong);
+        Observe(nativeSong, nativeStatus);
     }
 
     private static bool IsSatisfiedNativeStatus(string? status) =>

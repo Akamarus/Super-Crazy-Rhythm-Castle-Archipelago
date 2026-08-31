@@ -65,55 +65,25 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
-    internal static bool TryGetPersistBundle(
-        object request,
-        out object? nativeBundle,
-        out string bundleName)
-    {
-        nativeBundle = null;
-        bundleName = string.Empty;
-        try
-        {
-            Type requestType = request.GetType();
-            if (string.Equals(requestType.Name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal))
-            {
-                PropertyInfo? property = requestType.GetProperty("Bundle", AllInstance);
-                FieldInfo? field = property == null ? requestType.GetField("Bundle", AllInstance) : null;
-                nativeBundle = UnwrapNullable(property?.GetValue(request) ?? field?.GetValue(request));
-            }
-            else if (string.Equals(requestType.Name, "PersistAllSaveChangeBundlesRequest", StringComparison.Ordinal))
-            {
-                Type? bundleType = FindType("ePlayerSaveChangeBundleKey", requestType.Assembly);
-                if (bundleType?.IsEnum == true)
-                    nativeBundle = Enum.Parse(bundleType, CassetteNativeRequestFactory.DefaultBundle, ignoreCase: false);
-            }
+    internal static bool IsCompatiblePlayerSaveRequestProcessor(object? processor) =>
+        processor != null && string.Equals(processor.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal);
 
-            bundleName = nativeBundle?.ToString() ?? string.Empty;
-            return nativeBundle != null && !string.IsNullOrWhiteSpace(bundleName);
-        }
-        catch
-        {
-            nativeBundle = null;
-            bundleName = string.Empty;
-            return false;
-        }
-    }
-
-    internal static bool TryStageHaveInBag(
-        object processor,
-        string nativeSong,
-        object nativeBundle,
-        out string detail)
+    internal static bool TrySubmitHaveInBag(object processor, string nativeSong, out string detail)
     {
         detail = string.Empty;
         try
         {
+            if (!IsCompatiblePlayerSaveRequestProcessor(processor))
+            {
+                detail = "compatible PlayerSaveRequestProcessor unavailable";
+                return false;
+            }
             Assembly assembly = processor.GetType().Assembly;
             Type? requestType = FindType("RecordSongCassetteStatusInSaveDataRequest", assembly);
             Type? songType = FindType("ePlayableSong", assembly);
             Type? statusType = FindType("eSongCassetteStatus", assembly);
-            Type bundleType = nativeBundle.GetType();
-            if (requestType == null || songType == null || statusType == null)
+            Type? bundleType = FindType("ePlayerSaveChangeBundleKey", assembly);
+            if (requestType == null || songType == null || statusType == null || bundleType?.IsEnum != true)
             {
                 detail = "cassette request semantic types unavailable";
                 return false;
@@ -126,14 +96,10 @@ internal static class CassetteSaveTransactionAdapter
                 return false;
             }
 
+            object nativeBundle = Enum.Parse(bundleType, CassetteNativeRequestFactory.DefaultBundle, ignoreCase: false);
             object cassetteRequest = CassetteNativeRequestFactory.Create(
-                requestType,
-                songType,
-                statusType,
-                bundleType,
-                nativeSong,
-                CassetteNativeRequestFactory.HaveInBag,
-                nativeBundle);
+                requestType, songType, statusType, bundleType, nativeSong,
+                CassetteNativeRequestFactory.HaveInBag, nativeBundle);
             process.Invoke(processor, new[] { cassetteRequest });
             detail = $"song='{nativeSong}' status='{CassetteNativeRequestFactory.HaveInBag}' bundle='{nativeBundle}'";
             return true;
