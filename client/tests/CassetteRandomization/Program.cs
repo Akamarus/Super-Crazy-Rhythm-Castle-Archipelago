@@ -96,6 +96,67 @@ foreach (var rejectedFactory in new[]
     Equal<object?>(null, rejectedRequest, $"{rejectedFactory.Stage} cannot return a request for processing");
     Equal(rejectedFactory.Stage, rejectedDetail, $"{rejectedFactory.Stage} is reported exactly");
 }
+
+PersistSaveChangeBundleRequest.ResetConstructionCounters();
+Equal(true, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
+    typeof(PersistSaveChangeBundleRequest),
+    typeof(ePlayerSaveChangeBundleKey),
+    typeof(eSaveFileWriteType),
+    out object? persistConstruction,
+    out string persistConstructionDetail), "persist request uses the public absent-bundle construction path");
+var typedPersistConstruction = (PersistSaveChangeBundleRequest)persistConstruction!;
+Equal(true, typedPersistConstruction.ParameterlessConstructorUsed, "persist request uses the public parameterless constructor");
+Equal(false, typedPersistConstruction.Bundle.HasValue, "verified persist request leaves Bundle absent");
+Equal(eSaveFileWriteType.URGENT, typedPersistConstruction.WriteTypeToRequest, "public WriteTypeToRequest setter receives URGENT");
+Equal(1, typedPersistConstruction.WriteTypeSetterCalls, "persist construction explicitly invokes the public plain-enum write-type setter");
+Equal(0, PersistSaveChangeBundleRequest.SemanticConstructorCalls, "broken two-argument persist constructor is never called");
+Equal(0, typedPersistConstruction.BundleSetterCalls, "broken nullable persist Bundle setter is never called");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT,
+    typedPersistConstruction.Bundle.HasValue ? typedPersistConstruction.Bundle.Value : ePlayerSaveChangeBundleKey.DEFAULT,
+    "native persist HasValue ? Value : DEFAULT semantics resolve the absent payload to DEFAULT");
+Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0'", persistConstructionDetail, "persist construction detail reports actual payload semantics");
+
+Equal(true, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
+    typeof(EmptyInteropPersistConstructionFixture.PersistSaveChangeBundleRequest),
+    typeof(ePlayerSaveChangeBundleKey),
+    typeof(eSaveFileWriteType),
+    out object? emptyInteropPersist,
+    out string emptyInteropPersistDetail), "proven IL2CPP empty persist Bundle getter NRE is normalized as absent");
+Equal(true, emptyInteropPersist != null, "exact empty persist nullable normalization returns a verified request");
+Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0'", emptyInteropPersistDetail, "exact empty persist nullable path reports the native fallback honestly");
+
+foreach (var rejectedPersistFactory in new[]
+{
+    (Request: typeof(MissingPersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "public parameterless persist request constructor unavailable"),
+    (Request: typeof(PrivatePersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "public parameterless persist request constructor unavailable"),
+    (Request: typeof(ThrowingPersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "persist request parameterless-constructor-invocation:InvalidOperationException:persist-parameterless-constructor"),
+    (Request: typeof(MissingPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle getter unavailable"),
+    (Request: typeof(PrivatePersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle getter unavailable"),
+    (Request: typeof(ThrowingPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle-readback-invocation:InvalidOperationException:persist-bundle-get"),
+    (Request: typeof(UnrelatedNullPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle-readback-invocation:NullReferenceException:unrelated-persist-null"),
+    (Request: typeof(NullPersistBundleReadbackFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback was null"),
+    (Request: typeof(MalformedPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle nullable contract unavailable"),
+    (Request: typeof(PresentInvalidPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback mismatch:expected=<absent>:actual=INVALID/0"),
+    (Request: typeof(PresentDefaultPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback mismatch:expected=<absent>:actual=DEFAULT/1"),
+    (Request: typeof(MissingPersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
+    (Request: typeof(PrivatePersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
+    (Request: typeof(ThrowingPersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type-set-invocation:InvalidOperationException:persist-write-set"),
+    (Request: typeof(MissingPersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
+    (Request: typeof(PrivatePersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
+    (Request: typeof(ThrowingPersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type-readback-invocation:InvalidOperationException:persist-write-get"),
+    (Request: typeof(MismatchedPersistWriteTypeFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type readback mismatch:expected=URGENT/0:actual=NON_URGENT/1"),
+})
+{
+    Equal(false, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
+        rejectedPersistFactory.Request,
+        typeof(ePlayerSaveChangeBundleKey),
+        typeof(eSaveFileWriteType),
+        out object? rejectedPersistRequest,
+        out string rejectedPersistDetail), $"{rejectedPersistFactory.Stage} fails closed");
+    Equal<object?>(null, rejectedPersistRequest, $"{rejectedPersistFactory.Stage} cannot return a request for submission");
+    Equal(rejectedPersistFactory.Stage, rejectedPersistDetail, $"{rejectedPersistFactory.Stage} is reported exactly");
+}
+Equal(0, RequestSystem.SubmitCount, "persist construction failures never reach RequestSystem.SubmitRequest");
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
@@ -1096,10 +1157,10 @@ Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusReques
 Equal(false, recordPayload.BundlePresent, "IL2CPP empty record-song bundle remains absent");
 Equal(false, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new ThrowingRoutingFixture.RecordSongCassetteStatusInSaveDataRequest(), out _, out routingStage), "throwing public record-song status fails diagnostically");
 Equal("routing-record-status-get-invocation:InvalidOperationException:record-status", routingStage, "throwing record-song status identifies its exact stage");
-var persistRoutingRequest = new PersistSaveChangeBundleRequest(new(true, ePlayerSaveChangeBundleKey.DEFAULT), eSaveFileWriteType.URGENT);
+var persistRoutingRequest = new RoutingFixture.PersistSaveChangeBundleRequest(new(true, ePlayerSaveChangeBundleKey.DEFAULT), eSaveFileWriteType.URGENT);
 Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(persistRoutingRequest, out CassettePersistBundleRoutingPayload persistPayload, out routingStage), "narrow persist diagnostic reads the exact public request payload");
 Equal(new CassettePersistBundleRoutingPayload(true, nameof(ePlayerSaveChangeBundleKey.DEFAULT), nameof(eSaveFileWriteType.URGENT)), persistPayload, "narrow persist payload preserves nullable bundle and write type");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new PersistSaveChangeBundleRequest(new(false, default), eSaveFileWriteType.URGENT), out persistPayload, out routingStage), "narrow persist diagnostic preserves an absent managed nullable bundle");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new RoutingFixture.PersistSaveChangeBundleRequest(new(false, default), eSaveFileWriteType.URGENT), out persistPayload, out routingStage), "narrow persist diagnostic preserves an absent managed nullable bundle");
 Equal(false, persistPayload.BundlePresent, "absent managed narrow-persist bundle remains absent");
 Equal<string?>(null, persistPayload.Bundle, "absent managed narrow-persist bundle does not invent DEFAULT");
 Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new EmptyInteropRoutingFixture.PersistSaveChangeBundleRequest(), out persistPayload, out routingStage), "proven IL2CPP empty narrow-persist bundle is normalized diagnostically");
@@ -1145,6 +1206,7 @@ Equal("write-success-time-nullable-contract-missing", publicWriteStage, "private
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), out _, out publicWriteStage), "private failure-reason nullable contract fails closed");
 Equal("write-failure-reason-nullable-contract-missing", publicWriteStage, "private failure-reason wrapper reports the exact public boundary failure");
 RequestSystem.Reset();
+PersistSaveChangeBundleRequest.ResetConstructionCounters();
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new ThrowingObtainPublicWriteProcessorFixture(), out CassettePublicWriteState failedWriteState, out publicWriteStage), "throwing ObtainState fails closed");
 Equal(default(CassettePublicWriteState), failedWriteState, "throwing ObtainState exposes no partial write state");
 Equal("write-state-obtain-state-invoke-invocation:NullReferenceException:obtain-state", publicWriteStage, "throwing ObtainState identifies its exact invocation stage");
@@ -1186,9 +1248,15 @@ Equal("write-event-incompatible", writeEventStage, "wrong event type has an exac
 Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
 Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
 Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
-Equal(ePlayerSaveChangeBundleKey.DEFAULT, RequestSystem.LastRequest!.Bundle.Value, "persist request uses exact DEFAULT bundle");
+Equal(false, RequestSystem.LastRequest!.Bundle.HasValue, "submitted persist request carries a verified absent bundle");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, RequestSystem.EffectiveBundle, "native-shaped persist fallback resolves absent bundle to DEFAULT");
 Equal(eSaveFileWriteType.URGENT, RequestSystem.LastRequest.WriteTypeToRequest, "persist request uses exact URGENT write type");
-Equal(true, persistDetail.Contains("DEFAULT", StringComparison.Ordinal) && persistDetail.Contains("URGENT", StringComparison.Ordinal), "persist detail records exact public semantics");
+Equal(eSaveFileWriteType.URGENT, RequestSystem.EffectiveWriteType, "native-shaped persist processor receives numeric URGENT");
+Equal(true, RequestSystem.LastRequest.ParameterlessConstructorUsed, "submission uses the public parameterless persist constructor");
+Equal(0, PersistSaveChangeBundleRequest.SemanticConstructorCalls, "submission never invokes the broken two-argument persist constructor");
+Equal(0, RequestSystem.LastRequest.BundleSetterCalls, "submission never invokes the broken nullable persist setter");
+Equal(1, RequestSystem.LastRequest.WriteTypeSetterCalls, "submission explicitly assigns URGENT through the public plain-enum setter");
+Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0' route='RequestSystem.SubmitRequest<T>'", persistDetail, "persist detail records verified actual and effective semantics");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string factorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
@@ -1216,9 +1284,13 @@ string pointerJoinAdapter = ExtractMethods(adapterSource, "internal static bool 
 Equal(true, pointerJoinAdapter.Contains("PublicInstance", StringComparison.Ordinal), "regular-save pointer join uses public-only APIs");
 Equal(false, pointerJoinAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerJoinAdapter.Contains("AllStatic", StringComparison.Ordinal), "regular-save pointer join cannot bind non-public members");
 string persistAdapter = ExtractMethods(adapterSource, "internal static bool TrySubmitDefaultUrgentPersist(").Single();
-Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistAdapter.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
+string persistFactory = ExtractMethods(factorySource, "internal static bool TryCreateDefaultUrgentPersistRequest(").Single();
+Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistFactory.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
 Equal(false, persistAdapter.Contains("AllStatic", StringComparison.Ordinal) || persistAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk persist never resolves private APIs");
-Equal(true, persistAdapter.Contains("Convert.ToInt32(bundle) != 1", StringComparison.Ordinal) && persistAdapter.Contains("Convert.ToInt32(urgent) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
+Equal(false, persistFactory.Contains("BindingFlags.NonPublic", StringComparison.Ordinal), "persist request construction and readback never resolve private APIs");
+Equal(true, persistAdapter.Contains("TryCreateDefaultUrgentPersistRequest", StringComparison.Ordinal), "disk persist submits only a factory-verified absent-bundle request");
+Equal(false, adapterSource.Contains("BuildPublicNullable", StringComparison.Ordinal), "disk persist no longer constructs a reflected nullable bundle");
+Equal(true, persistFactory.Contains("Convert.ToInt32(nativeBundle) != 1", StringComparison.Ordinal) && persistFactory.Contains("Convert.ToInt32(nativeWriteType) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
 string diagnosticAdapter = ExtractMethods(adapterSource, "private static bool TryReadPublicWriteDiagnosticStateCore(").Single();
 Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
 Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
@@ -1788,10 +1860,251 @@ sealed class PlayerSaveWriteCompletedEvent
 
 sealed class PersistSaveChangeBundleRequest
 {
+    private readonly FakeIl2CppNullable<ePlayerSaveChangeBundleKey> _bundle = new(false, default);
+    private eSaveFileWriteType _writeType = eSaveFileWriteType.NON_URGENT;
+
+    public PersistSaveChangeBundleRequest() => ParameterlessConstructorUsed = true;
+
     public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType)
-    { Bundle = bundle; WriteTypeToRequest = writeType; }
-    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
-    public eSaveFileWriteType WriteTypeToRequest { get; }
+    {
+        SemanticConstructorCalls++;
+        throw new InvalidOperationException("persist-semantic-constructor-must-not-run");
+    }
+
+    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle
+    {
+        get => _bundle;
+        set
+        {
+            BundleSetterCalls++;
+            throw new InvalidOperationException("persist-bundle-set-must-not-run");
+        }
+    }
+
+    public eSaveFileWriteType WriteTypeToRequest
+    {
+        get => _writeType;
+        set
+        {
+            WriteTypeSetterCalls++;
+            _writeType = value;
+        }
+    }
+
+    public bool ParameterlessConstructorUsed { get; }
+    public int BundleSetterCalls { get; private set; }
+    public int WriteTypeSetterCalls { get; private set; }
+    public static int SemanticConstructorCalls { get; private set; }
+
+    public static void ResetConstructionCounters() => SemanticConstructorCalls = 0;
+}
+
+namespace MissingPersistParameterlessConstructorFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType) { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace PrivatePersistParameterlessConstructorFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        private PersistSaveChangeBundleRequest() { }
+        public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType) { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace ThrowingPersistParameterlessConstructorFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() => throw new InvalidOperationException("persist-parameterless-constructor");
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace MissingPersistBundleGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace PrivatePersistBundleGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { private get; set; } = new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace ThrowingPersistBundleGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => throw new InvalidOperationException("persist-bundle-get");
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace UnrelatedNullPersistBundleGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle => throw new NullReferenceException("unrelated-persist-null");
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace NullPersistBundleReadbackFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey>? Bundle => null;
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+sealed class MalformedPersistNullable<T>
+{
+    public bool HasValue => false;
+}
+
+namespace MalformedPersistBundleFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public MalformedPersistNullable<ePlayerSaveChangeBundleKey> Bundle => new();
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace PresentInvalidPersistBundleFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.INVALID);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace PresentDefaultPersistBundleFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.DEFAULT);
+        public eSaveFileWriteType WriteTypeToRequest { get; set; }
+    }
+}
+
+namespace MissingPersistWriteTypeSetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.NON_URGENT;
+    }
+}
+
+namespace PrivatePersistWriteTypeSetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { get; private set; } = eSaveFileWriteType.NON_URGENT;
+    }
+}
+
+namespace ThrowingPersistWriteTypeSetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest
+        {
+            get => eSaveFileWriteType.NON_URGENT;
+            set => throw new InvalidOperationException("persist-write-set");
+        }
+    }
+}
+
+namespace MissingPersistWriteTypeGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { set { } }
+    }
+}
+
+namespace PrivatePersistWriteTypeGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest { private get; set; }
+    }
+}
+
+namespace ThrowingPersistWriteTypeGetterFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest
+        {
+            get => throw new InvalidOperationException("persist-write-get");
+            set { }
+        }
+    }
+}
+
+namespace MismatchedPersistWriteTypeFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
+        public eSaveFileWriteType WriteTypeToRequest
+        {
+            get => eSaveFileWriteType.NON_URGENT;
+            set { }
+        }
+    }
+}
+
+namespace EmptyInteropPersistConstructionFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest() { }
+        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
+            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
+        public eSaveFileWriteType WriteTypeToRequest { get; set; } = eSaveFileWriteType.NON_URGENT;
+    }
 }
 
 namespace RoutingFixture
@@ -1811,6 +2124,20 @@ namespace RoutingFixture
         public ePlayableSong Song { get; }
         public eSongCassetteStatus CassetteStatus { get; }
         public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
+    }
+
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public PersistSaveChangeBundleRequest(
+            FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle,
+            eSaveFileWriteType writeType)
+        {
+            Bundle = bundle;
+            WriteTypeToRequest = writeType;
+        }
+
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
+        public eSaveFileWriteType WriteTypeToRequest { get; }
     }
 
 }
@@ -1910,12 +2237,27 @@ static class RequestSystem
 {
     public static int SubmitCount { get; private set; }
     public static PersistSaveChangeBundleRequest? LastRequest { get; private set; }
+    public static ePlayerSaveChangeBundleKey EffectiveBundle { get; private set; }
+    public static eSaveFileWriteType EffectiveWriteType { get; private set; }
     public static void SubmitRequest<T>(T request)
     {
         SubmitCount++;
         LastRequest = request as PersistSaveChangeBundleRequest;
+        if (LastRequest != null)
+        {
+            EffectiveBundle = LastRequest.Bundle.HasValue
+                ? LastRequest.Bundle.Value
+                : ePlayerSaveChangeBundleKey.DEFAULT;
+            EffectiveWriteType = LastRequest.WriteTypeToRequest;
+        }
     }
-    public static void Reset() { SubmitCount = 0; LastRequest = null; }
+    public static void Reset()
+    {
+        SubmitCount = 0;
+        LastRequest = null;
+        EffectiveBundle = ePlayerSaveChangeBundleKey.INVALID;
+        EffectiveWriteType = eSaveFileWriteType.NON_URGENT;
+    }
 }
 
 sealed class PlayerSaveRequestProcessor

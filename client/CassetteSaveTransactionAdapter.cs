@@ -968,25 +968,20 @@ internal static class CassetteSaveTransactionAdapter
             Type? requestSystemType = FindType("RequestSystem");
             if (requestType == null || bundleType?.IsEnum != true || writeType?.IsEnum != true || requestSystemType == null)
             { detail = "public persist semantic types unavailable"; return false; }
-            object bundle = Enum.Parse(bundleType, "DEFAULT", ignoreCase: false);
-            object urgent = Enum.Parse(writeType, "URGENT", ignoreCase: false);
-            if (Convert.ToInt32(bundle) != 1 || Convert.ToInt32(urgent) != 0)
-            { detail = "public persist enum values did not match DEFAULT=1/URGENT=0"; return false; }
-            ConstructorInfo? constructor = requestType.GetConstructors(PublicInstance)
-                .SingleOrDefault(candidate => candidate.GetParameters().Length == 2 &&
-                    candidate.GetParameters()[1].ParameterType == writeType);
-            if (constructor == null) { detail = "public persist semantic constructor unavailable"; return false; }
-            Type bundleParameterType = constructor.GetParameters()[0].ParameterType;
-            object? bundleArgument = BuildPublicNullable(bundleParameterType, bundleType, bundle);
-            if (bundleArgument == null) { detail = "public DEFAULT nullable bundle unavailable"; return false; }
-            object request = constructor.Invoke(new[] { bundleArgument, urgent });
+            if (!CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
+                    requestType,
+                    bundleType,
+                    writeType,
+                    out object? request,
+                    out detail) || request == null)
+                return false;
             MethodInfo? submitDefinition = requestSystemType.GetMethods(PublicStatic)
                 .SingleOrDefault(method => string.Equals(method.Name, "SubmitRequest", StringComparison.Ordinal) &&
                     method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1 &&
                     method.GetParameters().Length == 1);
             if (submitDefinition == null) { detail = "public RequestSystem.SubmitRequest<T> unavailable"; return false; }
             submitDefinition.MakeGenericMethod(requestType).Invoke(null, new[] { request });
-            detail = "bundle='DEFAULT' writeType='URGENT' route='RequestSystem.SubmitRequest<T>'";
+            detail += " route='RequestSystem.SubmitRequest<T>'";
             return true;
         }
         catch (Exception ex)
@@ -994,19 +989,6 @@ internal static class CassetteSaveTransactionAdapter
             detail = $"public persist invocation:{SummarizeException(ex)}";
             return false;
         }
-    }
-
-    private static object? BuildPublicNullable(Type parameterType, Type valueType, object value)
-    {
-        if (parameterType == valueType) return value;
-        ConstructorInfo? single = parameterType.GetConstructor(PublicInstance, null, new[] { valueType }, null);
-        if (single != null) return single.Invoke(new[] { value });
-        ConstructorInfo? pair = parameterType.GetConstructors(PublicInstance).FirstOrDefault(candidate =>
-        {
-            ParameterInfo[] parameters = candidate.GetParameters();
-            return parameters.Length == 2 && parameters[0].ParameterType == typeof(bool) && parameters[1].ParameterType == valueType;
-        });
-        return pair?.Invoke(new[] { (object)true, value });
     }
 
     private static Type? FindType(string exactName, Assembly? preferredAssembly = null)
