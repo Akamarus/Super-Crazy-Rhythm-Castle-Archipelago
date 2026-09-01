@@ -18017,6 +18017,31 @@ internal static class CassetteReceiptRandomization
         RequestUnityReconciliation(reason);
     }
 
+    internal static void LogPostLoadSnapshot(string currentRoom, string reason)
+    {
+        object? processor;
+        long epoch;
+        int? slot;
+        long expectedPointer;
+        lock (Sync)
+        {
+            processor = _playerSaveRequestProcessor;
+            epoch = _runtime.Epoch;
+            slot = _runtime.ActiveSlot;
+            expectedPointer = _activeSavePointer;
+        }
+        string[] songs = { "BADASS", "HEAVY_METAL", "KEEP_ON_HUSTLIN", "ON_THE_WAY" };
+        CassettePostLoadDiagnosticState snapshot =
+            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(processor, songs);
+        string epochText = epoch > 0 ? epoch.ToString() : "<unavailable>";
+        string slotText = slot?.ToString() ?? "<unavailable>";
+        string expectedPointerText = expectedPointer != 0 ? $"0x{expectedPointer:X}" : "<unavailable>";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE POST-LOAD SNAPSHOT room='{currentRoom}' reason='{reason}' " +
+            $"epoch={epochText} slot={slotText} expectedPointer={expectedPointerText} " +
+            CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(snapshot));
+    }
+
     private static void RequestUnityReconciliation(string reason)
     {
         lock (Sync)
@@ -23266,6 +23291,9 @@ internal static class MusicLabDiscovery
 
     private static void ScanHub6()
     {
+        CassetteReceiptRandomization.LogPostLoadSnapshot(
+            DeveloperHarness.CurrentRoomId,
+            "plain F5 after Hub6 became live");
         bool reconciled = ReconcileCollectedRewardChests();
         int mapped;
         lock (Sync)

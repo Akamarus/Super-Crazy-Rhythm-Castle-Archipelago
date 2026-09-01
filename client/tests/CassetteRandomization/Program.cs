@@ -1348,6 +1348,138 @@ foreach (string staleSelectionMode in new[] { "invalid", "unreadable", "pointer-
 PlayerSaveManagementEnquiries.ResetDiagnosticState();
 Console.WriteLine("PASS: delayed_verification_reproves_selected_save_identity_before_status_read");
 
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+SongCassetteEnquiries.ResetDiagnosticState();
+var selectedPostLoadState = new PostLoadCassetteState(
+    pointer: 0x700,
+    hasUnstagedChanges: false,
+    effectiveStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>
+    {
+        [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_IN_BAG,
+        [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
+        [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
+        [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
+    },
+    canonicalStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>
+    {
+        [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_NOT_EARNED,
+        [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
+        [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
+        [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
+    });
+var processorPostLoadState = new PostLoadCassetteState(
+    pointer: 0x700,
+    hasUnstagedChanges: false,
+    effectiveStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>(),
+    canonicalStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>());
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+PlayerSaveManagementEnquiries.SelectedState = selectedPostLoadState;
+SongCassetteEnquiries.Statuses = new Dictionary<ePlayableSong, eSongCassetteStatus>
+{
+    [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_IN_BAG,
+    [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
+    [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
+    [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
+};
+SongCassetteEnquiries.BagSongs = new() { ePlayableSong.BADASS, ePlayableSong.KEEP_ON_HUSTLIN };
+string[] postLoadSongs = { "BADASS", "HEAVY_METAL", "KEEP_ON_HUSTLIN", "ON_THE_WAY" };
+CassettePostLoadDiagnosticState postLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
+    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
+Equal(true, postLoadDiagnostic.SelectionValid.Readable, "post-load diagnostic reads public selected-save validity");
+Equal(true, postLoadDiagnostic.SelectionValid.Value, "post-load diagnostic preserves valid selected-save result");
+Equal("success", postLoadDiagnostic.SelectionValid.Stage, "post-load validity includes its exact stage");
+Equal(0x700L, postLoadDiagnostic.SelectedStatePointer.Value, "post-load diagnostic reads selected-state pointer");
+Equal(0x700L, postLoadDiagnostic.ProcessorStatePointer.Value, "post-load diagnostic reads processor-state pointer");
+Equal(false, postLoadDiagnostic.HasUnstagedChanges.Value, "post-load diagnostic reads public unstaged state");
+Equal(2, postLoadDiagnostic.BagCount.Value, "post-load diagnostic reads public UI bag count");
+Equal(true, postLoadDiagnostic.HasAnyBagCassettes.Value, "post-load diagnostic reads public UI any-bag state");
+SequenceEqual(new[] { "BADASS", "KEEP_ON_HUSTLIN" }, postLoadDiagnostic.BagSongs.Value!, "post-load diagnostic reads public UI bag list");
+CassettePostLoadSongDiagnostic badassPostLoad = postLoadDiagnostic.Songs.Single(song => song.Song == "BADASS");
+Equal("HAVE_IN_BAG", badassPostLoad.EffectiveStatus.Value, "post-load diagnostic reads effective selected-state status");
+Equal("HAVE_NOT_EARNED", badassPostLoad.CanonicalStatus.Value, "post-load diagnostic reads canonical selected-state status");
+Equal("HAVE_IN_BAG", badassPostLoad.EnquiryStatus.Value, "post-load diagnostic reads public static enquiry status");
+Equal(true, badassPostLoad.InUiBag.Value, "post-load diagnostic derives per-song UI bag membership from fetched list");
+Equal(false, postLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").InUiBag.Value, "post-load diagnostic reports absent UI bag song");
+string formattedPostLoad = CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(postLoadDiagnostic);
+Equal(true, formattedPostLoad.Contains("BADASS{effective=HAVE_IN_BAG@success canonical=HAVE_NOT_EARNED@success enquiry=HAVE_IN_BAG@success uiBag=True@success}", StringComparison.Ordinal), "compact diagnostic preserves effective/canonical/enquiry/UI evidence");
+Equal(0, RequestSystem.SubmitCount, "post-load diagnostic never submits a request");
+Console.WriteLine("PASS: post_load_cassette_snapshot_reads_matching_public_state_and_ui_bag");
+
+PlayerSaveManagementEnquiries.SelectedState = new PostLoadCassetteState(
+    pointer: 0x701,
+    hasUnstagedChanges: true,
+    effectiveStatuses: selectedPostLoadState.EffectiveStatuses,
+    canonicalStatuses: selectedPostLoadState.CanonicalStatuses);
+CassettePostLoadDiagnosticState divergentPostLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
+    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
+Equal(0x701L, divergentPostLoadDiagnostic.SelectedStatePointer.Value, "post-load diagnostic preserves divergent selected pointer");
+Equal(0x700L, divergentPostLoadDiagnostic.ProcessorStatePointer.Value, "post-load diagnostic independently preserves processor pointer");
+Equal(0, RequestSystem.SubmitCount, "pointer-divergence observation never submits a request");
+Console.WriteLine("PASS: post_load_cassette_snapshot_exposes_pointer_divergence");
+
+PlayerSaveManagementEnquiries.ThrowOnValidityRead = true;
+var partialPostLoadState = new PostLoadCassetteState(
+    pointer: 0x702,
+    hasUnstagedChanges: true,
+    effectiveStatuses: selectedPostLoadState.EffectiveStatuses,
+    canonicalStatuses: selectedPostLoadState.CanonicalStatuses)
+{
+    ThrowEffectiveSong = ePlayableSong.HEAVY_METAL,
+};
+PlayerSaveManagementEnquiries.SelectedState = partialPostLoadState;
+SongCassetteEnquiries.ThrowStatusSong = ePlayableSong.KEEP_ON_HUSTLIN;
+SongCassetteEnquiries.ThrowOnCount = true;
+CassettePostLoadDiagnosticState partialPostLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
+    new ThrowingPostLoadCassetteProcessor(), postLoadSongs);
+Equal(false, partialPostLoadDiagnostic.SelectionValid.Readable, "throwing validity remains unavailable");
+Equal("selection-validity-get-invocation:InvalidOperationException:diagnostic-validity-read", partialPostLoadDiagnostic.SelectionValid.Stage, "throwing validity preserves exact stage");
+Equal(0x702L, partialPostLoadDiagnostic.SelectedStatePointer.Value, "later selected pointer survives independent validity failure");
+Equal(true, partialPostLoadDiagnostic.HasUnstagedChanges.Value, "later unstaged evidence survives independent validity failure");
+Equal(false, partialPostLoadDiagnostic.ProcessorStatePointer.Readable, "throwing processor pointer remains unavailable");
+Equal(false, partialPostLoadDiagnostic.BagCount.Readable, "throwing bag count remains unavailable");
+Equal(true, partialPostLoadDiagnostic.HasAnyBagCassettes.Readable, "independent any-bag evidence survives count failure");
+Equal(true, partialPostLoadDiagnostic.BagSongs.Readable, "independent bag list evidence survives count failure");
+Equal(false, partialPostLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").EffectiveStatus.Readable, "one throwing effective status does not erase other evidence");
+Equal("HAVE_NOT_EARNED", partialPostLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").CanonicalStatus.Value, "canonical status survives same-song effective failure");
+Equal(false, partialPostLoadDiagnostic.Songs.Single(song => song.Song == "KEEP_ON_HUSTLIN").EnquiryStatus.Readable, "one throwing static enquiry is isolated");
+Equal("HAVE_IN_BAG", partialPostLoadDiagnostic.Songs.Single(song => song.Song == "BADASS").EffectiveStatus.Value, "another song remains readable after partial failures");
+Equal(0, RequestSystem.SubmitCount, "partial post-load diagnostic failures never submit a request");
+
+partialPostLoadState.ThrowOnPointerRead = true;
+partialPostLoadState.ThrowOnHasUnstagedRead = true;
+PlayerSaveManagementEnquiries.ThrowOnValidityRead = false;
+CassettePostLoadDiagnosticState throwingSelectedMembersDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
+    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
+Equal(false, throwingSelectedMembersDiagnostic.SelectedStatePointer.Readable, "throwing selected pointer is isolated as unavailable");
+Equal(false, throwingSelectedMembersDiagnostic.HasUnstagedChanges.Readable, "throwing HasUnstagedChanges is isolated as unavailable");
+Equal(true, throwingSelectedMembersDiagnostic.SelectionValid.Value, "validity evidence survives throwing selected-state properties");
+Equal("HAVE_IN_BAG", throwingSelectedMembersDiagnostic.Songs.Single(song => song.Song == "BADASS").EffectiveStatus.Value, "status evidence survives throwing selected-state properties");
+Equal(true, throwingSelectedMembersDiagnostic.BagSongs.Readable, "UI bag evidence survives throwing selected-state properties");
+Console.WriteLine("PASS: post_load_cassette_snapshot_preserves_partial_readable_evidence");
+
+string scanHub6Source = ExtractMethods(pluginSource, "private static void ScanHub6(").Single();
+string scanGarageSource = ExtractMethods(pluginSource, "private static void ScanGarage(").Single();
+Equal(true, scanHub6Source.Contains("CassetteReceiptRandomization.LogPostLoadSnapshot", StringComparison.Ordinal), "Hub6 plain-F5 path invokes one cassette post-load snapshot");
+Equal(true, scanHub6Source.Contains("DeveloperHarness.CurrentRoomId", StringComparison.Ordinal), "Hub6 snapshot records the observed current room instead of a hard-coded label");
+Equal(false, scanGarageSource.Contains("LogPostLoadSnapshot", StringComparison.Ordinal), "Garage F5 path does not invoke the Hub6 cassette snapshot");
+Equal(1, pluginSource.Split("CassetteReceiptRandomization.LogPostLoadSnapshot", StringSplitOptions.None).Length - 1, "cassette snapshot has exactly one production call site");
+string postLoadLoggerSource = ExtractMethods(pluginSource, "internal static void LogPostLoadSnapshot(").Single();
+string postLoadReaderSource = ExtractMethods(transactionAdapterSource, "internal static CassettePostLoadDiagnosticState ReadCassettePostLoadDiagnostic(").Single();
+foreach (string forbiddenDiagnosticCall in new[]
+{
+    "TrySubmitHaveInBag", "RecordSongCassetteStatusInSaveDataRequest", "ProcessRequest", "Persist",
+    "TriggerUrgent", "RequestWrite", "SubmitRequest", "TryReconcile", "RequestUnityReconciliation", "RecordSubmission",
+})
+    Equal(false,
+        postLoadLoggerSource.Contains(forbiddenDiagnosticCall, StringComparison.OrdinalIgnoreCase) ||
+        postLoadReaderSource.Contains(forbiddenDiagnosticCall, StringComparison.OrdinalIgnoreCase),
+        $"post-load diagnostic boundary forbids {forbiddenDiagnosticCall}");
+Equal(true, postLoadLoggerSource.Contains("ReadCassettePostLoadDiagnostic", StringComparison.Ordinal), "post-load logger delegates only to the public-state diagnostic reader");
+Equal(0, RequestSystem.SubmitCount, "read-only Hub6 diagnostic wiring submits no request");
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+SongCassetteEnquiries.ResetDiagnosticState();
+Console.WriteLine("PASS: post_load_cassette_snapshot_is_wired_once_only_to_hub6_plain_f5_and_read_only");
+
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, new MissingSelectedSlotSaveDataBundleRoutingStateFixture(),
@@ -2175,8 +2307,100 @@ sealed class PrivateNullable<T>
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
 enum eSaveFileWriteType { URGENT, NON_URGENT }
 enum eSaveFileWriterFailureReason { VALIDATION_FAILED }
-enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
-enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
+enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS, HEAVY_METAL, KEEP_ON_HUSTLIN, ON_THE_WAY }
+enum eSongCassetteStatus { INVALID, HAVE_NOT_EARNED, HAVE_IN_BAG }
+
+sealed class PostLoadCassetteProcessor
+{
+    private readonly object _state;
+    public PostLoadCassetteProcessor(object state) => _state = state;
+    public object ObtainState() => _state;
+}
+
+sealed class ThrowingPostLoadCassetteProcessor
+{
+    public object ObtainState() => throw new InvalidOperationException("post-load-processor-state");
+}
+
+sealed class PostLoadCassetteState
+{
+    private readonly IntPtr _pointer;
+    private readonly bool _hasUnstagedChanges;
+
+    public PostLoadCassetteState(
+        long pointer,
+        bool hasUnstagedChanges,
+        Dictionary<ePlayableSong, eSongCassetteStatus> effectiveStatuses,
+        Dictionary<ePlayableSong, eSongCassetteStatus> canonicalStatuses)
+    {
+        _pointer = new IntPtr(pointer);
+        _hasUnstagedChanges = hasUnstagedChanges;
+        EffectiveStatuses = effectiveStatuses;
+        CanonicalStatuses = canonicalStatuses;
+        GameProgression = new PostLoadGameProgression(canonicalStatuses);
+    }
+
+    public bool ThrowOnPointerRead { get; set; }
+    public bool ThrowOnHasUnstagedRead { get; set; }
+    public IntPtr Pointer => ThrowOnPointerRead
+        ? throw new InvalidOperationException("selected-pointer")
+        : _pointer;
+    public bool HasUnstagedChanges => ThrowOnHasUnstagedRead
+        ? throw new InvalidOperationException("selected-has-unstaged")
+        : _hasUnstagedChanges;
+    public Dictionary<ePlayableSong, eSongCassetteStatus> EffectiveStatuses { get; }
+    public Dictionary<ePlayableSong, eSongCassetteStatus> CanonicalStatuses { get; }
+    public PostLoadGameProgression GameProgression { get; }
+    public ePlayableSong? ThrowEffectiveSong { get; init; }
+
+    public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song)
+    {
+        if (ThrowEffectiveSong == song) throw new InvalidOperationException($"effective-{song}");
+        return EffectiveStatuses.TryGetValue(song, out eSongCassetteStatus status)
+            ? status
+            : eSongCassetteStatus.INVALID;
+    }
+}
+
+sealed class PostLoadGameProgression
+{
+    private readonly Dictionary<ePlayableSong, eSongCassetteStatus> _statuses;
+    public PostLoadGameProgression(Dictionary<ePlayableSong, eSongCassetteStatus> statuses) => _statuses = statuses;
+    public FakeIl2CppNullable<eSongCassetteStatus> GetSongCassetteStatus(ePlayableSong song) =>
+        _statuses.TryGetValue(song, out eSongCassetteStatus status)
+            ? new(true, status)
+            : new(false, eSongCassetteStatus.INVALID);
+}
+
+static class SongCassetteEnquiries
+{
+    public static Dictionary<ePlayableSong, eSongCassetteStatus> Statuses { get; set; } = new();
+    public static List<ePlayableSong> BagSongs { get; set; } = new();
+    public static ePlayableSong? ThrowStatusSong { get; set; }
+    public static bool ThrowOnCount { get; set; }
+
+    public static FakeIl2CppNullable<eSongCassetteStatus> GetSongCassetteStatus(ePlayableSong song)
+    {
+        if (ThrowStatusSong == song) throw new InvalidOperationException($"enquiry-{song}");
+        return Statuses.TryGetValue(song, out eSongCassetteStatus status)
+            ? new(true, status)
+            : new(false, eSongCassetteStatus.INVALID);
+    }
+
+    public static bool HasAnyCassettesInBag() => BagSongs.Count > 0;
+    public static int GetNumSongCassettesInBag() => ThrowOnCount
+        ? throw new InvalidOperationException("bag-count")
+        : BagSongs.Count;
+    public static void FetchAllSongCassettesInBag(List<ePlayableSong> songs) => songs.AddRange(BagSongs);
+
+    public static void ResetDiagnosticState()
+    {
+        Statuses = new();
+        BagSongs = new();
+        ThrowStatusSong = null;
+        ThrowOnCount = false;
+    }
+}
 
 sealed class PlayerSaveWriteCompletedEvent
 {
