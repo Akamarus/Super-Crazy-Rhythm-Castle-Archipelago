@@ -18243,7 +18243,7 @@ internal static class CassetteReceiptRandomization
         }
         if (!TryConfirmSaveSynchronizationReady(
                 generation, epoch, slot, pointer,
-                allowObservationProbe: false, out _))
+                allowObservationProbe: true, out _))
             return;
         if (!CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(processor) ||
             !CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor!, nativeSong, out string? status))

@@ -225,8 +225,11 @@ Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal
 Equal(true, reconcileSongSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "cassette reconciliation requires the public save synchronization gate");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TryReadCassetteStatus", StringComparison.Ordinal), "synchronization is proven before reconciliation reads or mutates cassette status");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TrySubmitHaveInBag", StringComparison.Ordinal), "synchronization is proven before any cassette grant request");
+Equal(true, reconcileSongSource.Contains("allowObservationProbe: true", StringComparison.Ordinal), "every actual cassette status read, grant, or delayed verification freshly probes public validity and selected-state pointer");
+Equal(false, reconcileSongSource.Contains("allowObservationProbe: false", StringComparison.Ordinal), "no native cassette operation may rely on cached readiness");
 string synchronizationGateSource = ExtractMethods(receiptRandomizationSource, "private static bool TryConfirmSaveSynchronizationReady(").Single();
-Equal(true, synchronizationGateSource.Contains("allowObservationProbe", StringComparison.Ordinal), "frame-only paths cannot trigger new diagnostic probes");
+Equal(true, synchronizationGateSource.Contains("allowObservationProbe", StringComparison.Ordinal), "synchronization helper distinguishes observation work from frame-only bookkeeping");
+Equal(false, unityTick.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "a Unity frame with no reconciliation or due verification performs no public readiness probe");
 Equal(false, synchronizationGateSource.Contains("TrySubmit", StringComparison.Ordinal), "synchronization diagnostic wiring cannot submit grant or persistence requests");
 Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationReady(pointer", StringComparison.Ordinal), "production readiness delegates only the active epoch pointer to the public selection enquiry");
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
@@ -1287,6 +1290,63 @@ Equal(1, simulatedGrantRequests, "readiness transition admits the pending grant 
 Equal(0, RequestSystem.SubmitCount, "readiness transition itself never submits a disk commit");
 PlayerSaveManagementEnquiries.ResetDiagnosticState();
 Console.WriteLine("PASS: cassette_save_synchronization_gate_defers_then_resumes_once");
+
+foreach (string staleSelectionMode in new[] { "invalid", "unreadable", "pointer-mismatch" })
+{
+    PlayerSaveManagementEnquiries.ResetDiagnosticState();
+    PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+    PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
+    var delayedVerificationRuntime = new CassetteSaveEpochRuntime();
+    delayedVerificationRuntime.Receive("BADASS");
+    delayedVerificationRuntime.ActivateSave(4);
+    int semanticGrantRequests = 0;
+    int cassetteStatusReads = 0;
+    Equal(true, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(0x700, out _), $"{staleSelectionMode}: readiness is initially proven");
+    if (delayedVerificationRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, processorAvailable: true))
+    {
+        semanticGrantRequests++;
+        delayedVerificationRuntime.RecordSubmission("BADASS");
+    }
+    SequenceEqual(new[] { "BADASS" }, delayedVerificationRuntime.Tick(TimeSpan.FromMilliseconds(250)), $"{staleSelectionMode}: delayed verification becomes due once");
+
+    switch (staleSelectionMode)
+    {
+        case "invalid":
+            PlayerSaveManagementEnquiries.ValidExistingSaveSelected = false;
+            break;
+        case "unreadable":
+            PlayerSaveManagementEnquiries.ThrowOnValidityRead = true;
+            break;
+        default:
+            PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x701));
+            break;
+    }
+    bool staleReady = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(0x700, out _);
+    if (staleReady)
+    {
+        cassetteStatusReads++;
+        delayedVerificationRuntime.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+    }
+    Equal(0, cassetteStatusReads, $"{staleSelectionMode}: stale selection evidence performs no cassette status read");
+    Equal(true, delayedVerificationRuntime.IsPending("BADASS"), $"{staleSelectionMode}: stale selection evidence cannot mark satisfaction");
+    SequenceEqual(new[] { "BADASS" }, delayedVerificationRuntime.Tick(TimeSpan.FromMilliseconds(1)), $"{staleSelectionMode}: stale selection evidence does not consume the due verification");
+    Equal(false, delayedVerificationRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, processorAvailable: true), $"{staleSelectionMode}: pending verification cannot duplicate the semantic grant");
+
+    PlayerSaveManagementEnquiries.ResetDiagnosticState();
+    PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+    PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
+    bool restoredReady = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(0x700, out _);
+    if (restoredReady)
+    {
+        cassetteStatusReads++;
+        delayedVerificationRuntime.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+    }
+    Equal(1, cassetteStatusReads, $"{staleSelectionMode}: restored exact selection permits one bounded verification read");
+    Equal(false, delayedVerificationRuntime.IsPending("BADASS"), $"{staleSelectionMode}: restored exact selection may satisfy from authoritative bag state");
+    Equal(1, semanticGrantRequests, $"{staleSelectionMode}: recovery performs no duplicate semantic grant");
+}
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+Console.WriteLine("PASS: delayed_verification_reproves_selected_save_identity_before_status_read");
 
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
