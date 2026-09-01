@@ -19283,8 +19283,10 @@ internal static class CassetteReceiptRandomization
             context.Attempt.Pointer,
             allSongs,
             out CassetteDiskCommitTargetDiagnosticState state,
+            out int registryCount,
             out string stage);
         string phase = context.Phase is CassetteDiskCommitDiagnosticPhase.PreTarget ? "PRE_TARGET" : "POST_TARGET";
+        string registryCountValue = registryCount >= 0 ? registryCount.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
         string playerProcessorPointer = readable ? $"0x{state.PlayerProcessorPointer:X}" : "<unavailable>";
         string registeredPersistProcessorPointer = readable ? $"0x{state.RegisteredPersistProcessorPointer:X}" : "<unavailable>";
         string retainedSaveDataProcessorPointer = readable ? $"0x{state.RetainedSaveDataProcessorPointer:X}" : "<unavailable>";
@@ -19315,6 +19317,7 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] CASSETTE DISK COMMIT TARGET attempt={context.Attempt.Id} phase='{phase}' eventOrdinal={context.EventOrdinal} elapsedSeconds={context.Elapsed.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
             $"generation={context.Attempt.Generation} epoch={context.Attempt.Epoch} expectedSlot={context.Attempt.Slot} expectedPointer=0x{context.Attempt.Pointer:X} " +
+            $"registryCount={registryCountValue} " +
             $"playerProcessorPointer={playerProcessorPointer} registeredPersistProcessorPointer={registeredPersistProcessorPointer} retainedSaveDataProcessorPointer={retainedSaveDataProcessorPointer} " +
             $"saveDataStatePointer={saveDataStatePointer} selectedSlot={selectedSlot} selectedEntryPointer={selectedEntryPointer} expectedSlotEntryPointer={expectedSlotEntryPointer} " +
             $"playerStatePointer={playerStatePointer} player{playerFlags} playerEffectiveStatuses='[{playerEffectiveStatuses}]' playerCanonicalStatuses='[{playerCanonicalStatuses}]' " +

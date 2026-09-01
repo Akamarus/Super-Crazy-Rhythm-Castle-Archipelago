@@ -417,9 +417,11 @@ internal static class CassetteSaveTransactionAdapter
         long expectedPointer,
         IReadOnlyList<string> nativeSongs,
         out CassetteDiskCommitTargetDiagnosticState state,
+        out int registryCount,
         out string stage)
     {
         state = default;
+        registryCount = -1;
         stage = "target-start";
         try
         {
@@ -436,6 +438,7 @@ internal static class CassetteSaveTransactionAdapter
                     playerSaveProcessor.GetType().Assembly,
                     out object? registeredPersistProcessor,
                     out long registeredPersistProcessorPointer,
+                    out registryCount,
                     out stage))
                 return false;
             if (!TryReadPublicObjectPointer(
@@ -506,10 +509,12 @@ internal static class CassetteSaveTransactionAdapter
         Assembly preferredAssembly,
         out object? processor,
         out long processorPointer,
+        out int registryCount,
         out string stage)
     {
         processor = null;
         processorPointer = 0;
+        registryCount = -1;
         stage = "target-registry-start";
         Type? requestSystemType = FindType("RequestSystem", preferredAssembly);
         if (requestSystemType == null) { stage = "target-registry-owner-missing"; return false; }
@@ -520,77 +525,83 @@ internal static class CassetteSaveTransactionAdapter
         stage = "target-registry-get";
         object? registry = registryProperty.GetValue(null);
         if (registry == null) { stage = "target-registry-null"; return false; }
-        MethodInfo? getEnumerator = registry.GetType().GetMethod(
-            "GetEnumerator", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
-        if (getEnumerator == null) { stage = "target-registry-enumerator-missing"; return false; }
-        stage = "target-registry-enumerator-get";
-        object? enumerator = getEnumerator.Invoke(registry, null);
-        if (enumerator == null) { stage = "target-registry-enumerator-null"; return false; }
-        object? matchedProcessor = null;
-        int matches = 0;
-        try
+        if (!TryGetPublicReadableProperty(
+                registry.GetType(), "Count", PublicInstance, "target-registry-count",
+                out PropertyInfo countProperty, out stage))
+            return false;
+        stage = "target-registry-count-get";
+        object? rawCount = countProperty.GetValue(registry);
+        if (rawCount == null) { stage = "target-registry-count-null"; return false; }
+        stage = "target-registry-count-convert";
+        registryCount = Convert.ToInt32(rawCount);
+        if (registryCount < 0) { stage = "target-registry-count-invalid"; return false; }
+
+        Type? requestType = FindType("PersistSaveChangeBundleRequest", preferredAssembly);
+        if (requestType == null) { stage = "target-registry-request-type-missing"; return false; }
+        Type? il2CppType = FindType("Il2CppType", preferredAssembly);
+        if (il2CppType == null) { stage = "target-registry-key-converter-missing"; return false; }
+        MethodInfo? convertType = il2CppType.GetMethods(PublicStatic).SingleOrDefault(method =>
+            string.Equals(method.Name, "From", StringComparison.Ordinal) &&
+            method.GetParameters().Length == 1 &&
+            method.GetParameters()[0].ParameterType == typeof(Type));
+        if (convertType == null) { stage = "target-registry-key-convert-method-missing"; return false; }
+        Type keyType = convertType.ReturnType;
+        if (keyType == typeof(void)) { stage = "target-registry-key-convert-return-invalid"; return false; }
+        stage = "target-registry-key-convert";
+        object? key = convertType.Invoke(null, new object[] { requestType });
+        if (key == null) { stage = "target-registry-key-null"; return false; }
+        if (!keyType.IsInstanceOfType(key)) { stage = $"target-registry-key-type-mismatch:expected={keyType.FullName}:actual={key.GetType().FullName}"; return false; }
+        if (!TryGetPublicReadableProperty(
+                key.GetType(), "Name", PublicInstance, "target-registry-key-name",
+                out PropertyInfo keyNameProperty, out stage))
+            return false;
+        stage = "target-registry-key-name-get";
+        string? keyName = keyNameProperty.GetValue(key)?.ToString();
+        if (!string.Equals(keyName, requestType.Name, StringComparison.Ordinal))
         {
-            MethodInfo? moveNext = enumerator.GetType().GetMethod(
-                "MoveNext", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (moveNext == null) { stage = "target-registry-move-next-missing"; return false; }
-            if (!TryGetPublicReadableProperty(
-                    enumerator.GetType(), "Current", PublicInstance, "target-registry-current",
-                    out PropertyInfo currentProperty, out stage))
-                return false;
-            bool enumerationComplete = false;
-            for (int count = 0; count < 128; count++)
-            {
-                stage = "target-registry-move-next";
-                if (!Convert.ToBoolean(moveNext.Invoke(enumerator, null)))
-                {
-                    enumerationComplete = true;
-                    break;
-                }
-                stage = "target-registry-current-get";
-                object? pair = currentProperty.GetValue(enumerator);
-                if (pair == null) { stage = "target-registry-entry-null"; return false; }
-                if (!TryGetPublicReadableProperty(
-                        pair.GetType(), "Key", PublicInstance, "target-registry-entry-key",
-                        out PropertyInfo keyProperty, out stage) ||
-                    !TryGetPublicReadableProperty(
-                        pair.GetType(), "Value", PublicInstance, "target-registry-entry-value",
-                        out PropertyInfo valueProperty, out stage))
-                    return false;
-                stage = "target-registry-key-get";
-                object? key = keyProperty.GetValue(pair);
-                if (key == null) { stage = "target-registry-key-null"; return false; }
-                if (!TryGetPublicReadableProperty(
-                        key.GetType(), "Name", PublicInstance, "target-registry-key-name",
-                        out PropertyInfo nameProperty, out stage))
-                    return false;
-                stage = "target-registry-key-name-get";
-                string? name = nameProperty.GetValue(key)?.ToString();
-                if (!string.Equals(name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal)) continue;
-                stage = "target-registry-value-get";
-                object? registration = valueProperty.GetValue(pair);
-                if (registration == null) { stage = "target-registry-registration-null"; return false; }
-                if (!TryGetPublicReadableProperty(
-                        registration.GetType(), "Processor", PublicInstance, "target-registry-processor",
-                        out PropertyInfo processorProperty, out stage))
-                    return false;
-                stage = "target-registry-processor-get";
-                matchedProcessor = processorProperty.GetValue(registration);
-                if (matchedProcessor == null) { stage = "target-registry-processor-null"; return false; }
-                matches++;
-            }
-            if (!enumerationComplete)
-            {
-                stage = "target-registry-limit-move-next";
-                if (Convert.ToBoolean(moveNext.Invoke(enumerator, null)))
-                { stage = "target-registry-entry-limit"; return false; }
-            }
+            stage = $"target-registry-key-name-mismatch:expected={requestType.Name}:actual={keyName ?? "<null>"}";
+            return false;
         }
-        finally
+
+        Type? registrationType = FindType("RegisteredRequestProcessor", preferredAssembly);
+        if (registrationType == null) { stage = "target-registry-registration-type-missing"; return false; }
+        if (!registrationType.IsPublic && !registrationType.IsNestedPublic)
         {
-            if (enumerator is IDisposable disposable) disposable.Dispose();
-            else enumerator.GetType().GetMethod("Dispose", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null)?.Invoke(enumerator, null);
+            stage = "target-registry-registration-type-non-public";
+            return false;
         }
-        if (matches != 1) { stage = $"target-registry-persist-match-count:{matches}"; return false; }
+        MethodInfo[] lookupMethods = registry.GetType().GetMethods(PublicInstance).Where(method =>
+        {
+            ParameterInfo[] parameters = method.GetParameters();
+            return string.Equals(method.Name, "TryGetValue", StringComparison.Ordinal) &&
+                   method.ReturnType == typeof(bool) &&
+                   parameters.Length == 2 &&
+                   parameters[0].ParameterType == keyType &&
+                   parameters[1].IsOut &&
+                   parameters[1].ParameterType.IsByRef &&
+                   parameters[1].ParameterType.GetElementType() == registrationType;
+        }).ToArray();
+        if (lookupMethods.Length == 0) { stage = "target-registry-try-get-missing"; return false; }
+        if (lookupMethods.Length != 1) { stage = $"target-registry-try-get-ambiguous:{lookupMethods.Length}"; return false; }
+        object?[] lookupArguments = { key, null };
+        stage = "target-registry-try-get-invoke";
+        object? rawFound = lookupMethods[0].Invoke(registry, lookupArguments);
+        if (rawFound is not bool found) { stage = "target-registry-try-get-result-invalid"; return false; }
+        if (!found) { stage = "target-registry-persist-not-found"; return false; }
+        object? registration = lookupArguments[1];
+        if (registration == null) { stage = "target-registry-registration-null"; return false; }
+        if (!registrationType.IsInstanceOfType(registration))
+        {
+            stage = $"target-registry-registration-type-mismatch:expected={registrationType.FullName}:actual={registration.GetType().FullName}";
+            return false;
+        }
+        if (!TryGetPublicReadableProperty(
+                registrationType, "Processor", PublicInstance, "target-registry-processor",
+                out PropertyInfo processorProperty, out stage))
+            return false;
+        stage = "target-registry-processor-get";
+        object? matchedProcessor = processorProperty.GetValue(registration);
+        if (matchedProcessor == null) { stage = "target-registry-processor-null"; return false; }
         if (!TryReadPublicObjectPointer(matchedProcessor, "target-registry-persist-processor", out processorPointer, out stage))
             return false;
         processor = matchedProcessor;

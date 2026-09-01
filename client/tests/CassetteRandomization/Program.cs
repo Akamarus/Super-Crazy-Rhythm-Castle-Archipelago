@@ -342,7 +342,7 @@ string diskTargetDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "
 Equal(true, diskTargetDiagnosticLogger.Contains("TryReadDiskCommitTargetDiagnostic", StringComparison.Ordinal), "target diagnostic logger uses only the bounded public target reader");
 Equal(true, diskTargetDiagnosticLogger.IndexOf("try", StringComparison.Ordinal) < diskTargetDiagnosticLogger.IndexOf("TryReadDiskCommitTargetDiagnostic", StringComparison.Ordinal), "target diagnostic establishes a no-throw boundary before any observational read or formatting");
 Equal(true, diskTargetDiagnosticLogger.LastIndexOf("catch", StringComparison.Ordinal) > diskTargetDiagnosticLogger.IndexOf("LogWarning", StringComparison.Ordinal), "target diagnostic catches failures through the final logger call so PRE/POST control flow always continues");
-foreach (string requiredField in new[] { "playerProcessorPointer=", "registeredPersistProcessorPointer=", "retainedSaveDataProcessorPointer=", "saveDataStatePointer=", "selectedSlot=", "selectedEntryPointer=", "expectedSlotEntryPointer=", "effectiveStatuses=", "canonicalStatuses=", "defaultBundlePresent=", "defaultBundleChangeCount=" })
+foreach (string requiredField in new[] { "registryCount=", "playerProcessorPointer=", "registeredPersistProcessorPointer=", "retainedSaveDataProcessorPointer=", "saveDataStatePointer=", "selectedSlot=", "selectedEntryPointer=", "expectedSlotEntryPointer=", "effectiveStatuses=", "canonicalStatuses=", "defaultBundlePresent=", "defaultBundleChangeCount=" })
     Equal(true, diskTargetDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"target diagnostic snapshot includes {requiredField}");
 foreach (string baselineField in new[] { "baselineSuccessTime=", "baselineFailureTime=", "baselineHasChanges=", "baselineRequiresWriteToDisk=" })
     Equal(true, diskDiagnosticLogger.Contains(baselineField, StringComparison.Ordinal), $"disk diagnostic snapshot includes exact transaction {baselineField}");
@@ -1222,16 +1222,18 @@ var targetSaveDataState = new DiskCommitTargetSaveDataStateFixture(
     new IntPtr(0x333), new(true, 3), new() { [3] = selectedTargetState, [4] = expectedTargetState });
 var retainedSaveDataProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), targetSaveDataState);
 var registeredPersistProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
-RequestSystem.SetRegisteredProcessors(new()
+RequestSystem.SetRegisteredProcessors(new DirectLookupRegistryFixture(new()
 {
-    [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new RegisteredRequestProcessorFixture(registeredPersistProcessor),
-});
+    [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new RegisteredRequestProcessor(registeredPersistProcessor),
+}));
 bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
     new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
-    out CassetteDiskCommitTargetDiagnosticState targetDiagnostic, out string targetStage);
+    out CassetteDiskCommitTargetDiagnosticState targetDiagnostic, out int targetRegistryCount, out string targetStage);
 Equal("success", targetStage, "target diagnostic reports success");
 Equal(true, targetReadable, "target diagnostic reads player and global selected save targets without treating their mismatch as a transaction failure");
+Equal(1, targetRegistryCount, "target diagnostic preserves the public registry Count");
+Equal(typeof(PersistSaveChangeBundleRequest), Il2CppType.LastConvertedType, "target diagnostic converts the exact PersistSaveChangeBundleRequest System.Type");
 Equal(1, targetPlayerProcessor.ObtainStateCalls, "target diagnostic obtains the player-side state exactly once");
 Equal(0, retainedSaveDataProcessor.ObtainStateCalls, "retained joined SaveData processor is identity-only and is not substituted for the registered persist target");
 Equal(1, registeredPersistProcessor.ObtainStateCalls, "target diagnostic obtains SaveData state exactly once from the actually registered persist processor");
@@ -1254,47 +1256,109 @@ Equal(nameof(eSongCassetteStatus.INVALID), targetDiagnostic.Selected.EffectiveSt
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), targetDiagnostic.Selected.CanonicalStatuses[nameof(ePlayableSong.QUIERES_BAILAR)], "selected-side canonical cassette status comes from GameProgression on the same state");
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, new MissingSelectedSlotSaveDataBundleRoutingStateFixture(),
-    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out string targetFailureStage),
+    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out _, out string targetFailureStage),
     "target diagnostic fails only its observational read when the retained save-data processor contract is missing");
 Equal("target-save-data-processor-pointer-missing", targetFailureStage, "target diagnostic exposes the exact missing retained-processor pointer stage");
 selectedTargetState.ThrowHasChanges = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
-    Array.Empty<string>(), out _, out string targetThrowingStage),
+    Array.Empty<string>(), out _, out _, out string targetThrowingStage),
     "throwing target-side public member remains isolated to the diagnostic read");
 Equal("target-selected-has-changes-get-invocation:InvalidOperationException:target-has-changes", targetThrowingStage, "throwing target-side public member retains its exact stage");
 Equal(0, RequestSystem.SubmitCount, "throwing target diagnostic cannot submit any request");
 selectedTargetState.ThrowHasChanges = false;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     new PrivateGetterPointerTargetProcessorFixture(playerTargetState), retainedSaveDataProcessor,
-    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out string privatePointerStage),
+    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out _, out string privatePointerStage),
     "a property with a non-public Pointer getter is rejected before reflection readback");
 Equal("target-player-processor-pointer-getter-non-public", privatePointerStage, "private Pointer getter has an exact public-boundary stage");
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     new DiskCommitTargetPlayerProcessorFixture(new IntPtr(0x111), new PrivateGetterHasChangesTargetStateFixture()),
     retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(),
-    out _, out string privateHasChangesStage),
+    out _, out _, out string privateHasChangesStage),
     "a property with a public setter and non-public HasChanges getter is rejected before reflection readback");
 Equal("target-player-has-changes-getter-non-public", privateHasChangesStage, "private HasChanges getter has an exact public-boundary stage");
 selectedTargetState.ThrowPointer = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
-    Array.Empty<string>(), out _, out string throwingPointerStage),
+    Array.Empty<string>(), out _, out _, out string throwingPointerStage),
     "a throwing selected-entry Pointer getter is isolated from the transaction");
 Equal("target-selected-entry-pointer-get-invocation:InvalidOperationException:target-pointer", throwingPointerStage, "throwing selected-entry Pointer getter retains its exact stage");
 selectedTargetState.ThrowPointer = false;
-var oversizedRegistry = new Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessorFixture>
-{
-    [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new(registeredPersistProcessor),
-};
+var oversizedEntries = new Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor>();
 for (int registryIndex = 0; registryIndex < 128; registryIndex++)
-    oversizedRegistry[new PublicTypeKeyFixture($"OtherRequest{registryIndex:D3}")] = new(registeredPersistProcessor);
+    oversizedEntries[new PublicTypeKeyFixture($"OtherRequest{registryIndex:D3}")] = new(registeredPersistProcessor);
+oversizedEntries[new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new(registeredPersistProcessor);
+var oversizedRegistry = new DirectLookupRegistryFixture(oversizedEntries);
 RequestSystem.SetRegisteredProcessors(oversizedRegistry);
+Equal(true, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int oversizedRegistryCount, out string oversizedRegistryStage),
+    "a registry larger than 128 entries resolves Persist by exact direct lookup");
+Equal("success", oversizedRegistryStage, "oversized direct lookup reports success");
+Equal(129, oversizedRegistryCount, "oversized direct lookup preserves public Count");
+Equal(0, oversizedRegistry.GetEnumeratorCalls, "direct Persist lookup never enumerates the registry");
+var missingEntries = Enumerable.Range(0, 150).ToDictionary(
+    index => new PublicTypeKeyFixture($"MissingRequest{index:D3}"),
+    _ => new RegisteredRequestProcessor(registeredPersistProcessor));
+var missingRegistry = new DirectLookupRegistryFixture(missingEntries);
+RequestSystem.SetRegisteredProcessors(missingRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
-    Array.Empty<string>(), out _, out string registryLimitStage),
-    "bounded registry enumeration cannot claim an exact processor match when entries remain unread");
-Equal("target-registry-entry-limit", registryLimitStage, "oversized registry reports its exact bound");
+    Array.Empty<string>(), out _, out int missingRegistryCount, out string missingRegistryStage),
+    "missing exact Persist key fails without enumeration");
+Equal(150, missingRegistryCount, "missing-key failure preserves public Count");
+Equal("target-registry-persist-not-found", missingRegistryStage, "missing exact Persist key has an exact stage");
+Equal(0, missingRegistry.GetEnumeratorCalls, "missing exact Persist key does not fall back to enumeration");
+RequestSystem.SetRegisteredProcessors(oversizedRegistry);
+Il2CppType.ThrowOnFrom = true;
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int conversionRegistryCount, out string conversionStage),
+    "throwing public Il2CppType conversion fails diagnostically");
+Equal(129, conversionRegistryCount, "conversion failure preserves public Count");
+Equal("target-registry-key-convert-invocation:InvalidOperationException:il2cpp-type-convert", conversionStage, "conversion failure retains its exact stage");
+Il2CppType.ThrowOnFrom = false;
+Il2CppType.ConvertedNameOverride = "WrongPersistRequest";
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int keyMismatchRegistryCount, out string keyMismatchStage),
+    "converted key with the wrong public Name fails before lookup");
+Equal(129, keyMismatchRegistryCount, "converted-key mismatch preserves public Count");
+Equal("target-registry-key-name-mismatch:expected=PersistSaveChangeBundleRequest:actual=WrongPersistRequest", keyMismatchStage, "converted-key mismatch has an exact stage");
+Il2CppType.ConvertedNameOverride = null;
+var missingLookupRegistry = new MissingTryGetRegistryFixture(37);
+RequestSystem.SetRegisteredProcessors(missingLookupRegistry);
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int missingLookupRegistryCount, out string missingLookupStage),
+    "registry without public exact TryGetValue fails diagnostically without enumeration");
+Equal(37, missingLookupRegistryCount, "missing TryGetValue failure preserves public Count");
+Equal("target-registry-try-get-missing", missingLookupStage, "missing public exact TryGetValue has the recommended exact stage");
+Equal(0, missingLookupRegistry.GetEnumeratorCalls, "missing TryGetValue never falls back to enumeration");
+var broadKeyRegistry = new BroadKeyRegistryFixture(registeredPersistProcessor);
+RequestSystem.SetRegisteredProcessors(broadKeyRegistry);
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int broadKeyRegistryCount, out string broadKeyStage),
+    "broad object-key TryGetValue is rejected instead of treated as the exact registry contract");
+Equal(1, broadKeyRegistryCount, "broad-key rejection preserves public Count");
+Equal("target-registry-try-get-missing", broadKeyStage, "broad-key overload does not satisfy exact TryGetValue lookup");
+var wrongOutRegistry = new WrongOutRegistryFixture(registeredPersistProcessor);
+RequestSystem.SetRegisteredProcessors(wrongOutRegistry);
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int wrongOutRegistryCount, out string wrongOutStage),
+    "wrong out-registration TryGetValue is rejected before invocation");
+Equal(1, wrongOutRegistryCount, "wrong-out rejection preserves public Count");
+Equal("target-registry-try-get-missing", wrongOutStage, "wrong out-registration overload does not satisfy exact TryGetValue lookup");
+RequestSystem.SetRegisteredProcessors(new ThrowingCountRegistryFixture());
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int throwingCount, out string throwingCountStage),
+    "throwing public registry Count remains isolated to diagnostics");
+Equal(-1, throwingCount, "throwing Count cannot invent a registry size");
+Equal("target-registry-count-get-invocation:InvalidOperationException:registry-count", throwingCountStage, "throwing Count retains its exact stage");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x701, Array.Empty<string>(), out _, out publicDiagnosticStage), "diagnostic snapshot rejects a public state pointer from another save");
 Equal("write-diagnostic-pointer-mismatch:expected=0x701:actual=0x700", publicDiagnosticStage, "diagnostic snapshot reports the exact identity mismatch");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new MissingDiagnosticHasChangesWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "missing core public write property fails at its exact field");
@@ -2340,7 +2404,83 @@ sealed class MissingSelectedSlotSaveDataBundleRoutingStateFixture
 }
 
 sealed record PublicTypeKeyFixture(string Name);
-sealed record RegisteredRequestProcessorFixture(object Processor);
+public sealed record RegisteredRequestProcessor(object Processor);
+
+static class Il2CppType
+{
+    public static bool ThrowOnFrom { get; set; }
+    public static string? ConvertedNameOverride { get; set; }
+    public static Type? LastConvertedType { get; private set; }
+    public static PublicTypeKeyFixture From(Type type)
+    {
+        LastConvertedType = type;
+        if (ThrowOnFrom) throw new InvalidOperationException("il2cpp-type-convert");
+        return new(ConvertedNameOverride ?? type.Name);
+    }
+}
+
+sealed class DirectLookupRegistryFixture
+{
+    private readonly Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor> _entries;
+    public DirectLookupRegistryFixture(Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor> entries) => _entries = entries;
+    public int Count => _entries.Count;
+    public int GetEnumeratorCalls { get; private set; }
+    public bool TryGetValue(PublicTypeKeyFixture key, out RegisteredRequestProcessor value) =>
+        _entries.TryGetValue(key, out value!);
+    public Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor>.Enumerator GetEnumerator()
+    {
+        GetEnumeratorCalls++;
+        throw new InvalidOperationException("registry-enumeration-prohibited");
+    }
+}
+
+sealed class BroadKeyRegistryFixture
+{
+    private readonly SaveDataRequestProcessor _processor;
+    public BroadKeyRegistryFixture(SaveDataRequestProcessor processor) => _processor = processor;
+    public int Count => 1;
+    public bool TryGetValue(object key, out RegisteredRequestProcessor value)
+    {
+        value = new(_processor);
+        return true;
+    }
+}
+
+sealed record WrongRegisteredRequestProcessor(object Processor);
+
+sealed class WrongOutRegistryFixture
+{
+    private readonly SaveDataRequestProcessor _processor;
+    public WrongOutRegistryFixture(SaveDataRequestProcessor processor) => _processor = processor;
+    public int Count => 1;
+    public bool TryGetValue(PublicTypeKeyFixture key, out WrongRegisteredRequestProcessor value)
+    {
+        value = new(_processor);
+        return true;
+    }
+}
+
+sealed class ThrowingCountRegistryFixture
+{
+    public int Count => throw new InvalidOperationException("registry-count");
+    public bool TryGetValue(PublicTypeKeyFixture key, out RegisteredRequestProcessor value)
+    {
+        value = null!;
+        return false;
+    }
+}
+
+sealed class MissingTryGetRegistryFixture
+{
+    public MissingTryGetRegistryFixture(int count) => Count = count;
+    public int Count { get; }
+    public int GetEnumeratorCalls { get; private set; }
+    public System.Collections.IEnumerator GetEnumerator()
+    {
+        GetEnumeratorCalls++;
+        throw new InvalidOperationException("registry-enumeration-prohibited");
+    }
+}
 
 sealed class DiskCommitTargetPlayerProcessorFixture
 {
@@ -2423,7 +2563,7 @@ sealed record DiskCommitTargetBundleFixture(int ChangeCount)
 
 static class RequestSystem
 {
-    public static Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessorFixture> registeredProcessorsWrapped { get; private set; } = new();
+    public static object registeredProcessorsWrapped { get; private set; } = new DirectLookupRegistryFixture(new());
     public static int SubmitCount { get; private set; }
     public static PersistSaveChangeBundleRequest? LastRequest { get; private set; }
     public static ePlayerSaveChangeBundleKey EffectiveBundle { get; private set; }
@@ -2446,9 +2586,9 @@ static class RequestSystem
         LastRequest = null;
         EffectiveBundle = ePlayerSaveChangeBundleKey.INVALID;
         EffectiveWriteType = eSaveFileWriteType.NON_URGENT;
-        registeredProcessorsWrapped = new();
+        registeredProcessorsWrapped = new DirectLookupRegistryFixture(new());
     }
-    public static void SetRegisteredProcessors(Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessorFixture> processors) =>
+    public static void SetRegisteredProcessors(object processors) =>
         registeredProcessorsWrapped = processors;
 }
 
