@@ -353,6 +353,63 @@ internal enum CassetteDiskCommitDiagnosticPhase
     StillPending,
     HardTimeout,
     PreparedEventIgnored,
+    Failure,
+    LifecycleBefore,
+    LifecycleAfter,
+}
+
+internal enum CassetteDiskCommitFailureKind
+{
+    None,
+    IdentityUnreadable,
+    PointerMismatch,
+    StatusUnreadable,
+    StatusRegression,
+    FailureTimeAdvanced,
+    FailureReasonChanged,
+    EventFailure,
+    HardTimeout,
+    SubmissionFailed,
+}
+
+internal readonly record struct CassetteDiskCommitFailureDiagnostic(
+    CassetteDiskCommitFailureKind Kind,
+    string Detail)
+{
+    internal static CassetteDiskCommitFailureDiagnostic IdentityUnreadable(string stage) =>
+        new(CassetteDiskCommitFailureKind.IdentityUnreadable, $"stage='{stage}'");
+
+    internal static CassetteDiskCommitFailureDiagnostic PointerMismatch(long expected, long observed) =>
+        new(CassetteDiskCommitFailureKind.PointerMismatch, $"expected=0x{expected:X} observed=0x{observed:X}");
+
+    internal static CassetteDiskCommitFailureDiagnostic StatusUnreadable(string song, string stage) =>
+        new(CassetteDiskCommitFailureKind.StatusUnreadable, $"song='{song}' stage='{stage}'");
+
+    internal static CassetteDiskCommitFailureDiagnostic StatusRegression(string song, string? status) =>
+        new(CassetteDiskCommitFailureKind.StatusRegression, $"song='{song}' status='{status ?? "<null>"}'");
+
+    internal static CassetteDiskCommitFailureDiagnostic FailureTimeAdvanced(double? baseline, double current) =>
+        new(
+            CassetteDiskCommitFailureKind.FailureTimeAdvanced,
+            $"baselineBits={FormatBits(baseline)} currentBits={FormatBits(current)}");
+
+    internal static CassetteDiskCommitFailureDiagnostic FailureReasonChanged(string? baseline, string current) =>
+        new(
+            CassetteDiskCommitFailureKind.FailureReasonChanged,
+            $"baseline='{baseline ?? "<null>"}' current='{current}'");
+
+    internal static CassetteDiskCommitFailureDiagnostic EventFailure() =>
+        new(CassetteDiskCommitFailureKind.EventFailure, "same-slot public completion event reported failure");
+
+    internal static CassetteDiskCommitFailureDiagnostic HardTimeout() =>
+        new(CassetteDiskCommitFailureKind.HardTimeout, "active-update watchdog reached 130 seconds");
+
+    internal static CassetteDiskCommitFailureDiagnostic SubmissionFailed(string detail) =>
+        new(CassetteDiskCommitFailureKind.SubmissionFailed, $"stage='{detail}'");
+
+    private static string FormatBits(double? value) => value.HasValue
+        ? $"0x{BitConverter.DoubleToInt64Bits(value.Value):X16}"
+        : "<null>";
 }
 
 internal readonly record struct CassetteDiskCommitDiagnosticContext(
@@ -361,7 +418,9 @@ internal readonly record struct CassetteDiskCommitDiagnosticContext(
     int EventOrdinal,
     TimeSpan Elapsed,
     IReadOnlyList<string> ActiveSongs,
-    IReadOnlyList<string> QueuedSongs);
+    IReadOnlyList<string> QueuedSongs,
+    CassetteDiskCommitFailureKind FailureKind = CassetteDiskCommitFailureKind.None,
+    string FailureDetail = "");
 
 internal static class CassetteDiskCommitDiagnosticFormatter
 {
@@ -374,6 +433,25 @@ internal static class CassetteDiskCommitDiagnosticFormatter
 
 internal sealed class CassetteDiskCommitRuntime
 {
+    private sealed class TerminalDiagnosticTombstone
+    {
+        internal CassetteDiskCommitAttempt Attempt { get; init; }
+        internal CassetteDiskCommitOutcome Outcome { get; init; }
+        internal CassetteDiskCommitFailureDiagnostic Failure { get; init; }
+        internal int EventOrdinal { get; init; }
+        internal TimeSpan Elapsed { get; init; }
+        internal string[] ActiveSongs { get; init; } = Array.Empty<string>();
+        internal string[] QueuedSongs { get; init; } = Array.Empty<string>();
+        internal bool FailureClaimed { get; set; }
+        internal bool HardTimeoutClaimed { get; set; }
+        internal bool LateEventClaimed { get; set; }
+        internal bool LateEventSuperseded { get; set; }
+        internal bool LifecycleBeforeClaimed { get; set; }
+        internal bool LifecycleAfterClaimed { get; set; }
+        internal long LifecycleToken { get; set; }
+        internal int LifecycleRequestSlot { get; set; }
+    }
+
     private static readonly TimeSpan AcquisitionTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan MaximumActiveUpdateElapsed = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan StillPendingAfter = TimeSpan.FromSeconds(11);
@@ -391,7 +469,9 @@ internal sealed class CassetteDiskCommitRuntime
     private int _eventOrdinal;
     private string[] _diagnosticAttemptSongs = Array.Empty<string>();
     private long _attemptCounter;
+    private long _lifecycleTokenCounter;
     private CassetteDiskCommitAttempt _attempt;
+    private TerminalDiagnosticTombstone? _terminalTombstone;
     private long _revision;
     private long _activeRevision;
     private long _generation;
@@ -428,6 +508,7 @@ internal sealed class CassetteDiskCommitRuntime
         _successEventObserved = false; _stillPendingReported = false; _rejectedEventReported = false;
         _diagnosticsClaimed = 0; _eventOrdinal = 0; _diagnosticAttemptSongs = Array.Empty<string>();
         _attempt = default;
+        _terminalTombstone = null;
         _revision = 0; _activeRevision = 0; _elapsed = TimeSpan.Zero;
         ClearAcquisition();
     }
@@ -439,7 +520,9 @@ internal sealed class CassetteDiskCommitRuntime
         attempt = default;
         if (_active || _blocked || _songs.Count == 0 || pointer == 0) return false;
         ClearAcquisition();
-        _attempt = new CassetteDiskCommitAttempt(++_attemptCounter, generation, epoch, slot, pointer);
+        long attemptId = ++_attemptCounter;
+        if (_terminalTombstone != null) _terminalTombstone.LateEventSuperseded = true;
+        _attempt = new CassetteDiskCommitAttempt(attemptId, generation, epoch, slot, pointer);
         _active = true; _generation = generation; _epoch = epoch; _slot = slot; _pointer = pointer;
         _activeSongs.Clear(); _activeSongs.UnionWith(_songs); _activeRevision = _revision;
         _diagnosticAttemptSongs = _activeSongs.OrderBy(song => song, StringComparer.Ordinal).ToArray();
@@ -462,11 +545,17 @@ internal sealed class CassetteDiskCommitRuntime
         return true;
     }
 
-    internal CassetteDiskCommitOutcome MarkSubmissionIndeterminate(CassetteDiskCommitAttempt attempt)
+    internal CassetteDiskCommitOutcome MarkSubmissionIndeterminate(
+        CassetteDiskCommitAttempt attempt,
+        CassetteDiskCommitFailureDiagnostic failure = default)
     {
         if (!_active || _submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
         _indeterminate = true;
-        return FinishFailure(CassetteDiskCommitOutcome.HardTimeout);
+        if (failure.Kind is CassetteDiskCommitFailureKind.None)
+            failure = CassetteDiskCommitFailureDiagnostic.SubmissionFailed("post-submit baseline indeterminate");
+        return FinishFailure(
+            CassetteDiskCommitOutcome.HardTimeout,
+            failure);
     }
 
     internal bool TryGetSubmittedAttempt(out CassetteDiskCommitAttempt attempt)
@@ -487,6 +576,8 @@ internal sealed class CassetteDiskCommitRuntime
         out CassetteDiskCommitDiagnosticContext context)
     {
         context = default;
+        if (phase is CassetteDiskCommitDiagnosticPhase.Failure or CassetteDiskCommitDiagnosticPhase.HardTimeout)
+            return TryClaimTerminalDiagnostic(attempt, phase, out context);
         if (attempt != _attempt || !CanClaimDiagnostic(phase)) return false;
         int flag = 1 << (int)phase;
         if ((_diagnosticsClaimed & flag) != 0) return false;
@@ -499,21 +590,115 @@ internal sealed class CassetteDiskCommitRuntime
         return true;
     }
 
+    private bool TryClaimTerminalDiagnostic(
+        CassetteDiskCommitAttempt attempt,
+        CassetteDiskCommitDiagnosticPhase phase,
+        out CassetteDiskCommitDiagnosticContext context)
+    {
+        context = default;
+        TerminalDiagnosticTombstone? tombstone = _terminalTombstone;
+        if (tombstone == null || tombstone.Attempt != attempt) return false;
+        if (phase is CassetteDiskCommitDiagnosticPhase.Failure)
+        {
+            bool failureSnapshot = tombstone.Outcome is CassetteDiskCommitOutcome.Failure ||
+                (tombstone.Outcome is CassetteDiskCommitOutcome.HardTimeout &&
+                 tombstone.Failure.Kind is not CassetteDiskCommitFailureKind.HardTimeout);
+            if (!failureSnapshot || tombstone.FailureClaimed) return false;
+            tombstone.FailureClaimed = true;
+        }
+        else
+        {
+            if (tombstone.Outcome is not CassetteDiskCommitOutcome.HardTimeout ||
+                tombstone.Failure.Kind is not CassetteDiskCommitFailureKind.HardTimeout ||
+                tombstone.HardTimeoutClaimed)
+                return false;
+            tombstone.HardTimeoutClaimed = true;
+        }
+        context = CreateTombstoneContext(tombstone, phase);
+        return true;
+    }
+
+    internal bool TryGetLastTerminalAttempt(out CassetteDiskCommitAttempt attempt)
+    {
+        attempt = _terminalTombstone?.Attempt ?? default;
+        return _terminalTombstone != null;
+    }
+
+    internal bool TryClaimLateEvent(CassetteDiskCommitAttempt attempt, int eventSlot)
+    {
+        TerminalDiagnosticTombstone? tombstone = _terminalTombstone;
+        if (_active || tombstone == null || tombstone.Attempt != attempt || tombstone.LateEventSuperseded ||
+            eventSlot != attempt.Slot || tombstone.LateEventClaimed)
+            return false;
+        tombstone.LateEventClaimed = true;
+        return true;
+    }
+
+    internal bool TryBeginSaveStateLifecycleDiagnostic(
+        int requestSlot,
+        out long token,
+        out CassetteDiskCommitDiagnosticContext context)
+    {
+        token = 0;
+        context = default;
+        TerminalDiagnosticTombstone? tombstone = _terminalTombstone;
+        if (tombstone == null || tombstone.LifecycleBeforeClaimed || requestSlot != tombstone.Attempt.Slot)
+            return false;
+        tombstone.LifecycleBeforeClaimed = true;
+        tombstone.LifecycleToken = ++_lifecycleTokenCounter;
+        tombstone.LifecycleRequestSlot = requestSlot;
+        token = tombstone.LifecycleToken;
+        context = CreateTombstoneContext(tombstone, CassetteDiskCommitDiagnosticPhase.LifecycleBefore);
+        return true;
+    }
+
+    internal bool TryCompleteSaveStateLifecycleDiagnostic(
+        long token,
+        int requestSlot,
+        out CassetteDiskCommitDiagnosticContext context)
+    {
+        context = default;
+        TerminalDiagnosticTombstone? tombstone = _terminalTombstone;
+        if (token == 0 || tombstone == null || tombstone.LifecycleToken != token ||
+            tombstone.LifecycleRequestSlot != requestSlot ||
+            !tombstone.LifecycleBeforeClaimed || tombstone.LifecycleAfterClaimed)
+            return false;
+        tombstone.LifecycleAfterClaimed = true;
+        context = CreateTombstoneContext(tombstone, CassetteDiskCommitDiagnosticPhase.LifecycleAfter);
+        return true;
+    }
+
+    private static CassetteDiskCommitDiagnosticContext CreateTombstoneContext(
+        TerminalDiagnosticTombstone tombstone,
+        CassetteDiskCommitDiagnosticPhase phase) =>
+        new(
+            tombstone.Attempt,
+            phase,
+            tombstone.EventOrdinal,
+            tombstone.Elapsed,
+            tombstone.ActiveSongs.ToArray(),
+            tombstone.QueuedSongs.ToArray(),
+            tombstone.Failure.Kind,
+            tombstone.Failure.Detail);
+
     private bool CanClaimDiagnostic(CassetteDiskCommitDiagnosticPhase phase) => phase switch
     {
         CassetteDiskCommitDiagnosticPhase.Pre => _active && !_submitted,
         CassetteDiskCommitDiagnosticPhase.Post => _active,
         CassetteDiskCommitDiagnosticPhase.Event => _eventOrdinal > 0,
         CassetteDiskCommitDiagnosticPhase.StillPending => _stillPendingReported,
-        CassetteDiskCommitDiagnosticPhase.HardTimeout => _indeterminate,
         CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored => _active && !_submitted,
         _ => false,
     };
 
-    internal CassetteDiskCommitOutcome FailPrepared(CassetteDiskCommitAttempt attempt)
+    internal CassetteDiskCommitOutcome FailPrepared(
+        CassetteDiskCommitAttempt attempt,
+        CassetteDiskCommitFailureDiagnostic failure = default)
     {
         if (!_active || _submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
-        return FinishFailure(CassetteDiskCommitOutcome.Failure);
+        if (failure.Kind is CassetteDiskCommitFailureKind.None)
+            failure = CassetteDiskCommitFailureDiagnostic.SubmissionFailed("unknown");
+        return FinishFailure(CassetteDiskCommitOutcome.Failure, failure);
     }
 
     internal bool TryReportRejectedEvent(CassetteDiskCommitAttempt attempt)
@@ -531,7 +716,7 @@ internal sealed class CassetteDiskCommitRuntime
         if (!succeeded)
         {
             _eventOrdinal++;
-            FinishFailure(CassetteDiskCommitOutcome.Failure);
+            FinishFailure(CassetteDiskCommitOutcome.Failure, CassetteDiskCommitFailureDiagnostic.EventFailure());
             return CassetteDiskCommitEventOutcome.Failure;
         }
         if (_successEventObserved) return CassetteDiskCommitEventOutcome.Ignored;
@@ -571,16 +756,36 @@ internal sealed class CassetteDiskCommitRuntime
     internal CassetteDiskCommitOutcome Observe(
         CassetteDiskCommitAttempt attempt, CassettePublicWriteState state,
         bool statusesRetained, TimeSpan elapsed, out bool reportStillPending)
+        => Observe(
+            attempt,
+            state,
+            statusesRetained,
+            statusesRetained
+                ? default
+                : CassetteDiskCommitFailureDiagnostic.StatusRegression("<unknown>", "<unavailable>"),
+            elapsed,
+            out reportStillPending);
+
+    internal CassetteDiskCommitOutcome Observe(
+        CassetteDiskCommitAttempt attempt, CassettePublicWriteState state,
+        bool statusesRetained, CassetteDiskCommitFailureDiagnostic boundaryFailure,
+        TimeSpan elapsed, out bool reportStillPending)
     {
         reportStillPending = false;
-        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained);
+        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained, boundaryFailure);
         if (boundary is not CassetteDiskCommitOutcome.Pending) return boundary;
         bool failureAdvanced = state.LastFailureTime.HasValue &&
             (!_baselineFailure.HasValue || state.LastFailureTime.Value > _baselineFailure.Value);
         bool failureReasonChanged = !string.IsNullOrWhiteSpace(state.FailureReason) &&
             !string.Equals(state.FailureReason, _baselineFailureReason, StringComparison.Ordinal);
-        if (failureAdvanced || failureReasonChanged)
-            return FinishFailure(CassetteDiskCommitOutcome.Failure);
+        if (failureAdvanced)
+            return FinishFailure(
+                CassetteDiskCommitOutcome.Failure,
+                CassetteDiskCommitFailureDiagnostic.FailureTimeAdvanced(_baselineFailure, state.LastFailureTime!.Value));
+        if (failureReasonChanged)
+            return FinishFailure(
+                CassetteDiskCommitOutcome.Failure,
+                CassetteDiskCommitFailureDiagnostic.FailureReasonChanged(_baselineFailureReason, state.FailureReason!));
         bool successAdvanced = state.LastSuccessTime.HasValue &&
             (!_baselineSuccess.HasValue || state.LastSuccessTime.Value > _baselineSuccess.Value);
         if (!state.RequiresWriteToDisk && successAdvanced)
@@ -597,18 +802,39 @@ internal sealed class CassetteDiskCommitRuntime
     internal CassetteDiskCommitOutcome ObserveUnavailable(
         CassetteDiskCommitAttempt attempt, bool statusesRetained,
         TimeSpan elapsed, out bool reportStillPending)
+        => ObserveUnavailable(
+            attempt,
+            statusesRetained,
+            statusesRetained
+                ? default
+                : CassetteDiskCommitFailureDiagnostic.StatusRegression("<unknown>", "<unavailable>"),
+            elapsed,
+            out reportStillPending);
+
+    internal CassetteDiskCommitOutcome ObserveUnavailable(
+        CassetteDiskCommitAttempt attempt, bool statusesRetained,
+        CassetteDiskCommitFailureDiagnostic boundaryFailure,
+        TimeSpan elapsed, out bool reportStillPending)
     {
         reportStillPending = false;
-        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained);
+        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained, boundaryFailure);
         return boundary is CassetteDiskCommitOutcome.Pending
             ? AdvanceTimeout(elapsed, out reportStillPending)
             : boundary;
     }
 
-    private CassetteDiskCommitOutcome CheckBoundary(CassetteDiskCommitAttempt attempt, bool statusesRetained)
+    private CassetteDiskCommitOutcome CheckBoundary(
+        CassetteDiskCommitAttempt attempt,
+        bool statusesRetained,
+        CassetteDiskCommitFailureDiagnostic boundaryFailure)
     {
         if (!_active || !_submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
-        if (!statusesRetained) return FinishFailure(CassetteDiskCommitOutcome.Failure);
+        if (!statusesRetained)
+        {
+            if (boundaryFailure.Kind is CassetteDiskCommitFailureKind.None)
+                boundaryFailure = CassetteDiskCommitFailureDiagnostic.StatusRegression("<unknown>", "<unavailable>");
+            return FinishFailure(CassetteDiskCommitOutcome.Failure, boundaryFailure);
+        }
         return CassetteDiskCommitOutcome.Pending;
     }
 
@@ -619,7 +845,7 @@ internal sealed class CassetteDiskCommitRuntime
         if (_elapsed >= HardTimeout)
         {
             _indeterminate = true;
-            return FinishFailure(CassetteDiskCommitOutcome.HardTimeout);
+            return FinishFailure(CassetteDiskCommitOutcome.HardTimeout, CassetteDiskCommitFailureDiagnostic.HardTimeout());
         }
         if (!_stillPendingReported && _elapsed >= StillPendingAfter)
         {
@@ -629,12 +855,34 @@ internal sealed class CassetteDiskCommitRuntime
         return CassetteDiskCommitOutcome.Pending;
     }
 
-    private CassetteDiskCommitOutcome FinishFailure(CassetteDiskCommitOutcome outcome)
+    private CassetteDiskCommitOutcome FinishFailure(
+        CassetteDiskCommitOutcome outcome,
+        CassetteDiskCommitFailureDiagnostic failure)
     {
+        PreserveTerminalDiagnostic(outcome, failure);
         _active = false; _submitted = false;
         _activeSongs.Clear();
         _blocked = _indeterminate || _revision == _activeRevision;
         return outcome;
+    }
+
+    private void PreserveTerminalDiagnostic(
+        CassetteDiskCommitOutcome outcome,
+        CassetteDiskCommitFailureDiagnostic failure)
+    {
+        string[] activeSongs = _diagnosticAttemptSongs.ToArray();
+        string[] queuedSongs = _songs.Except(_diagnosticAttemptSongs, StringComparer.Ordinal)
+            .OrderBy(song => song, StringComparer.Ordinal).ToArray();
+        _terminalTombstone = new TerminalDiagnosticTombstone
+        {
+            Attempt = _attempt,
+            Outcome = outcome,
+            Failure = failure,
+            EventOrdinal = _eventOrdinal,
+            Elapsed = _elapsed,
+            ActiveSongs = activeSongs,
+            QueuedSongs = queuedSongs,
+        };
     }
 
     private void StartAcquisition(long epoch, int slot, long pointer)

@@ -163,6 +163,23 @@ internal static class CassetteSaveTransactionAdapter
         long expectedPointer,
         IReadOnlyList<string> nativeSongs,
         out CassettePublicWriteDiagnosticState state,
+        out string stage) =>
+        TryReadPublicWriteDiagnosticStateCore(
+            processor, expectedPointer, nativeSongs, out state, out stage);
+
+    internal static bool TryReadPublicWriteLifecycleDiagnosticState(
+        object? processor,
+        IReadOnlyList<string> nativeSongs,
+        out CassettePublicWriteDiagnosticState state,
+        out string stage) =>
+        TryReadPublicWriteDiagnosticStateCore(
+            processor, expectedPointer: null, nativeSongs, out state, out stage);
+
+    private static bool TryReadPublicWriteDiagnosticStateCore(
+        object? processor,
+        long? expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        out CassettePublicWriteDiagnosticState state,
         out string stage)
     {
         state = default;
@@ -179,9 +196,9 @@ internal static class CassetteSaveTransactionAdapter
             if (rawPointer is not IntPtr pointer) { stage = "write-diagnostic-pointer-invalid"; return false; }
             if (pointer == IntPtr.Zero) { stage = "write-diagnostic-pointer-zero"; return false; }
             long statePointer = pointer.ToInt64();
-            if (statePointer != expectedPointer)
+            if (expectedPointer.HasValue && statePointer != expectedPointer.Value)
             {
-                stage = $"write-diagnostic-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
+                stage = $"write-diagnostic-pointer-mismatch:expected=0x{expectedPointer.Value:X}:actual=0x{statePointer:X}";
                 return false;
             }
             PropertyInfo? hasChangesProperty = stateType.GetProperty("HasChanges", PublicInstance);
@@ -541,30 +558,49 @@ internal static class CassetteSaveTransactionAdapter
     internal static bool TryReadCassetteStatus(
         object processor,
         string nativeSong,
-        out string? nativeStatus)
+        out string? nativeStatus) =>
+        TryReadCassetteStatus(processor, nativeSong, out nativeStatus, out _);
+
+    internal static bool TryReadCassetteStatus(
+        object processor,
+        string nativeSong,
+        out string? nativeStatus,
+        out string stage)
     {
         nativeStatus = null;
+        stage = "cassette-status-start";
         try
         {
+            stage = "cassette-status-obtain-state-find";
             MethodInfo? obtainState = processor.GetType().GetMethods(AllInstance)
                 .FirstOrDefault(method =>
                     string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
                     method.GetParameters().Length == 0);
-            object? state = obtainState?.Invoke(processor, null);
-            if (state == null) return false;
+            if (obtainState == null) { stage = "cassette-status-obtain-state-missing"; return false; }
+            stage = "cassette-status-obtain-state-invoke";
+            object? state = obtainState.Invoke(processor, null);
+            if (state == null) { stage = "cassette-status-state-null"; return false; }
 
+            stage = "cassette-status-contract-find";
             Type? songType = FindType("ePlayableSong", processor.GetType().Assembly);
             MethodInfo? readStatus = songType == null ? null : state.GetType().GetMethod(
                 "GetCassetteStatusForSong", AllInstance, binder: null, types: new[] { songType }, modifiers: null);
-            if (readStatus == null || songType?.IsEnum != true) return false;
+            if (readStatus == null || songType?.IsEnum != true)
+            { stage = "cassette-status-contract-missing"; return false; }
 
+            stage = $"cassette-status-{nativeSong}-song-parse";
             object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            stage = $"cassette-status-{nativeSong}-invoke";
             nativeStatus = UnwrapNullable(readStatus.Invoke(state, new[] { song }))?.ToString();
-            return !string.IsNullOrWhiteSpace(nativeStatus);
+            if (string.IsNullOrWhiteSpace(nativeStatus))
+            { stage = $"cassette-status-{nativeSong}-empty"; return false; }
+            stage = "success";
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
             nativeStatus = null;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
         }
     }

@@ -45,7 +45,7 @@ string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirector
 
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"CreateNewPlayerSaveFileInEmptySlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact empty-slot creation hook installed");
-Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installed");
+Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuildPlayerSaveStatePrefix), nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installs bounded lifecycle prefix and existing authoritative postfix");
 Equal(true, pluginSource.Contains("PatchExactMethodPrefix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"SelectMostRecentlyUsedRegularPlayerSaveSlotRequest\", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix))", StringComparison.Ordinal), "most-recent authority is installed as an exact prefix");
 foreach (string obsoleteDiagnostic in new[] { "PublicSelectionDiagnosticPostfix", "SelectedSlotSetterDiagnosticPostfix", "SelectPlayerSaveSlotRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest" })
     Equal(false, pluginSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary diagnostic removed: {obsoleteDiagnostic}");
@@ -78,6 +78,14 @@ Equal(true, buildPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Or
 Equal(true, buildPostfix.Contains("LogExtractionFailureOnce", StringComparison.Ordinal), "build extraction failure is logged once");
 Equal(true, buildPostfix.Contains("BuildPlayerSaveStateFromFileRequest", StringComparison.Ordinal), "build diagnostic identifies exact request type safely");
 Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "build callback performs no native enquiry");
+Equal(true, buildPostfix.Contains("CompleteSaveStateLifecycleDiagnostic", StringComparison.Ordinal), "build postfix completes the exact bounded lifecycle diagnostic pair");
+Equal(true, buildPostfix.Contains("try", StringComparison.Ordinal) && buildPostfix.Contains("catch", StringComparison.Ordinal), "diagnostic completion is exception-isolated from the authoritative build boundary");
+Equal(true, buildPostfix.LastIndexOf("QueueSaveBoundarySignal", StringComparison.Ordinal) > buildPostfix.LastIndexOf("catch", StringComparison.Ordinal), "authoritative build boundary executes after isolated diagnostics");
+string buildPrefix = ExtractMethods(pluginSource, "public static void BuildPlayerSaveStatePrefix(").Single();
+Equal(true, buildPrefix.Contains("BeginSaveStateLifecycleDiagnostic", StringComparison.Ordinal), "build prefix captures the bounded before snapshot");
+Equal(true, buildPrefix.Contains("BindingFlags.Public", StringComparison.Ordinal), "new lifecycle prefix reads only the public SlotNumber contract");
+Equal(false, buildPrefix.Contains("ReflectionUtil.ReadInt", StringComparison.Ordinal), "new lifecycle prefix cannot bind private slot members");
+Equal(true, buildPrefix.Contains("try", StringComparison.Ordinal) && buildPrefix.Contains("catch", StringComparison.Ordinal), "diagnostic prefix cannot suppress the original build request");
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
@@ -147,6 +155,10 @@ Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringCompariso
 Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
 foreach (string diagnosticPhase in new[] { "CassetteDiskCommitDiagnosticPhase.Pre", "CassetteDiskCommitDiagnosticPhase.Post", "CassetteDiskCommitDiagnosticPhase.StillPending", "CassetteDiskCommitDiagnosticPhase.HardTimeout" })
     Equal(true, diskCommitSource.Contains(diagnosticPhase, StringComparison.Ordinal), $"disk transaction wires bounded diagnostic phase {diagnosticPhase}");
+Equal(true, diskCommitSource.Contains("CassetteDiskCommitDiagnosticPhase.Failure", StringComparison.Ordinal), "disk transaction emits a bounded terminal failure snapshot");
+Equal(true, diskCommitSource.Contains("failureKind", StringComparison.Ordinal), "terminal failure snapshot carries its exact classified cause");
+Equal(true, diskCommitSource.Contains("postFailureKind", StringComparison.Ordinal), "post-submit baseline rejection retains its precise diagnostic cause");
+Equal(true, diskCommitSource.Contains("MarkSubmissionIndeterminate(preparedAttempt, postFailureKind)", StringComparison.Ordinal), "post-submit terminal transition preserves the selected precise failure kind");
 foreach (string prohibited in new[] { "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile" })
     Equal(false, diskCommitSource.Contains(prohibited, StringComparison.Ordinal), $"disk transaction avoids prohibited broad/private path {prohibited}");
 int writeEventPatch = pluginSource.IndexOf("\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
@@ -157,6 +169,9 @@ string writeEventPostfix = ExtractMethods(pluginSource, "public static void Play
 Equal(true, writeEventPostfix.Contains("OnPlayerSaveWriteCompletedEvent", StringComparison.Ordinal), "public write-completed event is routed to the cassette transaction boundary");
 string writeEventConsumer = ExtractMethods(receiptRandomizationSource, "internal static void OnPlayerSaveWriteCompletedEvent(").Single();
 Equal(true, writeEventConsumer.Contains("ObserveWriteCompletedEvent", StringComparison.Ordinal), "write event is correlated by the transaction runtime");
+Equal(true, writeEventConsumer.Contains("TryClaimLateEvent", StringComparison.Ordinal), "inactive terminal attempt admits at most one header-only late-event record");
+Equal(true, writeEventConsumer.Contains("CASSETTE DISK COMMIT LATE_EVENT", StringComparison.Ordinal), "late-event record is explicitly labeled");
+Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.Failure", StringComparison.Ordinal), "failed completion event emits the bounded terminal FAILURE snapshot");
 Equal(true, writeEventConsumer.Contains("TickDiskCommit(TimeSpan.Zero)", StringComparison.Ordinal), "successful write event wakes immediate public-state verification");
 Equal(false, writeEventConsumer.Contains("CassetteDiskCommitOutcome.Success", StringComparison.Ordinal), "event callback cannot declare disk success by itself");
 Equal(true, writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventHeader", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "compiled callback decodes mandatory event header before correlation");
@@ -169,8 +184,14 @@ foreach (string requiredField in new[] { "attempt=", "phase=", "eventOrdinal=", 
 Equal(true, diskDiagnosticLogger.Contains("TryReadPublicWriteDiagnosticState", StringComparison.Ordinal), "disk diagnostic snapshot reads public write and GameTime state");
 Equal(true, diskDiagnosticLogger.Contains("context.Attempt.Pointer", StringComparison.Ordinal), "disk diagnostic snapshot verifies the exact attempt pointer");
 Equal(true, diskDiagnosticLogger.Contains("transactionBaseline", StringComparison.Ordinal), "disk diagnostic snapshot preserves the actual transaction baseline separately from later observation");
+Equal(true, diskDiagnosticLogger.Contains("failureKind", StringComparison.Ordinal), "terminal snapshot prints classified failure kind and detail");
 foreach (string baselineField in new[] { "baselineSuccessTime=", "baselineFailureTime=", "baselineHasChanges=", "baselineRequiresWriteToDisk=" })
     Equal(true, diskDiagnosticLogger.Contains(baselineField, StringComparison.Ordinal), $"disk diagnostic snapshot includes exact transaction {baselineField}");
+string lifecycleDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogSaveStateLifecycleDiagnostic(").Single();
+foreach (string requiredField in new[] { "StatePointer", "RedundancyBundleIndex", "RedundancyBundleRevision", "LastSuccessTime", "LastFailureTime", "Statuses" })
+    Equal(true, lifecycleDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"save lifecycle snapshot includes {requiredField}");
+Equal(true, lifecycleDiagnosticLogger.Contains("TryReadPublicWriteLifecycleDiagnosticState", StringComparison.Ordinal), "save lifecycle snapshot reads one public state object without imposing the old pointer");
+Equal(false, lifecycleDiagnosticLogger.Contains("TrySubmit", StringComparison.Ordinal), "save lifecycle diagnostic cannot submit persistence or reconciliation requests");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -634,6 +655,22 @@ Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDisk
 Equal(TimeSpan.FromSeconds(130), hardTimeoutDiagnostic.Elapsed, "HARD_TIMEOUT snapshot carries exact active-update elapsed");
 Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out _), "HARD_TIMEOUT diagnostic has a one-snapshot budget");
 Equal(false, diagnosticRuntime.HasWork, "diagnostic snapshot claims cannot unblock an indeterminate transaction");
+Equal(true, diagnosticRuntime.TryGetLastTerminalAttempt(out CassetteDiskCommitAttempt watchdogTombstone), "hard watchdog preserves a bounded terminal-attempt tombstone");
+Equal(diagnosticAttempt, watchdogTombstone, "watchdog tombstone preserves exact attempt identity");
+Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 3), "wrong-slot event cannot consume late-event budget");
+Equal(true, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "matching inactive event claims one header-only late-event record");
+Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "late-event record is bounded once per terminal tombstone");
+Equal(false, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(3, out _, out _), "wrong-slot rebuild cannot consume lifecycle diagnostic pair");
+Equal(true, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(4, out long lifecycleToken, out CassetteDiskCommitDiagnosticContext lifecycleBefore), "matching-slot terminal tombstone admits one lifecycle BEFORE snapshot");
+Equal(CassetteDiskCommitDiagnosticPhase.LifecycleBefore, lifecycleBefore.Phase, "lifecycle prefix is labeled BEFORE");
+SequenceEqual(new[] { "ON_THE_WAY" }, lifecycleBefore.ActiveSongs, "lifecycle snapshot preserves terminal active songs");
+Equal(false, diagnosticRuntime.TryCompleteSaveStateLifecycleDiagnostic(lifecycleToken, 3, out _), "wrong-slot postfix cannot consume the correlated lifecycle AFTER snapshot");
+Equal(true, diagnosticRuntime.TryCompleteSaveStateLifecycleDiagnostic(lifecycleToken, 4, out CassetteDiskCommitDiagnosticContext lifecycleAfter), "matching lifecycle postfix admits one AFTER snapshot");
+Equal(CassetteDiskCommitDiagnosticPhase.LifecycleAfter, lifecycleAfter.Phase, "lifecycle postfix is labeled AFTER");
+Equal(false, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(4, out _, out _), "terminal attempt admits only one lifecycle pair");
+diagnosticRuntime.Reset();
+Equal(false, diagnosticRuntime.TryGetLastTerminalAttempt(out _), "identity reset clears terminal tombstone");
+Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "identity reset clears late-event diagnostic eligibility");
 Equal("present=False value=<null> bits=<null>", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(null), "nullable formatter identifies absent GameTime exactly");
 Equal("present=True value=10.25 bits=0x4024800000000000", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(10.25), "nullable formatter preserves round-trip value and IEEE bits");
 Equal(true, CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(double.NaN).StartsWith("present=True value=NaN bits=0x", StringComparison.Ordinal), "nullable formatter preserves special double value and IEEE bits");
@@ -671,9 +708,48 @@ Equal("THE_HEIST", diskCommit.Songs[0], "later verified grant is never attribute
 diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out diskAttempt), "failure case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failure case submits");
 Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, new(true, false, 10, 12, "IO_ERROR"), true, TimeSpan.Zero, out reportStillPending), "advanced failure fails transaction");
 Equal(false, diskCommit.HasWork, "failed wave is bounded until a new epoch or newly verified song");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext failureTimeDiagnostic), "ordinary poll failure retains one terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.FailureTimeAdvanced, failureTimeDiagnostic.FailureKind, "advanced failure time has a distinct failure kind");
+Equal(true, failureTimeDiagnostic.FailureDetail.Contains("baselineBits=<null>", StringComparison.Ordinal) && failureTimeDiagnostic.FailureDetail.Contains("currentBits=0x4028000000000000", StringComparison.Ordinal), "failure-time diagnostic includes exact baseline/current IEEE bits");
+Equal(false, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), "terminal FAILURE snapshot is bounded once");
+Equal(true, diskCommit.TryGetLastTerminalAttempt(out CassetteDiskCommitAttempt ordinaryFailureTombstone), "ordinary failure preserves terminal tombstone");
+Equal(diskAttempt, ordinaryFailureTombstone, "ordinary failure tombstone preserves attempt token");
+diskCommit.Stage("KEEP_ON_HUSTLIN");
+Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out CassetteDiskCommitAttempt postFailureAttempt), "new revision may preserve existing retry semantics after ordinary failure");
+Equal(true, diskCommit.TryGetLastTerminalAttempt(out ordinaryFailureTombstone), "later preparation does not erase prior terminal tombstone");
+Equal(diskAttempt, ordinaryFailureTombstone, "prior terminal tombstone remains until identity reset or later terminal outcome");
+Equal(false, diskCommit.TryClaimLateEvent(diskAttempt, 4), "newer same-identity attempt permanently invalidates ambiguous late-event attribution to older tombstone");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "failure-reason case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failure-reason case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite with { FailureReason = "VALIDATION_FAILED" }, true, TimeSpan.Zero, out reportStillPending), "changed failure reason retains existing fail-closed outcome");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext failureReasonDiagnostic), "failure-reason transition retains terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.FailureReasonChanged, failureReasonDiagnostic.FailureKind, "changed failure reason has a distinct failure kind");
+Equal(true, failureReasonDiagnostic.FailureDetail.Contains("current='VALIDATION_FAILED'", StringComparison.Ordinal), "failure-reason diagnostic includes current public reason");
+foreach (CassetteDiskCommitFailureDiagnostic postFailure in new[]
+{
+    CassetteDiskCommitFailureDiagnostic.IdentityUnreadable("post-identity"),
+    CassetteDiskCommitFailureDiagnostic.PointerMismatch(0x401, 0x402),
+    CassetteDiskCommitFailureDiagnostic.StatusUnreadable("BADASS", "post-status"),
+    CassetteDiskCommitFailureDiagnostic.StatusRegression("BADASS", "HAVE_NOT_EARNED"),
+    CassetteDiskCommitFailureDiagnostic.FailureTimeAdvanced(8, 9),
+    CassetteDiskCommitFailureDiagnostic.FailureReasonChanged("IO_ERROR", "VALIDATION_FAILED"),
+})
+{
+    var postSubmitRuntime = new CassetteDiskCommitRuntime();
+    postSubmitRuntime.Stage("BADASS");
+    Equal(true, postSubmitRuntime.TryPrepare(9, 2, 4, 401, dirtyWrite, out CassetteDiskCommitAttempt postSubmitAttempt), $"post-submit {postFailure.Kind} case prepares");
+    Equal(CassetteDiskCommitOutcome.HardTimeout, postSubmitRuntime.MarkSubmissionIndeterminate(postSubmitAttempt, postFailure), $"post-submit {postFailure.Kind} preserves indeterminate blocking outcome");
+    Equal(true, postSubmitRuntime.TryClaimDiagnostic(postSubmitAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext postSubmitFailureDiagnostic), $"post-submit {postFailure.Kind} exposes one terminal FAILURE snapshot");
+    Equal(postFailure.Kind, postSubmitFailureDiagnostic.FailureKind, $"post-submit {postFailure.Kind} preserves exact cause");
+    Equal(postFailure.Detail, postSubmitFailureDiagnostic.FailureDetail, $"post-submit {postFailure.Kind} preserves exact detail");
+    Equal(false, postSubmitRuntime.TryClaimDiagnostic(postSubmitAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), $"post-submit {postFailure.Kind} terminal snapshot is bounded once");
+    Equal(false, postSubmitRuntime.HasWork, $"post-submit {postFailure.Kind} remains indeterminately blocked");
+}
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "failed event case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failed event case submits");
 Equal(CassetteDiskCommitEventOutcome.Failure, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, false), "matching failed event fails closed immediately");
 Equal(false, diskCommit.HasWork, "failed event blocks the submitted wave");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext eventFailureDiagnostic), "failed completion event retains one terminal FAILURE snapshot");
+Equal(CassetteDiskCommitFailureKind.EventFailure, eventFailureDiagnostic.FailureKind, "failed completion event has an exact failure kind");
+Equal(false, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), "failed completion event terminal snapshot is bounded once");
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "hard-timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "hard-timeout case submits");
 Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(10), out reportStillPending), "native write is not terminated at ten seconds");
 Equal(false, reportStillPending, "ten seconds remains below the still-pending notice");
@@ -694,7 +770,25 @@ Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Epoc
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 401, dirtyWrite, out diskAttempt), "pointer-switch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "pointer-switch case submits");
 Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Pointer = 402 }, dirtyWrite, true, TimeSpan.Zero, out reportStillPending), "stale pointer token cannot mutate transaction");
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "status-regression case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "status-regression case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite, false, TimeSpan.Zero, out reportStillPending), "cassette status regression fails closed");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite, false, CassetteDiskCommitFailureDiagnostic.StatusRegression("BADASS", "HAVE_NOT_EARNED"), TimeSpan.Zero, out reportStillPending), "cassette status regression fails closed");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext statusRegressionDiagnostic), "status regression retains terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.StatusRegression, statusRegressionDiagnostic.FailureKind, "status regression has a distinct failure kind");
+Equal("song='BADASS' status='HAVE_NOT_EARNED'", statusRegressionDiagnostic.FailureDetail, "status regression records exact song and status");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "status-unreadable case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "status-unreadable case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.StatusUnreadable("BADASS", "status-invoke:InvalidOperationException"), TimeSpan.Zero, out reportStillPending), "unreadable status preserves existing fail-closed outcome");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext statusUnreadableDiagnostic), "unreadable status retains terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.StatusUnreadable, statusUnreadableDiagnostic.FailureKind, "unreadable status has a distinct failure kind");
+Equal("song='BADASS' stage='status-invoke:InvalidOperationException'", statusUnreadableDiagnostic.FailureDetail, "unreadable status records exact song and stage");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "identity-unreadable case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "identity-unreadable case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.IdentityUnreadable("processor-identity-obtain-state-invoke"), TimeSpan.Zero, out reportStillPending), "unreadable identity preserves existing fail-closed outcome");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext identityUnreadableDiagnostic), "unreadable identity retains terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.IdentityUnreadable, identityUnreadableDiagnostic.FailureKind, "unreadable identity has a distinct failure kind");
+Equal("stage='processor-identity-obtain-state-invoke'", identityUnreadableDiagnostic.FailureDetail, "unreadable identity records exact stage");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "pointer-mismatch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "pointer-mismatch case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.PointerMismatch(0x402, 0x403), TimeSpan.Zero, out reportStillPending), "pointer mismatch preserves existing fail-closed outcome");
+Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext pointerMismatchDiagnostic), "pointer mismatch retains terminal snapshot");
+Equal(CassetteDiskCommitFailureKind.PointerMismatch, pointerMismatchDiagnostic.FailureKind, "pointer mismatch has a distinct failure kind");
+Equal("expected=0x402 observed=0x403", pointerMismatchDiagnostic.FailureDetail, "pointer mismatch records exact pointers");
 diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "unreadable-state timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "unreadable-state timeout case submits");
 Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(diskAttempt, true, TimeSpan.FromSeconds(11), out reportStillPending), "temporarily unreadable write state remains pending within the hard bound");
 Equal(true, reportStillPending, "unreadable public state emits the same bounded pending notice");
@@ -862,6 +956,14 @@ Equal(true, publicDiagnosticState.HasUnstagedChanges, "diagnostic state reads pu
 Equal(2, publicDiagnosticState.RedundancyBundleIndex, "diagnostic state reads public redundancy index");
 Equal(7, publicDiagnosticState.RedundancyBundleRevision, "diagnostic state reads public redundancy revision");
 Equal("success", publicDiagnosticStage, "public diagnostic state reports success");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteLifecycleDiagnosticState(publicWriteProcessor, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassettePublicWriteDiagnosticState lifecycleDiagnosticState, out string lifecycleDiagnosticStage), "lifecycle diagnostic reads one public state object without rejecting a rebuilt pointer");
+Equal(0x700L, lifecycleDiagnosticState.StatePointer, "lifecycle diagnostic reports the observed public pointer");
+Equal(2, lifecycleDiagnosticState.RedundancyBundleIndex, "lifecycle diagnostic reports observed redundancy index");
+Equal(7, lifecycleDiagnosticState.RedundancyBundleRevision, "lifecycle diagnostic reports observed redundancy revision");
+Equal(10d, lifecycleDiagnosticState.WriteState.LastSuccessTime, "lifecycle diagnostic reports nullable public success time");
+Equal(8d, lifecycleDiagnosticState.WriteState.LastFailureTime, "lifecycle diagnostic reports nullable public failure time");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), lifecycleDiagnosticState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "lifecycle diagnostic reports active-song status from the same public state object");
+Equal("success", lifecycleDiagnosticStage, "lifecycle diagnostic reports success");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x701, Array.Empty<string>(), out _, out publicDiagnosticStage), "diagnostic snapshot rejects a public state pointer from another save");
 Equal("write-diagnostic-pointer-mismatch:expected=0x701:actual=0x700", publicDiagnosticStage, "diagnostic snapshot reports the exact identity mismatch");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new MissingDiagnosticHasChangesWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "missing core public write property fails at its exact field");
@@ -928,6 +1030,7 @@ string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirecto
 foreach (string obsoleteDiagnostic in new[] { "CassetteSaveFingerprint", "TryGetLoadedSaveFingerprint", "TryGetProcessorSaveFingerprint", "TryBuildFingerprint", "UnwrapNullablePublic" })
     Equal(false, adapterSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary adapter diagnostic removed: {obsoleteDiagnostic}");
 string policySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs"));
+Equal(false, policySource.Contains("required ", StringComparison.Ordinal), "diagnostic tombstone remains compatible with the net6 client target");
 foreach (string obsoleteDiagnostic in new[] { "CassetteSaveIdentityStabilizer", "CassetteMostRecentIdentityProbe", "CassetteProcessorIdentityProbe", "CassetteSaveFingerprint" })
     Equal(false, policySource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary policy diagnostic removed: {obsoleteDiagnostic}");
 string processorIdentityAdapter = ExtractMethods(adapterSource, "internal static bool TryGetProcessorSaveIdentity(").Single();
@@ -940,10 +1043,13 @@ string persistAdapter = ExtractMethods(adapterSource, "internal static bool TryS
 Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistAdapter.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
 Equal(false, persistAdapter.Contains("AllStatic", StringComparison.Ordinal) || persistAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk persist never resolves private APIs");
 Equal(true, persistAdapter.Contains("Convert.ToInt32(bundle) != 1", StringComparison.Ordinal) && persistAdapter.Contains("Convert.ToInt32(urgent) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
-string diagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteDiagnosticState(").Single();
+string diagnosticAdapter = ExtractMethods(adapterSource, "private static bool TryReadPublicWriteDiagnosticStateCore(").Single();
 Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
 Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
 Equal(true, diagnosticAdapter.Contains("GetCassetteStatusForSong", StringComparison.Ordinal), "disk diagnostic status map is derived from the same obtained public state");
+string lifecycleDiagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteLifecycleDiagnosticState(").Single();
+Equal(true, lifecycleDiagnosticAdapter.Contains("TryReadPublicWriteDiagnosticStateCore", StringComparison.Ordinal), "lifecycle diagnostic shares the public same-object snapshot reader");
+Equal(false, lifecycleDiagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || lifecycleDiagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "lifecycle diagnostics cannot bind non-public members");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
