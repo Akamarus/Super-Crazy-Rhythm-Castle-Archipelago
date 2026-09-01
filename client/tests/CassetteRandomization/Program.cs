@@ -145,6 +145,8 @@ string diskCommitSource = ExtractMethods(receiptRandomizationSource, "private st
 Equal(true, diskCommitSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "verified cassette wave submits the narrow public persist transaction");
 Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringComparison.Ordinal), "disk transaction polls public write completion state");
 Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
+foreach (string diagnosticPhase in new[] { "CassetteDiskCommitDiagnosticPhase.Pre", "CassetteDiskCommitDiagnosticPhase.Post", "CassetteDiskCommitDiagnosticPhase.StillPending", "CassetteDiskCommitDiagnosticPhase.HardTimeout" })
+    Equal(true, diskCommitSource.Contains(diagnosticPhase, StringComparison.Ordinal), $"disk transaction wires bounded diagnostic phase {diagnosticPhase}");
 foreach (string prohibited in new[] { "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile" })
     Equal(false, diskCommitSource.Contains(prohibited, StringComparison.Ordinal), $"disk transaction avoids prohibited broad/private path {prohibited}");
 int writeEventPatch = pluginSource.IndexOf("\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
@@ -159,6 +161,16 @@ Equal(true, writeEventConsumer.Contains("TickDiskCommit(TimeSpan.Zero)", StringC
 Equal(false, writeEventConsumer.Contains("CassetteDiskCommitOutcome.Success", StringComparison.Ordinal), "event callback cannot declare disk success by itself");
 Equal(true, writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventHeader", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "compiled callback decodes mandatory event header before correlation");
 Equal(true, writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal) < writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventFailureReason", StringComparison.Ordinal), "compiled callback reads optional failure reason only after correlation");
+Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored", StringComparison.Ordinal), "prepared-phase event receives one behavior-neutral ignored-event record");
+Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.Event", StringComparison.Ordinal), "accepted event receives one bounded state snapshot");
+string diskDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogDiskCommitDiagnostic(").Single();
+foreach (string requiredField in new[] { "attempt=", "phase=", "eventOrdinal=", "elapsedSeconds=", "generation=", "epoch=", "slot=", "pointer=", "successTime=", "failureTime=", "currentGameTime=", "HasChanges=", "RequiresWriteToDisk=", "HasUnstagedChanges=", "redundancyIndex=", "redundancyRevision=", "statuses=", "activeSongs=", "queuedSongs=" })
+    Equal(true, diskDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"disk diagnostic snapshot includes {requiredField}");
+Equal(true, diskDiagnosticLogger.Contains("TryReadPublicWriteDiagnosticState", StringComparison.Ordinal), "disk diagnostic snapshot reads public write and GameTime state");
+Equal(true, diskDiagnosticLogger.Contains("context.Attempt.Pointer", StringComparison.Ordinal), "disk diagnostic snapshot verifies the exact attempt pointer");
+Equal(true, diskDiagnosticLogger.Contains("transactionBaseline", StringComparison.Ordinal), "disk diagnostic snapshot preserves the actual transaction baseline separately from later observation");
+foreach (string baselineField in new[] { "baselineSuccessTime=", "baselineFailureTime=", "baselineHasChanges=", "baselineRequiresWriteToDisk=" })
+    Equal(true, diskDiagnosticLogger.Contains(baselineField, StringComparison.Ordinal), $"disk diagnostic snapshot includes exact transaction {baselineField}");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -587,6 +599,45 @@ Equal(CassetteDiskCommitEventOutcome.SuccessWake, phaseRuntime.ObserveWriteCompl
 Equal(CassetteDiskCommitOutcome.Pending, phaseRuntime.Observe(phaseAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out phasePending), "timestamp that advanced before submit cannot prove the submitted attempt");
 Equal(CassetteDiskCommitOutcome.Success, phaseRuntime.Observe(phaseAttempt, new(false, false, 12, null, null), true, TimeSpan.Zero, out phasePending), "submitted attempt requires a later public-state advance");
 
+var diagnosticRuntime = new CassetteDiskCommitRuntime();
+diagnosticRuntime.Stage("ON_THE_WAY");
+Equal(true, diagnosticRuntime.TryPrepare(17, 2, 4, 0x444, dirtyWrite, out CassetteDiskCommitAttempt diagnosticAttempt), "diagnostic attempt prepares without changing transaction semantics");
+Equal(true, diagnosticRuntime.TryGetPreparedAttempt(out CassetteDiskCommitAttempt capturedPreparedAttempt), "prepared attempt is observable for bounded ignored-event diagnostics");
+Equal(diagnosticAttempt, capturedPreparedAttempt, "prepared diagnostic capture preserves the exact attempt token");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Pre, out CassetteDiskCommitDiagnosticContext preDiagnostic), "PRE diagnostic is admitted once for the exact attempt");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Pre, out _), "PRE diagnostic has a one-snapshot budget");
+Equal(0, preDiagnostic.EventOrdinal, "PRE snapshot precedes all accepted events");
+Equal(TimeSpan.Zero, preDiagnostic.Elapsed, "PRE snapshot starts at zero active-update elapsed");
+SequenceEqual(new[] { "ON_THE_WAY" }, preDiagnostic.ActiveSongs, "PRE snapshot captures frozen active songs");
+Equal(0, preDiagnostic.QueuedSongs.Count, "PRE snapshot has no later queued songs");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored, out CassetteDiskCommitDiagnosticContext ignoredPreparedEvent), "one prepared-phase ignored event record is admitted");
+Equal(1, ignoredPreparedEvent.EventOrdinal, "prepared-phase ignored event receives the first diagnostic event ordinal");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored, out _), "prepared-phase ignored event record is bounded");
+Equal(false, diagnosticRuntime.Active, "diagnostic admission cannot mark a prepared attempt submitted");
+Equal(true, diagnosticRuntime.MarkSubmitted(diagnosticAttempt, dirtyWrite), "normal submission transition remains authoritative after diagnostics");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Post, out _), "POST diagnostic is admitted once after submission");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Post, out _), "POST diagnostic has a one-snapshot budget");
+diagnosticRuntime.Stage("KEEP_ON_HUSTLIN");
+Equal(CassetteDiskCommitEventOutcome.SuccessWake, diagnosticRuntime.ObserveWriteCompletedEvent(diagnosticAttempt, 4, true), "matching event is accepted independently of diagnostics");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Event, out CassetteDiskCommitDiagnosticContext eventDiagnostic), "accepted EVENT diagnostic is admitted once");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Event, out _), "accepted EVENT diagnostic has a one-snapshot budget");
+Equal(2, eventDiagnostic.EventOrdinal, "accepted EVENT snapshot follows the prepared-phase ignored event ordinal");
+SequenceEqual(new[] { "ON_THE_WAY" }, eventDiagnostic.ActiveSongs, "EVENT snapshot retains the frozen submitted wave");
+SequenceEqual(new[] { "KEEP_ON_HUSTLIN" }, eventDiagnostic.QueuedSongs, "EVENT snapshot distinguishes songs queued after submission");
+Equal(CassetteDiskCommitOutcome.Pending, diagnosticRuntime.Observe(diagnosticAttempt, dirtyWrite, true, TimeSpan.FromSeconds(11), out bool diagnosticStillPending), "diagnostic transaction reaches the unchanged still-pending threshold");
+Equal(true, diagnosticStillPending, "normal runtime reports the unchanged still-pending transition");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out CassetteDiskCommitDiagnosticContext stillPendingDiagnostic), "STILL_PENDING diagnostic is admitted once");
+Equal(TimeSpan.FromSeconds(11), stillPendingDiagnostic.Elapsed, "STILL_PENDING snapshot carries exact active-update elapsed");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out _), "STILL_PENDING diagnostic has a one-snapshot budget");
+Equal(CassetteDiskCommitOutcome.HardTimeout, diagnosticRuntime.Observe(diagnosticAttempt, dirtyWrite, true, TimeSpan.FromSeconds(119), out diagnosticStillPending), "diagnostic transaction reaches the unchanged hard watchdog");
+Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out CassetteDiskCommitDiagnosticContext hardTimeoutDiagnostic), "HARD_TIMEOUT diagnostic remains claimable after the terminal transition");
+Equal(TimeSpan.FromSeconds(130), hardTimeoutDiagnostic.Elapsed, "HARD_TIMEOUT snapshot carries exact active-update elapsed");
+Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out _), "HARD_TIMEOUT diagnostic has a one-snapshot budget");
+Equal(false, diagnosticRuntime.HasWork, "diagnostic snapshot claims cannot unblock an indeterminate transaction");
+Equal("present=False value=<null> bits=<null>", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(null), "nullable formatter identifies absent GameTime exactly");
+Equal("present=True value=10.25 bits=0x4024800000000000", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(10.25), "nullable formatter preserves round-trip value and IEEE bits");
+Equal(true, CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(double.NaN).StartsWith("present=True value=NaN bits=0x", StringComparison.Ordinal), "nullable formatter preserves special double value and IEEE bits");
+
 phaseRuntime.Stage("BADASS");
 Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt newerAttempt), "same identity can prepare a later monotonic attempt");
 Equal(true, phaseRuntime.MarkSubmitted(newerAttempt, dirtyWrite), "later attempt is submitted");
@@ -801,6 +852,28 @@ var publicWriteProcessor = new PublicWriteProcessorFixture(new PublicWriteStateF
 Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(publicWriteProcessor, out CassettePublicWriteState publicWriteState, out string publicWriteStage), "adapter reads the public write-completion contract");
 Equal(new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"), publicWriteState, "adapter returns exact public write-completion values");
 Equal("success", publicWriteStage, "public write-completion read reports success");
+GameTimeEnquiries.CurrentGameTime = new FakeGameTime(10.5);
+Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassettePublicWriteDiagnosticState publicDiagnosticState, out string publicDiagnosticStage), "adapter reads one public diagnostic save-state snapshot");
+Equal(publicWriteState, publicDiagnosticState.WriteState, "diagnostic state preserves the exact public write state");
+Equal(0x700L, publicDiagnosticState.StatePointer, "diagnostic state preserves the public state pointer");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), publicDiagnosticState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "diagnostic state reads statuses from the same public state object");
+Equal(10.5, publicDiagnosticState.CurrentGameTime, "diagnostic state reads public current GameTime");
+Equal(true, publicDiagnosticState.HasUnstagedChanges, "diagnostic state reads public unstaged-change flag");
+Equal(2, publicDiagnosticState.RedundancyBundleIndex, "diagnostic state reads public redundancy index");
+Equal(7, publicDiagnosticState.RedundancyBundleRevision, "diagnostic state reads public redundancy revision");
+Equal("success", publicDiagnosticStage, "public diagnostic state reports success");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x701, Array.Empty<string>(), out _, out publicDiagnosticStage), "diagnostic snapshot rejects a public state pointer from another save");
+Equal("write-diagnostic-pointer-mismatch:expected=0x701:actual=0x700", publicDiagnosticStage, "diagnostic snapshot reports the exact identity mismatch");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new MissingDiagnosticHasChangesWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "missing core public write property fails at its exact field");
+Equal("write-diagnostic-has-changes-missing", publicDiagnosticStage, "missing core public write property has an exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new MissingDiagnosticRevisionWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "missing public redundancy revision fails the diagnostic read only");
+Equal("write-diagnostic-redundancy-revision-missing", publicDiagnosticStage, "missing public redundancy revision has an exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new ThrowingDiagnosticUnstagedWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "throwing public unstaged getter fails the diagnostic read only");
+Equal("write-diagnostic-has-unstaged-get-invocation:InvalidOperationException:unstaged-diagnostic", publicDiagnosticStage, "throwing public unstaged getter has an exact invocation stage");
+GameTimeEnquiries.ThrowOnRead = true;
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "throwing public CurrentGameTime getter fails the diagnostic read only");
+Equal("write-diagnostic-current-game-time-get-invocation:InvalidOperationException:current-game-time-diagnostic", publicDiagnosticStage, "throwing public CurrentGameTime getter has an exact invocation stage");
+GameTimeEnquiries.ThrowOnRead = false;
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateSuccessNullableWriteStateFixture()), out _, out publicWriteStage), "private success-time nullable contract fails closed");
 Equal("write-success-time-nullable-contract-missing", publicWriteStage, "private success-time wrapper reports the exact public boundary failure");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), out _, out publicWriteStage), "private failure-reason nullable contract fails closed");
@@ -867,6 +940,10 @@ string persistAdapter = ExtractMethods(adapterSource, "internal static bool TryS
 Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistAdapter.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
 Equal(false, persistAdapter.Contains("AllStatic", StringComparison.Ordinal) || persistAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk persist never resolves private APIs");
 Equal(true, persistAdapter.Contains("Convert.ToInt32(bundle) != 1", StringComparison.Ordinal) && persistAdapter.Contains("Convert.ToInt32(urgent) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
+string diagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteDiagnosticState(").Single();
+Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
+Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
+Equal(true, diagnosticAdapter.Contains("GetCassetteStatusForSong", StringComparison.Ordinal), "disk diagnostic status map is derived from the same obtained public state");
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
@@ -961,6 +1038,17 @@ sealed record FakeGameStats(long PlayTimeInSeconds, DateTime LastPlayDateTimeUtc
 
 sealed record FakeGameTime(double RawTime);
 
+static class GameTimeEnquiries
+{
+    private static FakeGameTime _currentGameTime = new(0);
+    public static bool ThrowOnRead { get; set; }
+    public static FakeGameTime CurrentGameTime
+    {
+        get => ThrowOnRead ? throw new InvalidOperationException("current-game-time-diagnostic") : _currentGameTime;
+        set => _currentGameTime = value;
+    }
+}
+
 sealed class PublicWriteProcessorFixture
 {
     private readonly object _state;
@@ -975,8 +1063,50 @@ sealed class ThrowingObtainPublicWriteProcessorFixture
 
 sealed class PublicWriteStateFixture
 {
+    public IntPtr Pointer => new(0x700);
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => false;
+    public bool HasUnstagedChanges => true;
+    public int SaveFileRedundancyBundleIndex => 2;
+    public int SaveFileRedundancyBundleRevision => 7;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(true, new(8));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");
+    public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.HAVE_IN_BAG;
+}
+
+sealed class MissingDiagnosticHasChangesWriteStateFixture
+{
+    public IntPtr Pointer => new(0x700);
+    public bool RequiresWriteToDisk => false;
+    public bool HasUnstagedChanges => true;
+    public int SaveFileRedundancyBundleIndex => 2;
+    public int SaveFileRedundancyBundleRevision => 7;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(true, new(8));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");
+}
+
+sealed class MissingDiagnosticRevisionWriteStateFixture
+{
+    public IntPtr Pointer => new(0x700);
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public bool HasUnstagedChanges => true;
+    public int SaveFileRedundancyBundleIndex => 2;
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
+    public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(true, new(8));
+    public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");
+}
+
+sealed class ThrowingDiagnosticUnstagedWriteStateFixture
+{
+    public IntPtr Pointer => new(0x700);
+    public bool HasChanges => true;
+    public bool RequiresWriteToDisk => false;
+    public bool HasUnstagedChanges => throw new InvalidOperationException("unstaged-diagnostic");
+    public int SaveFileRedundancyBundleIndex => 2;
+    public int SaveFileRedundancyBundleRevision => 7;
     public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastWriteToDisk => new(true, new(10));
     public FakeIl2CppNullable<FakeGameTime> GameTimeOfLastFailedAttemptToWriteToDisk => new(true, new(8));
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Archipelago.MultiClient.Net;
@@ -18168,14 +18169,17 @@ internal static class CassetteReceiptRandomization
     internal static void OnPlayerSaveWriteCompletedEvent(object? nativeEvent)
     {
         CassetteDiskCommitAttempt attempt;
+        bool submitted;
         lock (Sync)
         {
-            if (_saveIdentity.Pending || !_runtime.HasActiveSave ||
-                !_diskCommit.TryGetSubmittedAttempt(out attempt)) return;
+            if (_saveIdentity.Pending || !_runtime.HasActiveSave) return;
+            submitted = _diskCommit.TryGetSubmittedAttempt(out attempt);
+            if (!submitted && !_diskCommit.TryGetPreparedAttempt(out attempt)) return;
         }
         if (!CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEventHeader(
                 nativeEvent, out int eventSlot, out bool succeeded, out string stage))
         {
+            if (!submitted) return;
             bool shouldLog;
             lock (Sync) shouldLog = _diskCommit.TryReportRejectedEvent(attempt);
             if (shouldLog)
@@ -18185,14 +18189,36 @@ internal static class CassetteReceiptRandomization
         }
 
         CassetteDiskCommitEventOutcome outcome;
+        CassetteDiskCommitDiagnosticContext eventDiagnostic = default;
+        object? eventDiagnosticProcessor = null;
+        bool logEventDiagnostic = false;
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_runtime.HasActiveSave ||
                 _activeSaveGeneration != attempt.Generation || _runtime.Epoch != attempt.Epoch ||
                 _runtime.ActiveSlot != attempt.Slot || _activeSavePointer != attempt.Pointer)
                 return;
-            outcome = _diskCommit.ObserveWriteCompletedEvent(attempt, eventSlot, succeeded);
+            if (!submitted)
+            {
+                if (eventSlot == attempt.Slot)
+                    logEventDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        attempt, CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored, out eventDiagnostic);
+                outcome = CassetteDiskCommitEventOutcome.Ignored;
+            }
+            else
+            {
+                outcome = _diskCommit.ObserveWriteCompletedEvent(attempt, eventSlot, succeeded);
+                if (outcome is not CassetteDiskCommitEventOutcome.Ignored)
+                    logEventDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        attempt, CassetteDiskCommitDiagnosticPhase.Event, out eventDiagnostic);
+            }
+            if (logEventDiagnostic) eventDiagnosticProcessor = _playerSaveRequestProcessor;
         }
+        if (logEventDiagnostic)
+            LogDiskCommitDiagnostic(
+                eventDiagnostic,
+                eventDiagnosticProcessor,
+                $"eventSlot={eventSlot} eventSucceeded={succeeded}");
         if (outcome is CassetteDiskCommitEventOutcome.Ignored) return;
         if (outcome is CassetteDiskCommitEventOutcome.Failure)
         {
@@ -18312,6 +18338,8 @@ internal static class CassetteReceiptRandomization
             CassetteDiskCommitOutcome unavailableOutcome = CassetteDiskCommitOutcome.None;
             bool reportDeferred = false;
             bool reportStillPending = false;
+            CassetteDiskCommitDiagnosticContext unavailableDiagnostic = default;
+            bool logUnavailableDiagnostic = false;
             lock (Sync)
             {
                 unavailableOutcome = submitted
@@ -18320,7 +18348,16 @@ internal static class CassetteReceiptRandomization
                     : _diskCommit.ObservePreSubmitUnavailable(
                         epoch, slot, pointer, identityReadable, identityReadable ? observedPointer : 0,
                         statusesRetained, elapsed, out reportDeferred);
+                if (submitted && reportStillPending)
+                    logUnavailableDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        activeAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out unavailableDiagnostic);
+                if (submitted && unavailableOutcome is CassetteDiskCommitOutcome.HardTimeout)
+                    logUnavailableDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        activeAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out unavailableDiagnostic) ||
+                        logUnavailableDiagnostic;
             }
+            if (logUnavailableDiagnostic)
+                LogDiskCommitDiagnostic(unavailableDiagnostic, processor, $"pollStage='{writeStage}'");
             if (reportDeferred)
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE DISK COMMIT DEFERRED stage='{writeStage}'.");
             if (reportStillPending)
@@ -18337,10 +18374,21 @@ internal static class CassetteReceiptRandomization
         {
             bool prepared;
             CassetteDiskCommitAttempt preparedAttempt = default;
-            lock (Sync) prepared = _runtime.Epoch == epoch && _activeSavePointer == pointer &&
-                _activeSaveGeneration == generation &&
-                _diskCommit.TryPrepare(generation, epoch, slot, pointer, writeState, out preparedAttempt);
+            CassetteDiskCommitDiagnosticContext preDiagnostic = default;
+            bool logPreDiagnostic = false;
+            lock (Sync)
+            {
+                prepared = _runtime.Epoch == epoch && _activeSavePointer == pointer &&
+                    _activeSaveGeneration == generation &&
+                    _diskCommit.TryPrepare(generation, epoch, slot, pointer, writeState, out preparedAttempt);
+                if (prepared)
+                    logPreDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        preparedAttempt, CassetteDiskCommitDiagnosticPhase.Pre, out preDiagnostic);
+            }
             if (!prepared) return;
+            if (logPreDiagnostic)
+                LogDiskCommitDiagnostic(
+                    preDiagnostic, processor, transactionBaseline: writeState);
             string persistDetail = "status regression";
             if (!statusesRetained || !CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out persistDetail))
             {
@@ -18361,16 +18409,27 @@ internal static class CassetteReceiptRandomization
             bool postFailureChanged = postStateReadable && !string.IsNullOrWhiteSpace(postSubmitState.FailureReason) &&
                 !string.Equals(postSubmitState.FailureReason, writeState.FailureReason, StringComparison.Ordinal);
             bool markedSubmitted;
+            CassetteDiskCommitDiagnosticContext postDiagnostic = default;
+            bool logPostDiagnostic = false;
             lock (Sync)
             {
                 bool stillCurrent = _runtime.Epoch == epoch && _activeSavePointer == pointer &&
                     _activeSaveGeneration == generation;
+                if (stillCurrent)
+                    logPostDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        preparedAttempt, CassetteDiskCommitDiagnosticPhase.Post, out postDiagnostic);
                 markedSubmitted = stillCurrent && postIdentityReadable && postSubmitPointer == pointer &&
                     postStatusesRetained && postStateReadable && !postFailureAdvanced && !postFailureChanged &&
                     _diskCommit.MarkSubmitted(preparedAttempt, postSubmitState);
                 if (!markedSubmitted && stillCurrent)
                     _diskCommit.MarkSubmissionIndeterminate(preparedAttempt);
             }
+            if (logPostDiagnostic)
+                LogDiskCommitDiagnostic(
+                    postDiagnostic,
+                    processor,
+                    $"baselineStage='{postSubmitStage}'",
+                    markedSubmitted ? postSubmitState : null);
             if (!markedSubmitted)
             {
                 Plugin.LoggerInstance?.LogWarning(
@@ -18382,8 +18441,21 @@ internal static class CassetteReceiptRandomization
         }
         CassetteDiskCommitOutcome outcome;
         bool reportActiveStillPending;
-        lock (Sync) outcome = _diskCommit.Observe(
-            activeAttempt, writeState, statusesRetained, activeUpdateElapsed, out reportActiveStillPending);
+        CassetteDiskCommitDiagnosticContext activeDiagnostic = default;
+        bool logActiveDiagnostic = false;
+        lock (Sync)
+        {
+            outcome = _diskCommit.Observe(
+                activeAttempt, writeState, statusesRetained, activeUpdateElapsed, out reportActiveStillPending);
+            if (reportActiveStillPending)
+                logActiveDiagnostic = _diskCommit.TryClaimDiagnostic(
+                    activeAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out activeDiagnostic);
+            if (outcome is CassetteDiskCommitOutcome.HardTimeout)
+                logActiveDiagnostic = _diskCommit.TryClaimDiagnostic(
+                    activeAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out activeDiagnostic) ||
+                    logActiveDiagnostic;
+        }
+        if (logActiveDiagnostic) LogDiskCommitDiagnostic(activeDiagnostic, processor);
         if (reportActiveStillPending)
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] CASSETTE DISK COMMIT STILL_PENDING epoch={epoch} slot={slot}; native write remains within the 130-second active-update watchdog.");
@@ -18394,6 +18466,75 @@ internal static class CassetteReceiptRandomization
                 $"[SCRC-AP] CASSETTE DISK COMMIT HARD_TIMEOUT epoch={epoch} slot={slot}; completion is indeterminate and automatic resubmission is blocked until save identity resets.");
         else if (outcome is CassetteDiskCommitOutcome.Failure or CassetteDiskCommitOutcome.Timeout or CassetteDiskCommitOutcome.Cancelled)
             Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE DISK COMMIT {outcome.ToString().ToUpperInvariant()} epoch={epoch} slot={slot}; grant remains retryable.");
+    }
+
+    private static void LogDiskCommitDiagnostic(
+        CassetteDiskCommitDiagnosticContext context,
+        object? processor,
+        string? detail = null,
+        CassettePublicWriteState? transactionBaseline = null)
+    {
+        string[] allSongs = context.ActiveSongs.Concat(context.QueuedSongs)
+            .Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal).ToArray();
+        bool stateReadable = CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(
+            processor,
+            context.Attempt.Pointer,
+            allSongs,
+            out CassettePublicWriteDiagnosticState state,
+            out string stateStage);
+        string statuses = stateReadable
+            ? string.Join(",", state.Statuses.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}={pair.Value}"))
+            : $"<unavailable:{stateStage}>";
+        string phase = context.Phase switch
+        {
+            CassetteDiskCommitDiagnosticPhase.Pre => "PRE",
+            CassetteDiskCommitDiagnosticPhase.Post => "POST",
+            CassetteDiskCommitDiagnosticPhase.Event => "EVENT",
+            CassetteDiskCommitDiagnosticPhase.StillPending => "STILL_PENDING",
+            CassetteDiskCommitDiagnosticPhase.HardTimeout => "HARD_TIMEOUT",
+            CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored => "PREPARED_EVENT_IGNORED",
+            _ => context.Phase.ToString().ToUpperInvariant(),
+        };
+        CassettePublicWriteState writeState = state.WriteState;
+        string successTime = stateReadable
+            ? CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.LastSuccessTime)
+            : "present=<unavailable> value=<unavailable> bits=<unavailable>";
+        string failureTime = stateReadable
+            ? CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.LastFailureTime)
+            : "present=<unavailable> value=<unavailable> bits=<unavailable>";
+        string currentGameTime = stateReadable
+            ? CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(state.CurrentGameTime)
+            : "present=<unavailable> value=<unavailable> bits=<unavailable>";
+        string hasChanges = stateReadable ? writeState.HasChanges.ToString() : "<unavailable>";
+        string requiresWriteToDisk = stateReadable ? writeState.RequiresWriteToDisk.ToString() : "<unavailable>";
+        string hasUnstagedChanges = stateReadable ? state.HasUnstagedChanges.ToString() : "<unavailable>";
+        string redundancyIndex = stateReadable
+            ? state.RedundancyBundleIndex.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
+        string redundancyRevision = stateReadable
+            ? state.RedundancyBundleRevision.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
+        string baselineSuccessTime = transactionBaseline.HasValue
+            ? CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(transactionBaseline.Value.LastSuccessTime)
+            : "present=<unavailable> value=<unavailable> bits=<unavailable>";
+        string baselineFailureTime = transactionBaseline.HasValue
+            ? CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(transactionBaseline.Value.LastFailureTime)
+            : "present=<unavailable> value=<unavailable> bits=<unavailable>";
+        string baselineHasChanges = transactionBaseline.HasValue
+            ? transactionBaseline.Value.HasChanges.ToString() : "<unavailable>";
+        string baselineRequiresWriteToDisk = transactionBaseline.HasValue
+            ? transactionBaseline.Value.RequiresWriteToDisk.ToString() : "<unavailable>";
+        string baselineFailureReason = transactionBaseline.HasValue
+            ? transactionBaseline.Value.FailureReason ?? "<null>" : "<unavailable>";
+        string suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $" {detail}";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE DISK COMMIT SNAPSHOT attempt={context.Attempt.Id} phase='{phase}' eventOrdinal={context.EventOrdinal} elapsedSeconds={context.Elapsed.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+            $"generation={context.Attempt.Generation} epoch={context.Attempt.Epoch} slot={context.Attempt.Slot} pointer=0x{context.Attempt.Pointer:X} " +
+            $"successTime='{successTime}' failureTime='{failureTime}' currentGameTime='{currentGameTime}' " +
+            $"baselineSuccessTime='{baselineSuccessTime}' baselineFailureTime='{baselineFailureTime}' baselineHasChanges={baselineHasChanges} baselineRequiresWriteToDisk={baselineRequiresWriteToDisk} baselineFailureReason='{baselineFailureReason}' " +
+            $"HasChanges={hasChanges} RequiresWriteToDisk={requiresWriteToDisk} " +
+            $"HasUnstagedChanges={hasUnstagedChanges} redundancyIndex={redundancyIndex} redundancyRevision={redundancyRevision} " +
+            $"failureReason='{(stateReadable ? writeState.FailureReason ?? "<null>" : "<unavailable>")}' stateStage='{stateStage}' statuses='[{statuses}]' " +
+            $"activeSongs='[{string.Join(",", context.ActiveSongs)}]' queuedSongs='[{string.Join(",", context.QueuedSongs)}]'{suffix}.");
     }
 
     private static void LogIdentityDiagnosticOnChange(string diagnostic)

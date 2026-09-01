@@ -158,6 +158,126 @@ internal static class CassetteSaveTransactionAdapter
         catch (Exception ex) { stage = $"{stage}-invocation:{SummarizeException(ex)}"; return false; }
     }
 
+    internal static bool TryReadPublicWriteDiagnosticState(
+        object? processor,
+        long expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        out CassettePublicWriteDiagnosticState state,
+        out string stage)
+    {
+        state = default;
+        stage = "write-diagnostic-start";
+        try
+        {
+            if (!TryObtainPublicState(processor, "write-diagnostic", out object? nativeState, out stage))
+                return false;
+            Type stateType = nativeState!.GetType();
+            PropertyInfo? pointerProperty = stateType.GetProperty("Pointer", PublicInstance);
+            if (pointerProperty == null) { stage = "write-diagnostic-pointer-missing"; return false; }
+            stage = "write-diagnostic-pointer-get";
+            object? rawPointer = pointerProperty.GetValue(nativeState);
+            if (rawPointer is not IntPtr pointer) { stage = "write-diagnostic-pointer-invalid"; return false; }
+            if (pointer == IntPtr.Zero) { stage = "write-diagnostic-pointer-zero"; return false; }
+            long statePointer = pointer.ToInt64();
+            if (statePointer != expectedPointer)
+            {
+                stage = $"write-diagnostic-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
+                return false;
+            }
+            PropertyInfo? hasChangesProperty = stateType.GetProperty("HasChanges", PublicInstance);
+            PropertyInfo? requiresProperty = stateType.GetProperty("RequiresWriteToDisk", PublicInstance);
+            PropertyInfo? successProperty = stateType.GetProperty("GameTimeOfLastWriteToDisk", PublicInstance);
+            PropertyInfo? failureProperty = stateType.GetProperty("GameTimeOfLastFailedAttemptToWriteToDisk", PublicInstance);
+            PropertyInfo? reasonProperty = stateType.GetProperty("FailureReasonOfLastFailedAttemptToWriteToDisk", PublicInstance);
+            if (hasChangesProperty == null) { stage = "write-diagnostic-has-changes-missing"; return false; }
+            if (requiresProperty == null) { stage = "write-diagnostic-requires-write-missing"; return false; }
+            if (successProperty == null) { stage = "write-diagnostic-success-time-missing"; return false; }
+            if (failureProperty == null) { stage = "write-diagnostic-failure-time-missing"; return false; }
+            if (reasonProperty == null) { stage = "write-diagnostic-failure-reason-missing"; return false; }
+
+            PropertyInfo? unstagedProperty = stateType.GetProperty("HasUnstagedChanges", PublicInstance);
+            if (unstagedProperty == null) { stage = "write-diagnostic-has-unstaged-missing"; return false; }
+            PropertyInfo? redundancyIndexProperty = stateType.GetProperty("SaveFileRedundancyBundleIndex", PublicInstance);
+            if (redundancyIndexProperty == null) { stage = "write-diagnostic-redundancy-index-missing"; return false; }
+            PropertyInfo? redundancyRevisionProperty = stateType.GetProperty("SaveFileRedundancyBundleRevision", PublicInstance);
+            if (redundancyRevisionProperty == null) { stage = "write-diagnostic-redundancy-revision-missing"; return false; }
+
+            stage = "write-diagnostic-has-changes-get";
+            bool hasChanges = Convert.ToBoolean(hasChangesProperty.GetValue(nativeState));
+            stage = "write-diagnostic-requires-write-get";
+            bool requires = Convert.ToBoolean(requiresProperty.GetValue(nativeState));
+            stage = "write-diagnostic-success-time-get";
+            object? successValue = ReadPublicNullableProperty(successProperty, nativeState);
+            if (!TryReadPublicGameTime(successValue, "diagnostic-success-time", out double? success, out stage)) return false;
+            stage = "write-diagnostic-failure-time-get";
+            object? failureValue = ReadPublicNullableProperty(failureProperty, nativeState);
+            if (!TryReadPublicGameTime(failureValue, "diagnostic-failure-time", out double? failure, out stage)) return false;
+            stage = "write-diagnostic-failure-reason-get";
+            object? reasonValue = ReadPublicNullableProperty(reasonProperty, nativeState);
+            if (!TryUnwrapPublicWriteNullable(reasonValue, "diagnostic-failure-reason", out object? reason, out stage)) return false;
+            stage = "write-diagnostic-failure-reason-format";
+            string? failureReason = reason?.ToString();
+
+            stage = "write-diagnostic-has-unstaged-get";
+            bool hasUnstagedChanges = Convert.ToBoolean(unstagedProperty.GetValue(nativeState));
+            stage = "write-diagnostic-redundancy-index-get";
+            int redundancyIndex = Convert.ToInt32(redundancyIndexProperty.GetValue(nativeState));
+            stage = "write-diagnostic-redundancy-revision-get";
+            int redundancyRevision = Convert.ToInt32(redundancyRevisionProperty.GetValue(nativeState));
+
+            Type? enquiriesType = FindType("GameTimeEnquiries", processor?.GetType().Assembly);
+            if (enquiriesType == null) { stage = "write-diagnostic-current-game-time-owner-missing"; return false; }
+            PropertyInfo? currentProperty = enquiriesType.GetProperty("CurrentGameTime", PublicStatic);
+            if (currentProperty == null) { stage = "write-diagnostic-current-game-time-missing"; return false; }
+            stage = "write-diagnostic-current-game-time-get";
+            object? currentGameTime = currentProperty.GetValue(null);
+            if (currentGameTime == null) { stage = "write-diagnostic-current-game-time-null"; return false; }
+            PropertyInfo? rawProperty = currentGameTime.GetType().GetProperty("RawTime", PublicInstance);
+            if (rawProperty == null) { stage = "write-diagnostic-current-game-time-raw-missing"; return false; }
+            stage = "write-diagnostic-current-game-time-raw-get";
+            object? rawCurrentGameTime = rawProperty.GetValue(currentGameTime);
+            if (rawCurrentGameTime == null) { stage = "write-diagnostic-current-game-time-raw-null"; return false; }
+            stage = "write-diagnostic-current-game-time-convert";
+            double currentRawTime = Convert.ToDouble(rawCurrentGameTime);
+
+            var statuses = new Dictionary<string, string>(StringComparer.Ordinal);
+            string[] songs = nativeSongs.Distinct(StringComparer.Ordinal)
+                .OrderBy(song => song, StringComparer.Ordinal).ToArray();
+            if (songs.Length > 0)
+            {
+                Type? songType = FindType("ePlayableSong", processor!.GetType().Assembly);
+                if (songType?.IsEnum != true) { stage = "write-diagnostic-status-song-type-missing"; return false; }
+                MethodInfo? readStatus = stateType.GetMethod(
+                    "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
+                if (readStatus == null) { stage = "write-diagnostic-status-method-missing"; return false; }
+                foreach (string nativeSong in songs)
+                {
+                    stage = $"write-diagnostic-status-{nativeSong}-song-parse";
+                    object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+                    stage = $"write-diagnostic-status-{nativeSong}-invoke";
+                    string? nativeStatus = readStatus.Invoke(nativeState, new[] { song })?.ToString();
+                    if (string.IsNullOrWhiteSpace(nativeStatus))
+                    { stage = $"write-diagnostic-status-{nativeSong}-empty"; return false; }
+                    statuses[nativeSong] = nativeStatus;
+                }
+            }
+
+            CassettePublicWriteState writeState = new(
+                hasChanges, requires, success, failure, failureReason);
+            state = new(
+                writeState, currentRawTime, hasUnstagedChanges,
+                redundancyIndex, redundancyRevision, statePointer, statuses);
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            state = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
     internal static bool TryReadPlayerSaveWriteCompletedEvent(
         object? nativeEvent,
         out int slot,
