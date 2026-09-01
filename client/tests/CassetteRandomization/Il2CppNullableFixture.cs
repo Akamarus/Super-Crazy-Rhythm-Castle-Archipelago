@@ -2,8 +2,29 @@ using System.Runtime.CompilerServices;
 
 namespace Il2CppInterop.Runtime.InteropTypes
 {
-    internal static class Il2CppObjectBase
+    public class Il2CppObjectBase
     {
+        private readonly object? _tryCastResult;
+
+        public Il2CppObjectBase(IntPtr pointer, object? tryCastResult = null)
+        {
+            Pointer = pointer;
+            _tryCastResult = tryCastResult;
+        }
+
+        public IntPtr Pointer { get; }
+        public bool ThrowOnTryCast { get; set; }
+        public int TryCastCalls { get; private set; }
+        public Type? LastTryCastType { get; private set; }
+
+        public T? TryCast<T>() where T : Il2CppObjectBase
+        {
+            TryCastCalls++;
+            LastTryCastType = typeof(T);
+            if (ThrowOnTryCast) throw new InvalidOperationException("il2cpp-try-cast");
+            return _tryCastResult as T;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void CreateGCHandle() => throw new NullReferenceException();
     }

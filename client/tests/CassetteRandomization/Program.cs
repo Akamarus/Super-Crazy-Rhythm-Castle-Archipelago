@@ -4,6 +4,14 @@ using System.Text.Json;
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
+static DirectLookupRegistryFixture BuildTargetRegistry(object processor, int otherEntries = 0)
+{
+    var entries = new Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor>();
+    for (int index = 0; index < otherEntries; index++)
+        entries[new PublicTypeKeyFixture($"OtherRequest{index:D3}")] = new(processor);
+    entries[new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new(processor);
+    return new(entries);
+}
 static IReadOnlyList<string> ExtractMethods(string source, string signaturePrefix)
 {
     var methods = new List<string>();
@@ -1222,9 +1230,10 @@ var targetSaveDataState = new DiskCommitTargetSaveDataStateFixture(
     new IntPtr(0x333), new(true, 3), new() { [3] = selectedTargetState, [4] = expectedTargetState });
 var retainedSaveDataProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), targetSaveDataState);
 var registeredPersistProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
+var registeredPersistProcessorWrapper = new RequestProcessor(new IntPtr(0x444), registeredPersistProcessor);
 RequestSystem.SetRegisteredProcessors(new DirectLookupRegistryFixture(new()
 {
-    [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new RegisteredRequestProcessor(registeredPersistProcessor),
+    [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new RegisteredRequestProcessor(registeredPersistProcessorWrapper),
 }));
 bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
@@ -1237,6 +1246,8 @@ Equal(typeof(PersistSaveChangeBundleRequest), Il2CppType.LastConvertedType, "tar
 Equal(1, targetPlayerProcessor.ObtainStateCalls, "target diagnostic obtains the player-side state exactly once");
 Equal(0, retainedSaveDataProcessor.ObtainStateCalls, "retained joined SaveData processor is identity-only and is not substituted for the registered persist target");
 Equal(1, registeredPersistProcessor.ObtainStateCalls, "target diagnostic obtains SaveData state exactly once from the actually registered persist processor");
+Equal(1, registeredPersistProcessorWrapper.TryCastCalls, "target diagnostic rewraps the registered base Processor exactly once");
+Equal(typeof(SaveDataRequestProcessor), registeredPersistProcessorWrapper.LastTryCastType, "target diagnostic requests the exact public SaveDataRequestProcessor cast type");
 Equal(0, RequestSystem.SubmitCount, "target diagnostic does not submit any request");
 Equal(0x111L, targetDiagnostic.PlayerProcessorPointer, "target diagnostic reads the retained player processor pointer");
 Equal(0x444L, targetDiagnostic.RegisteredPersistProcessorPointer, "target diagnostic reads the actually registered persist processor pointer");
@@ -1287,8 +1298,8 @@ Equal("target-selected-entry-pointer-get-invocation:InvalidOperationException:ta
 selectedTargetState.ThrowPointer = false;
 var oversizedEntries = new Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor>();
 for (int registryIndex = 0; registryIndex < 128; registryIndex++)
-    oversizedEntries[new PublicTypeKeyFixture($"OtherRequest{registryIndex:D3}")] = new(registeredPersistProcessor);
-oversizedEntries[new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new(registeredPersistProcessor);
+    oversizedEntries[new PublicTypeKeyFixture($"OtherRequest{registryIndex:D3}")] = new(registeredPersistProcessorWrapper);
+oversizedEntries[new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new(registeredPersistProcessorWrapper);
 var oversizedRegistry = new DirectLookupRegistryFixture(oversizedEntries);
 RequestSystem.SetRegisteredProcessors(oversizedRegistry);
 Equal(true, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
@@ -1300,7 +1311,7 @@ Equal(129, oversizedRegistryCount, "oversized direct lookup preserves public Cou
 Equal(0, oversizedRegistry.GetEnumeratorCalls, "direct Persist lookup never enumerates the registry");
 var missingEntries = Enumerable.Range(0, 150).ToDictionary(
     index => new PublicTypeKeyFixture($"MissingRequest{index:D3}"),
-    _ => new RegisteredRequestProcessor(registeredPersistProcessor));
+    _ => new RegisteredRequestProcessor(registeredPersistProcessorWrapper));
 var missingRegistry = new DirectLookupRegistryFixture(missingEntries);
 RequestSystem.SetRegisteredProcessors(missingRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
@@ -1336,7 +1347,7 @@ Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
 Equal(37, missingLookupRegistryCount, "missing TryGetValue failure preserves public Count");
 Equal("target-registry-try-get-missing", missingLookupStage, "missing public exact TryGetValue has the recommended exact stage");
 Equal(0, missingLookupRegistry.GetEnumeratorCalls, "missing TryGetValue never falls back to enumeration");
-var broadKeyRegistry = new BroadKeyRegistryFixture(registeredPersistProcessor);
+var broadKeyRegistry = new BroadKeyRegistryFixture(registeredPersistProcessorWrapper);
 RequestSystem.SetRegisteredProcessors(broadKeyRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
@@ -1344,7 +1355,7 @@ Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     "broad object-key TryGetValue is rejected instead of treated as the exact registry contract");
 Equal(1, broadKeyRegistryCount, "broad-key rejection preserves public Count");
 Equal("target-registry-try-get-missing", broadKeyStage, "broad-key overload does not satisfy exact TryGetValue lookup");
-var wrongOutRegistry = new WrongOutRegistryFixture(registeredPersistProcessor);
+var wrongOutRegistry = new WrongOutRegistryFixture(registeredPersistProcessorWrapper);
 RequestSystem.SetRegisteredProcessors(wrongOutRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
@@ -1352,6 +1363,61 @@ Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     "wrong out-registration TryGetValue is rejected before invocation");
 Equal(1, wrongOutRegistryCount, "wrong-out rejection preserves public Count");
 Equal("target-registry-try-get-missing", wrongOutStage, "wrong out-registration overload does not satisfy exact TryGetValue lookup");
+var wrongNativeWrapper = new RequestProcessor(new IntPtr(0x444));
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(wrongNativeWrapper, otherEntries: 128));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int wrongNativeRegistryCount, out string wrongNativeStage),
+    "registered base Processor with the wrong native class fails closed before state acquisition");
+Equal(129, wrongNativeRegistryCount, "wrong native class preserves the large public registry Count");
+Equal("target-registry-persist-processor-native-class-mismatch", wrongNativeStage, "wrong native class has an exact cast stage");
+Equal(1, wrongNativeWrapper.TryCastCalls, "wrong native class attempts exactly one public TryCast");
+var throwingCastTarget = new SaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
+var throwingCastWrapper = new RequestProcessor(new IntPtr(0x444), throwingCastTarget) { ThrowOnTryCast = true };
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(throwingCastWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int throwingCastRegistryCount, out string throwingCastStage),
+    "throwing public TryCast remains isolated to the diagnostic read");
+Equal(1, throwingCastRegistryCount, "throwing cast preserves public registry Count");
+Equal("target-registry-persist-processor-try-cast-invoke-invocation:InvalidOperationException:il2cpp-try-cast", throwingCastStage, "throwing cast retains its exact invocation stage");
+Equal(0, throwingCastTarget.ObtainStateCalls, "throwing cast never reaches SaveData ObtainState");
+var derivedCastTarget = new DerivedSaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
+var derivedCastWrapper = new RequestProcessor(new IntPtr(0x444), derivedCastTarget);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(derivedCastWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int derivedCastRegistryCount, out string derivedCastStage),
+    "cast result with a non-exact managed wrapper type fails closed");
+Equal(1, derivedCastRegistryCount, "wrong managed cast type preserves public registry Count");
+Equal("target-registry-persist-processor-cast-type-mismatch:expected=SaveDataRequestProcessor:actual=DerivedSaveDataRequestProcessor", derivedCastStage, "wrong managed cast type has an exact stage");
+Equal(0, derivedCastTarget.ObtainStateCalls, "wrong managed cast type never reaches SaveData ObtainState");
+var mismatchedPointerTarget = new SaveDataRequestProcessor(new IntPtr(0x445), targetSaveDataState);
+var mismatchedPointerWrapper = new RequestProcessor(new IntPtr(0x444), mismatchedPointerTarget);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(mismatchedPointerWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    Array.Empty<string>(), out _, out int mismatchedPointerRegistryCount, out string mismatchedPointerStage),
+    "cast wrapper at a different native pointer fails closed");
+Equal(1, mismatchedPointerRegistryCount, "cast pointer mismatch preserves public registry Count");
+Equal("target-registry-persist-processor-cast-pointer-mismatch:expected=0x444:actual=0x445", mismatchedPointerStage, "cast pointer mismatch has an exact stage");
+Equal(0, mismatchedPointerTarget.ObtainStateCalls, "cast pointer mismatch never reaches SaveData ObtainState");
+Equal(false, CassetteSaveTransactionAdapter.TryRewrapPublicSaveDataProcessorForDiagnostic(
+    new MissingTryCastBaseFixture(new IntPtr(0x501)), typeof(MissingTryCastTargetFixture), typeof(MissingTryCastBaseFixture),
+    out _, out _, out string missingCastStage),
+    "missing public TryCast contract fails closed");
+Equal("target-registry-persist-processor-try-cast-missing", missingCastStage, "missing TryCast has an exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryRewrapPublicSaveDataProcessorForDiagnostic(
+    new PrivateTryCastBaseFixture(new IntPtr(0x502)), typeof(PrivateTryCastTargetFixture), typeof(PrivateTryCastBaseFixture),
+    out _, out _, out string privateCastStage),
+    "private TryCast contract fails closed");
+Equal("target-registry-persist-processor-try-cast-non-public", privateCastStage, "private TryCast has an exact stage");
+var ambiguousBase = new PublicTryCastBaseFixture(new IntPtr(0x503), new PublicTryCastTargetFixture(new IntPtr(0x503)));
+Equal(false, CassetteSaveTransactionAdapter.TryRewrapPublicSaveDataProcessorForDiagnostic(
+    ambiguousBase, typeof(PublicTryCastTargetFixture), new DuplicatePublicTryCastTypeFixture(typeof(PublicTryCastBaseFixture)),
+    out _, out _, out string ambiguousCastStage),
+    "ambiguous public TryCast contract fails closed");
+Equal("target-registry-persist-processor-try-cast-ambiguous:2", ambiguousCastStage, "ambiguous TryCast has an exact stage");
 RequestSystem.SetRegisteredProcessors(new ThrowingCountRegistryFixture());
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
@@ -1429,6 +1495,10 @@ Equal(1, RequestSystem.LastRequest.WriteTypeSetterCalls, "submission explicitly 
 Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0' route='RequestSystem.SubmitRequest<T>'", persistDetail, "persist detail records verified actual and effective semantics");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+string targetCastAdapter = ExtractMethods(adapterSource, "internal static bool TryRewrapPublicSaveDataProcessorForDiagnostic(").Single();
+Equal(true, targetCastAdapter.Contains("MakeGenericMethod", StringComparison.Ordinal), "target diagnostic rewrap closes the public generic TryCast API over exact SaveDataRequestProcessor");
+foreach (string prohibitedRawConstructorPath in new[] { "GetConstructor", "ConstructorInfo", "Activator.CreateInstance" })
+    Equal(false, targetCastAdapter.Contains(prohibitedRawConstructorPath, StringComparison.Ordinal), $"target diagnostic rewrap never uses raw IntPtr constructor path {prohibitedRawConstructorPath}");
 string factorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
 string verifiedFactory = ExtractMethods(factorySource, "private static bool TryCreateVerified(").Single();
 Equal(true, verifiedFactory.Contains("Type.EmptyTypes", StringComparison.Ordinal), "request factory resolves the exact public parameterless constructor");
@@ -2436,8 +2506,8 @@ sealed class DirectLookupRegistryFixture
 
 sealed class BroadKeyRegistryFixture
 {
-    private readonly SaveDataRequestProcessor _processor;
-    public BroadKeyRegistryFixture(SaveDataRequestProcessor processor) => _processor = processor;
+    private readonly object _processor;
+    public BroadKeyRegistryFixture(object processor) => _processor = processor;
     public int Count => 1;
     public bool TryGetValue(object key, out RegisteredRequestProcessor value)
     {
@@ -2450,8 +2520,8 @@ sealed record WrongRegisteredRequestProcessor(object Processor);
 
 sealed class WrongOutRegistryFixture
 {
-    private readonly SaveDataRequestProcessor _processor;
-    public WrongOutRegistryFixture(SaveDataRequestProcessor processor) => _processor = processor;
+    private readonly object _processor;
+    public WrongOutRegistryFixture(object processor) => _processor = processor;
     public int Count => 1;
     public bool TryGetValue(PublicTypeKeyFixture key, out WrongRegisteredRequestProcessor value)
     {
@@ -2511,13 +2581,70 @@ sealed class PrivateGetterHasChangesTargetStateFixture
     public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.HAVE_IN_BAG;
 }
 
-sealed class SaveDataRequestProcessor
+public sealed class RequestProcessor : Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase
+{
+    public RequestProcessor(IntPtr pointer, object? tryCastResult = null) : base(pointer, tryCastResult) { }
+}
+
+public class MissingTryCastBaseFixture
+{
+    public MissingTryCastBaseFixture(IntPtr pointer) => Pointer = pointer;
+    public IntPtr Pointer { get; }
+}
+
+public sealed class MissingTryCastTargetFixture : MissingTryCastBaseFixture
+{
+    public MissingTryCastTargetFixture(IntPtr pointer) : base(pointer) { }
+}
+
+public class PrivateTryCastBaseFixture
+{
+    public PrivateTryCastBaseFixture(IntPtr pointer) => Pointer = pointer;
+    public IntPtr Pointer { get; }
+    private T? TryCast<T>() where T : PrivateTryCastBaseFixture => null;
+}
+
+public sealed class PrivateTryCastTargetFixture : PrivateTryCastBaseFixture
+{
+    public PrivateTryCastTargetFixture(IntPtr pointer) : base(pointer) { }
+}
+
+public class PublicTryCastBaseFixture
+{
+    private readonly object? _castResult;
+    public PublicTryCastBaseFixture(IntPtr pointer, object? castResult = null) { Pointer = pointer; _castResult = castResult; }
+    public IntPtr Pointer { get; }
+    public T? TryCast<T>() where T : PublicTryCastBaseFixture => _castResult as T;
+}
+
+public sealed class PublicTryCastTargetFixture : PublicTryCastBaseFixture
+{
+    public PublicTryCastTargetFixture(IntPtr pointer) : base(pointer) { }
+}
+
+sealed class DuplicatePublicTryCastTypeFixture : System.Reflection.TypeDelegator
+{
+    public DuplicatePublicTryCastTypeFixture(Type delegatingType) : base(delegatingType) { }
+    public override System.Reflection.MethodInfo[] GetMethods(System.Reflection.BindingFlags bindingAttr)
+    {
+        System.Reflection.MethodInfo[] methods = base.GetMethods(bindingAttr);
+        System.Reflection.MethodInfo? tryCast = methods.SingleOrDefault(method =>
+            method.Name == "TryCast" && method.IsGenericMethodDefinition && method.GetParameters().Length == 0);
+        return tryCast == null ? methods : methods.Concat(new[] { tryCast }).ToArray();
+    }
+}
+
+public class SaveDataRequestProcessor : Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase
 {
     private readonly object _state;
-    public SaveDataRequestProcessor(IntPtr pointer, object state) { Pointer = pointer; _state = state; }
-    public IntPtr Pointer { get; }
+    public SaveDataRequestProcessor(IntPtr pointer, object state) : base(pointer) => _state = state;
     public int ObtainStateCalls { get; private set; }
     public object ObtainState() { ObtainStateCalls++; return _state; }
+}
+
+sealed class DerivedSaveDataRequestProcessor : SaveDataRequestProcessor
+{
+    public DerivedSaveDataRequestProcessor(IntPtr pointer, object state) : base(pointer, state) { }
 }
 
 sealed record DiskCommitTargetSaveDataStateFixture(

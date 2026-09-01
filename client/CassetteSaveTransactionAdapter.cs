@@ -538,6 +538,13 @@ internal static class CassetteSaveTransactionAdapter
 
         Type? requestType = FindType("PersistSaveChangeBundleRequest", preferredAssembly);
         if (requestType == null) { stage = "target-registry-request-type-missing"; return false; }
+        Type? saveDataProcessorType = requestType.Assembly.GetType("SaveDataRequestProcessor", throwOnError: false, ignoreCase: false);
+        if (saveDataProcessorType == null) { stage = "target-registry-save-data-type-missing"; return false; }
+        if (!saveDataProcessorType.IsPublic && !saveDataProcessorType.IsNestedPublic)
+        {
+            stage = "target-registry-save-data-type-non-public";
+            return false;
+        }
         Type? il2CppType = FindType("Il2CppType", preferredAssembly);
         if (il2CppType == null) { stage = "target-registry-key-converter-missing"; return false; }
         MethodInfo? convertType = il2CppType.GetMethods(PublicStatic).SingleOrDefault(method =>
@@ -602,10 +609,119 @@ internal static class CassetteSaveTransactionAdapter
         stage = "target-registry-processor-get";
         object? matchedProcessor = processorProperty.GetValue(registration);
         if (matchedProcessor == null) { stage = "target-registry-processor-null"; return false; }
-        if (!TryReadPublicObjectPointer(matchedProcessor, "target-registry-persist-processor", out processorPointer, out stage))
+        Type? il2CppObjectBaseType = matchedProcessor.GetType();
+        while (il2CppObjectBaseType != null && !string.Equals(
+                   il2CppObjectBaseType.FullName,
+                   "Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase",
+                   StringComparison.Ordinal))
+            il2CppObjectBaseType = il2CppObjectBaseType.BaseType;
+        if (il2CppObjectBaseType == null) { stage = "target-registry-persist-processor-il2cpp-object-base-missing"; return false; }
+        if (!il2CppObjectBaseType.IsPublic && !il2CppObjectBaseType.IsNestedPublic)
+        {
+            stage = "target-registry-persist-processor-il2cpp-object-base-non-public";
             return false;
-        processor = matchedProcessor;
+        }
+        if (!TryRewrapPublicSaveDataProcessorForDiagnostic(
+                matchedProcessor,
+                saveDataProcessorType,
+                il2CppObjectBaseType,
+                out object? saveDataProcessor,
+                out processorPointer,
+                out stage))
+            return false;
+        processor = saveDataProcessor;
         return true;
+    }
+
+    internal static bool TryRewrapPublicSaveDataProcessorForDiagnostic(
+        object? processor,
+        Type saveDataProcessorType,
+        Type il2CppObjectBaseType,
+        out object? saveDataProcessor,
+        out long processorPointer,
+        out string stage)
+    {
+        saveDataProcessor = null;
+        processorPointer = 0;
+        stage = "target-registry-persist-processor-rewrap-start";
+        try
+        {
+            if (processor == null) { stage = "target-registry-persist-processor-null"; return false; }
+            if (!il2CppObjectBaseType.IsPublic && !il2CppObjectBaseType.IsNestedPublic)
+            { stage = "target-registry-persist-processor-il2cpp-object-base-non-public"; return false; }
+            if (!il2CppObjectBaseType.IsInstanceOfType(processor))
+            { stage = "target-registry-persist-processor-il2cpp-object-base-mismatch"; return false; }
+            if ((!saveDataProcessorType.IsPublic && !saveDataProcessorType.IsNestedPublic) ||
+                !il2CppObjectBaseType.IsAssignableFrom(saveDataProcessorType))
+            { stage = "target-registry-save-data-type-invalid"; return false; }
+            if (!TryReadPublicObjectPointer(
+                    processor, "target-registry-persist-processor", out long originalPointer, out stage))
+                return false;
+
+            static bool IsTryCastContract(MethodInfo method)
+            {
+                Type[] genericArguments = method.IsGenericMethodDefinition ? method.GetGenericArguments() : Type.EmptyTypes;
+                return string.Equals(method.Name, "TryCast", StringComparison.Ordinal) &&
+                       method.IsGenericMethodDefinition &&
+                       genericArguments.Length == 1 &&
+                       method.GetParameters().Length == 0 &&
+                       method.ReturnType == genericArguments[0];
+            }
+
+            MethodInfo[] publicTryCastMethods = il2CppObjectBaseType.GetMethods(PublicInstance)
+                .Where(IsTryCastContract)
+                .ToArray();
+            if (publicTryCastMethods.Length == 0)
+            {
+                bool nonPublicContractExists = il2CppObjectBaseType
+                    .GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                    .Any(IsTryCastContract);
+                stage = nonPublicContractExists
+                    ? "target-registry-persist-processor-try-cast-non-public"
+                    : "target-registry-persist-processor-try-cast-missing";
+                return false;
+            }
+            if (publicTryCastMethods.Length != 1)
+            {
+                stage = $"target-registry-persist-processor-try-cast-ambiguous:{publicTryCastMethods.Length}";
+                return false;
+            }
+
+            stage = "target-registry-persist-processor-try-cast-close";
+            MethodInfo closedTryCast = publicTryCastMethods[0].MakeGenericMethod(saveDataProcessorType);
+            stage = "target-registry-persist-processor-try-cast-invoke";
+            object? castProcessor = closedTryCast.Invoke(processor, null);
+            if (castProcessor == null)
+            {
+                stage = "target-registry-persist-processor-native-class-mismatch";
+                return false;
+            }
+            if (castProcessor.GetType() != saveDataProcessorType)
+            {
+                stage = $"target-registry-persist-processor-cast-type-mismatch:expected={saveDataProcessorType.FullName}:actual={castProcessor.GetType().FullName}";
+                return false;
+            }
+            if (!TryReadPublicObjectPointer(
+                    castProcessor, "target-registry-persist-processor-cast", out long castPointer, out stage))
+                return false;
+            if (castPointer != originalPointer)
+            {
+                stage = $"target-registry-persist-processor-cast-pointer-mismatch:expected=0x{originalPointer:X}:actual=0x{castPointer:X}";
+                return false;
+            }
+
+            saveDataProcessor = castProcessor;
+            processorPointer = originalPointer;
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            saveDataProcessor = null;
+            processorPointer = 0;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
     }
 
     private static bool TryReadDiskCommitTargetSide(
