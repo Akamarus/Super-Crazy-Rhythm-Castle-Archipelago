@@ -158,6 +158,86 @@ internal static class CassetteSaveTransactionAdapter
         catch (Exception ex) { stage = $"{stage}-invocation:{SummarizeException(ex)}"; return false; }
     }
 
+    internal static bool TryReadPlayerSaveWriteCompletedEvent(
+        object? nativeEvent,
+        out int slot,
+        out bool succeeded,
+        out string? failureReason,
+        out string stage)
+    {
+        failureReason = null;
+        if (!TryReadPlayerSaveWriteCompletedEventHeader(nativeEvent, out slot, out succeeded, out stage))
+            return false;
+        TryReadPlayerSaveWriteCompletedEventFailureReason(nativeEvent, out failureReason);
+        return true;
+    }
+
+    internal static bool TryReadPlayerSaveWriteCompletedEventHeader(
+        object? nativeEvent,
+        out int slot,
+        out bool succeeded,
+        out string stage)
+    {
+        slot = default;
+        succeeded = false;
+        stage = "write-event-start";
+        try
+        {
+            if (nativeEvent == null ||
+                !string.Equals(nativeEvent.GetType().Name, "PlayerSaveWriteCompletedEvent", StringComparison.Ordinal))
+            {
+                stage = "write-event-incompatible";
+                return false;
+            }
+            Type type = nativeEvent.GetType();
+            PropertyInfo? slotProperty = type.GetProperty("SlotNumber", PublicInstance);
+            PropertyInfo? succeededProperty = type.GetProperty("Succeeded", PublicInstance);
+            if (slotProperty == null || succeededProperty == null)
+            {
+                stage = "write-event-contract-missing";
+                return false;
+            }
+            stage = "write-event-slot-get";
+            slot = Convert.ToInt32(slotProperty.GetValue(nativeEvent));
+            stage = "write-event-succeeded-get";
+            succeeded = Convert.ToBoolean(succeededProperty.GetValue(nativeEvent));
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            slot = default;
+            succeeded = false;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadPlayerSaveWriteCompletedEventFailureReason(
+        object? nativeEvent,
+        out string? failureReason)
+    {
+        failureReason = null;
+        try
+        {
+            if (nativeEvent == null ||
+                !string.Equals(nativeEvent.GetType().Name, "PlayerSaveWriteCompletedEvent", StringComparison.Ordinal))
+                return false;
+            PropertyInfo? failureProperty = nativeEvent.GetType().GetProperty("FailureReason", PublicInstance);
+            if (failureProperty == null) return true;
+            object? failureValue = ReadPublicNullableProperty(failureProperty, nativeEvent);
+            if (TryUnwrapPublicWriteNullable(
+                    failureValue, "event-failure-reason", out object? reason, out _))
+                failureReason = reason?.ToString();
+            return true;
+        }
+        catch
+        {
+            failureReason = null;
+            return true;
+        }
+    }
+
     private static object? ReadPublicNullableProperty(PropertyInfo property, object target)
     {
         try { return property.GetValue(target); }

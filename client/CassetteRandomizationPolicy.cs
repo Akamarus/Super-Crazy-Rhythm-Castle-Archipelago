@@ -324,17 +324,37 @@ internal readonly record struct CassettePublicWriteState(
     double? LastFailureTime,
     string? FailureReason);
 
-internal enum CassetteDiskCommitOutcome { None, Pending, Success, Failure, Timeout, Cancelled }
+internal enum CassetteDiskCommitOutcome { None, Pending, Success, Failure, Timeout, HardTimeout, Cancelled }
+
+internal enum CassetteDiskCommitEventOutcome { Ignored, SuccessWake, Failure }
+
+internal readonly record struct CassetteDiskCommitAttempt(
+    long Id,
+    long Generation,
+    long Epoch,
+    int Slot,
+    long Pointer);
 
 internal sealed class CassetteDiskCommitRuntime
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan AcquisitionTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan MaximumActiveUpdateElapsed = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan StillPendingAfter = TimeSpan.FromSeconds(11);
+    private static readonly TimeSpan HardTimeout = TimeSpan.FromSeconds(130);
     private readonly HashSet<string> _songs = new(StringComparer.Ordinal);
     private readonly HashSet<string> _activeSongs = new(StringComparer.Ordinal);
     private bool _active;
+    private bool _submitted;
     private bool _blocked;
+    private bool _indeterminate;
+    private bool _successEventObserved;
+    private bool _stillPendingReported;
+    private bool _rejectedEventReported;
+    private long _attemptCounter;
+    private CassetteDiskCommitAttempt _attempt;
     private long _revision;
     private long _activeRevision;
+    private long _generation;
     private long _epoch;
     private int _slot;
     private long _pointer;
@@ -351,31 +371,93 @@ internal sealed class CassetteDiskCommitRuntime
     private TimeSpan _acquisitionElapsed;
 
     internal bool HasWork => _active || (_songs.Count > 0 && !_blocked);
-    internal bool Active => _active;
+    internal bool Active => _submitted;
     internal IReadOnlyList<string> Songs => (_active ? _activeSongs : _songs).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    internal static TimeSpan CapActiveUpdateElapsed(TimeSpan elapsed) =>
+        elapsed <= TimeSpan.Zero ? TimeSpan.Zero :
+        elapsed > MaximumActiveUpdateElapsed ? MaximumActiveUpdateElapsed : elapsed;
     internal void Stage(string song)
     {
         if (!_songs.Add(song)) return;
         _revision++;
-        _blocked = false;
+        if (!_indeterminate) _blocked = false;
     }
     internal void Reset()
     {
-        _songs.Clear(); _activeSongs.Clear(); _active = false; _blocked = false;
+        _songs.Clear(); _activeSongs.Clear(); _active = false; _submitted = false; _blocked = false; _indeterminate = false;
+        _successEventObserved = false; _stillPendingReported = false; _rejectedEventReported = false;
+        _attempt = default;
         _revision = 0; _activeRevision = 0; _elapsed = TimeSpan.Zero;
         ClearAcquisition();
     }
 
-    internal bool TryBegin(long epoch, int slot, long pointer, CassettePublicWriteState state)
+    internal bool TryPrepare(
+        long generation, long epoch, int slot, long pointer, CassettePublicWriteState state,
+        out CassetteDiskCommitAttempt attempt)
     {
+        attempt = default;
         if (_active || _blocked || _songs.Count == 0 || pointer == 0) return false;
         ClearAcquisition();
-        _active = true; _epoch = epoch; _slot = slot; _pointer = pointer;
+        _attempt = new CassetteDiskCommitAttempt(++_attemptCounter, generation, epoch, slot, pointer);
+        _active = true; _generation = generation; _epoch = epoch; _slot = slot; _pointer = pointer;
         _activeSongs.Clear(); _activeSongs.UnionWith(_songs); _activeRevision = _revision;
         _baselineSuccess = state.LastSuccessTime; _baselineFailure = state.LastFailureTime;
         _baselineFailureReason = state.FailureReason;
-        _elapsed = TimeSpan.Zero;
+        _elapsed = TimeSpan.Zero; _submitted = false; _successEventObserved = false;
+        _stillPendingReported = false; _rejectedEventReported = false;
+        attempt = _attempt;
         return true;
+    }
+
+    internal bool MarkSubmitted(CassetteDiskCommitAttempt attempt, CassettePublicWriteState postSubmitState)
+    {
+        if (!_active || _submitted || attempt != _attempt) return false;
+        _baselineSuccess = postSubmitState.LastSuccessTime;
+        _baselineFailure = postSubmitState.LastFailureTime;
+        _baselineFailureReason = postSubmitState.FailureReason;
+        _submitted = true;
+        return true;
+    }
+
+    internal CassetteDiskCommitOutcome MarkSubmissionIndeterminate(CassetteDiskCommitAttempt attempt)
+    {
+        if (!_active || _submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
+        _indeterminate = true;
+        return FinishFailure(CassetteDiskCommitOutcome.HardTimeout);
+    }
+
+    internal bool TryGetSubmittedAttempt(out CassetteDiskCommitAttempt attempt)
+    {
+        attempt = _attempt;
+        return _active && _submitted;
+    }
+
+    internal CassetteDiskCommitOutcome FailPrepared(CassetteDiskCommitAttempt attempt)
+    {
+        if (!_active || _submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
+        return FinishFailure(CassetteDiskCommitOutcome.Failure);
+    }
+
+    internal bool TryReportRejectedEvent(CassetteDiskCommitAttempt attempt)
+    {
+        if (!_active || !_submitted || attempt != _attempt || _rejectedEventReported) return false;
+        _rejectedEventReported = true;
+        return true;
+    }
+
+    internal CassetteDiskCommitEventOutcome ObserveWriteCompletedEvent(
+        CassetteDiskCommitAttempt attempt, int eventSlot, bool succeeded)
+    {
+        if (!_active || !_submitted || attempt != _attempt || eventSlot != _slot)
+            return CassetteDiskCommitEventOutcome.Ignored;
+        if (!succeeded)
+        {
+            FinishFailure(CassetteDiskCommitOutcome.Failure);
+            return CassetteDiskCommitEventOutcome.Failure;
+        }
+        if (_successEventObserved) return CassetteDiskCommitEventOutcome.Ignored;
+        _successEventObserved = true;
+        return CassetteDiskCommitEventOutcome.SuccessWake;
     }
 
     internal CassetteDiskCommitOutcome ObservePreSubmitUnavailable(
@@ -401,16 +483,17 @@ internal sealed class CassetteDiskCommitRuntime
         if (identityReadable && !statusesRetained)
             return FinishPreSubmitFailure(CassetteDiskCommitOutcome.Failure);
         if (elapsed > TimeSpan.Zero) _acquisitionElapsed += elapsed;
-        return _acquisitionElapsed >= Timeout
+        return _acquisitionElapsed >= AcquisitionTimeout
             ? FinishPreSubmitFailure(CassetteDiskCommitOutcome.Timeout)
             : CassetteDiskCommitOutcome.Pending;
     }
 
     internal CassetteDiskCommitOutcome Observe(
-        long epoch, int slot, long pointer, CassettePublicWriteState state,
-        bool statusesRetained, TimeSpan elapsed)
+        CassetteDiskCommitAttempt attempt, CassettePublicWriteState state,
+        bool statusesRetained, TimeSpan elapsed, out bool reportStillPending)
     {
-        CassetteDiskCommitOutcome boundary = CheckBoundary(epoch, slot, pointer, statusesRetained);
+        reportStillPending = false;
+        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained);
         if (boundary is not CassetteDiskCommitOutcome.Pending) return boundary;
         bool failureAdvanced = state.LastFailureTime.HasValue &&
             (!_baselineFailure.HasValue || state.LastFailureTime.Value > _baselineFailure.Value);
@@ -422,43 +505,55 @@ internal sealed class CassetteDiskCommitRuntime
             (!_baselineSuccess.HasValue || state.LastSuccessTime.Value > _baselineSuccess.Value);
         if (!state.RequiresWriteToDisk && successAdvanced)
         {
-            _active = false;
+            _active = false; _submitted = false;
             _songs.ExceptWith(_activeSongs);
             _activeSongs.Clear();
             _blocked = false;
             return CassetteDiskCommitOutcome.Success;
         }
-        return AdvanceTimeout(elapsed);
+        return AdvanceTimeout(elapsed, out reportStillPending);
     }
 
     internal CassetteDiskCommitOutcome ObserveUnavailable(
-        long epoch, int slot, long pointer, bool statusesRetained, TimeSpan elapsed)
+        CassetteDiskCommitAttempt attempt, bool statusesRetained,
+        TimeSpan elapsed, out bool reportStillPending)
     {
-        CassetteDiskCommitOutcome boundary = CheckBoundary(epoch, slot, pointer, statusesRetained);
-        return boundary is CassetteDiskCommitOutcome.Pending ? AdvanceTimeout(elapsed) : boundary;
+        reportStillPending = false;
+        CassetteDiskCommitOutcome boundary = CheckBoundary(attempt, statusesRetained);
+        return boundary is CassetteDiskCommitOutcome.Pending
+            ? AdvanceTimeout(elapsed, out reportStillPending)
+            : boundary;
     }
 
-    private CassetteDiskCommitOutcome CheckBoundary(long epoch, int slot, long pointer, bool statusesRetained)
+    private CassetteDiskCommitOutcome CheckBoundary(CassetteDiskCommitAttempt attempt, bool statusesRetained)
     {
-        if (!_active) return CassetteDiskCommitOutcome.None;
-        if (epoch != _epoch || slot != _slot || pointer != _pointer)
-            return FinishFailure(CassetteDiskCommitOutcome.Cancelled);
+        if (!_active || !_submitted || attempt != _attempt) return CassetteDiskCommitOutcome.None;
         if (!statusesRetained) return FinishFailure(CassetteDiskCommitOutcome.Failure);
         return CassetteDiskCommitOutcome.Pending;
     }
 
-    private CassetteDiskCommitOutcome AdvanceTimeout(TimeSpan elapsed)
+    private CassetteDiskCommitOutcome AdvanceTimeout(TimeSpan elapsed, out bool reportStillPending)
     {
+        reportStillPending = false;
         if (elapsed > TimeSpan.Zero) _elapsed += elapsed;
-        if (_elapsed >= Timeout) return FinishFailure(CassetteDiskCommitOutcome.Timeout);
+        if (_elapsed >= HardTimeout)
+        {
+            _indeterminate = true;
+            return FinishFailure(CassetteDiskCommitOutcome.HardTimeout);
+        }
+        if (!_stillPendingReported && _elapsed >= StillPendingAfter)
+        {
+            _stillPendingReported = true;
+            reportStillPending = true;
+        }
         return CassetteDiskCommitOutcome.Pending;
     }
 
     private CassetteDiskCommitOutcome FinishFailure(CassetteDiskCommitOutcome outcome)
     {
-        _active = false;
+        _active = false; _submitted = false;
         _activeSongs.Clear();
-        _blocked = _revision == _activeRevision;
+        _blocked = _indeterminate || _revision == _activeRevision;
         return outcome;
     }
 

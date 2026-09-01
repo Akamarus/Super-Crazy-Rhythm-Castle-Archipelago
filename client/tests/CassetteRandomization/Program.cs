@@ -147,6 +147,18 @@ Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringCompariso
 Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
 foreach (string prohibited in new[] { "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile" })
     Equal(false, diskCommitSource.Contains(prohibited, StringComparison.Ordinal), $"disk transaction avoids prohibited broad/private path {prohibited}");
+int writeEventPatch = pluginSource.IndexOf("\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
+int receiptConfigure = pluginSource.IndexOf("CassetteReceiptRandomization.Configure();", StringComparison.Ordinal);
+Equal(true, writeEventPatch >= 0, "public player-save write completion event is subscribed through the established event-handler hook");
+Equal(true, writeEventPatch < receiptConfigure, "write completion subscription is installed before cassette transactions can be configured or submitted");
+string writeEventPostfix = ExtractMethods(pluginSource, "public static void PlayerSaveWriteCompletedEventPostfix(").Single();
+Equal(true, writeEventPostfix.Contains("OnPlayerSaveWriteCompletedEvent", StringComparison.Ordinal), "public write-completed event is routed to the cassette transaction boundary");
+string writeEventConsumer = ExtractMethods(receiptRandomizationSource, "internal static void OnPlayerSaveWriteCompletedEvent(").Single();
+Equal(true, writeEventConsumer.Contains("ObserveWriteCompletedEvent", StringComparison.Ordinal), "write event is correlated by the transaction runtime");
+Equal(true, writeEventConsumer.Contains("TickDiskCommit(TimeSpan.Zero)", StringComparison.Ordinal), "successful write event wakes immediate public-state verification");
+Equal(false, writeEventConsumer.Contains("CassetteDiskCommitOutcome.Success", StringComparison.Ordinal), "event callback cannot declare disk success by itself");
+Equal(true, writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventHeader", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "compiled callback decodes mandatory event header before correlation");
+Equal(true, writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal) < writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventFailureReason", StringComparison.Ordinal), "compiled callback reads optional failure reason only after correlation");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -557,39 +569,87 @@ Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.Ha
 Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
 var diskCommit = new CassetteDiskCommitRuntime();
+Equal(TimeSpan.Zero, CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromSeconds(-1)), "negative keeper elapsed contributes no active write time");
+Equal(TimeSpan.FromMilliseconds(500), CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromMilliseconds(500)), "normal update elapsed is preserved");
+Equal(TimeSpan.FromSeconds(1), CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromMinutes(5)), "suspension-sized wall elapsed is capped to one active update second");
 diskCommit.Stage("BADASS"); diskCommit.Stage("THE_HEIST"); diskCommit.Stage("BADASS");
 Equal(2, diskCommit.Songs.Count, "one reconciliation wave coalesces cassette grants");
 var dirtyWrite = new CassettePublicWriteState(true, false, 10, null, null);
-Equal(true, diskCommit.TryBegin(1, 4, 400, dirtyWrite), "dirty verified wave begins one disk transaction");
-Equal(false, diskCommit.TryBegin(1, 4, 400, dirtyWrite), "active wave cannot submit a duplicate persist");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(1, 4, 400, new(true, true, 10, null, null), true, TimeSpan.FromSeconds(1)), "required disk write remains pending");
-Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(1, 4, 400, new(false, false, 11, null, null), true, TimeSpan.FromSeconds(1)), "advanced successful write completes transaction");
+var phaseRuntime = new CassetteDiskCommitRuntime();
+phaseRuntime.Stage("BADASS");
+Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt phaseAttempt), "verified wave captures a distinct prepared transaction");
+Equal(CassetteDiskCommitEventOutcome.Ignored, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, true), "late prior success event between baseline and submit is ignored");
+Equal(CassetteDiskCommitEventOutcome.Ignored, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, false), "late prior failure event between baseline and submit is ignored");
+Equal(CassetteDiskCommitOutcome.None, phaseRuntime.Observe(phaseAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out bool phasePending), "prior advanced timestamp cannot complete a merely prepared transaction");
+Equal(false, phasePending, "prepared transaction emits no submitted-write notice");
+Equal(true, phaseRuntime.MarkSubmitted(phaseAttempt, new(false, false, 11, null, null)), "successful public submit transitions the exact prepared attempt with a refreshed post-submit baseline");
+Equal(CassetteDiskCommitEventOutcome.SuccessWake, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, true), "event is accepted only after exact attempt is submitted");
+Equal(CassetteDiskCommitOutcome.Pending, phaseRuntime.Observe(phaseAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out phasePending), "timestamp that advanced before submit cannot prove the submitted attempt");
+Equal(CassetteDiskCommitOutcome.Success, phaseRuntime.Observe(phaseAttempt, new(false, false, 12, null, null), true, TimeSpan.Zero, out phasePending), "submitted attempt requires a later public-state advance");
+
+phaseRuntime.Stage("BADASS");
+Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt newerAttempt), "same identity can prepare a later monotonic attempt");
+Equal(true, phaseRuntime.MarkSubmitted(newerAttempt, dirtyWrite), "later attempt is submitted");
+Equal(true, newerAttempt.Id > phaseAttempt.Id, "attempt token increases monotonically");
+Equal(CassetteDiskCommitOutcome.None, phaseRuntime.Observe(phaseAttempt, new(false, false, 12, null, null), true, TimeSpan.FromSeconds(130), out phasePending), "stale overlapping poll cannot mutate later same-identity attempt");
+Equal(true, phaseRuntime.Active, "later attempt remains active after stale poll returns");
+Equal(true, phaseRuntime.TryReportRejectedEvent(newerAttempt), "first rejected event diagnostic is admitted for an attempt");
+Equal(false, phaseRuntime.TryReportRejectedEvent(newerAttempt), "alternating rejected event stages share a fixed one-log budget");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(new(1, 7, 1, 4, 400), 4, true), "pre-submit write event is ignored");
+Equal(true, diskCommit.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt diskAttempt), "dirty verified wave prepares one disk transaction");
+Equal(false, diskCommit.TryPrepare(7, 1, 4, 400, dirtyWrite, out _), "prepared wave cannot submit a duplicate persist");
+Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "dirty verified wave records successful request submission");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 3, true), "wrong-slot write event is ignored");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Generation = 8 }, 4, true), "wrong-generation write event is ignored");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Epoch = 2 }, 4, true), "wrong-epoch write event is ignored");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Pointer = 401 }, 4, true), "wrong-pointer write event is ignored");
+Equal(CassetteDiskCommitEventOutcome.SuccessWake, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, true), "matching successful event wakes verification");
+Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, true), "duplicate successful event is bounded");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, new(true, true, 10, null, null), true, TimeSpan.FromSeconds(1), out bool reportStillPending), "event cannot complete without public state proof");
+Equal(false, reportStillPending, "one second does not emit a still-pending notice");
+Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(diskAttempt, new(false, false, 11, null, null), true, TimeSpan.FromSeconds(1), out reportStillPending), "advanced successful write completes transaction");
 Equal(false, diskCommit.HasWork, "successful disk commit clears batched songs");
 
-diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "first verified wave begins");
+diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out diskAttempt), "first verified wave prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "first verified wave submits");
 diskCommit.Stage("THE_HEIST");
-Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(2, 4, 401, new(false, false, 11, null, null), true, TimeSpan.Zero), "first wave can complete after a later grant verifies");
+Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(diskAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out reportStillPending), "first wave can complete after a later grant verifies");
 Equal(true, diskCommit.HasWork, "grant verified after submission remains queued for its own disk transaction");
 Equal(1, diskCommit.Songs.Count, "successful write clears only the submitted wave");
 Equal("THE_HEIST", diskCommit.Songs[0], "later verified grant is never attributed to the earlier write");
 
-diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "failure case begins");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(2, 4, 401, new(true, false, 10, 12, "IO_ERROR"), true, TimeSpan.Zero), "advanced failure fails transaction");
+diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out diskAttempt), "failure case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failure case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, new(true, false, 10, 12, "IO_ERROR"), true, TimeSpan.Zero, out reportStillPending), "advanced failure fails transaction");
 Equal(false, diskCommit.HasWork, "failed wave is bounded until a new epoch or newly verified song");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "timeout case begins");
-Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.Observe(2, 4, 401, dirtyWrite, true, TimeSpan.FromSeconds(10)), "bounded disk transaction times out");
-Equal(false, diskCommit.HasWork, "timed out wave cannot resubmit every frame");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(2, 4, 401, dirtyWrite), "epoch-switch case begins");
-Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.Observe(3, 4, 401, dirtyWrite, true, TimeSpan.Zero), "epoch switch cancels transaction");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 401, dirtyWrite), "pointer-switch case begins");
-Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.Observe(3, 4, 402, dirtyWrite, true, TimeSpan.Zero), "pointer switch cancels transaction");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "status-regression case begins");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(3, 4, 402, dirtyWrite, false, TimeSpan.Zero), "cassette status regression fails closed");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "unreadable-state timeout case begins");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(3, 4, 402, true, TimeSpan.FromSeconds(9)), "temporarily unreadable write state remains pending within the bound");
-Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.ObserveUnavailable(3, 4, 402, true, TimeSpan.FromSeconds(1)), "unreadable write state cannot postpone timeout indefinitely");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "unreadable-state identity case begins");
-Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.ObserveUnavailable(3, 4, 403, true, TimeSpan.Zero), "identity replacement fails closed even when write state is unreadable");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "failed event case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failed event case submits");
+Equal(CassetteDiskCommitEventOutcome.Failure, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, false), "matching failed event fails closed immediately");
+Equal(false, diskCommit.HasWork, "failed event blocks the submitted wave");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "hard-timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "hard-timeout case submits");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(10), out reportStillPending), "native write is not terminated at ten seconds");
+Equal(false, reportStillPending, "ten seconds remains below the still-pending notice");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(1), out reportStillPending), "native write remains pending at eleven seconds");
+Equal(true, reportStillPending, "eleven seconds emits the one still-pending notice");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(118.999), out reportStillPending), "transaction remains pending immediately before hard watchdog");
+Equal(false, reportStillPending, "still-pending notice is emitted at most once");
+diskCommit.Stage("THE_HEIST");
+Equal(CassetteDiskCommitOutcome.HardTimeout, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromMilliseconds(1), out reportStillPending), "active-update hard watchdog expires at 130 seconds");
+Equal(false, reportStillPending, "hard timeout does not duplicate the pending notice");
+Equal(false, diskCommit.HasWork, "indeterminate hard-timeout wave cannot resubmit despite a newer active revision");
+diskCommit.Stage("KEEP_ON_HUSTLIN");
+Equal(false, diskCommit.HasWork, "newly staged work cannot unblock an indeterminate hard-timeout wave");
+diskCommit.Reset();
+Equal(false, diskCommit.HasWork, "identity reset clears the indeterminate transaction");
+diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 2, 4, 401, dirtyWrite, out diskAttempt), "epoch-switch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "epoch-switch case submits");
+Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Epoch = 3 }, dirtyWrite, true, TimeSpan.Zero, out reportStillPending), "stale epoch token cannot mutate transaction");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 401, dirtyWrite, out diskAttempt), "pointer-switch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "pointer-switch case submits");
+Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Pointer = 402 }, dirtyWrite, true, TimeSpan.Zero, out reportStillPending), "stale pointer token cannot mutate transaction");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "status-regression case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "status-regression case submits");
+Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite, false, TimeSpan.Zero, out reportStillPending), "cassette status regression fails closed");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "unreadable-state timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "unreadable-state timeout case submits");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(diskAttempt, true, TimeSpan.FromSeconds(11), out reportStillPending), "temporarily unreadable write state remains pending within the hard bound");
+Equal(true, reportStillPending, "unreadable public state emits the same bounded pending notice");
+Equal(CassetteDiskCommitOutcome.HardTimeout, diskCommit.ObserveUnavailable(diskAttempt, true, TimeSpan.FromSeconds(119), out reportStillPending), "unreadable write state cannot postpone hard timeout indefinitely");
+diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "unreadable-state identity case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "unreadable-state identity case submits");
+Equal(CassetteDiskCommitOutcome.None, diskCommit.ObserveUnavailable(diskAttempt with { Pointer = 403 }, true, TimeSpan.Zero, out reportStillPending), "stale identity token cannot mutate transaction when write state is unreadable");
 diskCommit.Reset(); diskCommit.Stage("BADASS");
 Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromSeconds(9), out bool reportDeferred), "pre-submit state acquisition remains pending within its bound");
 Equal(true, reportDeferred, "pre-submit acquisition reports its first deferred read");
@@ -611,10 +671,10 @@ diskCommit.Reset(); diskCommit.Stage("BADASS");
 Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObservePreSubmitUnavailable(6, 4, 406, true, 406, false, TimeSpan.Zero, out reportDeferred), "status regression fails closed before submission");
 diskCommit.Reset(); diskCommit.Stage("BADASS");
 Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(7, 4, 407, true, 407, true, TimeSpan.FromSeconds(9), out reportDeferred), "identity reset starts a fresh acquisition bound");
-Equal(true, diskCommit.TryBegin(7, 4, 407, dirtyWrite), "readable state begins transaction after pre-submit acquisition");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(7, 4, 407, dirtyWrite, true, TimeSpan.FromSeconds(9)), "pre-submit acquisition time is not charged to submitted write confirmation");
+Equal(true, diskCommit.TryPrepare(11, 7, 4, 407, dirtyWrite, out diskAttempt), "readable state prepares transaction after pre-submit acquisition"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "readable state submits after acquisition");
+Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(9), out reportStillPending), "pre-submit acquisition time is not charged to submitted write confirmation");
 diskCommit.Reset();
-Equal(false, diskCommit.TryBegin(3, 4, 402, dirtyWrite), "no verified songs means no persist");
+Equal(false, diskCommit.TryPrepare(12, 3, 4, 402, dirtyWrite, out _), "no verified songs means no persist");
 var alreadyDurableEpoch = new CassetteSaveEpochRuntime(); alreadyDurableEpoch.Receive("BADASS"); alreadyDurableEpoch.ActivateSave(4);
 alreadyDurableEpoch.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, alreadyDurableEpoch.IsPending("BADASS"), "already durable cassette status queues no grant or disk transaction");
@@ -761,6 +821,29 @@ Equal("success", publicWriteStage, "empty IL2CPP nullable write state reports su
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new UnrelatedThrowingInteropNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "unrelated NRE from an IL2CPP nullable getter fails closed");
 Equal(default(CassettePublicWriteState), failedWriteState, "unrelated nullable getter NRE exposes no partial write state");
 Equal("write-state-success-time-get-invocation:NullReferenceException:not-interop-empty", publicWriteStage, "unrelated nullable getter NRE retains its exact failure stage");
+var failedWriteEvent = new PlayerSaveWriteCompletedEvent(4, false, new(true, eSaveFileWriterFailureReason.VALIDATION_FAILED));
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(failedWriteEvent, out int writeEventSlot, out bool writeEventSucceeded, out string? writeEventFailure, out string writeEventStage), "adapter reads the public player-save write-completed event");
+Equal(4, writeEventSlot, "write-completed event preserves exact slot");
+Equal(false, writeEventSucceeded, "write-completed event preserves failed result");
+Equal(nameof(eSaveFileWriterFailureReason.VALIDATION_FAILED), writeEventFailure, "write-completed event preserves public failure reason");
+Equal("success", writeEventStage, "write-completed event read reports success");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new PlayerSaveWriteCompletedEvent(4, true, new(false, default)), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "successful write-completed event permits an empty failure reason");
+Equal(true, writeEventSucceeded, "successful event result remains true");
+Equal<string?>(null, writeEventFailure, "successful event has no invented failure reason");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new MissingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, true), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "missing optional failure reason cannot suppress a success wake");
+Equal(true, writeEventSucceeded, "mandatory success header survives missing optional reason");
+Equal<string?>(null, writeEventFailure, "missing optional reason remains unavailable");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new MissingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, false), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "missing optional failure reason cannot suppress terminal failure");
+Equal(false, writeEventSucceeded, "mandatory failure header survives missing optional reason");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new ThrowingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, false), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "throwing optional failure reason cannot suppress terminal failure");
+Equal(false, writeEventSucceeded, "mandatory failure header survives throwing optional reason");
+Equal<string?>(null, writeEventFailure, "throwing optional reason remains unavailable");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new ThrowingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, true), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "throwing optional failure reason cannot suppress a success wake");
+Equal(true, writeEventSucceeded, "mandatory success header survives throwing optional reason");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new PlayerSaveWriteCompletedEvent(4, false, new(false, default)), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "empty optional failure reason cannot suppress terminal failure");
+Equal(false, writeEventSucceeded, "empty-reason failed event preserves mandatory result");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new object(), out _, out _, out _, out writeEventStage), "wrong event type fails closed");
+Equal("write-event-incompatible", writeEventStage, "wrong event type has an exact failure stage");
 Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
 Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
 Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
@@ -971,8 +1054,18 @@ sealed class PrivateNullable<T>
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
 enum eSaveFileWriteType { URGENT, NON_URGENT }
+enum eSaveFileWriterFailureReason { VALIDATION_FAILED }
 enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS }
 enum eSongCassetteStatus { INVALID, HAVE_IN_BAG }
+
+sealed class PlayerSaveWriteCompletedEvent
+{
+    public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded, FakeIl2CppNullable<eSaveFileWriterFailureReason> failureReason)
+    { SlotNumber = slotNumber; Succeeded = succeeded; FailureReason = failureReason; }
+    public int SlotNumber { get; }
+    public bool Succeeded { get; }
+    public FakeIl2CppNullable<eSaveFileWriterFailureReason> FailureReason { get; }
+}
 
 sealed class PersistSaveChangeBundleRequest
 {
@@ -1148,5 +1241,28 @@ sealed class RecordSongCassetteStatusInSaveDataRequest
         CassetteStatus = cassetteStatus;
         Bundle = bundle;
         SemanticConstructorUsed = true;
+    }
+}
+
+namespace MissingFailureReasonFixture
+{
+    sealed class PlayerSaveWriteCompletedEvent
+    {
+        public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded)
+        { SlotNumber = slotNumber; Succeeded = succeeded; }
+        public int SlotNumber { get; }
+        public bool Succeeded { get; }
+    }
+}
+
+namespace ThrowingFailureReasonFixture
+{
+    sealed class PlayerSaveWriteCompletedEvent
+    {
+        public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded)
+        { SlotNumber = slotNumber; Succeeded = succeeded; }
+        public int SlotNumber { get; }
+        public bool Succeeded { get; }
+        public object FailureReason => throw new NullReferenceException("optional-reason-unavailable");
     }
 }
