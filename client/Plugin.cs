@@ -21611,8 +21611,10 @@ internal static class MusicLabDiscovery
 {
     public const string Hub6RoomId = "GameRoom_Hub6";
     public const string GarageRoomId = "GameRoom_27";
+    private const string Hub6PhoneBankRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
 
     private static readonly object Sync = new();
+    private static readonly CassettePostLoadSnapshotLiveGate PostLoadSnapshotLiveGate = new();
     private static readonly Harmony DiagnosticHarmony = new(Plugin.PluginGuid + ".musiclabdiag");
     private static readonly HashSet<MethodBase> PatchedGarageMethods = new();
     private static readonly string[] GarageSequenceNames =
@@ -23291,9 +23293,21 @@ internal static class MusicLabDiscovery
 
     private static void ScanHub6()
     {
-        CassetteReceiptRandomization.LogPostLoadSnapshot(
-            DeveloperHarness.CurrentRoomId,
-            "plain F5 after Hub6 became live");
+        GameObject? phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
+        CassettePostLoadSnapshotGateDecision snapshotDecision =
+            PostLoadSnapshotLiveGate.Observe(phoneBank != null);
+        if (snapshotDecision.LogDeferred)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE POST-LOAD SNAPSHOT DEFERRED room='{DeveloperHarness.CurrentRoomId}' " +
+                $"reason='Hub6 scene is not live' missingMarker='{Hub6PhoneBankRootPath}'.");
+        }
+        if (snapshotDecision.ReadSnapshot)
+        {
+            CassetteReceiptRandomization.LogPostLoadSnapshot(
+                DeveloperHarness.CurrentRoomId,
+                "plain F5 after Hub6 became live");
+        }
         bool reconciled = ReconcileCollectedRewardChests();
         int mapped;
         lock (Sync)

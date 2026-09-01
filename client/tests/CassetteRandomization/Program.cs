@@ -1459,9 +1459,30 @@ Console.WriteLine("PASS: post_load_cassette_snapshot_preserves_partial_readable_
 
 string scanHub6Source = ExtractMethods(pluginSource, "private static void ScanHub6(").Single();
 string scanGarageSource = ExtractMethods(pluginSource, "private static void ScanGarage(").Single();
+var liveHubGate = new CassettePostLoadSnapshotLiveGate();
+int gatedSnapshotReads = 0;
+int gatedDeferredLogs = 0;
+foreach (bool phoneBankLive in new[] { false, false, true })
+{
+    CassettePostLoadSnapshotGateDecision decision = liveHubGate.Observe(phoneBankLive);
+    if (decision.ReadSnapshot) gatedSnapshotReads++;
+    if (decision.LogDeferred) gatedDeferredLogs++;
+}
+Equal(1, gatedSnapshotReads, "two pre-live F5 observations perform zero reads and one live F5 performs exactly one snapshot read");
+Equal(1, gatedDeferredLogs, "repeated pre-live F5 observations emit one bounded deferred record");
+CassettePostLoadSnapshotGateDecision laterAbsentDecision = liveHubGate.Observe(phoneBankLive: false);
+Equal(false, laterAbsentDecision.ReadSnapshot, "later absent phone bank cannot read a cassette snapshot");
+Equal(true, laterAbsentDecision.LogDeferred, "a completed live wave resets bounded deferred reporting for a later absence wave");
 Equal(true, scanHub6Source.Contains("CassetteReceiptRandomization.LogPostLoadSnapshot", StringComparison.Ordinal), "Hub6 plain-F5 path invokes one cassette post-load snapshot");
 Equal(true, scanHub6Source.Contains("DeveloperHarness.CurrentRoomId", StringComparison.Ordinal), "Hub6 snapshot records the observed current room instead of a hard-coded label");
+int liveMarkerIndex = scanHub6Source.IndexOf("GameObject.Find(Hub6PhoneBankRootPath)", StringComparison.Ordinal);
+int snapshotReadIndex = scanHub6Source.IndexOf("CassetteReceiptRandomization.LogPostLoadSnapshot", StringComparison.Ordinal);
+Equal(true, liveMarkerIndex >= 0, "Hub6 F5 checks the exact live phone-bank scene marker");
+Equal(true, liveMarkerIndex < snapshotReadIndex, "Hub6 live marker is checked before any cassette snapshot read");
+Equal(true, scanHub6Source.Contains("CASSETTE POST-LOAD SNAPSHOT DEFERRED", StringComparison.Ordinal), "pre-live Hub6 F5 emits the bounded deferred diagnostic");
+Equal(true, pluginSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", StringComparison.Ordinal), "post-load snapshot uses the proven Hub6 phone-bank marker");
 Equal(false, scanGarageSource.Contains("LogPostLoadSnapshot", StringComparison.Ordinal), "Garage F5 path does not invoke the Hub6 cassette snapshot");
+Equal(false, scanGarageSource.Contains("Hub6PhoneBankRootPath", StringComparison.Ordinal), "Garage F5 remains independent of the Hub6 live marker");
 Equal(1, pluginSource.Split("CassetteReceiptRandomization.LogPostLoadSnapshot", StringSplitOptions.None).Length - 1, "cassette snapshot has exactly one production call site");
 string postLoadLoggerSource = ExtractMethods(pluginSource, "internal static void LogPostLoadSnapshot(").Single();
 string postLoadReaderSource = ExtractMethods(transactionAdapterSource, "internal static CassettePostLoadDiagnosticState ReadCassettePostLoadDiagnostic(").Single();

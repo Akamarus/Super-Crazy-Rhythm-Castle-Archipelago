@@ -118,6 +118,28 @@ internal enum CassetteSaveBoundarySignalKind
     Build,
 }
 
+internal readonly record struct CassettePostLoadSnapshotGateDecision(
+    bool ReadSnapshot,
+    bool LogDeferred);
+
+internal sealed class CassettePostLoadSnapshotLiveGate
+{
+    private bool _deferredLogged;
+
+    internal CassettePostLoadSnapshotGateDecision Observe(bool phoneBankLive)
+    {
+        if (phoneBankLive)
+        {
+            _deferredLogged = false;
+            return new(ReadSnapshot: true, LogDeferred: false);
+        }
+
+        bool logDeferred = !_deferredLogged;
+        _deferredLogged = true;
+        return new(ReadSnapshot: false, LogDeferred: logDeferred);
+    }
+}
+
 internal readonly record struct CassetteSaveActivation(
     int Slot,
     long Pointer,
