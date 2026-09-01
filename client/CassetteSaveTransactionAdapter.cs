@@ -938,12 +938,16 @@ internal static class CassetteSaveTransactionAdapter
                 return false;
             }
 
-            object nativeBundle = Enum.Parse(bundleType, CassetteNativeRequestFactory.DefaultBundle, ignoreCase: false);
-            object cassetteRequest = CassetteNativeRequestFactory.Create(
-                requestType, songType, statusType, bundleType, nativeSong,
-                CassetteNativeRequestFactory.HaveInBag, nativeBundle);
+            if (!CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
+                    requestType,
+                    songType,
+                    statusType,
+                    bundleType,
+                    nativeSong,
+                    out object? cassetteRequest,
+                    out detail) || cassetteRequest == null)
+                return false;
             process.Invoke(processor, new[] { cassetteRequest });
-            detail = $"song='{nativeSong}' status='{CassetteNativeRequestFactory.HaveInBag}' bundle='{nativeBundle}'";
             return true;
         }
         catch (Exception ex)

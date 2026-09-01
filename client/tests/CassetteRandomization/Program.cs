@@ -38,9 +38,33 @@ Equal(true, constructedRequest, "cassette request uses semantic constructor");
 var typedRequest = (TestCassetteRequest)request!;
 Equal(TestSong.QUIERES_BAILAR, typedRequest.Song, "semantic constructor receives song");
 Equal(TestCassetteStatus.HAVE_IN_BAG, typedRequest.CassetteStatus, "semantic constructor receives bag status");
-Equal(TestBundle.DEFAULT, typedRequest.Bundle, "semantic constructor receives default bundle");
+Equal(true, typedRequest.Bundle.HasValue, "verified request has an explicit bundle");
+Equal(TestBundle.DEFAULT, typedRequest.Bundle.Value, "public nullable setter repairs the observed dropped constructor bundle");
 Equal(true, typedRequest.SemanticConstructorUsed, "parameterless member-write construction is prohibited");
-Equal("song='QUIERES_BAILAR' status='HAVE_IN_BAG' bundle='DEFAULT'", requestDetail, "constructor detail includes semantic values");
+Equal("actualSong='QUIERES_BAILAR' actualStatus='HAVE_IN_BAG' actualBundle='present=True value=DEFAULT numeric=1'", requestDetail, "construction detail derives from verified public readback");
+
+foreach (var rejectedFactory in new[]
+{
+    (Request: typeof(MissingBundleSetterFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request public Bundle setter unavailable"),
+    (Request: typeof(ThrowingBundleSetterFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request bundle-set-invocation:InvalidOperationException:bundle-set"),
+    (Request: typeof(MissingNullableConstructorFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request public DEFAULT nullable constructor unavailable"),
+    (Request: typeof(ThrowingNullableConstructorFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request nullable-build-invocation:InvalidOperationException:nullable-build"),
+    (Request: typeof(MismatchedSongReadbackFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request song readback mismatch:expected=QUIERES_BAILAR:actual=INVALID"),
+    (Request: typeof(MismatchedStatusReadbackFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request status readback mismatch:expected=HAVE_IN_BAG:actual=INVALID"),
+    (Request: typeof(MismatchedBundleReadbackFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request bundle readback mismatch:expected=DEFAULT/1:actual=INVALID/0"),
+})
+{
+    Equal(false, CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
+        rejectedFactory.Request,
+        typeof(TestSong),
+        typeof(TestCassetteStatus),
+        typeof(TestBundle),
+        nameof(TestSong.QUIERES_BAILAR),
+        out object? rejectedRequest,
+        out string rejectedDetail), $"{rejectedFactory.Stage} fails closed");
+    Equal<object?>(null, rejectedRequest, $"{rejectedFactory.Stage} cannot return a request for processing");
+    Equal(rejectedFactory.Stage, rejectedDetail, $"{rejectedFactory.Stage} is reported exactly");
+}
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
@@ -999,9 +1023,10 @@ Equal(true, CassetteSaveTransactionAdapter.TrySubmitHaveInBag(semanticProcessor,
 Equal(1, semanticProcessor.ProcessRequestCalls, "submission processes exactly one semantic request");
 Equal(ePlayableSong.QUIERES_BAILAR, semanticProcessor.LastRequest!.Song, "request receives native song");
 Equal(eSongCassetteStatus.HAVE_IN_BAG, semanticProcessor.LastRequest.CassetteStatus, "request receives bag status");
-Equal(ePlayerSaveChangeBundleKey.DEFAULT, semanticProcessor.LastRequest.Bundle, "request uses default native bundle");
+Equal(true, semanticProcessor.LastRequest.Bundle.HasValue, "submitted request has an explicit native bundle");
+Equal(ePlayerSaveChangeBundleKey.DEFAULT, semanticProcessor.LastRequest.Bundle.Value, "request uses verified default native bundle despite dropped constructor value");
 Equal(true, semanticProcessor.LastRequest.SemanticConstructorUsed, "submission uses semantic cassette constructor");
-Equal(true, submitDetail.Contains("DEFAULT", StringComparison.Ordinal), "submission detail identifies default bundle");
+Equal("actualSong='QUIERES_BAILAR' actualStatus='HAVE_IN_BAG' actualBundle='present=True value=DEFAULT numeric=1'", submitDetail, "submission detail reports verified request readback rather than enum intent");
 var publicWriteProcessor = new PublicWriteProcessorFixture(new PublicWriteStateFixture());
 Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(publicWriteProcessor, out CassettePublicWriteState publicWriteState, out string publicWriteStage), "adapter reads the public write-completion contract");
 Equal(new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"), publicWriteState, "adapter returns exact public write-completion values");
@@ -1133,6 +1158,15 @@ Equal(eSaveFileWriteType.URGENT, RequestSystem.LastRequest.WriteTypeToRequest, "
 Equal(true, persistDetail.Contains("DEFAULT", StringComparison.Ordinal) && persistDetail.Contains("URGENT", StringComparison.Ordinal), "persist detail records exact public semantics");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+string factorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
+string verifiedFactory = ExtractMethods(factorySource, "private static bool TryCreateVerified(").Single();
+Equal(true, verifiedFactory.Contains("bundleSetter.Invoke", StringComparison.Ordinal), "request factory explicitly repairs the public nullable Bundle after the semantic constructor");
+Equal(true, verifiedFactory.Contains("actualSong", StringComparison.Ordinal) && verifiedFactory.Contains("actualStatus", StringComparison.Ordinal) && verifiedFactory.Contains("actualBundleValue", StringComparison.Ordinal), "request factory verifies exact public song/status/bundle readback before returning a request");
+Equal(true, verifiedFactory.Contains("actualBundleValue != 1", StringComparison.Ordinal), "request factory requires numeric DEFAULT=1 rather than a display string alone");
+Equal(false, verifiedFactory.Contains("BindingFlags.NonPublic", StringComparison.Ordinal), "request repair and verification cannot bind non-public members");
+string grantAdapter = ExtractMethods(adapterSource, "internal static bool TrySubmitHaveInBag(").Single();
+Equal(true, grantAdapter.Contains("TryCreateHaveInBagRequest", StringComparison.Ordinal), "grant adapter processes only a factory-verified request");
+Equal(false, grantAdapter.Contains("nativeBundle", StringComparison.Ordinal), "grant detail cannot be derived from pre-construction bundle intent");
 foreach (string obsoleteDiagnostic in new[] { "CassetteSaveFingerprint", "TryGetLoadedSaveFingerprint", "TryGetProcessorSaveFingerprint", "TryBuildFingerprint", "UnwrapNullablePublic" })
     Equal(false, adapterSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary adapter diagnostic removed: {obsoleteDiagnostic}");
 string policySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs"));
@@ -1203,17 +1237,128 @@ sealed class TestCassetteRequest
 {
     public TestSong Song { get; set; }
     public TestCassetteStatus CassetteStatus { get; set; }
-    public TestBundle Bundle { get; set; }
+    public FakeIl2CppNullable<TestBundle> Bundle { get; set; }
     public bool SemanticConstructorUsed { get; }
 
-    private TestCassetteRequest() { }
+    private TestCassetteRequest() => Bundle = new(false, default);
 
     public TestCassetteRequest(TestSong song, TestCassetteStatus cassetteStatus, TestBundle bundle)
     {
         Song = song;
         CassetteStatus = cassetteStatus;
-        Bundle = bundle;
+        // Reproduces the installed reflection-to-IL2CPP constructor boundary:
+        // the third enum arrives as INVALID even though DEFAULT was requested.
+        Bundle = new(true, TestBundle.INVALID);
         SemanticConstructorUsed = true;
+    }
+}
+
+namespace MissingBundleSetterFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle => new(true, TestBundle.INVALID);
+    }
+}
+
+namespace ThrowingBundleSetterFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        private FakeIl2CppNullable<TestBundle> _bundle = new(true, TestBundle.INVALID);
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle
+        {
+            get => _bundle;
+            set => throw new InvalidOperationException("bundle-set");
+        }
+    }
+}
+
+sealed class NoPublicNullableConstructor<T>
+{
+    private NoPublicNullableConstructor(T value) { Value = value; }
+    public bool HasValue => true;
+    public T Value { get; }
+}
+
+namespace MissingNullableConstructorFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public NoPublicNullableConstructor<TestBundle>? Bundle { get; set; }
+    }
+}
+
+sealed class ThrowingNullableConstructor<T>
+{
+    public ThrowingNullableConstructor(T value) =>
+        throw new InvalidOperationException("nullable-build");
+    public bool HasValue => false;
+    public T Value => default!;
+}
+
+namespace ThrowingNullableConstructorFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public ThrowingNullableConstructor<TestBundle>? Bundle { get; set; }
+    }
+}
+
+namespace MismatchedSongReadbackFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = TestSong.INVALID; CassetteStatus = status; Bundle = new(bundle); }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle { get; set; }
+    }
+}
+
+namespace MismatchedStatusReadbackFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = TestCassetteStatus.INVALID; Bundle = new(bundle); }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle { get; set; }
+    }
+}
+
+namespace MismatchedBundleReadbackFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        private FakeIl2CppNullable<TestBundle> _bundle = new(true, TestBundle.INVALID);
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle
+        {
+            get => _bundle;
+            set => _bundle = new(true, TestBundle.INVALID);
+        }
     }
 }
 
@@ -1227,6 +1372,12 @@ static class PlayerSaveManagementEnquiries
 
 sealed class FakeIl2CppNullable<T>
 {
+    public FakeIl2CppNullable(T value)
+    {
+        HasValue = true;
+        Value = value;
+    }
+
     public FakeIl2CppNullable(bool hasValue, T value)
     {
         HasValue = hasValue;
@@ -1690,14 +1841,14 @@ sealed class RecordSongCassetteStatusInSaveDataRequest
 {
     public ePlayableSong Song { get; }
     public eSongCassetteStatus CassetteStatus { get; }
-    public ePlayerSaveChangeBundleKey Bundle { get; }
+    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; set; }
     public bool SemanticConstructorUsed { get; }
 
     public RecordSongCassetteStatusInSaveDataRequest(ePlayableSong song, eSongCassetteStatus cassetteStatus, ePlayerSaveChangeBundleKey bundle)
     {
         Song = song;
         CassetteStatus = cassetteStatus;
-        Bundle = bundle;
+        Bundle = new(true, ePlayerSaveChangeBundleKey.INVALID);
         SemanticConstructorUsed = true;
     }
 }
