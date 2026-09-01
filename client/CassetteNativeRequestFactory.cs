@@ -112,104 +112,137 @@ internal static class CassetteNativeRequestFactory
         ConstructorInfo? constructor = requestType.GetConstructor(
             PublicInstance,
             binder: null,
-            types: new[] { songType, statusType, bundleType },
+            types: Type.EmptyTypes,
             modifiers: null);
         if (constructor == null)
-        { detail = "exact public cassette request constructor (song, status, bundle) unavailable"; return false; }
-        try { request = constructor.Invoke(new[] { song, status, nativeBundle }); }
+        { detail = "public parameterless cassette request constructor unavailable"; return false; }
+        try { request = constructor.Invoke(Array.Empty<object>()); }
         catch (Exception ex)
         {
             request = null;
-            detail = $"cassette request semantic-constructor-invocation:{Summarize(ex)}";
+            detail = $"cassette request parameterless-constructor-invocation:{Summarize(ex)}";
             return false;
         }
         if (request == null)
-        { detail = "cassette request semantic constructor returned null"; return false; }
-
-        PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
-        MethodInfo? bundleGetter = bundleProperty?.GetMethod;
-        MethodInfo? bundleSetter = bundleProperty?.SetMethod;
-        if (bundleProperty == null || bundleGetter?.IsPublic != true)
-        { request = null; detail = "cassette request public Bundle getter unavailable"; return false; }
-        if (bundleSetter?.IsPublic != true)
-        { request = null; detail = "cassette request public Bundle setter unavailable"; return false; }
-        ConstructorInfo? nullableConstructor = bundleProperty.PropertyType.GetConstructor(
-            PublicInstance,
-            binder: null,
-            types: new[] { bundleType },
-            modifiers: null);
-        if (nullableConstructor == null)
-        { request = null; detail = "cassette request public DEFAULT nullable constructor unavailable"; return false; }
-        object nullableBundle;
-        try { nullableBundle = nullableConstructor.Invoke(new[] { nativeBundle }); }
-        catch (Exception ex)
-        {
-            request = null;
-            detail = $"cassette request nullable-build-invocation:{Summarize(ex)}";
-            return false;
-        }
-        try { bundleSetter.Invoke(request, new[] { nullableBundle }); }
-        catch (Exception ex)
-        {
-            request = null;
-            detail = $"cassette request bundle-set-invocation:{Summarize(ex)}";
-            return false;
-        }
+        { detail = "cassette request parameterless constructor returned null"; return false; }
 
         PropertyInfo? songProperty = requestType.GetProperty("Song", PublicInstance);
         PropertyInfo? statusProperty = requestType.GetProperty("CassetteStatus", PublicInstance);
-        if (songProperty?.GetMethod?.IsPublic != true)
-        { request = null; detail = "cassette request public Song getter unavailable"; return false; }
-        if (statusProperty?.GetMethod?.IsPublic != true)
-        { request = null; detail = "cassette request public CassetteStatus getter unavailable"; return false; }
+        PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
+        MethodInfo? songGetter = songProperty?.GetMethod;
+        MethodInfo? songSetter = songProperty?.SetMethod;
+        MethodInfo? statusGetter = statusProperty?.GetMethod;
+        MethodInfo? statusSetter = statusProperty?.SetMethod;
+        MethodInfo? bundleGetter = bundleProperty?.GetMethod;
+        if (songGetter?.IsPublic != true || songSetter?.IsPublic != true)
+        { request = null; detail = "cassette request public Song getter/setter unavailable"; return false; }
+        if (statusGetter?.IsPublic != true || statusSetter?.IsPublic != true)
+        { request = null; detail = "cassette request public CassetteStatus getter/setter unavailable"; return false; }
+        if (bundleProperty == null || bundleGetter?.IsPublic != true)
+        { request = null; detail = "cassette request public Bundle getter unavailable"; return false; }
+        try { songSetter.Invoke(request, new[] { song }); }
+        catch (Exception ex)
+        {
+            request = null;
+            detail = $"cassette request song-set-invocation:{Summarize(ex)}";
+            return false;
+        }
+        try { statusSetter.Invoke(request, new[] { status }); }
+        catch (Exception ex)
+        {
+            request = null;
+            detail = $"cassette request status-set-invocation:{Summarize(ex)}";
+            return false;
+        }
         object? actualSong;
         object? actualStatus;
         object? actualNullableBundle;
-        try { actualSong = songProperty.GetValue(request); }
+        try { actualSong = songProperty!.GetValue(request); }
         catch (Exception ex)
         { request = null; detail = $"cassette request song-readback-invocation:{Summarize(ex)}"; return false; }
-        try { actualStatus = statusProperty.GetValue(request); }
+        try { actualStatus = statusProperty!.GetValue(request); }
         catch (Exception ex)
         { request = null; detail = $"cassette request status-readback-invocation:{Summarize(ex)}"; return false; }
+        bool exactEmptyInteropBundle = false;
         try { actualNullableBundle = bundleProperty.GetValue(request); }
+        catch (TargetInvocationException ex) when (IsEmptyIl2CppNullableReturn(bundleProperty, bundleType, ex))
+        {
+            actualNullableBundle = null;
+            exactEmptyInteropBundle = true;
+        }
         catch (Exception ex)
         { request = null; detail = $"cassette request bundle-readback-invocation:{Summarize(ex)}"; return false; }
         if (!Equals(actualSong, song))
         { request = null; detail = $"cassette request song readback mismatch:expected={song}:actual={actualSong ?? "<null>"}"; return false; }
         if (!Equals(actualStatus, status))
         { request = null; detail = $"cassette request status readback mismatch:expected={status}:actual={actualStatus ?? "<null>"}"; return false; }
-        if (actualNullableBundle == null)
+        if (actualNullableBundle == null && !exactEmptyInteropBundle)
         { request = null; detail = "cassette request bundle readback was null"; return false; }
-        Type nullableType = actualNullableBundle.GetType();
+        if (exactEmptyInteropBundle)
+        {
+            detail = $"actualSong='{actualSong}' actualStatus='{actualStatus}' actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)'";
+            return true;
+        }
+
+        object nonNullNullableBundle = actualNullableBundle!;
+        Type nullableType = nonNullNullableBundle.GetType();
         PropertyInfo? hasValueProperty = nullableType.GetProperty("HasValue", PublicInstance);
         PropertyInfo? valueProperty = nullableType.GetProperty("Value", PublicInstance);
-        if (hasValueProperty?.GetMethod?.IsPublic != true || valueProperty?.GetMethod?.IsPublic != true)
+        if (!nullableType.IsGenericType ||
+            nullableType.GetGenericArguments().Length != 1 ||
+            nullableType.GetGenericArguments()[0] != bundleType ||
+            hasValueProperty?.GetMethod?.IsPublic != true ||
+            valueProperty?.GetMethod?.IsPublic != true)
         { request = null; detail = "cassette request public Bundle nullable contract unavailable"; return false; }
         bool present;
-        object? actualBundle;
         try
         {
-            present = hasValueProperty.GetValue(actualNullableBundle) is bool hasValue && hasValue;
-            actualBundle = present ? valueProperty.GetValue(actualNullableBundle) : null;
+            object? hasValue = hasValueProperty.GetValue(nonNullNullableBundle);
+            if (hasValue is not bool boolValue)
+            { request = null; detail = "cassette request Bundle HasValue readback was not Boolean"; return false; }
+            present = boolValue;
         }
         catch (Exception ex)
+        { request = null; detail = $"cassette request bundle-has-value-readback-invocation:{Summarize(ex)}"; return false; }
+        if (!present)
+        {
+            detail = $"actualSong='{actualSong}' actualStatus='{actualStatus}' actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)'";
+            return true;
+        }
+
+        object? actualBundle;
+        try { actualBundle = valueProperty.GetValue(nonNullNullableBundle); }
+        catch (Exception ex)
         { request = null; detail = $"cassette request bundle-value-readback-invocation:{Summarize(ex)}"; return false; }
-        if (!present || actualBundle == null)
-        { request = null; detail = "cassette request bundle readback mismatch:expected=DEFAULT/1:actual=<absent>"; return false; }
+        if (actualBundle == null)
+        { request = null; detail = "cassette request bundle readback mismatch:expected=<absent>:actual=<null>"; return false; }
         string actualBundleName = actualBundle.ToString() ?? "<null>";
         int actualBundleValue;
         try { actualBundleValue = Convert.ToInt32(actualBundle); }
         catch (Exception ex)
         { request = null; detail = $"cassette request bundle-numeric-readback-invocation:{Summarize(ex)}"; return false; }
-        if (!string.Equals(actualBundleName, DefaultBundle, StringComparison.Ordinal) || actualBundleValue != 1)
-        {
-            request = null;
-            detail = $"cassette request bundle readback mismatch:expected=DEFAULT/1:actual={actualBundleName}/{actualBundleValue}";
-            return false;
-        }
+        request = null;
+        detail = $"cassette request bundle readback mismatch:expected=<absent>:actual={actualBundleName}/{actualBundleValue}";
+        return false;
+    }
 
-        detail = $"actualSong='{actualSong}' actualStatus='{actualStatus}' actualBundle='present=True value={actualBundleName} numeric={actualBundleValue}'";
-        return true;
+    private static bool IsEmptyIl2CppNullableReturn(
+        PropertyInfo property,
+        Type bundleType,
+        TargetInvocationException exception)
+    {
+        Type propertyType = property.PropertyType;
+        if (!propertyType.IsGenericType ||
+            propertyType.GetGenericArguments().Length != 1 ||
+            propertyType.GetGenericArguments()[0] != bundleType ||
+            !string.Equals(propertyType.GetGenericTypeDefinition().FullName,
+                "Il2CppSystem.Nullable`1", StringComparison.Ordinal))
+            return false;
+        Exception? inner = exception.InnerException;
+        return inner is NullReferenceException &&
+            string.Equals(inner.TargetSite?.Name, "CreateGCHandle", StringComparison.Ordinal) &&
+            string.Equals(inner.TargetSite?.DeclaringType?.FullName,
+                "Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase", StringComparison.Ordinal);
     }
 
     private static string Summarize(Exception exception)
