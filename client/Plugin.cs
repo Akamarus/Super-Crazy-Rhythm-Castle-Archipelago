@@ -18231,6 +18231,7 @@ internal static class CassetteReceiptRandomization
 {
     private static readonly object Sync = new();
     private static object? _playerSaveRequestProcessor;
+    private static object? _joinedSaveDataRequestProcessor;
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
@@ -18254,7 +18255,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             Enabled = false; _slotDataSynchronized = false;
-            _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
+            _playerSaveRequestProcessor = null; _joinedSaveDataRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
             _diskCommit = new CassetteDiskCommitRuntime(); _bundleRoutingDiagnostics = new CassetteBundleRoutingDiagnosticRuntime(); _activeSaveGeneration = 0; _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
@@ -18572,6 +18573,8 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             _regularSavePointerJoinProbe.Cancel();
+            if (kind is CassetteSaveBoundarySignalKind.Selection)
+                _joinedSaveDataRequestProcessor = null;
             object? processor = CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)
                 ? _playerSaveRequestProcessor
                 : null;
@@ -18591,6 +18594,7 @@ internal static class CassetteReceiptRandomization
             // Suspension is deliberately first: a malformed callback can never leave the old epoch eligible for work.
             _saveIdentity.SuspendUnresolved();
             _regularSavePointerJoinProbe.Cancel();
+            _joinedSaveDataRequestProcessor = null;
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
             if (saveDataProcessor == null)
@@ -18638,6 +18642,7 @@ internal static class CassetteReceiptRandomization
             _runtime.DeactivateSave();
             _activeSaveGeneration = 0;
             _activeSavePointer = 0;
+            _joinedSaveDataRequestProcessor = null;
             _diskCommit.Reset();
             _bundleRoutingDiagnostics.Reset();
         }
@@ -18848,7 +18853,10 @@ internal static class CassetteReceiptRandomization
             {
                 consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
                 if (consume && joined)
+                {
+                    _joinedSaveDataRequestProcessor = joinSnapshot.SaveDataProcessor;
                     _saveIdentity.Signal(joinedSlot, CassetteSaveBoundarySignalKind.Selection, joinSnapshot.PlayerSaveProcessor);
+                }
             }
             if (consume)
             {
@@ -18914,13 +18922,14 @@ internal static class CassetteReceiptRandomization
 
     private static void TickDiskCommit(TimeSpan elapsed)
     {
-        object? processor; long generation; long epoch; int slot; long pointer; string[] songs;
+        object? processor; object? joinedSaveDataProcessor; long generation; long epoch; int slot; long pointer; string[] songs;
         CassetteDiskCommitAttempt activeAttempt;
         bool submitted;
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_runtime.HasActiveSave || !_diskCommit.HasWork) return;
             processor = _playerSaveRequestProcessor; generation = _activeSaveGeneration; epoch = _runtime.Epoch;
+            joinedSaveDataProcessor = _joinedSaveDataRequestProcessor;
             slot = _runtime.ActiveSlot!.Value; pointer = _activeSavePointer;
             songs = _diskCommit.Songs.ToArray();
             submitted = _diskCommit.TryGetSubmittedAttempt(out activeAttempt);
@@ -18997,7 +19006,28 @@ internal static class CassetteReceiptRandomization
                 LogDiskCommitDiagnostic(
                     preDiagnostic, processor, transactionBaseline: writeState);
             string persistDetail = "status regression";
-            if (!statusesRetained || !CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out persistDetail))
+            bool persistSubmitted = false;
+            if (statusesRetained)
+            {
+                CassetteDiskCommitDiagnosticContext preTargetDiagnostic = default;
+                bool logPreTargetDiagnostic;
+                lock (Sync)
+                    logPreTargetDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        preparedAttempt, CassetteDiskCommitDiagnosticPhase.PreTarget, out preTargetDiagnostic);
+                if (logPreTargetDiagnostic)
+                    LogDiskCommitTargetDiagnostic(preTargetDiagnostic, processor, joinedSaveDataProcessor);
+
+                persistSubmitted = CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out persistDetail);
+
+                CassetteDiskCommitDiagnosticContext postTargetDiagnostic = default;
+                bool logPostTargetDiagnostic;
+                lock (Sync)
+                    logPostTargetDiagnostic = _diskCommit.TryClaimDiagnostic(
+                        preparedAttempt, CassetteDiskCommitDiagnosticPhase.PostTarget, out postTargetDiagnostic);
+                if (logPostTargetDiagnostic)
+                    LogDiskCommitTargetDiagnostic(postTargetDiagnostic, processor, joinedSaveDataProcessor);
+            }
+            if (!statusesRetained || !persistSubmitted)
             {
                 CassetteDiskCommitFailureDiagnostic submissionFailure = !statusesRetained
                     ? failureKind
@@ -19235,6 +19265,67 @@ internal static class CassetteReceiptRandomization
             $"HasUnstagedChanges={hasUnstagedChanges} redundancyIndex={redundancyIndex} redundancyRevision={redundancyRevision} " +
             $"failureReason='{(stateReadable ? writeState.FailureReason ?? "<null>" : "<unavailable>")}' failureKind='{failureKind}' failureDetail='{failureDetail}' stateStage='{stateStage}' statuses='[{statuses}]' " +
             $"activeSongs='[{string.Join(",", context.ActiveSongs)}]' queuedSongs='[{string.Join(",", context.QueuedSongs)}]'{suffix}.");
+    }
+
+    private static void LogDiskCommitTargetDiagnostic(
+        CassetteDiskCommitDiagnosticContext context,
+        object? playerProcessor,
+        object? retainedSaveDataProcessor)
+    {
+        try
+        {
+        string[] allSongs = context.ActiveSongs.Concat(context.QueuedSongs)
+            .Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal).ToArray();
+        bool readable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+            playerProcessor,
+            retainedSaveDataProcessor,
+            context.Attempt.Slot,
+            context.Attempt.Pointer,
+            allSongs,
+            out CassetteDiskCommitTargetDiagnosticState state,
+            out string stage);
+        string phase = context.Phase is CassetteDiskCommitDiagnosticPhase.PreTarget ? "PRE_TARGET" : "POST_TARGET";
+        string playerProcessorPointer = readable ? $"0x{state.PlayerProcessorPointer:X}" : "<unavailable>";
+        string registeredPersistProcessorPointer = readable ? $"0x{state.RegisteredPersistProcessorPointer:X}" : "<unavailable>";
+        string retainedSaveDataProcessorPointer = readable ? $"0x{state.RetainedSaveDataProcessorPointer:X}" : "<unavailable>";
+        string saveDataStatePointer = readable ? $"0x{state.SaveDataStatePointer:X}" : "<unavailable>";
+        string selectedSlot = readable ? state.SelectedPlayerSaveSlot.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
+        string selectedEntryPointer = readable ? $"0x{state.SelectedEntryPointer:X}" : "<unavailable>";
+        string expectedSlotEntryPointer = readable ? $"0x{state.ExpectedSlotEntryPointer:X}" : "<unavailable>";
+        string playerEffectiveStatuses = readable
+            ? string.Join(",", state.Player.EffectiveStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value}"))
+            : "<unavailable>";
+        string playerCanonicalStatuses = readable
+            ? string.Join(",", state.Player.CanonicalStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value ?? "<null>"}"))
+            : "<unavailable>";
+        string selectedEffectiveStatuses = readable
+            ? string.Join(",", state.Selected.EffectiveStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value}"))
+            : "<unavailable>";
+        string selectedCanonicalStatuses = readable
+            ? string.Join(",", state.Selected.CanonicalStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value ?? "<null>"}"))
+            : "<unavailable>";
+        string playerStatePointer = readable ? $"0x{state.Player.StatePointer:X}" : "<unavailable>";
+        string selectedStatePointer = readable ? $"0x{state.Selected.StatePointer:X}" : "<unavailable>";
+        string playerFlags = readable
+            ? $"HasUnstaged={state.Player.HasUnstagedChanges} HasChanges={state.Player.HasChanges} Requires={state.Player.RequiresWriteToDisk} defaultBundlePresent={state.Player.DefaultBundlePresent} defaultBundleChangeCount={state.Player.DefaultBundleChangeCount}"
+            : "HasUnstaged=<unavailable> HasChanges=<unavailable> Requires=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable>";
+        string selectedFlags = readable
+            ? $"HasUnstaged={state.Selected.HasUnstagedChanges} HasChanges={state.Selected.HasChanges} Requires={state.Selected.RequiresWriteToDisk} defaultBundlePresent={state.Selected.DefaultBundlePresent} defaultBundleChangeCount={state.Selected.DefaultBundleChangeCount}"
+            : "HasUnstaged=<unavailable> HasChanges=<unavailable> Requires=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable>";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE DISK COMMIT TARGET attempt={context.Attempt.Id} phase='{phase}' eventOrdinal={context.EventOrdinal} elapsedSeconds={context.Elapsed.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+            $"generation={context.Attempt.Generation} epoch={context.Attempt.Epoch} expectedSlot={context.Attempt.Slot} expectedPointer=0x{context.Attempt.Pointer:X} " +
+            $"playerProcessorPointer={playerProcessorPointer} registeredPersistProcessorPointer={registeredPersistProcessorPointer} retainedSaveDataProcessorPointer={retainedSaveDataProcessorPointer} " +
+            $"saveDataStatePointer={saveDataStatePointer} selectedSlot={selectedSlot} selectedEntryPointer={selectedEntryPointer} expectedSlotEntryPointer={expectedSlotEntryPointer} " +
+            $"playerStatePointer={playerStatePointer} player{playerFlags} playerEffectiveStatuses='[{playerEffectiveStatuses}]' playerCanonicalStatuses='[{playerCanonicalStatuses}]' " +
+            $"selectedStatePointer={selectedStatePointer} selected{selectedFlags} selectedEffectiveStatuses='[{selectedEffectiveStatuses}]' selectedCanonicalStatuses='[{selectedCanonicalStatuses}]' " +
+            $"effectiveStatuses='player=[{playerEffectiveStatuses}];selected=[{selectedEffectiveStatuses}]' canonicalStatuses='player=[{playerCanonicalStatuses}];selected=[{selectedCanonicalStatuses}]' " +
+            $"activeSongs='[{string.Join(",", context.ActiveSongs)}]' queuedSongs='[{string.Join(",", context.QueuedSongs)}]' readable={readable} stage='{stage}'.");
+        }
+        catch
+        {
+            // Target snapshots are strictly observational. Even logger/formatter failures cannot alter commit flow.
+        }
     }
 
     private static void LogIdentityDiagnosticOnChange(string diagnostic)

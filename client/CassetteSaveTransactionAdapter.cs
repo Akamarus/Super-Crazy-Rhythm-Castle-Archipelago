@@ -26,6 +26,27 @@ internal readonly record struct CassetteBundleRoutingState(
     bool HasUnstagedChanges,
     IReadOnlyDictionary<string, string> Statuses);
 
+internal readonly record struct CassetteDiskCommitTargetSideState(
+    long StatePointer,
+    bool HasUnstagedChanges,
+    bool HasChanges,
+    bool RequiresWriteToDisk,
+    bool DefaultBundlePresent,
+    int DefaultBundleChangeCount,
+    IReadOnlyDictionary<string, string> EffectiveStatuses,
+    IReadOnlyDictionary<string, string?> CanonicalStatuses);
+
+internal readonly record struct CassetteDiskCommitTargetDiagnosticState(
+    long PlayerProcessorPointer,
+    long RegisteredPersistProcessorPointer,
+    long RetainedSaveDataProcessorPointer,
+    long SaveDataStatePointer,
+    int SelectedPlayerSaveSlot,
+    long SelectedEntryPointer,
+    long ExpectedSlotEntryPointer,
+    CassetteDiskCommitTargetSideState Player,
+    CassetteDiskCommitTargetSideState Selected);
+
 internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -389,6 +410,365 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    internal static bool TryReadDiskCommitTargetDiagnostic(
+        object? playerSaveProcessor,
+        object? retainedSaveDataProcessor,
+        int expectedSlot,
+        long expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        out CassetteDiskCommitTargetDiagnosticState state,
+        out string stage)
+    {
+        state = default;
+        stage = "target-start";
+        try
+        {
+            if (!TryReadPublicObjectPointer(playerSaveProcessor, "target-player-processor", out long playerProcessorPointer, out stage))
+                return false;
+            if (!TryObtainPublicState(playerSaveProcessor, "target-player", out object? playerState, out stage))
+                return false;
+            if (!TryReadDiskCommitTargetSide(
+                    playerState!, playerSaveProcessor!.GetType().Assembly, nativeSongs, "target-player",
+                    out CassetteDiskCommitTargetSideState player, out stage))
+                return false;
+
+            if (!TryReadRegisteredPersistProcessorPointer(
+                    playerSaveProcessor.GetType().Assembly,
+                    out object? registeredPersistProcessor,
+                    out long registeredPersistProcessorPointer,
+                    out stage))
+                return false;
+            if (!TryReadPublicObjectPointer(
+                    retainedSaveDataProcessor, "target-save-data-processor", out long retainedSaveDataProcessorPointer, out stage))
+                return false;
+            if (!TryObtainPublicState(registeredPersistProcessor, "target-save-data", out object? saveDataState, out stage))
+                return false;
+            if (!TryReadPublicPointer(saveDataState!, "target-save-data-state", out long saveDataStatePointer, out stage))
+                return false;
+
+            Type saveDataStateType = saveDataState!.GetType();
+            if (!TryGetPublicReadableProperty(
+                    saveDataStateType, "SelectedPlayerSaveSlot", PublicInstance,
+                    "target-save-data-selected-slot", out PropertyInfo selectedSlotProperty, out stage))
+                return false;
+            stage = "target-save-data-selected-slot-get";
+            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawSelectedSlot, "target-save-data-selected-slot", out bool slotPresent, out object? slotValue, out stage))
+                return false;
+            if (!slotPresent || slotValue == null) { stage = "target-save-data-selected-slot-empty"; return false; }
+            stage = "target-save-data-selected-slot-convert";
+            int selectedSlot = Convert.ToInt32(slotValue);
+
+            if (!TryGetPublicReadableProperty(
+                    saveDataStateType, "RegularPlayerSaves", PublicInstance,
+                    "target-save-data-regular-saves", out PropertyInfo savesProperty, out stage))
+                return false;
+            stage = "target-save-data-regular-saves-get";
+            object? saves = savesProperty.GetValue(saveDataState);
+            if (saves == null) { stage = "target-save-data-regular-saves-null"; return false; }
+            if (!TryReadPublicDictionaryValue(saves, selectedSlot, "target-selected-entry", out object? selectedState, out stage))
+                return false;
+            if (!TryReadPublicDictionaryValue(saves, expectedSlot, "target-expected-entry", out object? expectedState, out stage))
+                return false;
+            if (!TryReadPublicPointer(selectedState!, "target-selected-entry", out long selectedEntryPointer, out stage))
+                return false;
+            if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
+                return false;
+            if (!TryReadDiskCommitTargetSide(
+                    selectedState!, registeredPersistProcessor!.GetType().Assembly, nativeSongs, "target-selected",
+                    out CassetteDiskCommitTargetSideState selected, out stage))
+                return false;
+
+            state = new(
+                playerProcessorPointer,
+                registeredPersistProcessorPointer,
+                retainedSaveDataProcessorPointer,
+                saveDataStatePointer,
+                selectedSlot,
+                selectedEntryPointer,
+                expectedSlotEntryPointer,
+                player,
+                selected);
+            stage = "success";
+            _ = expectedPointer; // The expected identity is emitted by the caller; diagnostics never reject a mismatch.
+            return true;
+        }
+        catch (Exception ex)
+        {
+            state = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    private static bool TryReadRegisteredPersistProcessorPointer(
+        Assembly preferredAssembly,
+        out object? processor,
+        out long processorPointer,
+        out string stage)
+    {
+        processor = null;
+        processorPointer = 0;
+        stage = "target-registry-start";
+        Type? requestSystemType = FindType("RequestSystem", preferredAssembly);
+        if (requestSystemType == null) { stage = "target-registry-owner-missing"; return false; }
+        if (!TryGetPublicReadableProperty(
+                requestSystemType, "registeredProcessorsWrapped", PublicStatic,
+                "target-registry-property", out PropertyInfo registryProperty, out stage))
+            return false;
+        stage = "target-registry-get";
+        object? registry = registryProperty.GetValue(null);
+        if (registry == null) { stage = "target-registry-null"; return false; }
+        MethodInfo? getEnumerator = registry.GetType().GetMethod(
+            "GetEnumerator", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (getEnumerator == null) { stage = "target-registry-enumerator-missing"; return false; }
+        stage = "target-registry-enumerator-get";
+        object? enumerator = getEnumerator.Invoke(registry, null);
+        if (enumerator == null) { stage = "target-registry-enumerator-null"; return false; }
+        object? matchedProcessor = null;
+        int matches = 0;
+        try
+        {
+            MethodInfo? moveNext = enumerator.GetType().GetMethod(
+                "MoveNext", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
+            if (moveNext == null) { stage = "target-registry-move-next-missing"; return false; }
+            if (!TryGetPublicReadableProperty(
+                    enumerator.GetType(), "Current", PublicInstance, "target-registry-current",
+                    out PropertyInfo currentProperty, out stage))
+                return false;
+            bool enumerationComplete = false;
+            for (int count = 0; count < 128; count++)
+            {
+                stage = "target-registry-move-next";
+                if (!Convert.ToBoolean(moveNext.Invoke(enumerator, null)))
+                {
+                    enumerationComplete = true;
+                    break;
+                }
+                stage = "target-registry-current-get";
+                object? pair = currentProperty.GetValue(enumerator);
+                if (pair == null) { stage = "target-registry-entry-null"; return false; }
+                if (!TryGetPublicReadableProperty(
+                        pair.GetType(), "Key", PublicInstance, "target-registry-entry-key",
+                        out PropertyInfo keyProperty, out stage) ||
+                    !TryGetPublicReadableProperty(
+                        pair.GetType(), "Value", PublicInstance, "target-registry-entry-value",
+                        out PropertyInfo valueProperty, out stage))
+                    return false;
+                stage = "target-registry-key-get";
+                object? key = keyProperty.GetValue(pair);
+                if (key == null) { stage = "target-registry-key-null"; return false; }
+                if (!TryGetPublicReadableProperty(
+                        key.GetType(), "Name", PublicInstance, "target-registry-key-name",
+                        out PropertyInfo nameProperty, out stage))
+                    return false;
+                stage = "target-registry-key-name-get";
+                string? name = nameProperty.GetValue(key)?.ToString();
+                if (!string.Equals(name, "PersistSaveChangeBundleRequest", StringComparison.Ordinal)) continue;
+                stage = "target-registry-value-get";
+                object? registration = valueProperty.GetValue(pair);
+                if (registration == null) { stage = "target-registry-registration-null"; return false; }
+                if (!TryGetPublicReadableProperty(
+                        registration.GetType(), "Processor", PublicInstance, "target-registry-processor",
+                        out PropertyInfo processorProperty, out stage))
+                    return false;
+                stage = "target-registry-processor-get";
+                matchedProcessor = processorProperty.GetValue(registration);
+                if (matchedProcessor == null) { stage = "target-registry-processor-null"; return false; }
+                matches++;
+            }
+            if (!enumerationComplete)
+            {
+                stage = "target-registry-limit-move-next";
+                if (Convert.ToBoolean(moveNext.Invoke(enumerator, null)))
+                { stage = "target-registry-entry-limit"; return false; }
+            }
+        }
+        finally
+        {
+            if (enumerator is IDisposable disposable) disposable.Dispose();
+            else enumerator.GetType().GetMethod("Dispose", PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null)?.Invoke(enumerator, null);
+        }
+        if (matches != 1) { stage = $"target-registry-persist-match-count:{matches}"; return false; }
+        if (!TryReadPublicObjectPointer(matchedProcessor, "target-registry-persist-processor", out processorPointer, out stage))
+            return false;
+        processor = matchedProcessor;
+        return true;
+    }
+
+    private static bool TryReadDiskCommitTargetSide(
+        object nativeState,
+        Assembly preferredAssembly,
+        IReadOnlyList<string> nativeSongs,
+        string label,
+        out CassetteDiskCommitTargetSideState state,
+        out string stage)
+    {
+        state = default;
+        stage = $"{label}-start";
+        if (!TryReadPublicPointer(nativeState, label, out long statePointer, out stage)) return false;
+        Type stateType = nativeState.GetType();
+        if (!TryReadPublicBoolean(nativeState, "HasUnstagedChanges", $"{label}-has-unstaged", out bool hasUnstaged, out stage) ||
+            !TryReadPublicBoolean(nativeState, "HasChanges", $"{label}-has-changes", out bool hasChanges, out stage) ||
+            !TryReadPublicBoolean(nativeState, "RequiresWriteToDisk", $"{label}-requires-write", out bool requires, out stage))
+            return false;
+
+        Type? bundleType = FindType("ePlayerSaveChangeBundleKey", preferredAssembly);
+        if (bundleType?.IsEnum != true) { stage = $"{label}-bundle-type-missing"; return false; }
+        stage = $"{label}-default-bundle-parse";
+        object defaultBundle = Enum.Parse(bundleType, "DEFAULT", ignoreCase: false);
+        if (!TryGetPublicReadableProperty(
+                stateType, "saveChangeBundles", PublicInstance, $"{label}-bundles",
+                out PropertyInfo bundlesProperty, out stage))
+            return false;
+        stage = $"{label}-bundles-get";
+        object? bundles = bundlesProperty.GetValue(nativeState);
+        if (bundles == null) { stage = $"{label}-bundles-null"; return false; }
+        if (!TryReadPublicDictionaryPresenceAndValue(
+                bundles, defaultBundle, $"{label}-default-bundle", out bool bundlePresent, out object? bundle, out stage))
+            return false;
+        int bundleChangeCount = 0;
+        if (bundlePresent)
+        {
+            if (!TryGetPublicReadableProperty(
+                    bundle!.GetType(), "Changes", PublicInstance, $"{label}-default-bundle-changes",
+                    out PropertyInfo changesProperty, out stage))
+                return false;
+            stage = $"{label}-default-bundle-changes-get";
+            object? changes = changesProperty.GetValue(bundle);
+            if (changes == null) { stage = $"{label}-default-bundle-changes-null"; return false; }
+            if (!TryGetPublicReadableProperty(
+                    changes.GetType(), "Count", PublicInstance, $"{label}-default-bundle-change-count",
+                    out PropertyInfo countProperty, out stage))
+                return false;
+            stage = $"{label}-default-bundle-change-count-get";
+            bundleChangeCount = Convert.ToInt32(countProperty.GetValue(changes));
+        }
+
+        Type? songType = FindType("ePlayableSong", preferredAssembly);
+        if (songType?.IsEnum != true) { stage = $"{label}-song-type-missing"; return false; }
+        MethodInfo? effectiveMethod = stateType.GetMethod(
+            "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
+        if (effectiveMethod == null) { stage = $"{label}-effective-status-method-missing"; return false; }
+        PropertyInfo? progressionProperty = stateType.GetProperty("GameProgression", PublicInstance);
+        if (progressionProperty != null && progressionProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-game-progression-getter-non-public"; return false; }
+        if (progressionProperty == null)
+        {
+            PropertyInfo[] progressionProperties = stateType.GetProperties(PublicInstance)
+                .Where(property => property.Name.EndsWith(".GameProgression", StringComparison.Ordinal) &&
+                    property.GetGetMethod(nonPublic: false)?.IsPublic == true).ToArray();
+            if (progressionProperties.Length > 1) { stage = $"{label}-game-progression-ambiguous"; return false; }
+            progressionProperty = progressionProperties.SingleOrDefault();
+        }
+        if (progressionProperty == null) { stage = $"{label}-game-progression-missing"; return false; }
+        stage = $"{label}-game-progression-get";
+        object? progression = progressionProperty.GetValue(nativeState);
+        if (progression == null) { stage = $"{label}-game-progression-null"; return false; }
+        MethodInfo? canonicalMethod = progression.GetType().GetMethod(
+            "GetSongCassetteStatus", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
+        if (canonicalMethod == null) { stage = $"{label}-canonical-status-method-missing"; return false; }
+        var effectiveStatuses = new Dictionary<string, string>(StringComparer.Ordinal);
+        var canonicalStatuses = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal))
+        {
+            stage = $"{label}-status-{nativeSong}-song-parse";
+            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            stage = $"{label}-status-{nativeSong}-effective-invoke";
+            string? effective = effectiveMethod.Invoke(nativeState, new[] { song })?.ToString();
+            if (string.IsNullOrWhiteSpace(effective)) { stage = $"{label}-status-{nativeSong}-effective-empty"; return false; }
+            stage = $"{label}-status-{nativeSong}-canonical-invoke";
+            object? rawCanonical = ReadPublicNullableMethod(canonicalMethod, progression, new[] { song });
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawCanonical, $"{label}-status-{nativeSong}-canonical", out bool canonicalPresent, out object? canonical, out stage))
+                return false;
+            effectiveStatuses[nativeSong] = effective;
+            canonicalStatuses[nativeSong] = canonicalPresent ? canonical?.ToString() : null;
+        }
+        state = new(
+            statePointer, hasUnstaged, hasChanges, requires, bundlePresent, bundleChangeCount,
+            effectiveStatuses, canonicalStatuses);
+        stage = "success";
+        return true;
+    }
+
+    private static object? ReadPublicNullableMethod(MethodInfo method, object target, object?[] arguments)
+    {
+        try { return method.Invoke(target, arguments); }
+        catch (TargetInvocationException ex) when (IsEmptyIl2CppNullableReturn(method.ReturnType, ex)) { return null; }
+    }
+
+    private static bool TryReadPublicBoolean(
+        object target, string propertyName, string label, out bool value, out string stage)
+    {
+        value = false;
+        PropertyInfo? property = target.GetType().GetProperty(propertyName, PublicInstance);
+        if (property == null) { stage = $"{label}-missing"; return false; }
+        if (property.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-getter-non-public"; return false; }
+        stage = $"{label}-get";
+        value = Convert.ToBoolean(property.GetValue(target));
+        return true;
+    }
+
+    private static bool TryReadPublicDictionaryValue(
+        object dictionary, object key, string label, out object? value, out string stage)
+    {
+        value = null;
+        if (!TryReadPublicDictionaryPresenceAndValue(dictionary, key, label, out bool present, out value, out stage))
+            return false;
+        if (!present || value == null) { stage = $"{label}-missing"; return false; }
+        return true;
+    }
+
+    private static bool TryReadPublicDictionaryPresenceAndValue(
+        object dictionary, object key, string label, out bool present, out object? value, out string stage)
+    {
+        present = false;
+        value = null;
+        Type dictionaryType = dictionary.GetType();
+        MethodInfo? containsKey = dictionaryType.GetMethods(PublicInstance)
+            .SingleOrDefault(method => string.Equals(method.Name, "ContainsKey", StringComparison.Ordinal) && method.GetParameters().Length == 1);
+        PropertyInfo? itemProperty = dictionaryType.GetProperty("Item", PublicInstance);
+        if (containsKey == null) { stage = $"{label}-contains-key-missing"; return false; }
+        if (itemProperty == null || itemProperty.GetIndexParameters().Length != 1)
+        { stage = $"{label}-indexer-missing"; return false; }
+        if (itemProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-indexer-getter-non-public"; return false; }
+        stage = $"{label}-contains-key-invoke";
+        present = Convert.ToBoolean(containsKey.Invoke(dictionary, new[] { key }));
+        if (!present) { stage = "success"; return true; }
+        stage = $"{label}-get";
+        value = itemProperty.GetValue(dictionary, new[] { key });
+        if (value == null) { stage = $"{label}-null"; return false; }
+        stage = "success";
+        return true;
+    }
+
+    private static bool TryReadPublicObjectPointer(object? value, string label, out long pointer, out string stage)
+    {
+        pointer = 0;
+        if (value == null) { stage = $"{label}-null"; return false; }
+        return TryReadPublicPointer(value, label, out pointer, out stage);
+    }
+
+    private static bool TryGetPublicReadableProperty(
+        Type type,
+        string propertyName,
+        BindingFlags flags,
+        string label,
+        out PropertyInfo property,
+        out string stage)
+    {
+        property = type.GetProperty(propertyName, flags)!;
+        if (property == null) { stage = $"{label}-missing"; return false; }
+        if (property.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-getter-non-public"; property = null!; return false; }
+        stage = "success";
+        return true;
+    }
+
     private static bool TryReadPublicWriteDiagnosticStateCore(
         object? processor,
         long? expectedPointer,
@@ -596,10 +976,12 @@ internal static class CassetteSaveTransactionAdapter
     }
 
     private static bool IsEmptyIl2CppNullableReturn(PropertyInfo property, TargetInvocationException exception)
+        => IsEmptyIl2CppNullableReturn(property.PropertyType, exception);
+
+    private static bool IsEmptyIl2CppNullableReturn(Type returnType, TargetInvocationException exception)
     {
-        Type propertyType = property.PropertyType;
-        if (!propertyType.IsGenericType ||
-            !string.Equals(propertyType.GetGenericTypeDefinition().FullName, "Il2CppSystem.Nullable`1", StringComparison.Ordinal))
+        if (!returnType.IsGenericType ||
+            !string.Equals(returnType.GetGenericTypeDefinition().FullName, "Il2CppSystem.Nullable`1", StringComparison.Ordinal))
             return false;
         Exception? inner = exception.InnerException;
         return inner is NullReferenceException &&
@@ -811,6 +1193,10 @@ internal static class CassetteSaveTransactionAdapter
         PropertyInfo? valueProperty = type.GetProperty("Value", PublicInstance);
         if (hasValueProperty == null || valueProperty == null)
         { stage = $"{label}-contract-missing"; return false; }
+        if (hasValueProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-has-value-getter-non-public"; return false; }
+        if (valueProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-value-getter-non-public"; return false; }
         stage = $"{label}-has-value-get";
         object? rawPresent = hasValueProperty.GetValue(value);
         if (rawPresent is not bool hasValue) { stage = $"{label}-has-value-invalid"; return false; }
@@ -841,8 +1227,12 @@ internal static class CassetteSaveTransactionAdapter
     {
         pointerValue = 0;
         PropertyInfo? pointerProperty = state.GetType().GetProperty("Pointer", PublicInstance);
-        object? rawPointer = pointerProperty?.GetValue(state);
-        if (rawPointer is not IntPtr pointer) { stage = $"{label}-pointer-missing"; return false; }
+        if (pointerProperty == null) { stage = $"{label}-pointer-missing"; return false; }
+        if (pointerProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
+        { stage = $"{label}-pointer-getter-non-public"; return false; }
+        stage = $"{label}-pointer-get";
+        object? rawPointer = pointerProperty.GetValue(state);
+        if (rawPointer is not IntPtr pointer) { stage = $"{label}-pointer-invalid"; return false; }
         if (pointer == IntPtr.Zero) { stage = $"{label}-pointer-zero"; return false; }
         pointerValue = pointer.ToInt64();
         stage = "success";

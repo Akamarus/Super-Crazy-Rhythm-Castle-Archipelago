@@ -356,6 +356,8 @@ internal enum CassetteDiskCommitDiagnosticPhase
     Failure,
     LifecycleBefore,
     LifecycleAfter,
+    PreTarget,
+    PostTarget,
 }
 
 internal enum CassetteDiskCommitFailureKind
@@ -817,6 +819,8 @@ internal sealed class CassetteDiskCommitRuntime
         CassetteDiskCommitDiagnosticPhase.Event => _eventOrdinal > 0,
         CassetteDiskCommitDiagnosticPhase.StillPending => _stillPendingReported,
         CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored => _active && !_submitted,
+        CassetteDiskCommitDiagnosticPhase.PreTarget => _active && !_submitted,
+        CassetteDiskCommitDiagnosticPhase.PostTarget => _active,
         _ => false,
     };
 
