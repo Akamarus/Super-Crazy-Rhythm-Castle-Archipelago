@@ -109,6 +109,8 @@ Equal(0, RequestSystem.SubmitCount, "semantic cassette request construction neve
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 string requestFactorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
 string transactionAdapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+string cassetteSaveDesignSource = File.ReadAllText(Path.Combine(
+    Directory.GetCurrentDirectory(), "docs", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "cassette production wiring consumes no save-write completion event");
 Equal(false, pluginSource.Contains("TickDiskCommit(elapsed);", StringComparison.Ordinal), "Unity reconciliation never advances the retired synthetic disk-commit state machine");
 foreach (string prohibitedWritePath in new[] { "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
@@ -143,18 +145,23 @@ Equal(false, pluginSource.Contains("DiscardAllRoutingPrefix", StringComparison.O
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix)", StringComparison.Ordinal), "broad selection postfix is non-authoritative");
 string selectedMutationPostfix = ExtractMethods(pluginSource, "public static void SelectedSlotMutationPostfix(").Single();
 Equal(true, selectedMutationPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Ordinal), "slot mutation callback only queues boundary signal");
+Equal(true, selectedMutationPostfix.IndexOf("SuspendGameplayReadinessForBoundary", StringComparison.Ordinal) < selectedMutationPostfix.IndexOf("__args == null", StringComparison.Ordinal), "slot mutation suspends gameplay readiness before null argument extraction");
+Equal(true, selectedMutationPostfix.IndexOf("SuspendGameplayReadinessForBoundary", StringComparison.Ordinal) < selectedMutationPostfix.IndexOf("__args[0]", StringComparison.Ordinal), "slot mutation suspends gameplay readiness before slot extraction");
 Equal(true, selectedMutationPostfix.Contains("LogExtractionFailureOnce", StringComparison.Ordinal), "slot mutation extraction failure is logged once");
 Equal(true, selectedMutationPostfix.Contains("__originalMethod?.DeclaringType?.Name", StringComparison.Ordinal), "slot mutation diagnostic includes safe method owner identity");
 Equal(false, selectedMutationPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "slot mutation callback performs no native enquiry");
 Equal(false, selectedMutationPostfix.Contains("ActivateLoadedSave", StringComparison.Ordinal), "slot mutation callback cannot activate epoch");
 string buildPostfix = ExtractMethods(pluginSource, "public static void BuiltPlayerSaveStatePostfix(").Single();
 Equal(true, buildPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Ordinal), "build callback only queues boundary signal");
+Equal(true, buildPostfix.IndexOf("SuspendGameplayReadinessForBoundary", StringComparison.Ordinal) < buildPostfix.IndexOf("ReflectionUtil.FindArg", StringComparison.Ordinal), "build callback suspends gameplay readiness before request extraction");
+Equal(true, buildPostfix.IndexOf("SuspendGameplayReadinessForBoundary", StringComparison.Ordinal) < buildPostfix.IndexOf("ReflectionUtil.ReadInt", StringComparison.Ordinal), "build callback suspends gameplay readiness before slot extraction");
 Equal(true, buildPostfix.Contains("LogExtractionFailureOnce", StringComparison.Ordinal), "build extraction failure is logged once");
 Equal(true, buildPostfix.Contains("BuildPlayerSaveStateFromFileRequest", StringComparison.Ordinal), "build diagnostic identifies exact request type safely");
 Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "build callback performs no native enquiry");
 Equal(false, buildPostfix.Contains("Persist", StringComparison.Ordinal), "build observation cannot trigger cassette persistence");
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
+Equal(true, extractionDiagnostic.Contains("gameplay readiness was suspended before extraction", StringComparison.Ordinal), "bounded malformed-boundary diagnostic states that the old gate already failed closed");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
 string recordRoutingPrefix = ExtractMethods(pluginSource, "public static bool CassetteStatusRequestPrefix(").Single();
 Equal(false, recordRoutingPrefix.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), "semantic record-song interception no longer starts disk-routing diagnostics");
@@ -241,7 +248,14 @@ Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapse
 Equal(true, keeperSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", StringComparison.Ordinal), "keeper observes the exact live Hub6 phone-bank marker");
 Equal(true, keeperSource.Contains("TryCaptureGameplayReadyObservation", StringComparison.Ordinal), "keeper only probes the marker while the active epoch is awaiting gameplay readiness");
 Equal(true, keeperSource.Contains("ObserveGameplayReady", StringComparison.Ordinal), "keeper returns a correlated marker observation to the cassette gate");
+Equal(true, keeperSource.Contains("ObserveGameplayReadyMarker", StringComparison.Ordinal), "always-on keeper records marker lifetime transitions even before epoch activation");
+Equal(true, keeperSource.Contains("GetInstanceID()", StringComparison.Ordinal), "marker incarnation uses public Unity scene-object identity");
+Equal(true, keeperSource.IndexOf("GameObject.Find(Hub6PhoneBankRootPath)", StringComparison.Ordinal) < keeperSource.IndexOf("ObserveGameplayReadyMarker", StringComparison.Ordinal), "keeper reads exact marker presence before recording its lifetime transition");
+Equal(true, keeperSource.IndexOf("ObserveGameplayReadyMarker", StringComparison.Ordinal) < keeperSource.IndexOf("TryCaptureGameplayReadyObservation", StringComparison.Ordinal), "fresh marker lifetime evidence is recorded before an epoch may capture it");
 Equal(false, keeperSource.Contains("TimeSpan.FromSeconds(1)", StringComparison.Ordinal), "keeper does not substitute a frame-count interval for elapsed time");
+Equal(false, pluginSource.Contains("ChangeFrontendModeRequest", StringComparison.Ordinal), "cassette readiness does not guess an unproven title/frontend hook");
+Equal(true, cassetteSaveDesignSource.Contains("There is no proven public title/save-unload callback with safe ordering", StringComparison.Ordinal), "design records the residual title interval explicitly");
+Equal(true, cassetteSaveDesignSource.Contains("the next exact boundary closes it before the plugin extracts or processes any new-load identity", StringComparison.Ordinal), "design records the bounded next-boundary safety guarantee");
 foreach (string obsolete in new[] { "CassetteReceiptRuntime", "CassetteReceiptScheduler", "Level2MoneyCassetteRuntime", "_terminalSongs" })
     Equal(false, pluginSource.Contains(obsolete, StringComparison.Ordinal) || File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs")).Contains(obsolete, StringComparison.Ordinal), $"obsolete process-wide cassette state removed: {obsolete}");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\n                \"HandleEvent\",\n                \"SelectedPlayerSaveSlotChangedEvent\"", StringComparison.Ordinal), "unsafe selected-save event hook remains absent");
@@ -1491,39 +1505,73 @@ Equal(1, pluginSource.Split("CassetteReceiptRandomization.LogPostLoadSnapshot", 
 var gameplayGate = new CassetteGameplayReadyGate();
 var gameplayIdentity = new CassetteGameplayReadyIdentity(Generation: 8, Epoch: 3, Slot: 4, Pointer: 0x700);
 Equal(false, gameplayGate.TryCapture(out _), "phone-bank evidence before activation cannot open a cassette epoch");
+gameplayGate.BeginBoundary();
 gameplayGate.Activate(gameplayIdentity);
 Equal(false, gameplayGate.IsOpen(gameplayIdentity), "every save activation starts closed even when an earlier save was gameplay-ready");
+gameplayGate.ObserveMarker(phoneBankLive: true, markerIdentity: 101);
 Equal(true, gameplayGate.TryCapture(out CassetteGameplayReadyObservation preLiveObservation), "closed active epoch may capture one exact marker observation token");
-Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: false), "absent phone bank keeps the active epoch closed");
-Equal(false, gameplayGate.IsOpen(gameplayIdentity), "pre-load marker absence cannot authorize cassette reads");
-Equal(true, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "exact live marker opens the matching save epoch once");
+Equal(true, gameplayGate.TryOpen(preLiveObservation), "exact live marker opens the matching save epoch once");
 Equal(true, gameplayGate.IsOpen(gameplayIdentity), "matching live Hub6 evidence authorizes the current epoch");
-Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "repeated live observations cannot reopen or duplicate reconciliation");
+Equal(false, gameplayGate.TryOpen(preLiveObservation), "repeated live observations cannot reopen or duplicate reconciliation");
 Equal(false, gameplayGate.TryCapture(out _), "open epoch stops per-frame phone-bank probes");
+gameplayGate.ObserveMarker(phoneBankLive: false, markerIdentity: 0);
 Equal(true, gameplayGate.IsOpen(gameplayIdentity), "ordinary room travel leaves the gameplay-ready epoch open");
 
-gameplayGate.Suspend();
+gameplayGate.BeginBoundary();
 Equal(false, gameplayGate.IsOpen(gameplayIdentity), "a proven save boundary synchronously closes prior gameplay readiness");
 var reloadedIdentity = gameplayIdentity with { Generation = 9, Epoch = 4 };
 gameplayGate.Activate(reloadedIdentity);
-Equal(true, gameplayGate.TryCapture(out CassetteGameplayReadyObservation reloadObservation), "same-slot same-pointer reload still requires fresh live-scene evidence");
-Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "stale marker evidence from the prior epoch is rejected");
+Equal(false, gameplayGate.TryOpen(preLiveObservation), "stale marker evidence from the prior epoch is rejected");
 Equal(false, gameplayGate.IsOpen(reloadedIdentity), "stale prior-epoch evidence cannot authorize reads or grants");
-Equal(true, gameplayGate.TryOpen(reloadObservation, phoneBankLive: true), "fresh evidence opens the reloaded epoch");
+gameplayGate.ObserveMarker(phoneBankLive: true, markerIdentity: 202);
+Equal(true, gameplayGate.TryCapture(out CassetteGameplayReadyObservation reloadObservation), "post-boundary marker incarnation produces fresh evidence");
+Equal(true, gameplayGate.TryOpen(reloadObservation), "fresh evidence opens the reloaded epoch");
 
 var switchedIdentity = new CassetteGameplayReadyIdentity(Generation: 10, Epoch: 5, Slot: 2, Pointer: 0x900);
+gameplayGate.BeginBoundary();
 gameplayGate.Activate(switchedIdentity);
 Equal(false, gameplayGate.IsOpen(switchedIdentity), "save switch activation closes the prior save's readiness");
-Equal(false, gameplayGate.TryOpen(reloadObservation, phoneBankLive: true), "prior-save evidence cannot open a different slot or pointer");
+Equal(false, gameplayGate.TryOpen(reloadObservation), "prior-save evidence cannot open a different slot or pointer");
+
+var retainedMarkerGate = new CassetteGameplayReadyGate();
+var retainedMarkerEpochOne = new CassetteGameplayReadyIdentity(Generation: 20, Epoch: 1, Slot: 4, Pointer: 0xA00);
+retainedMarkerGate.BeginBoundary();
+retainedMarkerGate.ObserveMarker(phoneBankLive: true, markerIdentity: 303);
+retainedMarkerGate.Activate(retainedMarkerEpochOne);
+Equal(true, retainedMarkerGate.TryCapture(out CassetteGameplayReadyObservation retainedMarkerFirstObservation), "first boundary captures its fresh marker incarnation even when activation follows marker creation");
+Equal(true, retainedMarkerGate.TryOpen(retainedMarkerFirstObservation), "first fresh incarnation opens its epoch");
+retainedMarkerGate.BeginBoundary();
+var retainedMarkerEpochTwo = retainedMarkerEpochOne with { Generation = 21, Epoch = 2 };
+retainedMarkerGate.Activate(retainedMarkerEpochTwo);
+retainedMarkerGate.ObserveMarker(phoneBankLive: true, markerIdentity: 303);
+Equal(false, retainedMarkerGate.TryCapture(out _), "new epoch cannot reuse a phone-bank object retained live from the previous boundary");
+retainedMarkerGate.ObserveMarker(phoneBankLive: false, markerIdentity: 0);
+Equal(false, retainedMarkerGate.TryCapture(out _), "post-boundary marker absence alone cannot open the epoch");
+retainedMarkerGate.ObserveMarker(phoneBankLive: true, markerIdentity: 404);
+Equal(true, retainedMarkerGate.TryCapture(out CassetteGameplayReadyObservation retainedMarkerFreshObservation), "absence then new presence supplies post-boundary lifetime evidence");
+Equal(true, retainedMarkerGate.TryOpen(retainedMarkerFreshObservation), "new marker incarnation opens the matching new epoch");
+
+var malformedBoundaryGate = new CassetteGameplayReadyGate();
+var malformedBoundaryIdentity = new CassetteGameplayReadyIdentity(Generation: 30, Epoch: 1, Slot: 4, Pointer: 0xB00);
+malformedBoundaryGate.BeginBoundary();
+malformedBoundaryGate.ObserveMarker(phoneBankLive: true, markerIdentity: 505);
+malformedBoundaryGate.Activate(malformedBoundaryIdentity);
+Equal(true, malformedBoundaryGate.TryCapture(out CassetteGameplayReadyObservation malformedBoundaryObservation), "fixture opens before malformed exact callback");
+Equal(true, malformedBoundaryGate.TryOpen(malformedBoundaryObservation), "fixture proves the old gate started open");
+malformedBoundaryGate.BeginBoundary(); // exact postfix must do this before discovering null or malformed arguments
+Equal(false, malformedBoundaryGate.IsOpen(malformedBoundaryIdentity), "malformed exact callback still closes the old gameplay-ready gate");
 Console.WriteLine("PASS: cassette_gameplay_ready_gate_correlates_live_hub_to_exact_save_epoch");
 
 string gameplayCaptureSource = ExtractMethods(receiptRandomizationSource, "internal static bool TryCaptureGameplayReadyObservation(").Single();
 string gameplayObserveSource = ExtractMethods(receiptRandomizationSource, "internal static void ObserveGameplayReady(").Single();
+string gameplayBoundarySuspendSource = ExtractMethods(receiptRandomizationSource, "internal static void SuspendGameplayReadinessForBoundary(").Single();
 Equal(false, gameplayCaptureSource.Contains("TryReadCassetteStatus", StringComparison.Ordinal), "marker capture performs no cassette status read");
 Equal(false, gameplayObserveSource.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "marker observation never grants directly");
 Equal(false, gameplayObserveSource.Contains("TryReconcile(", StringComparison.Ordinal), "marker observation only queues managed reconciliation");
-Equal(true, queueBoundary.Contains("_gameplayReady.Suspend()", StringComparison.Ordinal), "every exact save boundary synchronously closes gameplay readiness");
-Equal(true, beginMostRecentBoundary.Contains("_gameplayReady.Suspend()", StringComparison.Ordinal), "unresolved most-recent boundary synchronously closes gameplay readiness");
+Equal(false, gameplayBoundarySuspendSource.Contains("GameObject", StringComparison.Ordinal), "non-Unity save callbacks close only managed gate state and never probe scene objects");
+Equal(true, queueBoundary.Contains("_gameplayReady.BeginBoundary()", StringComparison.Ordinal), "every exact save boundary synchronously closes gameplay readiness");
+Equal(true, queueBoundary.Contains("prior gameplay readiness was suspended before new-load identity processing", StringComparison.Ordinal), "valid boundary diagnostic states that closure precedes new-load identity work");
+Equal(true, beginMostRecentBoundary.Contains("_gameplayReady.BeginBoundary()", StringComparison.Ordinal), "unresolved most-recent boundary synchronously closes gameplay readiness");
 Equal(true, activateLoadedSave.Contains("_gameplayReady.Activate", StringComparison.Ordinal), "each activated epoch requires fresh Hub6 readiness");
 int reconcileGameplayGateIndex = reconcileSource.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal);
 Equal(true, reconcileGameplayGateIndex >= 0 && reconcileGameplayGateIndex < reconcileSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "closed gameplay gate prevents reconciliation before any native readiness/status read");

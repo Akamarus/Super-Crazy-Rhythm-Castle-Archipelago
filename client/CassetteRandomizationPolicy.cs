@@ -147,23 +147,61 @@ internal readonly record struct CassetteGameplayReadyIdentity(
     long Pointer);
 
 internal readonly record struct CassetteGameplayReadyObservation(
-    CassetteGameplayReadyIdentity Identity);
+    CassetteGameplayReadyIdentity Identity,
+    long BoundaryRevision,
+    long MarkerIncarnation,
+    int MarkerIdentity);
 
 internal sealed class CassetteGameplayReadyGate
 {
     private CassetteGameplayReadyIdentity? _activeIdentity;
+    private long _boundaryRevision;
+    private bool _boundaryPending;
     private bool _open;
+    private bool _markerLive;
+    private int _markerIdentity;
+    private long _markerIncarnation;
+    private long _freshMarkerBoundaryRevision = -1;
+
+    internal void BeginBoundary()
+    {
+        // Selection, creation, and build callbacks for one unresolved load can coalesce.
+        // Once an epoch is active, any later exact callback begins a fresh boundary wave.
+        if (_boundaryPending && !_activeIdentity.HasValue && !_open)
+            return;
+
+        _boundaryRevision++;
+        _boundaryPending = true;
+        _activeIdentity = null;
+        _open = false;
+        _freshMarkerBoundaryRevision = -1;
+    }
 
     internal void Activate(CassetteGameplayReadyIdentity identity)
     {
+        if (!_boundaryPending)
+            BeginBoundary();
         _activeIdentity = identity;
         _open = false;
     }
 
-    internal void Suspend()
+    internal void ObserveMarker(bool phoneBankLive, int markerIdentity)
     {
-        _activeIdentity = null;
-        _open = false;
+        if (!phoneBankLive)
+        {
+            _markerLive = false;
+            _markerIdentity = 0;
+            return;
+        }
+
+        bool newIncarnation = !_markerLive || _markerIdentity != markerIdentity;
+        _markerLive = true;
+        _markerIdentity = markerIdentity;
+        if (!newIncarnation) return;
+
+        _markerIncarnation++;
+        if (_boundaryPending)
+            _freshMarkerBoundaryRevision = _boundaryRevision;
     }
 
     internal bool IsOpen(CassetteGameplayReadyIdentity identity) =>
@@ -171,23 +209,33 @@ internal sealed class CassetteGameplayReadyGate
 
     internal bool TryCapture(out CassetteGameplayReadyObservation observation)
     {
-        if (!_activeIdentity.HasValue || _open)
+        if (!_activeIdentity.HasValue || !_boundaryPending || _open || !_markerLive ||
+            _freshMarkerBoundaryRevision != _boundaryRevision)
         {
             observation = default;
             return false;
         }
 
-        observation = new(_activeIdentity.Value);
+        observation = new(
+            _activeIdentity.Value,
+            _boundaryRevision,
+            _markerIncarnation,
+            _markerIdentity);
         return true;
     }
 
-    internal bool TryOpen(CassetteGameplayReadyObservation observation, bool phoneBankLive)
+    internal bool TryOpen(CassetteGameplayReadyObservation observation)
     {
-        if (!phoneBankLive || _open || !_activeIdentity.HasValue ||
-            _activeIdentity.Value != observation.Identity)
+        if (_open || !_boundaryPending || !_markerLive || !_activeIdentity.HasValue ||
+            _activeIdentity.Value != observation.Identity ||
+            _boundaryRevision != observation.BoundaryRevision ||
+            _freshMarkerBoundaryRevision != observation.BoundaryRevision ||
+            _markerIncarnation != observation.MarkerIncarnation ||
+            _markerIdentity != observation.MarkerIdentity)
             return false;
 
         _open = true;
+        _boundaryPending = false;
         return true;
     }
 }

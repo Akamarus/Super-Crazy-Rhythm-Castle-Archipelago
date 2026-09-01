@@ -11612,6 +11612,7 @@ internal static class CassetteSaveTransactionPatches
 
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
+        CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{__originalMethod?.Name ?? "<unknown>"}(Int32)";
         if (__args == null)
         {
@@ -11639,6 +11640,7 @@ internal static class CassetteSaveTransactionPatches
         object[]? __args,
         MethodBase __originalMethod)
     {
+        CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
         const string requestIdentity = "BuildPlayerSaveStateFromFileRequest";
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
         object? request = ReflectionUtil.FindArg(__args, "BuildPlayerSaveStateFromFileRequest");
@@ -11668,7 +11670,7 @@ internal static class CassetteSaveTransactionPatches
         {
             if (!ExtractionFailures.Add(key)) return;
         }
-        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY ARGUMENT REJECTED target='{identity}' reason='{reason}'; callback failed closed.");
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY ARGUMENT REJECTED target='{identity}' reason='{reason}'; gameplay readiness was suspended before extraction and the callback failed closed.");
     }
 }
 
@@ -17984,7 +17986,7 @@ internal static class CassetteReceiptRandomization
             if (!enabled)
             {
                 _runtime.DeactivateSave();
-                _gameplayReady.Suspend();
+                _gameplayReady.BeginBoundary();
             }
         }
         Plugin.LoggerInstance?.LogWarning(enabled
@@ -18068,7 +18070,7 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
-            _gameplayReady.Suspend();
+            _gameplayReady.BeginBoundary();
             _regularSavePointerJoinProbe.Cancel();
             if (kind is CassetteSaveBoundarySignalKind.Selection)
                 _joinedSaveDataRequestProcessor = null;
@@ -18079,7 +18081,12 @@ internal static class CassetteReceiptRandomization
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
         }
-        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY PENDING slot={expectedSlot} kind='{kind}'; prior epoch suspended pending two stable processor observations.");
+        Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE BOUNDARY PENDING slot={expectedSlot} kind='{kind}'; prior gameplay readiness was suspended before new-load identity processing, pending two stable processor observations.");
+    }
+
+    internal static void SuspendGameplayReadinessForBoundary()
+    {
+        lock (Sync) _gameplayReady.BeginBoundary();
     }
 
     internal static void BeginMostRecentSelectionBoundary(object? saveDataProcessor)
@@ -18089,7 +18096,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             // Suspension is deliberately first: a malformed callback can never leave the old epoch eligible for work.
-            _gameplayReady.Suspend();
+            _gameplayReady.BeginBoundary();
             _saveIdentity.SuspendUnresolved();
             _regularSavePointerJoinProbe.Cancel();
             _joinedSaveDataRequestProcessor = null;
@@ -18114,7 +18121,7 @@ internal static class CassetteReceiptRandomization
         }
         if (log)
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY stage='{stage}'; prior epoch suspended pending unique regular-save pointer join.");
+                $"[SCRC-AP] CASSETTE MOST-RECENT SAVE BOUNDARY stage='{stage}'; prior gameplay readiness suspended before new-load identity processing, pending unique regular-save pointer join.");
     }
 
     internal static void ActivateLoadedSave(long generation, int slot, long pointer, string reason)
@@ -18142,7 +18149,7 @@ internal static class CassetteReceiptRandomization
             _runtime.DeactivateSave();
             _activeSaveGeneration = 0;
             _activeSavePointer = 0;
-            _gameplayReady.Suspend();
+            _gameplayReady.BeginBoundary();
             _joinedSaveDataRequestProcessor = null;
             _saveSynchronizationReady = false;
             _saveSynchronizationDeferredLogged = false;
@@ -18352,13 +18359,18 @@ internal static class CassetteReceiptRandomization
         bool opened;
         lock (Sync)
         {
-            opened = _gameplayReady.TryOpen(observation, phoneBankLive: true);
+            opened = _gameplayReady.TryOpen(observation);
         }
         if (!opened) return;
 
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] CASSETTE GAMEPLAY READY epoch={observation.Identity.Epoch} slot={observation.Identity.Slot} pointer=0x{observation.Identity.Pointer:X}; live Hub6 phone bank observed and pending AP ownership retained for reconciliation.");
         RequestUnityReconciliation("live Hub6 gameplay ready");
+    }
+
+    internal static void ObserveGameplayReadyMarker(bool phoneBankLive, int markerIdentity)
+    {
+        lock (Sync) _gameplayReady.ObserveMarker(phoneBankLive, markerIdentity);
     }
 
     internal static void TickUnity(TimeSpan elapsed)
@@ -19969,9 +19981,12 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
             : TimeSpan.FromSeconds((double)(now - _lastTimestamp) / System.Diagnostics.Stopwatch.Frequency);
         _lastTimestamp = now;
         CassetteReceiptRandomization.TickUnity(elapsed);
-        if (string.Equals(DeveloperHarness.CurrentRoomId, MusicLabDiscovery.Hub6RoomId, StringComparison.Ordinal) &&
-            CassetteReceiptRandomization.TryCaptureGameplayReadyObservation(out CassetteGameplayReadyObservation observation) &&
-            GameObject.Find(Hub6PhoneBankRootPath) != null)
+        GameObject? phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
+        CassetteReceiptRandomization.ObserveGameplayReadyMarker(
+            phoneBank != null,
+            phoneBank?.GetInstanceID() ?? 0);
+        if (phoneBank != null &&
+            CassetteReceiptRandomization.TryCaptureGameplayReadyObservation(out CassetteGameplayReadyObservation observation))
             CassetteReceiptRandomization.ObserveGameplayReady(observation);
     }
 }
