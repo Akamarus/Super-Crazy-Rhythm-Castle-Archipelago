@@ -524,6 +524,120 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    internal static bool TryConfirmSaveSynchronizationReady(
+        object? retainedSaveDataProcessor,
+        int expectedSlot,
+        long expectedPointer,
+        out string stage)
+    {
+        stage = "readiness-start";
+        try
+        {
+            if (retainedSaveDataProcessor == null)
+            {
+                stage = "readiness-retained-save-data-processor-null";
+                return false;
+            }
+            if (!TryReadRegisteredPersistProcessorPointer(
+                    retainedSaveDataProcessor.GetType().Assembly,
+                    out object? registeredPersistProcessor,
+                    out long registeredPersistProcessorPointer,
+                    out _,
+                    out stage))
+                return false;
+            if (!TryReadPublicObjectPointer(
+                    retainedSaveDataProcessor,
+                    "readiness-retained-save-data-processor",
+                    out long retainedSaveDataProcessorPointer,
+                    out stage))
+                return false;
+            if (registeredPersistProcessorPointer != retainedSaveDataProcessorPointer)
+            {
+                stage = $"readiness-save-data-processor-pointer-mismatch:expected=0x{retainedSaveDataProcessorPointer:X}:actual=0x{registeredPersistProcessorPointer:X}";
+                return false;
+            }
+            if (!TryObtainPublicState(
+                    registeredPersistProcessor,
+                    "readiness-save-data",
+                    out object? saveDataState,
+                    out stage))
+                return false;
+
+            Type saveDataStateType = saveDataState!.GetType();
+            if (!TryGetPublicReadableProperty(
+                    saveDataStateType,
+                    "SelectedPlayerSaveSlot",
+                    PublicInstance,
+                    "readiness-selected-slot",
+                    out PropertyInfo selectedSlotProperty,
+                    out stage))
+                return false;
+            stage = "readiness-selected-slot-get";
+            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawSelectedSlot,
+                    "readiness-selected-slot",
+                    out bool slotPresent,
+                    out object? slotValue,
+                    out stage))
+                return false;
+            if (!slotPresent || slotValue == null)
+            {
+                stage = "readiness-selected-slot-empty";
+                return false;
+            }
+            stage = "readiness-selected-slot-convert";
+            int selectedSlot = Convert.ToInt32(slotValue);
+            if (selectedSlot != expectedSlot)
+            {
+                stage = $"readiness-selected-slot-mismatch:expected={expectedSlot}:actual={selectedSlot}";
+                return false;
+            }
+
+            if (!TryGetPublicReadableProperty(
+                    saveDataStateType,
+                    "RegularPlayerSaves",
+                    PublicInstance,
+                    "readiness-regular-saves",
+                    out PropertyInfo savesProperty,
+                    out stage))
+                return false;
+            stage = "readiness-regular-saves-get";
+            object? saves = savesProperty.GetValue(saveDataState);
+            if (saves == null)
+            {
+                stage = "readiness-regular-saves-null";
+                return false;
+            }
+            if (!TryReadPublicDictionaryValue(
+                    saves,
+                    selectedSlot,
+                    "readiness-selected-entry",
+                    out object? selectedState,
+                    out stage))
+                return false;
+            if (!TryReadPublicPointer(
+                    selectedState!,
+                    "readiness-selected-entry",
+                    out long selectedEntryPointer,
+                    out stage))
+                return false;
+            if (selectedEntryPointer != expectedPointer)
+            {
+                stage = $"readiness-selected-entry-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{selectedEntryPointer:X}";
+                return false;
+            }
+
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
     private static bool TryReadRegisteredPersistProcessorPointer(
         Assembly preferredAssembly,
         out object? processor,

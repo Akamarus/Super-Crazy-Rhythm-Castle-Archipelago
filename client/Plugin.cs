@@ -18245,6 +18245,9 @@ internal static class CassetteReceiptRandomization
     private static bool _unityReconciliationRequested;
     private static string _unityReconciliationReason = string.Empty;
     private static string _lastIdentityDiagnostic = string.Empty;
+    private static bool _saveSynchronizationReady;
+    private static bool _saveSynchronizationDeferredLogged;
+    private static bool _saveSynchronizationReadyLogged;
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -18261,6 +18264,7 @@ internal static class CassetteReceiptRandomization
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
+            _saveSynchronizationReady = false; _saveSynchronizationDeferredLogged = false; _saveSynchronizationReadyLogged = false;
         }
     }
 
@@ -18629,6 +18633,9 @@ internal static class CassetteReceiptRandomization
             _activeSavePointer = pointer;
             _diskCommit.Reset();
             _bundleRoutingDiagnostics.Reset();
+            _saveSynchronizationReady = false;
+            _saveSynchronizationDeferredLogged = false;
+            _saveSynchronizationReadyLogged = false;
             epoch = _runtime.Epoch;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
@@ -18645,6 +18652,9 @@ internal static class CassetteReceiptRandomization
             _joinedSaveDataRequestProcessor = null;
             _diskCommit.Reset();
             _bundleRoutingDiagnostics.Reset();
+            _saveSynchronizationReady = false;
+            _saveSynchronizationDeferredLogged = false;
+            _saveSynchronizationReadyLogged = false;
         }
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }
@@ -18652,13 +18662,90 @@ internal static class CassetteReceiptRandomization
     internal static void TryReconcile(string reason)
     {
         string[] songs;
+        object? joinedSaveDataProcessor;
+        long generation;
+        long epoch;
+        int slot;
+        long pointer;
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave) return;
             songs = _runtime.PendingSongs.ToArray();
+            joinedSaveDataProcessor = _joinedSaveDataRequestProcessor;
+            generation = _activeSaveGeneration;
+            epoch = _runtime.Epoch;
+            slot = _runtime.ActiveSlot!.Value;
+            pointer = _activeSavePointer;
         }
+        if (!TryConfirmSaveSynchronizationReady(
+                generation, epoch, slot, pointer, joinedSaveDataProcessor,
+                allowObservationProbe: true, out _))
+            return;
         EnsureCassetteProcessorAvailable();
         foreach (string song in songs) TryReconcileSong(song, reason, verificationDue: false);
+    }
+
+    private static bool TryConfirmSaveSynchronizationReady(
+        long generation,
+        long epoch,
+        int slot,
+        long pointer,
+        object? joinedSaveDataProcessor,
+        bool allowObservationProbe,
+        out string stage)
+    {
+        lock (Sync)
+        {
+            bool current = !_saveIdentity.Pending && _runtime.HasActiveSave &&
+                _activeSaveGeneration == generation && _runtime.Epoch == epoch &&
+                _runtime.ActiveSlot == slot && _activeSavePointer == pointer;
+            if (!current)
+            {
+                stage = "readiness-save-identity-changed";
+                return false;
+            }
+            if (!allowObservationProbe)
+            {
+                stage = _saveSynchronizationReady ? "success" : "readiness-awaiting-observation";
+                return _saveSynchronizationReady;
+            }
+        }
+
+        bool ready = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+            joinedSaveDataProcessor, slot, pointer, out stage);
+        bool logDeferred = false;
+        bool logReady = false;
+        lock (Sync)
+        {
+            bool current = !_saveIdentity.Pending && _runtime.HasActiveSave &&
+                _activeSaveGeneration == generation && _runtime.Epoch == epoch &&
+                _runtime.ActiveSlot == slot && _activeSavePointer == pointer &&
+                ReferenceEquals(_joinedSaveDataRequestProcessor, joinedSaveDataProcessor);
+            if (!current)
+            {
+                stage = "readiness-save-identity-changed";
+                return false;
+            }
+            bool wasReady = _saveSynchronizationReady;
+            _saveSynchronizationReady = ready;
+            if (!ready && !_saveSynchronizationDeferredLogged)
+            {
+                _saveSynchronizationDeferredLogged = true;
+                logDeferred = true;
+            }
+            else if (ready && !wasReady && _saveSynchronizationDeferredLogged && !_saveSynchronizationReadyLogged)
+            {
+                _saveSynchronizationReadyLogged = true;
+                logReady = true;
+            }
+        }
+        if (logDeferred)
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] CASSETTE SAVE SYNCHRONIZATION DEFERRED epoch={epoch} slot={slot} pointer=0x{pointer:X} stage='{stage}'; pending AP ownership retained until a lifecycle observation proves native selection readiness.");
+        if (logReady)
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] CASSETTE SAVE SYNCHRONIZATION READY epoch={epoch} slot={slot} pointer=0x{pointer:X}; pending reconciliation resumed by lifecycle observation.");
+        return ready;
     }
 
     private static bool EnsureCassetteProcessorAvailable()
@@ -18694,13 +18781,25 @@ internal static class CassetteReceiptRandomization
     private static void TryReconcileSong(string nativeSong, string reason, bool verificationDue)
     {
         object? processor;
+        object? joinedSaveDataProcessor;
+        long generation;
         long epoch;
+        int slot;
+        long pointer;
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave || !_runtime.IsPending(nativeSong)) return;
             processor = _playerSaveRequestProcessor;
+            joinedSaveDataProcessor = _joinedSaveDataRequestProcessor;
+            generation = _activeSaveGeneration;
             epoch = _runtime.Epoch;
+            slot = _runtime.ActiveSlot!.Value;
+            pointer = _activeSavePointer;
         }
+        if (!TryConfirmSaveSynchronizationReady(
+                generation, epoch, slot, pointer, joinedSaveDataProcessor,
+                allowObservationProbe: false, out _))
+            return;
         if (!CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(processor) ||
             !CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor!, nativeSong, out string? status))
         {
@@ -18743,6 +18842,7 @@ internal static class CassetteReceiptRandomization
         CassetteDiskCommitAttempt attempt;
         bool submitted;
         bool terminalOnly;
+        object? joinedSaveDataProcessor;
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_runtime.HasActiveSave) return;
@@ -18750,7 +18850,12 @@ internal static class CassetteReceiptRandomization
             bool prepared = !submitted && _diskCommit.TryGetPreparedAttempt(out attempt);
             terminalOnly = !submitted && !prepared && _diskCommit.TryGetLastTerminalAttempt(out attempt);
             if (!submitted && !prepared && !terminalOnly) return;
+            joinedSaveDataProcessor = _joinedSaveDataRequestProcessor;
         }
+        if (!terminalOnly && !TryConfirmSaveSynchronizationReady(
+                attempt.Generation, attempt.Epoch, attempt.Slot, attempt.Pointer, joinedSaveDataProcessor,
+                allowObservationProbe: false, out _))
+            return;
         if (!CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEventHeader(
                 nativeEvent, out int eventSlot, out bool succeeded, out string stage))
         {
@@ -18915,7 +19020,11 @@ internal static class CassetteReceiptRandomization
         if (reason != null) TryReconcile(reason);
 
         string[] ready;
-        lock (Sync) ready = _runtime.Tick(elapsed).ToArray();
+        lock (Sync)
+        {
+            if (!_saveSynchronizationReady) return;
+            ready = _runtime.Tick(elapsed).ToArray();
+        }
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
         TickDiskCommit(elapsed);
     }
@@ -18934,6 +19043,10 @@ internal static class CassetteReceiptRandomization
             songs = _diskCommit.Songs.ToArray();
             submitted = _diskCommit.TryGetSubmittedAttempt(out activeAttempt);
         }
+        if (!TryConfirmSaveSynchronizationReady(
+                generation, epoch, slot, pointer, joinedSaveDataProcessor,
+                allowObservationProbe: false, out _))
+            return;
         bool identityReadable = CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(
             processor, out long observedPointer, out string identityStage);
         bool statusesRetained = TryReadDiskCommitBoundary(

@@ -280,6 +280,7 @@ Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette r
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
 string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
+Equal(true, unityTick.IndexOf("if (!_saveSynchronizationReady) return", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "deferred synchronization freezes verification and disk-attempt timers until an observation proves readiness");
 Equal(true, unityTick.Contains("TickDiskCommit(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded disk completion on the same monotonic elapsed time");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
@@ -305,6 +306,11 @@ string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal s
 Equal(true, captureProcessor.Contains("_saveIdentity.CaptureProcessor", StringComparison.Ordinal), "compatible post-selection processor can bind pending selection");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
 string diskCommitSource = ExtractMethods(receiptRandomizationSource, "private static void TickDiskCommit(").Single();
+Equal(true, reconcileSongSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "cassette reconciliation requires the public save synchronization gate");
+Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TryReadCassetteStatus", StringComparison.Ordinal), "synchronization is proven before reconciliation reads or mutates cassette status");
+Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TrySubmitHaveInBag", StringComparison.Ordinal), "synchronization is proven before any cassette grant request");
+Equal(true, diskCommitSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "disk commit work requires the same public save synchronization gate");
+Equal(true, diskCommitSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < diskCommitSource.IndexOf("TryReadPublicWriteState", StringComparison.Ordinal), "synchronization is proven before a disk-commit attempt can be prepared or consumed");
 Equal(true, diskCommitSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "verified cassette wave submits the narrow public persist transaction");
 Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringComparison.Ordinal), "disk transaction polls public write completion state");
 Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
@@ -329,6 +335,8 @@ Equal(true, writeEventPatch < receiptConfigure, "write completion subscription i
 string writeEventPostfix = ExtractMethods(pluginSource, "public static void PlayerSaveWriteCompletedEventPostfix(").Single();
 Equal(true, writeEventPostfix.Contains("OnPlayerSaveWriteCompletedEvent", StringComparison.Ordinal), "public write-completed event is routed to the cassette transaction boundary");
 string writeEventConsumer = ExtractMethods(receiptRandomizationSource, "internal static void OnPlayerSaveWriteCompletedEvent(").Single();
+Equal(true, writeEventConsumer.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "write-completion handling requires the same public save synchronization gate");
+Equal(true, writeEventConsumer.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "synchronization is proven before an active disk-commit attempt consumes an event");
 Equal(true, writeEventConsumer.Contains("ObserveWriteCompletedEvent", StringComparison.Ordinal), "write event is correlated by the transaction runtime");
 Equal(true, writeEventConsumer.Contains("TryClaimLateEvent", StringComparison.Ordinal), "inactive terminal attempt admits at most one header-only late-event record");
 Equal(true, writeEventConsumer.Contains("CASSETTE DISK COMMIT LATE_EVENT", StringComparison.Ordinal), "late-event record is explicitly labeled");
@@ -1293,6 +1301,80 @@ Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), missingSelectedDiagnostic.Player.
 Equal(0L, missingSelectedDiagnostic.SelectedEntryPointer, "missing selected entry cannot invent a selected-entry pointer");
 Equal(0L, missingSelectedDiagnostic.ExpectedSlotEntryPointer, "unreached expected-entry lookup cannot invent an expected-entry pointer");
 Equal(0, RequestSystem.SubmitCount, "partial target diagnostics never submit a save request");
+
+var selectedZeroReadinessState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(true, 0), new());
+var selectedZeroReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), selectedZeroReadinessState);
+var selectedZeroReadinessWrapper = new RequestProcessor(new IntPtr(0x222), selectedZeroReadinessProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedZeroReadinessWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    selectedZeroReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string selectedZeroReadinessStage),
+    "native selected slot zero defers cassette reconciliation before mutation");
+Equal("readiness-selected-slot-mismatch:expected=4:actual=0", selectedZeroReadinessStage, "selected-slot zero has an exact bounded defer stage");
+Equal(0, RequestSystem.SubmitCount, "selected-slot zero readiness probe cannot submit a save request");
+
+var wrongEntryReadinessState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(true, 4), new() { [4] = selectedTargetState });
+var wrongEntryReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), wrongEntryReadinessState);
+var wrongEntryReadinessWrapper = new RequestProcessor(new IntPtr(0x222), wrongEntryReadinessProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(wrongEntryReadinessWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    wrongEntryReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string wrongEntryReadinessStage),
+    "correct selected slot with the wrong player-state pointer defers cassette reconciliation");
+Equal("readiness-selected-entry-pointer-mismatch:expected=0x700:actual=0x900", wrongEntryReadinessStage, "selected-entry pointer mismatch has an exact defer stage");
+Equal(0, RequestSystem.SubmitCount, "pointer mismatch readiness probe cannot submit a save request");
+
+var mismatchedRegisteredReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
+var mismatchedRegisteredReadinessWrapper = new RequestProcessor(new IntPtr(0x444), mismatchedRegisteredReadinessProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(mismatchedRegisteredReadinessWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700, out string processorMismatchReadinessStage),
+    "registered Persist and retained joined SaveData processor mismatch defers reconciliation");
+Equal("readiness-save-data-processor-pointer-mismatch:expected=0x222:actual=0x444", processorMismatchReadinessStage, "processor pointer mismatch has an exact defer stage");
+Equal(0, mismatchedRegisteredReadinessProcessor.ObtainStateCalls, "processor mismatch is rejected before obtaining the wrong registered state");
+Equal(0, RequestSystem.SubmitCount, "processor mismatch readiness probe cannot submit a save request");
+
+var exactReadinessState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(true, 4), new() { [4] = expectedTargetState });
+var exactReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), exactReadinessState);
+var exactReadinessWrapper = new RequestProcessor(new IntPtr(0x222), exactReadinessProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(exactReadinessWrapper));
+Equal(true, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    exactReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string exactReadinessStage),
+    "exact registered processor, selected slot, and player-state pointer admit reconciliation");
+Equal("success", exactReadinessStage, "exact synchronization reports success");
+Equal(1, exactReadinessProcessor.ObtainStateCalls, "exact readiness obtains one coherent SaveData state");
+Equal(0, RequestSystem.SubmitCount, "successful readiness probe remains side-effect free");
+
+var readinessTransitionRuntime = new CassetteSaveEpochRuntime();
+readinessTransitionRuntime.Receive("BADASS");
+readinessTransitionRuntime.ActivateSave(4);
+int simulatedGrantRequests = 0;
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedZeroReadinessWrapper));
+bool initiallyReady = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    selectedZeroReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out _);
+if (initiallyReady && readinessTransitionRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true))
+{
+    simulatedGrantRequests++;
+    readinessTransitionRuntime.RecordSubmission("BADASS");
+}
+Equal(0, simulatedGrantRequests, "deferred readiness preserves pending AP ownership without granting");
+Equal(true, readinessTransitionRuntime.IsPending("BADASS"), "deferred readiness retains the pending cassette for a later observation");
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(exactReadinessWrapper));
+for (int observation = 0; observation < 2; observation++)
+{
+    bool ready = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+        exactReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out _);
+    if (ready && readinessTransitionRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true))
+    {
+        simulatedGrantRequests++;
+        readinessTransitionRuntime.RecordSubmission("BADASS");
+    }
+}
+Equal(1, simulatedGrantRequests, "readiness transition admits the pending grant exactly once across repeated observations");
+Equal(0, RequestSystem.SubmitCount, "readiness transition itself never submits a disk commit");
+Console.WriteLine("PASS: cassette_save_synchronization_gate_defers_then_resumes_once");
+
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, new MissingSelectedSlotSaveDataBundleRoutingStateFixture(),
