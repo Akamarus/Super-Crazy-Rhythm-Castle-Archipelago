@@ -352,6 +352,10 @@ Equal(true, diskTargetDiagnosticLogger.IndexOf("try", StringComparison.Ordinal) 
 Equal(true, diskTargetDiagnosticLogger.LastIndexOf("catch", StringComparison.Ordinal) > diskTargetDiagnosticLogger.IndexOf("LogWarning", StringComparison.Ordinal), "target diagnostic catches failures through the final logger call so PRE/POST control flow always continues");
 foreach (string requiredField in new[] { "registryCount=", "playerProcessorPointer=", "registeredPersistProcessorPointer=", "retainedSaveDataProcessorPointer=", "saveDataStatePointer=", "selectedSlot=", "selectedEntryPointer=", "expectedSlotEntryPointer=", "effectiveStatuses=", "canonicalStatuses=", "defaultBundlePresent=", "defaultBundleChangeCount=" })
     Equal(true, diskTargetDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"target diagnostic snapshot includes {requiredField}");
+foreach (string availabilityFlag in new[] { "HasPlayerProcessorPointer", "HasRegisteredPersistProcessorPointer", "HasRetainedSaveDataProcessorPointer", "HasSaveDataStatePointer", "HasSelectedPlayerSaveSlot", "HasSelectedEntryPointer", "HasExpectedSlotEntryPointer", "HasPlayer", "HasSelected" })
+    Equal(true, diskTargetDiagnosticLogger.Contains($"state.{availabilityFlag}", StringComparison.Ordinal), $"target diagnostic formats {availabilityFlag} independently of final readability");
+foreach (string formerlyGlobalGate in new[] { "playerProcessorPointer = readable ?", "registeredPersistProcessorPointer = readable ?", "retainedSaveDataProcessorPointer = readable ?", "saveDataStatePointer = readable ?", "selectedSlot = readable ?", "playerEffectiveStatuses = readable", "selectedEffectiveStatuses = readable" })
+    Equal(false, diskTargetDiagnosticLogger.Contains(formerlyGlobalGate, StringComparison.Ordinal), $"target diagnostic no longer hides partial values behind {formerlyGlobalGate}");
 foreach (string baselineField in new[] { "baselineSuccessTime=", "baselineFailureTime=", "baselineHasChanges=", "baselineRequiresWriteToDisk=" })
     Equal(true, diskDiagnosticLogger.Contains(baselineField, StringComparison.Ordinal), $"disk diagnostic snapshot includes exact transaction {baselineField}");
 string lifecycleDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogSaveStateLifecycleDiagnostic(").Single();
@@ -1265,6 +1269,31 @@ Equal(false, targetDiagnostic.Selected.DefaultBundlePresent, "selected-side targ
 Equal(0, targetDiagnostic.Selected.DefaultBundleChangeCount, "selected-side absent DEFAULT bundle has zero changes");
 Equal(nameof(eSongCassetteStatus.INVALID), targetDiagnostic.Selected.EffectiveStatuses[nameof(ePlayableSong.QUIERES_BAILAR)], "selected-side effective cassette status comes from the coherent selected state");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), targetDiagnostic.Selected.CanonicalStatuses[nameof(ePlayableSong.QUIERES_BAILAR)], "selected-side canonical cassette status comes from GameProgression on the same state");
+var missingSelectedTargetSaveDataState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(true, 3), new() { [4] = expectedTargetState });
+var missingSelectedRegisteredProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), missingSelectedTargetSaveDataState);
+var missingSelectedRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), missingSelectedRegisteredProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(missingSelectedRegisteredWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
+    out CassetteDiskCommitTargetDiagnosticState missingSelectedDiagnostic,
+    out int missingSelectedRegistryCount,
+    out string missingSelectedStage),
+    "missing selected save entry fails only the later observational lookup");
+Equal("target-selected-entry-missing", missingSelectedStage, "missing selected save entry retains its exact failure stage");
+Equal(1, missingSelectedRegistryCount, "missing selected entry preserves the already-read registry Count");
+Equal(0x111L, missingSelectedDiagnostic.PlayerProcessorPointer, "missing selected entry preserves the already-read player processor pointer");
+Equal(0x444L, missingSelectedDiagnostic.RegisteredPersistProcessorPointer, "missing selected entry preserves the already-read registered Persist processor pointer");
+Equal(0x222L, missingSelectedDiagnostic.RetainedSaveDataProcessorPointer, "missing selected entry preserves the already-read retained SaveData processor pointer");
+Equal(0x333L, missingSelectedDiagnostic.SaveDataStatePointer, "missing selected entry preserves the already-read SaveData state pointer");
+Equal(3, missingSelectedDiagnostic.SelectedPlayerSaveSlot, "missing selected entry preserves the already-read selected slot");
+Equal(0x700L, missingSelectedDiagnostic.Player.StatePointer, "missing selected entry preserves the coherent player-side snapshot");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), missingSelectedDiagnostic.Player.EffectiveStatuses[nameof(ePlayableSong.QUIERES_BAILAR)], "missing selected entry preserves player-side statuses");
+Equal(0L, missingSelectedDiagnostic.SelectedEntryPointer, "missing selected entry cannot invent a selected-entry pointer");
+Equal(0L, missingSelectedDiagnostic.ExpectedSlotEntryPointer, "unreached expected-entry lookup cannot invent an expected-entry pointer");
+Equal(0, RequestSystem.SubmitCount, "partial target diagnostics never submit a save request");
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, new MissingSelectedSlotSaveDataBundleRoutingStateFixture(),
     expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out _, out string targetFailureStage),

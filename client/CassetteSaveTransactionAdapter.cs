@@ -45,7 +45,16 @@ internal readonly record struct CassetteDiskCommitTargetDiagnosticState(
     long SelectedEntryPointer,
     long ExpectedSlotEntryPointer,
     CassetteDiskCommitTargetSideState Player,
-    CassetteDiskCommitTargetSideState Selected);
+    CassetteDiskCommitTargetSideState Selected,
+    bool HasPlayerProcessorPointer = false,
+    bool HasRegisteredPersistProcessorPointer = false,
+    bool HasRetainedSaveDataProcessorPointer = false,
+    bool HasSaveDataStatePointer = false,
+    bool HasSelectedPlayerSaveSlot = false,
+    bool HasSelectedEntryPointer = false,
+    bool HasExpectedSlotEntryPointer = false,
+    bool HasPlayer = false,
+    bool HasSelected = false);
 
 internal static class CassetteSaveTransactionAdapter
 {
@@ -427,12 +436,18 @@ internal static class CassetteSaveTransactionAdapter
         {
             if (!TryReadPublicObjectPointer(playerSaveProcessor, "target-player-processor", out long playerProcessorPointer, out stage))
                 return false;
+            state = state with
+            {
+                PlayerProcessorPointer = playerProcessorPointer,
+                HasPlayerProcessorPointer = true,
+            };
             if (!TryObtainPublicState(playerSaveProcessor, "target-player", out object? playerState, out stage))
                 return false;
             if (!TryReadDiskCommitTargetSide(
                     playerState!, playerSaveProcessor!.GetType().Assembly, nativeSongs, "target-player",
                     out CassetteDiskCommitTargetSideState player, out stage))
                 return false;
+            state = state with { Player = player, HasPlayer = true };
 
             if (!TryReadRegisteredPersistProcessorPointer(
                     playerSaveProcessor.GetType().Assembly,
@@ -441,13 +456,24 @@ internal static class CassetteSaveTransactionAdapter
                     out registryCount,
                     out stage))
                 return false;
+            state = state with
+            {
+                RegisteredPersistProcessorPointer = registeredPersistProcessorPointer,
+                HasRegisteredPersistProcessorPointer = true,
+            };
             if (!TryReadPublicObjectPointer(
                     retainedSaveDataProcessor, "target-save-data-processor", out long retainedSaveDataProcessorPointer, out stage))
                 return false;
+            state = state with
+            {
+                RetainedSaveDataProcessorPointer = retainedSaveDataProcessorPointer,
+                HasRetainedSaveDataProcessorPointer = true,
+            };
             if (!TryObtainPublicState(registeredPersistProcessor, "target-save-data", out object? saveDataState, out stage))
                 return false;
             if (!TryReadPublicPointer(saveDataState!, "target-save-data-state", out long saveDataStatePointer, out stage))
                 return false;
+            state = state with { SaveDataStatePointer = saveDataStatePointer, HasSaveDataStatePointer = true };
 
             Type saveDataStateType = saveDataState!.GetType();
             if (!TryGetPublicReadableProperty(
@@ -462,6 +488,7 @@ internal static class CassetteSaveTransactionAdapter
             if (!slotPresent || slotValue == null) { stage = "target-save-data-selected-slot-empty"; return false; }
             stage = "target-save-data-selected-slot-convert";
             int selectedSlot = Convert.ToInt32(slotValue);
+            state = state with { SelectedPlayerSaveSlot = selectedSlot, HasSelectedPlayerSaveSlot = true };
 
             if (!TryGetPublicReadableProperty(
                     saveDataStateType, "RegularPlayerSaves", PublicInstance,
@@ -476,30 +503,22 @@ internal static class CassetteSaveTransactionAdapter
                 return false;
             if (!TryReadPublicPointer(selectedState!, "target-selected-entry", out long selectedEntryPointer, out stage))
                 return false;
+            state = state with { SelectedEntryPointer = selectedEntryPointer, HasSelectedEntryPointer = true };
             if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
                 return false;
+            state = state with { ExpectedSlotEntryPointer = expectedSlotEntryPointer, HasExpectedSlotEntryPointer = true };
             if (!TryReadDiskCommitTargetSide(
                     selectedState!, registeredPersistProcessor!.GetType().Assembly, nativeSongs, "target-selected",
                     out CassetteDiskCommitTargetSideState selected, out stage))
                 return false;
 
-            state = new(
-                playerProcessorPointer,
-                registeredPersistProcessorPointer,
-                retainedSaveDataProcessorPointer,
-                saveDataStatePointer,
-                selectedSlot,
-                selectedEntryPointer,
-                expectedSlotEntryPointer,
-                player,
-                selected);
+            state = state with { Selected = selected, HasSelected = true };
             stage = "success";
             _ = expectedPointer; // The expected identity is emitted by the caller; diagnostics never reject a mismatch.
             return true;
         }
         catch (Exception ex)
         {
-            state = default;
             stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
         }

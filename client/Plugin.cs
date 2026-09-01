@@ -19287,31 +19287,31 @@ internal static class CassetteReceiptRandomization
             out string stage);
         string phase = context.Phase is CassetteDiskCommitDiagnosticPhase.PreTarget ? "PRE_TARGET" : "POST_TARGET";
         string registryCountValue = registryCount >= 0 ? registryCount.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
-        string playerProcessorPointer = readable ? $"0x{state.PlayerProcessorPointer:X}" : "<unavailable>";
-        string registeredPersistProcessorPointer = readable ? $"0x{state.RegisteredPersistProcessorPointer:X}" : "<unavailable>";
-        string retainedSaveDataProcessorPointer = readable ? $"0x{state.RetainedSaveDataProcessorPointer:X}" : "<unavailable>";
-        string saveDataStatePointer = readable ? $"0x{state.SaveDataStatePointer:X}" : "<unavailable>";
-        string selectedSlot = readable ? state.SelectedPlayerSaveSlot.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
-        string selectedEntryPointer = readable ? $"0x{state.SelectedEntryPointer:X}" : "<unavailable>";
-        string expectedSlotEntryPointer = readable ? $"0x{state.ExpectedSlotEntryPointer:X}" : "<unavailable>";
-        string playerEffectiveStatuses = readable
+        string playerProcessorPointer = state.HasPlayerProcessorPointer ? $"0x{state.PlayerProcessorPointer:X}" : "<unavailable>";
+        string registeredPersistProcessorPointer = state.HasRegisteredPersistProcessorPointer ? $"0x{state.RegisteredPersistProcessorPointer:X}" : "<unavailable>";
+        string retainedSaveDataProcessorPointer = state.HasRetainedSaveDataProcessorPointer ? $"0x{state.RetainedSaveDataProcessorPointer:X}" : "<unavailable>";
+        string saveDataStatePointer = state.HasSaveDataStatePointer ? $"0x{state.SaveDataStatePointer:X}" : "<unavailable>";
+        string selectedSlot = state.HasSelectedPlayerSaveSlot ? state.SelectedPlayerSaveSlot.ToString(CultureInfo.InvariantCulture) : "<unavailable>";
+        string selectedEntryPointer = state.HasSelectedEntryPointer ? $"0x{state.SelectedEntryPointer:X}" : "<unavailable>";
+        string expectedSlotEntryPointer = state.HasExpectedSlotEntryPointer ? $"0x{state.ExpectedSlotEntryPointer:X}" : "<unavailable>";
+        string playerEffectiveStatuses = state.HasPlayer
             ? string.Join(",", state.Player.EffectiveStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value}"))
             : "<unavailable>";
-        string playerCanonicalStatuses = readable
+        string playerCanonicalStatuses = state.HasPlayer
             ? string.Join(",", state.Player.CanonicalStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value ?? "<null>"}"))
             : "<unavailable>";
-        string selectedEffectiveStatuses = readable
+        string selectedEffectiveStatuses = state.HasSelected
             ? string.Join(",", state.Selected.EffectiveStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value}"))
             : "<unavailable>";
-        string selectedCanonicalStatuses = readable
+        string selectedCanonicalStatuses = state.HasSelected
             ? string.Join(",", state.Selected.CanonicalStatuses.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key}={pair.Value ?? "<null>"}"))
             : "<unavailable>";
-        string playerStatePointer = readable ? $"0x{state.Player.StatePointer:X}" : "<unavailable>";
-        string selectedStatePointer = readable ? $"0x{state.Selected.StatePointer:X}" : "<unavailable>";
-        string playerFlags = readable
+        string playerStatePointer = state.HasPlayer ? $"0x{state.Player.StatePointer:X}" : "<unavailable>";
+        string selectedStatePointer = state.HasSelected ? $"0x{state.Selected.StatePointer:X}" : "<unavailable>";
+        string playerFlags = state.HasPlayer
             ? $"HasUnstaged={state.Player.HasUnstagedChanges} HasChanges={state.Player.HasChanges} Requires={state.Player.RequiresWriteToDisk} defaultBundlePresent={state.Player.DefaultBundlePresent} defaultBundleChangeCount={state.Player.DefaultBundleChangeCount}"
             : "HasUnstaged=<unavailable> HasChanges=<unavailable> Requires=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable>";
-        string selectedFlags = readable
+        string selectedFlags = state.HasSelected
             ? $"HasUnstaged={state.Selected.HasUnstagedChanges} HasChanges={state.Selected.HasChanges} Requires={state.Selected.RequiresWriteToDisk} defaultBundlePresent={state.Selected.DefaultBundlePresent} defaultBundleChangeCount={state.Selected.DefaultBundleChangeCount}"
             : "HasUnstaged=<unavailable> HasChanges=<unavailable> Requires=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable>";
         Plugin.LoggerInstance?.LogWarning(
