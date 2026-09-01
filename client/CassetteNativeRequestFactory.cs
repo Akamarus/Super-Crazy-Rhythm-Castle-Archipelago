@@ -127,8 +127,11 @@ internal static class CassetteNativeRequestFactory
         { detail = "cassette request semantic constructor returned null"; return false; }
 
         PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
+        MethodInfo? bundleGetter = bundleProperty?.GetMethod;
         MethodInfo? bundleSetter = bundleProperty?.SetMethod;
-        if (bundleProperty == null || bundleSetter?.IsPublic != true)
+        if (bundleProperty == null || bundleGetter?.IsPublic != true)
+        { request = null; detail = "cassette request public Bundle getter unavailable"; return false; }
+        if (bundleSetter?.IsPublic != true)
         { request = null; detail = "cassette request public Bundle setter unavailable"; return false; }
         ConstructorInfo? nullableConstructor = bundleProperty.PropertyType.GetConstructor(
             PublicInstance,

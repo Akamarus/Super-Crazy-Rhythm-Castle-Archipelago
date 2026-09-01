@@ -46,6 +46,7 @@ Equal("actualSong='QUIERES_BAILAR' actualStatus='HAVE_IN_BAG' actualBundle='pres
 foreach (var rejectedFactory in new[]
 {
     (Request: typeof(MissingBundleSetterFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request public Bundle setter unavailable"),
+    (Request: typeof(PrivateBundleGetterFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request public Bundle getter unavailable"),
     (Request: typeof(ThrowingBundleSetterFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request bundle-set-invocation:InvalidOperationException:bundle-set"),
     (Request: typeof(MissingNullableConstructorFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request public DEFAULT nullable constructor unavailable"),
     (Request: typeof(ThrowingNullableConstructorFixture.RecordSongCassetteStatusInSaveDataRequest), Stage: "cassette request nullable-build-invocation:InvalidOperationException:nullable-build"),
@@ -1161,6 +1162,7 @@ string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirecto
 string factorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
 string verifiedFactory = ExtractMethods(factorySource, "private static bool TryCreateVerified(").Single();
 Equal(true, verifiedFactory.Contains("bundleSetter.Invoke", StringComparison.Ordinal), "request factory explicitly repairs the public nullable Bundle after the semantic constructor");
+Equal(true, verifiedFactory.Contains("bundleGetter?.IsPublic", StringComparison.Ordinal), "request factory requires a public Bundle getter before readback");
 Equal(true, verifiedFactory.Contains("actualSong", StringComparison.Ordinal) && verifiedFactory.Contains("actualStatus", StringComparison.Ordinal) && verifiedFactory.Contains("actualBundleValue", StringComparison.Ordinal), "request factory verifies exact public song/status/bundle readback before returning a request");
 Equal(true, verifiedFactory.Contains("actualBundleValue != 1", StringComparison.Ordinal), "request factory requires numeric DEFAULT=1 rather than a display string alone");
 Equal(false, verifiedFactory.Contains("BindingFlags.NonPublic", StringComparison.Ordinal), "request repair and verification cannot bind non-public members");
@@ -1262,6 +1264,18 @@ namespace MissingBundleSetterFixture
         public TestSong Song { get; }
         public TestCassetteStatus CassetteStatus { get; }
         public FakeIl2CppNullable<TestBundle> Bundle => new(true, TestBundle.INVALID);
+    }
+}
+
+namespace PrivateBundleGetterFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(TestSong song, TestCassetteStatus status, TestBundle bundle)
+        { Song = song; CassetteStatus = status; Bundle = new(true, TestBundle.INVALID); }
+        public TestSong Song { get; }
+        public TestCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<TestBundle> Bundle { private get; set; }
     }
 }
 
