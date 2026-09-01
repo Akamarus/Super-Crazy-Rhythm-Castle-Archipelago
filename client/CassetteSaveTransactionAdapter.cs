@@ -56,6 +56,24 @@ internal readonly record struct CassetteDiskCommitTargetDiagnosticState(
     bool HasPlayer = false,
     bool HasSelected = false);
 
+internal readonly record struct CassetteSaveSynchronizationObservationState(
+    int EnquirySlot,
+    long EnquiryStatePointer,
+    bool IsAValidExistingSaveSelected,
+    long RegisteredPersistProcessorPointer,
+    long RetainedSaveDataProcessorPointer,
+    bool ProcessorPointersMatch,
+    int RegisteredSelectedSlot,
+    string EnquiryStage,
+    string RegisteredStateStage,
+    bool HasEnquirySlot = false,
+    bool HasEnquiryStatePointer = false,
+    bool HasValidExistingSaveSelected = false,
+    bool HasRegisteredPersistProcessorPointer = false,
+    bool HasRetainedSaveDataProcessorPointer = false,
+    bool HasProcessorPointersMatch = false,
+    bool HasRegisteredSelectedSlot = false);
+
 internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -636,6 +654,245 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
         }
+    }
+
+    internal static bool TryReadSaveSynchronizationObservationDiagnostic(
+        object? retainedSaveDataProcessor,
+        out CassetteSaveSynchronizationObservationState state,
+        out string stage)
+    {
+        state = default;
+        Assembly? preferredAssembly = retainedSaveDataProcessor?.GetType().Assembly;
+        bool registeredReadable = TryReadRegisteredSynchronizationObservation(
+            retainedSaveDataProcessor, preferredAssembly, ref state, out string registeredStage);
+        bool enquiryReadable = TryReadLoadedSaveEnquiryObservation(
+            preferredAssembly, ref state, out string enquiryStage);
+        state = state with
+        {
+            EnquiryStage = enquiryStage,
+            RegisteredStateStage = registeredStage,
+        };
+        stage = registeredReadable && enquiryReadable
+            ? "success"
+            : $"registered='{registeredStage}' enquiry='{enquiryStage}'";
+        return registeredReadable && enquiryReadable;
+    }
+
+    private static bool TryReadRegisteredSynchronizationObservation(
+        object? retainedSaveDataProcessor,
+        Assembly? preferredAssembly,
+        ref CassetteSaveSynchronizationObservationState state,
+        out string stage)
+    {
+        stage = "readiness-observation-start";
+        try
+        {
+            if (preferredAssembly == null)
+            {
+                stage = "readiness-retained-save-data-processor-null";
+                return false;
+            }
+            bool registeredReadable = TryReadRegisteredPersistProcessorPointer(
+                preferredAssembly,
+                out object? registeredPersistProcessor,
+                out long registeredPointer,
+                out _,
+                out string registeredStage);
+            if (registeredReadable)
+            {
+                state = state with
+                {
+                    RegisteredPersistProcessorPointer = registeredPointer,
+                    HasRegisteredPersistProcessorPointer = true,
+                };
+            }
+            bool retainedReadable = TryReadPublicObjectPointer(
+                retainedSaveDataProcessor,
+                "readiness-retained-save-data-processor",
+                out long retainedPointer,
+                out string retainedStage);
+            if (retainedReadable)
+            {
+                state = state with
+                {
+                    RetainedSaveDataProcessorPointer = retainedPointer,
+                    HasRetainedSaveDataProcessorPointer = true,
+                };
+            }
+            if (!registeredReadable) { stage = registeredStage; return false; }
+            if (!retainedReadable) { stage = retainedStage; return false; }
+            bool pointersMatch = registeredPointer == retainedPointer;
+            state = state with
+            {
+                ProcessorPointersMatch = pointersMatch,
+                HasProcessorPointersMatch = true,
+            };
+            if (!pointersMatch)
+            {
+                stage = $"readiness-save-data-processor-pointer-mismatch:expected=0x{retainedPointer:X}:actual=0x{registeredPointer:X}";
+                return false;
+            }
+            if (!TryObtainPublicState(
+                    registeredPersistProcessor,
+                    "readiness-save-data",
+                    out object? saveDataState,
+                    out stage))
+                return false;
+            if (!TryGetPublicReadableProperty(
+                    saveDataState!.GetType(),
+                    "SelectedPlayerSaveSlot",
+                    PublicInstance,
+                    "readiness-selected-slot",
+                    out PropertyInfo selectedSlotProperty,
+                    out stage))
+                return false;
+            stage = "readiness-selected-slot-get";
+            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawSelectedSlot,
+                    "readiness-selected-slot",
+                    out bool slotPresent,
+                    out object? slotValue,
+                    out stage))
+                return false;
+            if (!slotPresent || slotValue == null)
+            {
+                stage = "readiness-selected-slot-empty";
+                return false;
+            }
+            stage = "readiness-selected-slot-convert";
+            int selectedSlot = Convert.ToInt32(slotValue);
+            state = state with
+            {
+                RegisteredSelectedSlot = selectedSlot,
+                HasRegisteredSelectedSlot = true,
+            };
+            stage = "readiness-selected-slot-observed";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    private static bool TryReadLoadedSaveEnquiryObservation(
+        Assembly? preferredAssembly,
+        ref CassetteSaveSynchronizationObservationState state,
+        out string stage)
+    {
+        string firstFailureStage = "success";
+        bool readable = true;
+        void RecordFailure(string failureStage)
+        {
+            if (readable) firstFailureStage = failureStage;
+            readable = false;
+        }
+
+        Type? enquiries = FindType("PlayerSaveManagementEnquiries", preferredAssembly);
+        if (enquiries == null)
+        {
+            stage = "enquiry-owner-missing";
+            return false;
+        }
+
+        MethodInfo? slotMethod = enquiries.GetMethod(
+            "GetSelectedSaveFileSlotNumber", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (slotMethod == null)
+        {
+            RecordFailure("enquiry-slot-method-missing");
+        }
+        else
+        {
+            string slotStage = "enquiry-slot-get";
+            try
+            {
+                object? rawSlot = ReadPublicNullableMethod(slotMethod, null!, Array.Empty<object?>());
+                if (!TryUnwrapPublicDiagnosticNullable(
+                        rawSlot, "enquiry-slot", out bool slotPresent, out object? slotValue, out slotStage))
+                    RecordFailure(slotStage);
+                else if (!slotPresent || slotValue == null)
+                    RecordFailure("enquiry-slot-empty");
+                else
+                {
+                    int selectedSlot = Convert.ToInt32(slotValue);
+                    state = state with { EnquirySlot = selectedSlot, HasEnquirySlot = true };
+                }
+            }
+            catch (Exception ex)
+            {
+                RecordFailure($"{slotStage}-invocation:{SummarizeException(ex)}");
+            }
+        }
+
+        MethodInfo? stateMethod = enquiries.GetMethod(
+            "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (stateMethod == null)
+        {
+            RecordFailure("enquiry-state-method-missing");
+        }
+        else
+        {
+            string stateStage = "enquiry-state-get";
+            try
+            {
+                object? rawSelectedState = ReadPublicNullableMethod(stateMethod, null!, Array.Empty<object?>());
+                object? selectedState = rawSelectedState;
+                if (rawSelectedState != null && rawSelectedState.GetType().GetProperty("HasValue", PublicInstance) != null)
+                {
+                    if (!TryUnwrapPublicDiagnosticNullable(
+                            rawSelectedState,
+                            "enquiry-state",
+                            out bool statePresent,
+                            out selectedState,
+                            out stateStage))
+                        RecordFailure(stateStage);
+                    else if (!statePresent)
+                        selectedState = null;
+                }
+                if (selectedState == null)
+                    RecordFailure("enquiry-state-empty");
+                else if (!TryReadPublicPointer(
+                             selectedState, "enquiry-state", out long selectedPointer, out stateStage))
+                    RecordFailure(stateStage);
+                else
+                    state = state with
+                    {
+                        EnquiryStatePointer = selectedPointer,
+                        HasEnquiryStatePointer = true,
+                    };
+            }
+            catch (Exception ex)
+            {
+                RecordFailure($"{stateStage}-invocation:{SummarizeException(ex)}");
+            }
+        }
+
+        MethodInfo? validityMethod = enquiries.GetMethod(
+            "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (validityMethod != null)
+        {
+            const string validityStage = "enquiry-validity-get";
+            try
+            {
+                object? rawValidity = validityMethod.Invoke(null, null);
+                if (rawValidity is bool valid)
+                    state = state with
+                    {
+                        IsAValidExistingSaveSelected = valid,
+                        HasValidExistingSaveSelected = true,
+                    };
+                else
+                    RecordFailure($"enquiry-validity-result-invalid:{rawValidity?.GetType().Name ?? "null"}");
+            }
+            catch (Exception ex)
+            {
+                RecordFailure($"{validityStage}-invocation:{SummarizeException(ex)}");
+            }
+        }
+        stage = firstFailureStage;
+        return readable;
     }
 
     private static bool TryReadRegisteredPersistProcessorPointer(

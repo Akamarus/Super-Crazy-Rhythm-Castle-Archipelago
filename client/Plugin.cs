@@ -18248,6 +18248,7 @@ internal static class CassetteReceiptRandomization
     private static bool _saveSynchronizationReady;
     private static bool _saveSynchronizationDeferredLogged;
     private static bool _saveSynchronizationReadyLogged;
+    private static CassetteBoundedDiagnosticSignatureDeduplicator _saveSynchronizationObservationDiagnostics = new(8);
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -18265,6 +18266,7 @@ internal static class CassetteReceiptRandomization
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
             _saveSynchronizationReady = false; _saveSynchronizationDeferredLogged = false; _saveSynchronizationReadyLogged = false;
+            _saveSynchronizationObservationDiagnostics = new CassetteBoundedDiagnosticSignatureDeduplicator(8);
         }
     }
 
@@ -18636,6 +18638,7 @@ internal static class CassetteReceiptRandomization
             _saveSynchronizationReady = false;
             _saveSynchronizationDeferredLogged = false;
             _saveSynchronizationReadyLogged = false;
+            _saveSynchronizationObservationDiagnostics = new CassetteBoundedDiagnosticSignatureDeduplicator(8);
             epoch = _runtime.Epoch;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
@@ -18655,6 +18658,7 @@ internal static class CassetteReceiptRandomization
             _saveSynchronizationReady = false;
             _saveSynchronizationDeferredLogged = false;
             _saveSynchronizationReadyLogged = false;
+            _saveSynchronizationObservationDiagnostics = new CassetteBoundedDiagnosticSignatureDeduplicator(8);
         }
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }
@@ -18742,10 +18746,73 @@ internal static class CassetteReceiptRandomization
         if (logDeferred)
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] CASSETTE SAVE SYNCHRONIZATION DEFERRED epoch={epoch} slot={slot} pointer=0x{pointer:X} stage='{stage}'; pending AP ownership retained until a lifecycle observation proves native selection readiness.");
+        if (!ready)
+            LogSaveSynchronizationObservationDiagnostic(
+                generation, epoch, slot, pointer, joinedSaveDataProcessor, stage);
         if (logReady)
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] CASSETTE SAVE SYNCHRONIZATION READY epoch={epoch} slot={slot} pointer=0x{pointer:X}; pending reconciliation resumed by lifecycle observation.");
         return ready;
+    }
+
+    private static void LogSaveSynchronizationObservationDiagnostic(
+        long generation,
+        long epoch,
+        int expectedSlot,
+        long expectedPointer,
+        object? retainedSaveDataProcessor,
+        string gateStage)
+    {
+        try
+        {
+            bool readable = CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
+                retainedSaveDataProcessor,
+                out CassetteSaveSynchronizationObservationState state,
+                out string diagnosticStage);
+            string enquirySlot = state.HasEnquirySlot
+                ? state.EnquirySlot.ToString(CultureInfo.InvariantCulture)
+                : "<unavailable>";
+            string enquiryPointer = state.HasEnquiryStatePointer
+                ? $"0x{state.EnquiryStatePointer:X}"
+                : "<unavailable>";
+            string validExisting = state.HasValidExistingSaveSelected
+                ? state.IsAValidExistingSaveSelected.ToString()
+                : "<unavailable>";
+            string registeredPointer = state.HasRegisteredPersistProcessorPointer
+                ? $"0x{state.RegisteredPersistProcessorPointer:X}"
+                : "<unavailable>";
+            string retainedPointer = state.HasRetainedSaveDataProcessorPointer
+                ? $"0x{state.RetainedSaveDataProcessorPointer:X}"
+                : "<unavailable>";
+            string processorIdentityOutcome = state.HasProcessorPointersMatch
+                ? state.ProcessorPointersMatch ? "match" : "mismatch"
+                : "<unavailable>";
+            string registeredSelectedSlot = state.HasRegisteredSelectedSlot
+                ? state.RegisteredSelectedSlot.ToString(CultureInfo.InvariantCulture)
+                : "<unavailable>";
+            string signature =
+                $"gate={gateStage}|enquiryStage={state.EnquiryStage}|enquirySlot={enquirySlot}|enquiryPointer={enquiryPointer}|valid={validExisting}|" +
+                $"registered={registeredPointer}|retained={retainedPointer}|identity={processorIdentityOutcome}|registeredStateStage={state.RegisteredStateStage}|registeredSlot={registeredSelectedSlot}|diagnostic={diagnosticStage}";
+            bool shouldLog;
+            lock (Sync)
+            {
+                bool current = !_saveIdentity.Pending && _runtime.HasActiveSave &&
+                    _activeSaveGeneration == generation && _runtime.Epoch == epoch &&
+                    _runtime.ActiveSlot == expectedSlot && _activeSavePointer == expectedPointer &&
+                    ReferenceEquals(_joinedSaveDataRequestProcessor, retainedSaveDataProcessor);
+                shouldLog = current && _saveSynchronizationObservationDiagnostics.ShouldLog(signature);
+            }
+            if (!shouldLog) return;
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] CASSETTE SAVE SYNCHRONIZATION OBSERVATION generation={generation} epoch={epoch} expectedSlot={expectedSlot} expectedPointer=0x{expectedPointer:X} " +
+                $"enquirySlot={enquirySlot} enquiryStatePointer={enquiryPointer} IsAValidExistingSaveSelected={validExisting} enquiryStage='{state.EnquiryStage}' " +
+                $"registeredPersistProcessorPointer={registeredPointer} retainedSaveDataProcessorPointer={retainedPointer} processorIdentity='{processorIdentityOutcome}' " +
+                $"registeredSelectedSlot={registeredSelectedSlot} registeredStateStage='{state.RegisteredStateStage}' gateStage='{gateStage}' readable={readable} diagnosticStage='{diagnosticStage}'.");
+        }
+        catch
+        {
+            // Synchronization comparisons are diagnostic-only and cannot affect the existing gate.
+        }
     }
 
     private static bool EnsureCassetteProcessorAvailable()

@@ -309,6 +309,10 @@ string diskCommitSource = ExtractMethods(receiptRandomizationSource, "private st
 Equal(true, reconcileSongSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "cassette reconciliation requires the public save synchronization gate");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TryReadCassetteStatus", StringComparison.Ordinal), "synchronization is proven before reconciliation reads or mutates cassette status");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TrySubmitHaveInBag", StringComparison.Ordinal), "synchronization is proven before any cassette grant request");
+string synchronizationGateSource = ExtractMethods(receiptRandomizationSource, "private static bool TryConfirmSaveSynchronizationReady(").Single();
+Equal(true, synchronizationGateSource.Contains("LogSaveSynchronizationObservationDiagnostic", StringComparison.Ordinal), "deferred lifecycle observation emits the bounded public comparison diagnostic");
+Equal(true, synchronizationGateSource.Contains("allowObservationProbe", StringComparison.Ordinal), "frame-only paths cannot trigger new diagnostic probes");
+Equal(false, synchronizationGateSource.Contains("TrySubmit", StringComparison.Ordinal), "synchronization diagnostic wiring cannot submit grant or persistence requests");
 Equal(true, diskCommitSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "disk commit work requires the same public save synchronization gate");
 Equal(true, diskCommitSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < diskCommitSource.IndexOf("TryReadPublicWriteState", StringComparison.Ordinal), "synchronization is proven before a disk-commit attempt can be prepared or consumed");
 Equal(true, diskCommitSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "verified cassette wave submits the narrow public persist transaction");
@@ -510,6 +514,16 @@ Equal(true, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "first res
 Equal(false, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "identical resolved result is suppressed");
 Equal(true, resultLogDeduper.ShouldLog("success|slot=4|pointer=800"), "changed resolved slot logs");
 Equal(true, resultLogDeduper.ShouldLog("failure|match-count:0"), "changed unresolved stage logs");
+var synchronizationDiagnosticDeduper = new CassetteBoundedDiagnosticSignatureDeduplicator(capacity: 8);
+Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "initial unavailable synchronization comparison logs");
+Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "repeated unavailable synchronization comparison is deduplicated");
+Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot4/pointer700|global=0"), "changed loaded-save enquiry comparison logs once");
+Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot4/pointer700|global=0"), "repeated loaded-save comparison is deduplicated");
+Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot3/pointer900|global=0"), "changed mismatch comparison logs once");
+for (int signatureIndex = 0; signatureIndex < 5; signatureIndex++)
+    Equal(true, synchronizationDiagnosticDeduper.ShouldLog($"bounded-{signatureIndex}"), $"unique signature {signatureIndex} fits the fixed diagnostic budget");
+Equal(false, synchronizationDiagnosticDeduper.ShouldLog("over-budget"), "fixed synchronization diagnostic budget prevents unbounded logging");
+Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "previous signature remains deduplicated after intervening states");
 Console.WriteLine("PASS: most_recent_logs_are_bounded_and_deduplicated");
 
 var joinProbe = new CassetteRegularSavePointerJoinProbe();
@@ -1302,6 +1316,69 @@ Equal(0L, missingSelectedDiagnostic.SelectedEntryPointer, "missing selected entr
 Equal(0L, missingSelectedDiagnostic.ExpectedSlotEntryPointer, "unreached expected-entry lookup cannot invent an expected-entry pointer");
 Equal(0, RequestSystem.SubmitCount, "partial target diagnostics never submit a save request");
 
+var synchronizationDiagnosticGlobalState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(true, 0), new());
+var synchronizationDiagnosticProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), synchronizationDiagnosticGlobalState);
+var synchronizationDiagnosticWrapper = new RequestProcessor(new IntPtr(0x222), synchronizationDiagnosticProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(synchronizationDiagnosticWrapper));
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+Equal(false, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
+    synchronizationDiagnosticProcessor,
+    out CassetteSaveSynchronizationObservationState preLoadSynchronizationDiagnostic,
+    out string preLoadSynchronizationStage),
+    "pre-load unavailable enquiries remain diagnostic-only and unreadable");
+Equal(false, preLoadSynchronizationDiagnostic.HasEnquirySlot, "pre-load diagnostic cannot invent an enquiry slot");
+Equal(false, preLoadSynchronizationDiagnostic.HasEnquiryStatePointer, "pre-load diagnostic cannot invent an enquiry state pointer");
+Equal(true, preLoadSynchronizationDiagnostic.HasValidExistingSaveSelected, "public validity enquiry remains independently observable before load");
+Equal(false, preLoadSynchronizationDiagnostic.IsAValidExistingSaveSelected, "pre-load validity enquiry reports false");
+Equal(true, preLoadSynchronizationDiagnostic.HasRegisteredPersistProcessorPointer, "pre-load diagnostic preserves registered processor identity");
+Equal(0x222L, preLoadSynchronizationDiagnostic.RegisteredPersistProcessorPointer, "pre-load diagnostic reads the exact registered processor pointer");
+Equal(true, preLoadSynchronizationDiagnostic.HasRetainedSaveDataProcessorPointer, "pre-load diagnostic preserves retained processor identity");
+Equal(true, preLoadSynchronizationDiagnostic.ProcessorPointersMatch, "pre-load diagnostic proves registered and retained processor identity match");
+Equal(true, preLoadSynchronizationDiagnostic.HasRegisteredSelectedSlot, "pre-load diagnostic preserves the registered SaveData selected slot");
+Equal(0, preLoadSynchronizationDiagnostic.RegisteredSelectedSlot, "pre-load diagnostic exposes the unreliable global slot zero");
+Equal("enquiry-slot-empty", preLoadSynchronizationDiagnostic.EnquiryStage, "pre-load diagnostic preserves the first exact enquiry failure");
+Equal("readiness-selected-slot-observed", preLoadSynchronizationDiagnostic.RegisteredStateStage, "pre-load diagnostic records the exact registered-state observation stage");
+Equal(false, string.IsNullOrWhiteSpace(preLoadSynchronizationStage), "pre-load diagnostic returns a bounded combined stage");
+
+PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 4);
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+Equal(true, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
+    synchronizationDiagnosticProcessor,
+    out CassetteSaveSynchronizationObservationState loadedSynchronizationDiagnostic,
+    out string loadedSynchronizationStage),
+    "loaded-save enquiries remain readable while registered SaveData still reports slot zero");
+Equal(4, loadedSynchronizationDiagnostic.EnquirySlot, "loaded diagnostic preserves public enquiry slot four");
+Equal(0x700L, loadedSynchronizationDiagnostic.EnquiryStatePointer, "loaded diagnostic preserves public enquiry state pointer");
+Equal(true, loadedSynchronizationDiagnostic.IsAValidExistingSaveSelected, "loaded diagnostic preserves public validity result");
+Equal(0, loadedSynchronizationDiagnostic.RegisteredSelectedSlot, "loaded diagnostic independently preserves registered global slot zero");
+Equal(true, loadedSynchronizationDiagnostic.ProcessorPointersMatch, "loaded diagnostic keeps registered-retained identity proof separate from slot readiness");
+Equal("success", loadedSynchronizationStage, "fully readable comparison reports success without authorizing the gate");
+
+PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 3);
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x900));
+Equal(true, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
+    synchronizationDiagnosticProcessor,
+    out CassetteSaveSynchronizationObservationState mismatchedSynchronizationDiagnostic,
+    out _),
+    "mismatched loaded-save enquiries remain observable diagnostics");
+Equal(3, mismatchedSynchronizationDiagnostic.EnquirySlot, "mismatch diagnostic preserves the observed enquiry slot");
+Equal(0x900L, mismatchedSynchronizationDiagnostic.EnquiryStatePointer, "mismatch diagnostic preserves the observed enquiry pointer");
+
+PlayerSaveManagementEnquiries.ThrowOnSlotRead = true;
+Equal(false, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
+    synchronizationDiagnosticProcessor,
+    out CassetteSaveSynchronizationObservationState throwingSynchronizationDiagnostic,
+    out string throwingSynchronizationStage),
+    "throwing public enquiry is contained inside the diagnostic boundary");
+Equal("enquiry-slot-get-invocation:InvalidOperationException:diagnostic-slot-read", throwingSynchronizationDiagnostic.EnquiryStage, "throwing slot enquiry has an exact stage");
+Equal(true, throwingSynchronizationDiagnostic.HasRegisteredSelectedSlot, "throwing enquiry does not discard the independently readable registered selected slot");
+Equal(false, string.IsNullOrWhiteSpace(throwingSynchronizationStage), "throwing diagnostic returns a bounded combined stage");
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+Equal(0, RequestSystem.SubmitCount, "synchronization comparison diagnostics never submit a request");
+Console.WriteLine("PASS: save_synchronization_observation_diagnostics_are_public_bounded_and_behavior_neutral");
+
 var selectedZeroReadinessState = new DiskCommitTargetSaveDataStateFixture(
     new IntPtr(0x333), new(true, 0), new());
 var selectedZeroReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), selectedZeroReadinessState);
@@ -2009,8 +2086,30 @@ static class PlayerSaveManagementEnquiries
 {
     public static FakeIl2CppNullable<int>? SelectedSlot { get; set; }
     public static object? SelectedState { get; set; }
-    public static FakeIl2CppNullable<int>? GetSelectedSaveFileSlotNumber() => SelectedSlot;
-    public static object? TryGetSelectedSlotSaveFileState() => SelectedState;
+    public static bool ValidExistingSaveSelected { get; set; }
+    public static bool ThrowOnSlotRead { get; set; }
+    public static bool ThrowOnStateRead { get; set; }
+    public static bool ThrowOnValidityRead { get; set; }
+    public static FakeIl2CppNullable<int>? GetSelectedSaveFileSlotNumber() => ThrowOnSlotRead
+        ? throw new InvalidOperationException("diagnostic-slot-read")
+        : SelectedSlot;
+    public static object? TryGetSelectedSlotSaveFileState()
+    {
+        if (ThrowOnStateRead) throw new InvalidOperationException("diagnostic-state-read");
+        return SelectedState == null ? null : new FakeIl2CppNullable<object>(true, SelectedState);
+    }
+    public static bool IsAValidExistingSaveSelected() => ThrowOnValidityRead
+        ? throw new InvalidOperationException("diagnostic-validity-read")
+        : ValidExistingSaveSelected;
+    public static void ResetDiagnosticState()
+    {
+        SelectedSlot = new FakeIl2CppNullable<int>(false, 0);
+        SelectedState = null;
+        ValidExistingSaveSelected = false;
+        ThrowOnSlotRead = false;
+        ThrowOnStateRead = false;
+        ThrowOnValidityRead = false;
+    }
 }
 
 sealed class FakeIl2CppNullable<T>

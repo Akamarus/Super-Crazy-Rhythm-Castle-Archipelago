@@ -318,6 +318,25 @@ internal sealed class CassetteDiagnosticSignatureDeduplicator
     internal void Reset() => _lastSignature = null;
 }
 
+internal sealed class CassetteBoundedDiagnosticSignatureDeduplicator
+{
+    private readonly int _capacity;
+    private readonly HashSet<string> _signatures = new(StringComparer.Ordinal);
+
+    internal CassetteBoundedDiagnosticSignatureDeduplicator(int capacity)
+    {
+        if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
+        _capacity = capacity;
+    }
+
+    internal bool ShouldLog(string signature)
+    {
+        if (_signatures.Contains(signature) || _signatures.Count >= _capacity) return false;
+        _signatures.Add(signature);
+        return true;
+    }
+}
+
 internal readonly record struct CassettePublicWriteState(
     bool HasChanges,
     bool RequiresWriteToDisk,
