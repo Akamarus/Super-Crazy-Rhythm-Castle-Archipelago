@@ -238,6 +238,9 @@ Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringCompariso
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
+Equal(true, keeperSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", StringComparison.Ordinal), "keeper observes the exact live Hub6 phone-bank marker");
+Equal(true, keeperSource.Contains("TryCaptureGameplayReadyObservation", StringComparison.Ordinal), "keeper only probes the marker while the active epoch is awaiting gameplay readiness");
+Equal(true, keeperSource.Contains("ObserveGameplayReady", StringComparison.Ordinal), "keeper returns a correlated marker observation to the cassette gate");
 Equal(false, keeperSource.Contains("TimeSpan.FromSeconds(1)", StringComparison.Ordinal), "keeper does not substitute a frame-count interval for elapsed time");
 foreach (string obsolete in new[] { "CassetteReceiptRuntime", "CassetteReceiptScheduler", "Level2MoneyCassetteRuntime", "_terminalSongs" })
     Equal(false, pluginSource.Contains(obsolete, StringComparison.Ordinal) || File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs")).Contains(obsolete, StringComparison.Ordinal), $"obsolete process-wide cassette state removed: {obsolete}");
@@ -1484,6 +1487,50 @@ Equal(true, pluginSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", Str
 Equal(false, scanGarageSource.Contains("LogPostLoadSnapshot", StringComparison.Ordinal), "Garage F5 path does not invoke the Hub6 cassette snapshot");
 Equal(false, scanGarageSource.Contains("Hub6PhoneBankRootPath", StringComparison.Ordinal), "Garage F5 remains independent of the Hub6 live marker");
 Equal(1, pluginSource.Split("CassetteReceiptRandomization.LogPostLoadSnapshot", StringSplitOptions.None).Length - 1, "cassette snapshot has exactly one production call site");
+
+var gameplayGate = new CassetteGameplayReadyGate();
+var gameplayIdentity = new CassetteGameplayReadyIdentity(Generation: 8, Epoch: 3, Slot: 4, Pointer: 0x700);
+Equal(false, gameplayGate.TryCapture(out _), "phone-bank evidence before activation cannot open a cassette epoch");
+gameplayGate.Activate(gameplayIdentity);
+Equal(false, gameplayGate.IsOpen(gameplayIdentity), "every save activation starts closed even when an earlier save was gameplay-ready");
+Equal(true, gameplayGate.TryCapture(out CassetteGameplayReadyObservation preLiveObservation), "closed active epoch may capture one exact marker observation token");
+Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: false), "absent phone bank keeps the active epoch closed");
+Equal(false, gameplayGate.IsOpen(gameplayIdentity), "pre-load marker absence cannot authorize cassette reads");
+Equal(true, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "exact live marker opens the matching save epoch once");
+Equal(true, gameplayGate.IsOpen(gameplayIdentity), "matching live Hub6 evidence authorizes the current epoch");
+Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "repeated live observations cannot reopen or duplicate reconciliation");
+Equal(false, gameplayGate.TryCapture(out _), "open epoch stops per-frame phone-bank probes");
+Equal(true, gameplayGate.IsOpen(gameplayIdentity), "ordinary room travel leaves the gameplay-ready epoch open");
+
+gameplayGate.Suspend();
+Equal(false, gameplayGate.IsOpen(gameplayIdentity), "a proven save boundary synchronously closes prior gameplay readiness");
+var reloadedIdentity = gameplayIdentity with { Generation = 9, Epoch = 4 };
+gameplayGate.Activate(reloadedIdentity);
+Equal(true, gameplayGate.TryCapture(out CassetteGameplayReadyObservation reloadObservation), "same-slot same-pointer reload still requires fresh live-scene evidence");
+Equal(false, gameplayGate.TryOpen(preLiveObservation, phoneBankLive: true), "stale marker evidence from the prior epoch is rejected");
+Equal(false, gameplayGate.IsOpen(reloadedIdentity), "stale prior-epoch evidence cannot authorize reads or grants");
+Equal(true, gameplayGate.TryOpen(reloadObservation, phoneBankLive: true), "fresh evidence opens the reloaded epoch");
+
+var switchedIdentity = new CassetteGameplayReadyIdentity(Generation: 10, Epoch: 5, Slot: 2, Pointer: 0x900);
+gameplayGate.Activate(switchedIdentity);
+Equal(false, gameplayGate.IsOpen(switchedIdentity), "save switch activation closes the prior save's readiness");
+Equal(false, gameplayGate.TryOpen(reloadObservation, phoneBankLive: true), "prior-save evidence cannot open a different slot or pointer");
+Console.WriteLine("PASS: cassette_gameplay_ready_gate_correlates_live_hub_to_exact_save_epoch");
+
+string gameplayCaptureSource = ExtractMethods(receiptRandomizationSource, "internal static bool TryCaptureGameplayReadyObservation(").Single();
+string gameplayObserveSource = ExtractMethods(receiptRandomizationSource, "internal static void ObserveGameplayReady(").Single();
+Equal(false, gameplayCaptureSource.Contains("TryReadCassetteStatus", StringComparison.Ordinal), "marker capture performs no cassette status read");
+Equal(false, gameplayObserveSource.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "marker observation never grants directly");
+Equal(false, gameplayObserveSource.Contains("TryReconcile(", StringComparison.Ordinal), "marker observation only queues managed reconciliation");
+Equal(true, queueBoundary.Contains("_gameplayReady.Suspend()", StringComparison.Ordinal), "every exact save boundary synchronously closes gameplay readiness");
+Equal(true, beginMostRecentBoundary.Contains("_gameplayReady.Suspend()", StringComparison.Ordinal), "unresolved most-recent boundary synchronously closes gameplay readiness");
+Equal(true, activateLoadedSave.Contains("_gameplayReady.Activate", StringComparison.Ordinal), "each activated epoch requires fresh Hub6 readiness");
+int reconcileGameplayGateIndex = reconcileSource.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal);
+Equal(true, reconcileGameplayGateIndex >= 0 && reconcileGameplayGateIndex < reconcileSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "closed gameplay gate prevents reconciliation before any native readiness/status read");
+int reconcileSongGameplayGateIndex = reconcileSongSource.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal);
+Equal(true, reconcileSongGameplayGateIndex >= 0 && reconcileSongGameplayGateIndex < reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "every status read, grant, and delayed verification rechecks exact gameplay readiness");
+Equal(true, unityTick.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "closed gameplay gate freezes bounded verification timers");
+Equal(false, gameplayObserveSource.Contains("ActivateLoadedSave", StringComparison.Ordinal), "Hub6 readiness never creates a new save epoch");
 string postLoadLoggerSource = ExtractMethods(pluginSource, "internal static void LogPostLoadSnapshot(").Single();
 string postLoadReaderSource = ExtractMethods(transactionAdapterSource, "internal static CassettePostLoadDiagnosticState ReadCassettePostLoadDiagnostic(").Single();
 foreach (string forbiddenDiagnosticCall in new[]

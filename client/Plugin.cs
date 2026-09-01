@@ -17940,6 +17940,7 @@ internal static class CassetteReceiptRandomization
     private static bool _slotDataSynchronized;
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
+    private static CassetteGameplayReadyGate _gameplayReady = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
     private static long _activeSaveGeneration;
     private static long _activeSavePointer;
@@ -17962,6 +17963,7 @@ internal static class CassetteReceiptRandomization
         {
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _joinedSaveDataRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
+            _gameplayReady = new CassetteGameplayReadyGate();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
             _activeSaveGeneration = 0; _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
@@ -17975,7 +17977,16 @@ internal static class CassetteReceiptRandomization
     {
         CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
         bool enabled = compatibility.Compatible;
-        lock (Sync) { Enabled = enabled; _slotDataSynchronized = true; if (!enabled) _runtime.DeactivateSave(); }
+        lock (Sync)
+        {
+            Enabled = enabled;
+            _slotDataSynchronized = true;
+            if (!enabled)
+            {
+                _runtime.DeactivateSave();
+                _gameplayReady.Suspend();
+            }
+        }
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be reconciled as HAVE_IN_BAG through the native save lifecycle; deposited cassettes remain deposited."
             : $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled detail=\"{compatibility.Detail}\"; native cassette inventory remains vanilla.");
@@ -18057,6 +18068,7 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
+            _gameplayReady.Suspend();
             _regularSavePointerJoinProbe.Cancel();
             if (kind is CassetteSaveBoundarySignalKind.Selection)
                 _joinedSaveDataRequestProcessor = null;
@@ -18077,6 +18089,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             // Suspension is deliberately first: a malformed callback can never leave the old epoch eligible for work.
+            _gameplayReady.Suspend();
             _saveIdentity.SuspendUnresolved();
             _regularSavePointerJoinProbe.Cancel();
             _joinedSaveDataRequestProcessor = null;
@@ -18112,6 +18125,7 @@ internal static class CassetteReceiptRandomization
             _runtime.ActivateSave(slot);
             _activeSaveGeneration = generation;
             _activeSavePointer = pointer;
+            _gameplayReady.Activate(new(generation, _runtime.Epoch, slot, pointer));
             _saveSynchronizationReady = false;
             _saveSynchronizationDeferredLogged = false;
             _saveSynchronizationReadyLogged = false;
@@ -18128,6 +18142,7 @@ internal static class CassetteReceiptRandomization
             _runtime.DeactivateSave();
             _activeSaveGeneration = 0;
             _activeSavePointer = 0;
+            _gameplayReady.Suspend();
             _joinedSaveDataRequestProcessor = null;
             _saveSynchronizationReady = false;
             _saveSynchronizationDeferredLogged = false;
@@ -18146,11 +18161,12 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             if (_saveIdentity.Pending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave) return;
-            songs = _runtime.PendingSongs.ToArray();
             generation = _activeSaveGeneration;
             epoch = _runtime.Epoch;
             slot = _runtime.ActiveSlot!.Value;
             pointer = _activeSavePointer;
+            if (!_gameplayReady.IsOpen(new(generation, epoch, slot, pointer))) return;
+            songs = _runtime.PendingSongs.ToArray();
         }
         if (!TryConfirmSaveSynchronizationReady(
                 generation, epoch, slot, pointer,
@@ -18265,6 +18281,7 @@ internal static class CassetteReceiptRandomization
             epoch = _runtime.Epoch;
             slot = _runtime.ActiveSlot!.Value;
             pointer = _activeSavePointer;
+            if (!_gameplayReady.IsOpen(new(generation, epoch, slot, pointer))) return;
         }
         if (!TryConfirmSaveSynchronizationReady(
                 generation, epoch, slot, pointer,
@@ -18309,6 +18326,39 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning(submitted
             ? $"[SCRC-AP] CASSETTE GRANT SUBMITTED epoch={epoch} {detail}; authoritative verification pending."
             : $"[SCRC-AP] CASSETTE GRANT FAILED epoch={epoch} nativeSong='{nativeSong}' detail='{detail}'.");
+    }
+
+    internal static bool TryCaptureGameplayReadyObservation(out CassetteGameplayReadyObservation observation)
+    {
+        lock (Sync)
+        {
+            if (_saveIdentity.Pending || !_runtime.HasActiveSave)
+            {
+                observation = default;
+                return false;
+            }
+
+            var identity = new CassetteGameplayReadyIdentity(
+                _activeSaveGeneration,
+                _runtime.Epoch,
+                _runtime.ActiveSlot!.Value,
+                _activeSavePointer);
+            return _gameplayReady.TryCapture(out observation) && observation.Identity == identity;
+        }
+    }
+
+    internal static void ObserveGameplayReady(CassetteGameplayReadyObservation observation)
+    {
+        bool opened;
+        lock (Sync)
+        {
+            opened = _gameplayReady.TryOpen(observation, phoneBankLive: true);
+        }
+        if (!opened) return;
+
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] CASSETTE GAMEPLAY READY epoch={observation.Identity.Epoch} slot={observation.Identity.Slot} pointer=0x{observation.Identity.Pointer:X}; live Hub6 phone bank observed and pending AP ownership retained for reconciliation.");
+        RequestUnityReconciliation("live Hub6 gameplay ready");
     }
 
     internal static void TickUnity(TimeSpan elapsed)
@@ -18392,6 +18442,13 @@ internal static class CassetteReceiptRandomization
         string[] ready;
         lock (Sync)
         {
+            if (!_runtime.HasActiveSave ||
+                !_gameplayReady.IsOpen(new(
+                    _activeSaveGeneration,
+                    _runtime.Epoch,
+                    _runtime.ActiveSlot!.Value,
+                    _activeSavePointer)))
+                return;
             if (!_saveSynchronizationReady) return;
             ready = _runtime.Tick(elapsed).ToArray();
         }
@@ -19897,6 +19954,7 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 
 internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 {
+    private const string Hub6PhoneBankRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
     private long _lastTimestamp;
 
     public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
@@ -19911,6 +19969,10 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
             : TimeSpan.FromSeconds((double)(now - _lastTimestamp) / System.Diagnostics.Stopwatch.Frequency);
         _lastTimestamp = now;
         CassetteReceiptRandomization.TickUnity(elapsed);
+        if (string.Equals(DeveloperHarness.CurrentRoomId, MusicLabDiscovery.Hub6RoomId, StringComparison.Ordinal) &&
+            CassetteReceiptRandomization.TryCaptureGameplayReadyObservation(out CassetteGameplayReadyObservation observation) &&
+            GameObject.Find(Hub6PhoneBankRootPath) != null)
+            CassetteReceiptRandomization.ObserveGameplayReady(observation);
     }
 }
 

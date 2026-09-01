@@ -140,6 +140,58 @@ internal sealed class CassettePostLoadSnapshotLiveGate
     }
 }
 
+internal readonly record struct CassetteGameplayReadyIdentity(
+    long Generation,
+    long Epoch,
+    int Slot,
+    long Pointer);
+
+internal readonly record struct CassetteGameplayReadyObservation(
+    CassetteGameplayReadyIdentity Identity);
+
+internal sealed class CassetteGameplayReadyGate
+{
+    private CassetteGameplayReadyIdentity? _activeIdentity;
+    private bool _open;
+
+    internal void Activate(CassetteGameplayReadyIdentity identity)
+    {
+        _activeIdentity = identity;
+        _open = false;
+    }
+
+    internal void Suspend()
+    {
+        _activeIdentity = null;
+        _open = false;
+    }
+
+    internal bool IsOpen(CassetteGameplayReadyIdentity identity) =>
+        _open && _activeIdentity == identity;
+
+    internal bool TryCapture(out CassetteGameplayReadyObservation observation)
+    {
+        if (!_activeIdentity.HasValue || _open)
+        {
+            observation = default;
+            return false;
+        }
+
+        observation = new(_activeIdentity.Value);
+        return true;
+    }
+
+    internal bool TryOpen(CassetteGameplayReadyObservation observation, bool phoneBankLive)
+    {
+        if (!phoneBankLive || _open || !_activeIdentity.HasValue ||
+            _activeIdentity.Value != observation.Identity)
+            return false;
+
+        _open = true;
+        return true;
+    }
+}
+
 internal readonly record struct CassetteSaveActivation(
     int Slot,
     long Pointer,
