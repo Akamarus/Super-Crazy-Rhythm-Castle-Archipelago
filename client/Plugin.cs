@@ -18070,7 +18070,6 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
-            _gameplayReady.BeginBoundary();
             _regularSavePointerJoinProbe.Cancel();
             if (kind is CassetteSaveBoundarySignalKind.Selection)
                 _joinedSaveDataRequestProcessor = null;

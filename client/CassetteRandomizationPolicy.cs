@@ -165,11 +165,6 @@ internal sealed class CassetteGameplayReadyGate
 
     internal void BeginBoundary()
     {
-        // Selection, creation, and build callbacks for one unresolved load can coalesce.
-        // Once an epoch is active, any later exact callback begins a fresh boundary wave.
-        if (_boundaryPending && !_activeIdentity.HasValue && !_open)
-            return;
-
         _boundaryRevision++;
         _boundaryPending = true;
         _activeIdentity = null;

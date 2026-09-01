@@ -1551,6 +1551,37 @@ retainedMarkerGate.ObserveMarker(phoneBankLive: true, markerIdentity: 404);
 Equal(true, retainedMarkerGate.TryCapture(out CassetteGameplayReadyObservation retainedMarkerFreshObservation), "absence then new presence supplies post-boundary lifetime evidence");
 Equal(true, retainedMarkerGate.TryOpen(retainedMarkerFreshObservation), "new marker incarnation opens the matching new epoch");
 
+var newestBoundaryWinsGate = new CassetteGameplayReadyGate();
+newestBoundaryWinsGate.BeginBoundary();
+newestBoundaryWinsGate.ObserveMarker(phoneBankLive: true, markerIdentity: 606);
+newestBoundaryWinsGate.BeginBoundary();
+var newestBoundaryIdentity = new CassetteGameplayReadyIdentity(Generation: 40, Epoch: 1, Slot: 4, Pointer: 0xC00);
+newestBoundaryWinsGate.Activate(newestBoundaryIdentity);
+Equal(false, newestBoundaryWinsGate.TryCapture(out _), "a newer exact boundary invalidates fresh marker evidence retained by the prior pending boundary");
+newestBoundaryWinsGate.ObserveMarker(phoneBankLive: true, markerIdentity: 606);
+Equal(false, newestBoundaryWinsGate.TryCapture(out _), "the same retained marker cannot become fresh merely because the newer epoch activated");
+newestBoundaryWinsGate.ObserveMarker(phoneBankLive: false, markerIdentity: 0);
+newestBoundaryWinsGate.ObserveMarker(phoneBankLive: true, markerIdentity: 707);
+Equal(true, newestBoundaryWinsGate.TryCapture(out CassetteGameplayReadyObservation newestBoundaryObservation), "post-newest-boundary marker lifetime evidence authorizes capture");
+Equal(true, newestBoundaryWinsGate.TryOpen(newestBoundaryObservation), "only newest-boundary marker evidence opens the epoch");
+
+var malformedPendingBoundaryGate = new CassetteGameplayReadyGate();
+malformedPendingBoundaryGate.BeginBoundary();
+malformedPendingBoundaryGate.ObserveMarker(phoneBankLive: true, markerIdentity: 808);
+malformedPendingBoundaryGate.BeginBoundary(); // malformed exact callback closes first, then rejects its arguments
+var postMalformedIdentity = new CassetteGameplayReadyIdentity(Generation: 50, Epoch: 1, Slot: 4, Pointer: 0xD00);
+malformedPendingBoundaryGate.Activate(postMalformedIdentity);
+Equal(false, malformedPendingBoundaryGate.TryCapture(out _), "malformed exact callback invalidates marker evidence from an already-pending prior boundary");
+
+var activationBoundaryGate = new CassetteGameplayReadyGate();
+activationBoundaryGate.ObserveMarker(phoneBankLive: true, markerIdentity: 909);
+var activationBoundaryIdentity = new CassetteGameplayReadyIdentity(Generation: 60, Epoch: 1, Slot: 4, Pointer: 0xE00);
+activationBoundaryGate.Activate(activationBoundaryIdentity);
+Equal(false, activationBoundaryGate.TryCapture(out _), "activation without a pending callback begins its own boundary and rejects pre-activation marker evidence");
+activationBoundaryGate.ObserveMarker(phoneBankLive: false, markerIdentity: 0);
+activationBoundaryGate.ObserveMarker(phoneBankLive: true, markerIdentity: 1001);
+Equal(true, activationBoundaryGate.TryCapture(out _), "activation-owned boundary accepts only later marker lifetime evidence");
+
 var malformedBoundaryGate = new CassetteGameplayReadyGate();
 var malformedBoundaryIdentity = new CassetteGameplayReadyIdentity(Generation: 30, Epoch: 1, Slot: 4, Pointer: 0xB00);
 malformedBoundaryGate.BeginBoundary();
@@ -1565,13 +1596,15 @@ Console.WriteLine("PASS: cassette_gameplay_ready_gate_correlates_live_hub_to_exa
 string gameplayCaptureSource = ExtractMethods(receiptRandomizationSource, "internal static bool TryCaptureGameplayReadyObservation(").Single();
 string gameplayObserveSource = ExtractMethods(receiptRandomizationSource, "internal static void ObserveGameplayReady(").Single();
 string gameplayBoundarySuspendSource = ExtractMethods(receiptRandomizationSource, "internal static void SuspendGameplayReadinessForBoundary(").Single();
+Equal(false, queueBoundary.Contains("_gameplayReady.BeginBoundary()", StringComparison.Ordinal), "validated queue records identity without double-advancing the boundary already begun by its exact callback");
+Equal(3, pluginSource.Split("QueueSaveBoundarySignal(", StringSplitOptions.None).Length - 1, "only the two exact validated postfixes call the save-boundary identity queue");
 Equal(false, gameplayCaptureSource.Contains("TryReadCassetteStatus", StringComparison.Ordinal), "marker capture performs no cassette status read");
 Equal(false, gameplayObserveSource.Contains("TrySubmitHaveInBag", StringComparison.Ordinal), "marker observation never grants directly");
 Equal(false, gameplayObserveSource.Contains("TryReconcile(", StringComparison.Ordinal), "marker observation only queues managed reconciliation");
 Equal(false, gameplayBoundarySuspendSource.Contains("GameObject", StringComparison.Ordinal), "non-Unity save callbacks close only managed gate state and never probe scene objects");
-Equal(true, queueBoundary.Contains("_gameplayReady.BeginBoundary()", StringComparison.Ordinal), "every exact save boundary synchronously closes gameplay readiness");
 Equal(true, queueBoundary.Contains("prior gameplay readiness was suspended before new-load identity processing", StringComparison.Ordinal), "valid boundary diagnostic states that closure precedes new-load identity work");
 Equal(true, beginMostRecentBoundary.Contains("_gameplayReady.BeginBoundary()", StringComparison.Ordinal), "unresolved most-recent boundary synchronously closes gameplay readiness");
+Equal(1, beginMostRecentBoundary.Split("_gameplayReady.BeginBoundary()", StringSplitOptions.None).Length - 1, "most-recent callback begins exactly one gameplay boundary");
 Equal(true, activateLoadedSave.Contains("_gameplayReady.Activate", StringComparison.Ordinal), "each activated epoch requires fresh Hub6 readiness");
 int reconcileGameplayGateIndex = reconcileSource.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal);
 Equal(true, reconcileGameplayGateIndex >= 0 && reconcileGameplayGateIndex < reconcileSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "closed gameplay gate prevents reconciliation before any native readiness/status read");
