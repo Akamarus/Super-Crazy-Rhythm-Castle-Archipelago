@@ -543,109 +543,48 @@ internal static class CassetteSaveTransactionAdapter
     }
 
     internal static bool TryConfirmSaveSynchronizationReady(
-        object? retainedSaveDataProcessor,
-        int expectedSlot,
         long expectedPointer,
         out string stage)
     {
         stage = "readiness-start";
         try
         {
-            if (retainedSaveDataProcessor == null)
-            {
-                stage = "readiness-retained-save-data-processor-null";
-                return false;
-            }
-            if (!TryReadRegisteredPersistProcessorPointer(
-                    retainedSaveDataProcessor.GetType().Assembly,
-                    out object? registeredPersistProcessor,
-                    out long registeredPersistProcessorPointer,
-                    out _,
-                    out stage))
-                return false;
-            if (!TryReadPublicObjectPointer(
-                    retainedSaveDataProcessor,
-                    "readiness-retained-save-data-processor",
-                    out long retainedSaveDataProcessorPointer,
-                    out stage))
-                return false;
-            if (registeredPersistProcessorPointer != retainedSaveDataProcessorPointer)
-            {
-                stage = $"readiness-save-data-processor-pointer-mismatch:expected=0x{retainedSaveDataProcessorPointer:X}:actual=0x{registeredPersistProcessorPointer:X}";
-                return false;
-            }
-            if (!TryObtainPublicState(
-                    registeredPersistProcessor,
-                    "readiness-save-data",
-                    out object? saveDataState,
-                    out stage))
-                return false;
+            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
+            if (enquiries == null) { stage = "readiness-enquiries-owner-missing"; return false; }
+            MethodInfo? validityMethod = enquiries.GetMethod(
+                "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            if (validityMethod == null) { stage = "readiness-selected-save-validity-method-missing"; return false; }
+            stage = "readiness-selected-save-validity-get";
+            object? rawValidity = validityMethod.Invoke(null, null);
+            if (rawValidity is not bool valid) { stage = "readiness-selected-save-validity-invalid"; return false; }
+            if (!valid) { stage = "readiness-selected-save-invalid"; return false; }
 
-            Type saveDataStateType = saveDataState!.GetType();
-            if (!TryGetPublicReadableProperty(
-                    saveDataStateType,
-                    "SelectedPlayerSaveSlot",
-                    PublicInstance,
-                    "readiness-selected-slot",
-                    out PropertyInfo selectedSlotProperty,
-                    out stage))
-                return false;
-            stage = "readiness-selected-slot-get";
-            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    rawSelectedSlot,
-                    "readiness-selected-slot",
-                    out bool slotPresent,
-                    out object? slotValue,
-                    out stage))
-                return false;
-            if (!slotPresent || slotValue == null)
+            MethodInfo? stateMethod = enquiries.GetMethod(
+                "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            if (stateMethod == null) { stage = "readiness-selected-state-method-missing"; return false; }
+            stage = "readiness-selected-state-get";
+            object? rawSelectedState = ReadPublicNullableMethod(stateMethod, null!, Array.Empty<object?>());
+            object? selectedState = rawSelectedState;
+            if (rawSelectedState != null && rawSelectedState.GetType().GetProperty("HasValue", PublicInstance) != null)
             {
-                stage = "readiness-selected-slot-empty";
-                return false;
+                if (!TryUnwrapPublicDiagnosticNullable(
+                        rawSelectedState,
+                        "readiness-selected-state",
+                        out bool statePresent,
+                        out selectedState,
+                        out stage))
+                    return false;
+                if (!statePresent) selectedState = null;
             }
-            stage = "readiness-selected-slot-convert";
-            int selectedSlot = Convert.ToInt32(slotValue);
-            if (selectedSlot != expectedSlot)
-            {
-                stage = $"readiness-selected-slot-mismatch:expected={expectedSlot}:actual={selectedSlot}";
-                return false;
-            }
-
-            if (!TryGetPublicReadableProperty(
-                    saveDataStateType,
-                    "RegularPlayerSaves",
-                    PublicInstance,
-                    "readiness-regular-saves",
-                    out PropertyInfo savesProperty,
-                    out stage))
-                return false;
-            stage = "readiness-regular-saves-get";
-            object? saves = savesProperty.GetValue(saveDataState);
-            if (saves == null)
-            {
-                stage = "readiness-regular-saves-null";
-                return false;
-            }
-            if (!TryReadPublicDictionaryValue(
-                    saves,
-                    selectedSlot,
-                    "readiness-selected-entry",
-                    out object? selectedState,
-                    out stage))
-                return false;
+            if (selectedState == null) { stage = "readiness-selected-state-empty"; return false; }
             if (!TryReadPublicPointer(
-                    selectedState!,
-                    "readiness-selected-entry",
-                    out long selectedEntryPointer,
-                    out stage))
+                    selectedState, "readiness-selected-state", out long selectedPointer, out stage))
                 return false;
-            if (selectedEntryPointer != expectedPointer)
+            if (selectedPointer != expectedPointer)
             {
-                stage = $"readiness-selected-entry-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{selectedEntryPointer:X}";
+                stage = $"readiness-selected-state-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{selectedPointer:X}";
                 return false;
             }
-
             stage = "success";
             return true;
         }
@@ -1860,40 +1799,6 @@ internal static class CassetteSaveTransactionAdapter
         catch (Exception ex)
         {
             detail = ex.GetBaseException().Message;
-            return false;
-        }
-    }
-
-    internal static bool TrySubmitDefaultUrgentPersist(out string detail)
-    {
-        detail = string.Empty;
-        try
-        {
-            Type? requestType = FindType("PersistSaveChangeBundleRequest");
-            Type? bundleType = FindType("ePlayerSaveChangeBundleKey");
-            Type? writeType = FindType("eSaveFileWriteType");
-            Type? requestSystemType = FindType("RequestSystem");
-            if (requestType == null || bundleType?.IsEnum != true || writeType?.IsEnum != true || requestSystemType == null)
-            { detail = "public persist semantic types unavailable"; return false; }
-            if (!CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
-                    requestType,
-                    bundleType,
-                    writeType,
-                    out object? request,
-                    out detail) || request == null)
-                return false;
-            MethodInfo? submitDefinition = requestSystemType.GetMethods(PublicStatic)
-                .SingleOrDefault(method => string.Equals(method.Name, "SubmitRequest", StringComparison.Ordinal) &&
-                    method.IsGenericMethodDefinition && method.GetGenericArguments().Length == 1 &&
-                    method.GetParameters().Length == 1);
-            if (submitDefinition == null) { detail = "public RequestSystem.SubmitRequest<T> unavailable"; return false; }
-            submitDefinition.MakeGenericMethod(requestType).Invoke(null, new[] { request });
-            detail += " route='RequestSystem.SubmitRequest<T>'";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            detail = $"public persist invocation:{SummarizeException(ex)}";
             return false;
         }
     }

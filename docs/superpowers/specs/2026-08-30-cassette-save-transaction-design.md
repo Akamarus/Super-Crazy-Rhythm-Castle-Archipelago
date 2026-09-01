@@ -36,7 +36,9 @@ Instead, exact postfixes on `SaveDataRequestProcessor.ChangeSelectedPlayerSaveSl
 
 Queuing any exact Selection, Creation, or Build signal immediately suspends reconciliation and delayed verification for the previously active epoch. While a boundary signal or candidate is pending, all native reads, submissions, and verification retries fail closed. The old epoch is not resumed if stabilization is delayed or fails. Only activation of a newly stabilized candidate resumes reconciliation, clears stale epoch-local attempts/verifications, and reevaluates session-wide AP ownership in the new epoch.
 
-The Unity keeper reads `PlayerSaveManagementEnquiries.GetSelectedSaveFileSlotNumber()` and `TryGetSelectedSlotSaveFileState()`. It accepts a candidate only when the selected slot matches the signal's expected slot and the selected public state is non-null. It identifies the underlying `PlayerSaveFilePublicState` by its public `Il2CppObjectBase.Pointer` and requires the same non-zero `(slot, pointer)` on two consecutive Unity updates after the newest signal before advancing the epoch.
+The Unity keeper stabilizes the `PlayerSaveRequestProcessor` state pointer after the newest exact boundary signal before advancing the epoch. Immediately before any cassette status read, grant, or delayed verification, it then requires the authoritative public loaded-save evidence: `PlayerSaveManagementEnquiries.IsAValidExistingSaveSelected()` must return `true`, and `TryGetSelectedSlotSaveFileState()` must return a non-null public state whose `Il2CppObjectBase.Pointer` exactly matches the active epoch's stabilized player-save pointer. An invalid selection, unreadable enquiry, empty state, or pointer mismatch defers without consuming the cassette attempt.
+
+`PlayerSaveManagementEnquiries.GetSelectedSaveFileSlotNumber()` and `SaveDataState.SelectedPlayerSaveSlot` are diagnostic only. Live Continue testing proved that either can remain numeric slot 0 while the validity enquiry and selected-state pointer identify the actually loaded save. Slot 0 therefore neither authorizes nor rejects reconciliation: a valid selection plus exact pointer equality is the authority. The boundary signal's slot remains epoch bookkeeping and logging, not a second global-selection gate.
 
 No cassette is considered terminal across epochs. `HAVE_IN_BAG` and `HAVE_DEPOSITED` are terminal only within the epoch in which an authoritative read observed them.
 
@@ -63,14 +65,14 @@ After a loaded-save epoch is confirmed, reconciliation runs only on the Unity th
 2. Authoritatively reads the selected save through `SongCassetteEnquiries.GetSongCassetteStatus`.
 3. Leaves `HAVE_IN_BAG` and `HAVE_DEPOSITED` unchanged and satisfies them only for the current epoch.
 4. Leaves unreadable or unknown state pending and fails closed.
-5. For `INVALID` or `HAVE_NOT_EARNED`, constructs the exact semantic `RecordSongCassetteStatusInSaveDataRequest(song, HAVE_IN_BAG, DEFAULT)`.
+5. For `INVALID` or `HAVE_NOT_EARNED`, constructs the public parameterless `RecordSongCassetteStatusInSaveDataRequest`, assigns only its public `Song` and `CassetteStatus=HAVE_IN_BAG` properties, and verifies those values plus an absent public `Bundle` readback. The native request processor's proven absent-bundle fallback supplies `DEFAULT`.
 6. Invokes the matching `PlayerSaveRequestProcessor.ProcessRequest(...)` overload through the compatible captured processor, or the proven stateless processor fallback only after selected-save enquiries are readable.
 7. Treats a successful invocation as `verification-pending`, never as persisted or satisfied.
-8. Re-reads after a bounded delay. Only authoritative `HAVE_IN_BAG` or `HAVE_DEPOSITED` satisfies the current epoch.
+8. Re-reads once after a bounded delay. Only authoritative `HAVE_IN_BAG` or `HAVE_DEPOSITED` satisfies the current epoch. A cassette receives at most one semantic grant attempt per epoch; another lifecycle observation cannot duplicate it.
 
-This mirrors the durable Plant Pipes lifecycle. The native record request participates in the game's own save/change-bundle behavior; the client never calls a private save manager, flush method, or synthetic persist request.
+This mirrors the durable Plant Pipes lifecycle. The native record request participates in the game's own save/change-bundle and ordinary save-write lifecycle. Cassette reconciliation does not construct or submit `PersistSaveChangeBundleRequest`, `PersistAllSaveChangeBundlesRequest`, `TriggerUrgentSaveWriteIfAnyChangesRequest`, or `RequestWriteForPlayerSave`; it does not subscribe to `PlayerSaveWriteCompletedEvent`; and it runs no synthetic disk-write timer or success/failure transaction. The client never calls a private save manager or flush method.
 
-The exact cassette request mechanism already has live evidence: after the three-argument constructor fixed the earlier parameterless-wrapper defect, a received cassette appeared in native inventory, deposited normally, and remained deposited after full restart. The remaining repair is safe loaded-save timing and epoch-scoped verification, not a new persistence API.
+The exact cassette request mechanism has live evidence: the parameterless request with explicit `Song`/`CassetteStatus` and absent `Bundle` reaches the native RecordSong processor as effective `DEFAULT`, while reflected nullable bundle construction produced invalid payloads. The remaining responsibility is safe loaded-save timing and epoch-scoped verification, not a new persistence API.
 
 ### Load and switch behavior
 
@@ -102,7 +104,7 @@ No log may call a cassette persisted merely because request invocation returned 
 
 - Missing save state or reader: do not submit; retry at a later safe boundary.
 - Unknown native status: do not overwrite; log once per epoch/status transition.
-- Native semantic request failure: leave pending and retry only at the next bounded safe lifecycle point.
+- Native semantic request failure or failed bounded verification: leave AP ownership pending, but do not duplicate the semantic grant in the same epoch; the next activated epoch revalidates and may grant once again if still unearned.
 - Save load during pending work: discard epoch-local markers and evaluate the new epoch.
 - Exact save-boundary signal during pending work: suspend the old epoch immediately; do not read, submit, or verify until a new candidate activates.
 - Duplicate AP receipt: idempotent; it does not create another native request.
@@ -113,25 +115,25 @@ Automated tests must prove:
 
 1. No native request occurs before a confirmed loaded-save epoch.
 2. Exact create/change/build callbacks only enqueue and never perform native cassette reads or writes.
-3. A candidate cannot activate unless its selected slot matches the signal's expected slot and the same non-zero `(slot, pointer)` is observed on two consecutive Unity updates.
+3. A candidate cannot activate until the same non-zero player-save processor pointer is observed on two consecutive Unity updates after the newest boundary generation.
 4. A first load, same-slot reload (including pointer reuse), and different-slot switch each advance the epoch exactly once; duplicate signals coalesce.
-5. Startup slot 0 followed by a UI slot-4 create/select cannot authorize cassette writes to slot 0 and activates only after slot 4 stabilizes.
+5. A numeric selected-slot value of 0 is non-authoritative: valid selection plus a selected-state pointer matching the active epoch is ready, while invalid/unreadable selection or a pointer mismatch defers without a request.
 6. Room transition alone never creates or replaces an epoch.
 7. An active slot-0 epoch followed by a queued slot-4 signal performs no old-epoch read, submission, or delayed verification before slot 4 activates.
 8. Signal slot 4, observe `(4, 400)` once, then signal same-slot Build: the count resets; the next observation does not activate and the following matching observation activates exactly once with Build preserved.
 9. Process-wide AP ownership survives epoch changes while native satisfaction does not.
 10. Missing cassettes submit only after an active loaded-save epoch and an authoritative unearned read.
-11. Submission uses the exact semantic three-argument request with `HAVE_IN_BAG` and `DEFAULT`.
+11. Submission uses the public parameterless semantic request, public `Song`/`CassetteStatus=HAVE_IN_BAG` setters, verified absent `Bundle`, and the native `DEFAULT` fallback.
 12. `HAVE_IN_BAG` and `HAVE_DEPOSITED` prevent submission within an epoch.
 13. Deposited cassettes remain deposited across reloads.
 14. Authoritative-read failures fail closed.
 15. A receipt arriving during campaign or Music Lab result processing waits for the Unity keeper rather than writing inside the result transaction.
 16. Same-slot reload after a transient bag observation revalidates and repairs the active save.
-17. Source wiring contains no selected-slot event hook, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
+17. Source wiring contains no selected-slot event hook, synthetic Persist construction/submission, write-completed event consumer, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
 
 Live acceptance uses fresh seed `8302601` at `127.0.0.1:38282`, slot `Jack`, with UI save slot 4:
 
-- no cassette submission occurs for the preliminary startup slot-0 state;
+- no cassette submission occurs while the validity enquiry is false or the selected-state pointer differs from the activated epoch, regardless of the numeric selected-slot value;
 - an epoch for native slot 4 is logged after its selected `(slot, pointer)` stabilizes;
 - AP history restores Badass and The Heist into the loaded save;
 - both appear in the top-right inventory;

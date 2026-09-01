@@ -105,71 +105,18 @@ foreach (var rejectedFactory in new[]
     Equal(rejectedFactory.Stage, rejectedDetail, $"{rejectedFactory.Stage} is reported exactly");
 }
 
-PersistSaveChangeBundleRequest.ResetConstructionCounters();
-Equal(true, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
-    typeof(PersistSaveChangeBundleRequest),
-    typeof(ePlayerSaveChangeBundleKey),
-    typeof(eSaveFileWriteType),
-    out object? persistConstruction,
-    out string persistConstructionDetail), "persist request uses the public absent-bundle construction path");
-var typedPersistConstruction = (PersistSaveChangeBundleRequest)persistConstruction!;
-Equal(true, typedPersistConstruction.ParameterlessConstructorUsed, "persist request uses the public parameterless constructor");
-Equal(false, typedPersistConstruction.Bundle.HasValue, "verified persist request leaves Bundle absent");
-Equal(eSaveFileWriteType.URGENT, typedPersistConstruction.WriteTypeToRequest, "public WriteTypeToRequest setter receives URGENT");
-Equal(1, typedPersistConstruction.WriteTypeSetterCalls, "persist construction explicitly invokes the public plain-enum write-type setter");
-Equal(0, PersistSaveChangeBundleRequest.SemanticConstructorCalls, "broken two-argument persist constructor is never called");
-Equal(0, typedPersistConstruction.BundleSetterCalls, "broken nullable persist Bundle setter is never called");
-Equal(ePlayerSaveChangeBundleKey.DEFAULT,
-    typedPersistConstruction.Bundle.HasValue ? typedPersistConstruction.Bundle.Value : ePlayerSaveChangeBundleKey.DEFAULT,
-    "native persist HasValue ? Value : DEFAULT semantics resolve the absent payload to DEFAULT");
-Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0'", persistConstructionDetail, "persist construction detail reports actual payload semantics");
-
-Equal(true, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
-    typeof(EmptyInteropPersistConstructionFixture.PersistSaveChangeBundleRequest),
-    typeof(ePlayerSaveChangeBundleKey),
-    typeof(eSaveFileWriteType),
-    out object? emptyInteropPersist,
-    out string emptyInteropPersistDetail), "proven IL2CPP empty persist Bundle getter NRE is normalized as absent");
-Equal(true, emptyInteropPersist != null, "exact empty persist nullable normalization returns a verified request");
-Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0'", emptyInteropPersistDetail, "exact empty persist nullable path reports the native fallback honestly");
-
-foreach (var rejectedPersistFactory in new[]
-{
-    (Request: typeof(MissingPersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "public parameterless persist request constructor unavailable"),
-    (Request: typeof(PrivatePersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "public parameterless persist request constructor unavailable"),
-    (Request: typeof(ThrowingPersistParameterlessConstructorFixture.PersistSaveChangeBundleRequest), Stage: "persist request parameterless-constructor-invocation:InvalidOperationException:persist-parameterless-constructor"),
-    (Request: typeof(MissingPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle getter unavailable"),
-    (Request: typeof(PrivatePersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle getter unavailable"),
-    (Request: typeof(ThrowingPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle-readback-invocation:InvalidOperationException:persist-bundle-get"),
-    (Request: typeof(UnrelatedNullPersistBundleGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle-readback-invocation:NullReferenceException:unrelated-persist-null"),
-    (Request: typeof(NullPersistBundleReadbackFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback was null"),
-    (Request: typeof(MalformedPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "public persist Bundle nullable contract unavailable"),
-    (Request: typeof(PresentInvalidPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback mismatch:expected=<absent>:actual=INVALID/0"),
-    (Request: typeof(PresentDefaultPersistBundleFixture.PersistSaveChangeBundleRequest), Stage: "persist request bundle readback mismatch:expected=<absent>:actual=DEFAULT/1"),
-    (Request: typeof(MissingPersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
-    (Request: typeof(PrivatePersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
-    (Request: typeof(ThrowingPersistWriteTypeSetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type-set-invocation:InvalidOperationException:persist-write-set"),
-    (Request: typeof(MissingPersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
-    (Request: typeof(PrivatePersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "public persist WriteTypeToRequest getter/setter unavailable"),
-    (Request: typeof(ThrowingPersistWriteTypeGetterFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type-readback-invocation:InvalidOperationException:persist-write-get"),
-    (Request: typeof(MismatchedPersistWriteTypeFixture.PersistSaveChangeBundleRequest), Stage: "persist request write-type readback mismatch:expected=URGENT/0:actual=NON_URGENT/1"),
-})
-{
-    Equal(false, CassetteNativeRequestFactory.TryCreateDefaultUrgentPersistRequest(
-        rejectedPersistFactory.Request,
-        typeof(ePlayerSaveChangeBundleKey),
-        typeof(eSaveFileWriteType),
-        out object? rejectedPersistRequest,
-        out string rejectedPersistDetail), $"{rejectedPersistFactory.Stage} fails closed");
-    Equal<object?>(null, rejectedPersistRequest, $"{rejectedPersistFactory.Stage} cannot return a request for submission");
-    Equal(rejectedPersistFactory.Stage, rejectedPersistDetail, $"{rejectedPersistFactory.Stage} is reported exactly");
-}
-Equal(0, RequestSystem.SubmitCount, "persist construction failures never reach RequestSystem.SubmitRequest");
+Equal(0, RequestSystem.SubmitCount, "semantic cassette request construction never reaches global persist submission");
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+string requestFactorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
+string transactionAdapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "cassette production wiring consumes no save-write completion event");
+Equal(false, pluginSource.Contains("TickDiskCommit(elapsed);", StringComparison.Ordinal), "Unity reconciliation never advances the retired synthetic disk-commit state machine");
+foreach (string prohibitedWritePath in new[] { "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
+    Equal(false, pluginSource.Contains(prohibitedWritePath, StringComparison.Ordinal) || transactionAdapterSource.Contains(prohibitedWritePath, StringComparison.Ordinal), $"production avoids prohibited forced write path {prohibitedWritePath}");
 
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ChangeSelectedPlayerSaveSlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact selected-slot mutation hook installed");
 Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"CreateNewPlayerSaveFileInEmptySlot\", \"Int32\", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix))", StringComparison.Ordinal), "exact empty-slot creation hook installed");
-Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuildPlayerSaveStatePrefix), nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook installs bounded lifecycle prefix and existing authoritative postfix");
+Equal(true, pluginSource.Contains("PatchExactMethod(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"BuildPlayerSaveStateFromFileRequest\", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix))", StringComparison.Ordinal), "exact save-state build hook retains the authoritative lifecycle observation");
 Equal(true, pluginSource.Contains("PatchExactMethodPrefix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"SelectMostRecentlyUsedRegularPlayerSaveSlotRequest\", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix))", StringComparison.Ordinal), "most-recent authority is installed as an exact prefix");
 foreach (string obsoleteDiagnostic in new[] { "PublicSelectionDiagnosticPostfix", "SelectedSlotSetterDiagnosticPostfix", "SelectPlayerSaveSlotRequest", "EnsureAPlayerSaveSlotIsSelectedRequest", "EnsurePlayerSaveFileExistsInSelectedSlotRequest" })
     Equal(false, pluginSource.Contains(obsoleteDiagnostic, StringComparison.Ordinal), $"temporary diagnostic removed: {obsoleteDiagnostic}");
@@ -189,9 +136,9 @@ static string ExtractClass(string source, string className)
 }
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPrefix)", StringComparison.Ordinal), "absent Persist boundary is not hooked");
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPostfix)", StringComparison.Ordinal), "absent Persist postfix is not hooked");
-Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"PersistSaveChangeBundleRequest\", nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPostfix))", StringComparison.Ordinal), "exact narrow-persist routing diagnostic is installed");
-Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"PersistAllSaveChangeBundlesRequest\", nameof(CassetteSaveTransactionPatches.PersistAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistAllRoutingPostfix))", StringComparison.Ordinal), "exact persist-all routing diagnostic is installed");
-Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"DiscardAllUnstagedSaveStateChangesRequest\", nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPostfix))", StringComparison.Ordinal), "exact discard-all-unstaged routing diagnostic is installed");
+Equal(false, pluginSource.Contains("PersistBundleRoutingPrefix", StringComparison.Ordinal), "cassette production wiring does not observe or drive persist-bundle traffic");
+Equal(false, pluginSource.Contains("PersistAllRoutingPrefix", StringComparison.Ordinal), "cassette production wiring does not observe or drive persist-all traffic");
+Equal(false, pluginSource.Contains("DiscardAllRoutingPrefix", StringComparison.Ordinal), "cassette production wiring does not consume unstaged-discard traffic");
 
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix)", StringComparison.Ordinal), "broad selection postfix is non-authoritative");
 string selectedMutationPostfix = ExtractMethods(pluginSource, "public static void SelectedSlotMutationPostfix(").Single();
@@ -205,44 +152,13 @@ Equal(true, buildPostfix.Contains("QueueSaveBoundarySignal", StringComparison.Or
 Equal(true, buildPostfix.Contains("LogExtractionFailureOnce", StringComparison.Ordinal), "build extraction failure is logged once");
 Equal(true, buildPostfix.Contains("BuildPlayerSaveStateFromFileRequest", StringComparison.Ordinal), "build diagnostic identifies exact request type safely");
 Equal(false, buildPostfix.Contains("TryGetLoadedSave", StringComparison.Ordinal), "build callback performs no native enquiry");
-Equal(true, buildPostfix.Contains("CompleteSaveStateLifecycleDiagnostic", StringComparison.Ordinal), "build postfix completes the exact bounded lifecycle diagnostic pair");
-Equal(true, buildPostfix.Contains("try", StringComparison.Ordinal) && buildPostfix.Contains("catch", StringComparison.Ordinal), "diagnostic completion is exception-isolated from the authoritative build boundary");
-Equal(true, buildPostfix.LastIndexOf("QueueSaveBoundarySignal", StringComparison.Ordinal) > buildPostfix.LastIndexOf("catch", StringComparison.Ordinal), "authoritative build boundary executes after isolated diagnostics");
-string buildPrefix = ExtractMethods(pluginSource, "public static void BuildPlayerSaveStatePrefix(").Single();
-Equal(true, buildPrefix.Contains("BeginSaveStateLifecycleDiagnostic", StringComparison.Ordinal), "build prefix captures the bounded before snapshot");
-Equal(true, buildPrefix.Contains("BindingFlags.Public", StringComparison.Ordinal), "new lifecycle prefix reads only the public SlotNumber contract");
-Equal(false, buildPrefix.Contains("ReflectionUtil.ReadInt", StringComparison.Ordinal), "new lifecycle prefix cannot bind private slot members");
-Equal(true, buildPrefix.Contains("try", StringComparison.Ordinal) && buildPrefix.Contains("catch", StringComparison.Ordinal), "diagnostic prefix cannot suppress the original build request");
+Equal(false, buildPostfix.Contains("Persist", StringComparison.Ordinal), "build observation cannot trigger cassette persistence");
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
 string recordRoutingPrefix = ExtractMethods(pluginSource, "public static bool CassetteStatusRequestPrefix(").Single();
-Equal(true, recordRoutingPrefix.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), "record-song processor entry captures actual request routing diagnostic");
-Equal(true, pluginSource.Contains("public static void CassetteStatusRequestPostfix(", StringComparison.Ordinal), "record-song processor exit callback is compiled into the patch seam");
-foreach (string callback in new[] { "PersistBundleRoutingPrefix", "PersistAllRoutingPrefix", "DiscardAllRoutingPrefix" })
-{
-    string callbackSource = ExtractMethods(pluginSource, $"public static void {callback}(").Single();
-    Equal(true, callbackSource.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), $"{callback} captures a bounded entry diagnostic");
-    Equal(true, callbackSource.Contains("LogRoutingExtractionFailureSafely", StringComparison.Ordinal), $"{callback} exception fallback cannot escape into the native prefix");
-    Equal(false, callbackSource.Contains("GetBaseException", StringComparison.Ordinal), $"{callback} performs no throwable exception formatting outside the safe fallback");
-    Equal(false, callbackSource.Contains("TrySubmit", StringComparison.Ordinal), $"{callback} cannot submit save work");
-}
-foreach (string callback in new[] { "PersistBundleRoutingPostfix", "PersistAllRoutingPostfix", "DiscardAllRoutingPostfix" })
-{
-    string callbackSource = ExtractMethods(pluginSource, $"public static void {callback}(").Single();
-    Equal(true, callbackSource.Contains("CompleteBundleRoutingDiagnostic", StringComparison.Ordinal), $"{callback} captures the correlated exit diagnostic");
-    Equal(true, callbackSource.Contains("LogRoutingExtractionFailureSafely", StringComparison.Ordinal), $"{callback} exception fallback cannot escape from the native postfix");
-    Equal(false, callbackSource.Contains("GetBaseException", StringComparison.Ordinal), $"{callback} performs no throwable exception formatting outside the safe fallback");
-    Equal(false, callbackSource.Contains("TrySubmit", StringComparison.Ordinal), $"{callback} cannot submit save work");
-}
-string routingFallbackLogger = ExtractMethods(pluginSource, "private static void LogRoutingExtractionFailureSafely(").Single();
-Equal(true, routingFallbackLogger.Contains("try", StringComparison.Ordinal) && routingFallbackLogger.Contains("catch", StringComparison.Ordinal), "routing callback fallback logger is strictly no-throw");
-Equal(true, routingFallbackLogger.Contains("Exception exception", StringComparison.Ordinal) && routingFallbackLogger.Contains("GetBaseException", StringComparison.Ordinal), "routing callback fallback performs exception formatting only inside its no-throw boundary");
-string beginBundleRouting = ExtractMethods(ExtractClass(pluginSource, "CassetteReceiptRandomization"), "internal static void BeginBundleRoutingDiagnostic(").Single();
-Equal(true, beginBundleRouting.Contains("_slotDataSynchronized", StringComparison.Ordinal) && beginBundleRouting.Contains("Enabled", StringComparison.Ordinal), "routing diagnostics are inactive before compatible AP slot synchronization");
-Equal(true, beginBundleRouting.Contains("TryResolveGlobalAttempt", StringComparison.Ordinal), "global bundle diagnostics require a relevant AP candidate or real active attempt");
-Equal(true, beginBundleRouting.Contains("RegisterRelevantSong", StringComparison.Ordinal), "record request songs remain available to nested global snapshots before verification");
-Equal(true, beginBundleRouting.Contains("GetRelevantSongs", StringComparison.Ordinal), "every boundary unions retained record candidates into its coherent status snapshot");
+Equal(false, recordRoutingPrefix.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), "semantic record-song interception no longer starts disk-routing diagnostics");
+Equal(false, pluginSource.Contains("public static void CassetteStatusRequestPostfix(", StringComparison.Ordinal), "record-song processor needs no persistence postfix");
 string mostRecentPrefix = ExtractMethods(pluginSource, "public static void MostRecentSelectionPrefix(").Single();
 Equal(true, mostRecentPrefix.Contains("BeginMostRecentSelectionBoundary(__instance)", StringComparison.Ordinal), "most-recent prefix immediately enters unresolved authority boundary");
 string beginMostRecentBoundary = ExtractMethods(pluginSource, "internal static void BeginMostRecentSelectionBoundary(").Single();
@@ -263,6 +179,7 @@ string reconcileSongSource = ExtractMethods(pluginSource, "private static void T
 Equal(true, reconcileSongSource.Contains("TryReadCassetteStatus(processor!, nativeSong", StringComparison.Ordinal), "reconciliation reads before writing");
 Equal(true, reconcileSongSource.Contains("TrySubmitHaveInBag(processor!, nativeSong", StringComparison.Ordinal), "reconciliation uses exact semantic request adapter");
 Equal(false, reconcileSongSource.Contains("HAVE_DEPOSITED", StringComparison.Ordinal), "reconciliation never submits deposited status");
+Equal(true, reconcileSongSource.Contains("verificationDue &&", StringComparison.Ordinal) && reconcileSongSource.Contains("_runtime.RecordVerification(nativeSong, null)", StringComparison.Ordinal), "an unreadable scheduled verification is consumed once without enabling a duplicate grant");
 
 string cassetteProcessorCapture = ExtractMethods(pluginSource, "internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)").Single();
 Equal(true, cassetteProcessorCapture.Contains("CASSETTE PLAYER PROCESSOR CAPTURED", StringComparison.Ordinal), "compatible player processor capture is observable");
@@ -280,8 +197,8 @@ Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette r
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
 string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
-Equal(true, unityTick.IndexOf("if (!_saveSynchronizationReady) return", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "deferred synchronization freezes verification and disk-attempt timers until an observation proves readiness");
-Equal(true, unityTick.Contains("TickDiskCommit(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded disk completion on the same monotonic elapsed time");
+Equal(true, unityTick.IndexOf("if (!_saveSynchronizationReady) return", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "deferred synchronization freezes semantic grant verification until an observation proves readiness");
+Equal(false, unityTick.Contains("TickDiskCommit", StringComparison.Ordinal), "Unity keeper does not run a synthetic disk-commit timer");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
@@ -305,76 +222,16 @@ Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_play
 string captureProcessor = ExtractMethods(receiptRandomizationSource, "internal static void CapturePlayerSaveRequestProcessor(").Single();
 Equal(true, captureProcessor.Contains("_saveIdentity.CaptureProcessor", StringComparison.Ordinal), "compatible post-selection processor can bind pending selection");
 Equal(false, queueBoundary.Contains("TryGetLoadedSave", StringComparison.Ordinal), "boundary callback performs no native selected-save read");
-string diskCommitSource = ExtractMethods(receiptRandomizationSource, "private static void TickDiskCommit(").Single();
 Equal(true, reconcileSongSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "cassette reconciliation requires the public save synchronization gate");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TryReadCassetteStatus", StringComparison.Ordinal), "synchronization is proven before reconciliation reads or mutates cassette status");
 Equal(true, reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < reconcileSongSource.IndexOf("TrySubmitHaveInBag", StringComparison.Ordinal), "synchronization is proven before any cassette grant request");
 string synchronizationGateSource = ExtractMethods(receiptRandomizationSource, "private static bool TryConfirmSaveSynchronizationReady(").Single();
-Equal(true, synchronizationGateSource.Contains("LogSaveSynchronizationObservationDiagnostic", StringComparison.Ordinal), "deferred lifecycle observation emits the bounded public comparison diagnostic");
 Equal(true, synchronizationGateSource.Contains("allowObservationProbe", StringComparison.Ordinal), "frame-only paths cannot trigger new diagnostic probes");
 Equal(false, synchronizationGateSource.Contains("TrySubmit", StringComparison.Ordinal), "synchronization diagnostic wiring cannot submit grant or persistence requests");
-Equal(true, diskCommitSource.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "disk commit work requires the same public save synchronization gate");
-Equal(true, diskCommitSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < diskCommitSource.IndexOf("TryReadPublicWriteState", StringComparison.Ordinal), "synchronization is proven before a disk-commit attempt can be prepared or consumed");
-Equal(true, diskCommitSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "verified cassette wave submits the narrow public persist transaction");
-Equal(true, diskCommitSource.Contains("TryReadPublicWriteState", StringComparison.Ordinal), "disk transaction polls public write completion state");
-Equal(true, diskCommitSource.Contains("ObserveUnavailable", StringComparison.Ordinal), "unreadable public write state still advances bounded fail-closed completion");
-foreach (string diagnosticPhase in new[] { "CassetteDiskCommitDiagnosticPhase.Pre", "CassetteDiskCommitDiagnosticPhase.Post", "CassetteDiskCommitDiagnosticPhase.StillPending", "CassetteDiskCommitDiagnosticPhase.HardTimeout" })
-    Equal(true, diskCommitSource.Contains(diagnosticPhase, StringComparison.Ordinal), $"disk transaction wires bounded diagnostic phase {diagnosticPhase}");
-Equal(true, diskCommitSource.Contains("CassetteDiskCommitDiagnosticPhase.Failure", StringComparison.Ordinal), "disk transaction emits a bounded terminal failure snapshot");
-Equal(true, diskCommitSource.Contains("failureKind", StringComparison.Ordinal), "terminal failure snapshot carries its exact classified cause");
-Equal(true, diskCommitSource.Contains("postFailureKind", StringComparison.Ordinal), "post-submit baseline rejection retains its precise diagnostic cause");
-Equal(true, diskCommitSource.Contains("MarkSubmissionIndeterminate(preparedAttempt, postFailureKind)", StringComparison.Ordinal), "post-submit terminal transition preserves the selected precise failure kind");
-int preTargetPhase = diskCommitSource.IndexOf("CassetteDiskCommitDiagnosticPhase.PreTarget", StringComparison.Ordinal);
-int persistSubmission = diskCommitSource.IndexOf("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal);
-int postTargetPhase = diskCommitSource.IndexOf("CassetteDiskCommitDiagnosticPhase.PostTarget", StringComparison.Ordinal);
-Equal(true, preTargetPhase >= 0 && preTargetPhase < persistSubmission, "PRE_TARGET snapshot is captured immediately before the existing persist submission in the same Unity update");
-Equal(true, postTargetPhase > persistSubmission, "POST_TARGET snapshot is captured immediately after the existing persist submission in the same Unity update");
-Equal(true, diskCommitSource.Contains("LogDiskCommitTargetDiagnostic", StringComparison.Ordinal), "target snapshots use the behavior-neutral public target logger");
-foreach (string prohibited in new[] { "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile" })
-    Equal(false, diskCommitSource.Contains(prohibited, StringComparison.Ordinal), $"disk transaction avoids prohibited broad/private path {prohibited}");
-int writeEventPatch = pluginSource.IndexOf("\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
-int receiptConfigure = pluginSource.IndexOf("CassetteReceiptRandomization.Configure();", StringComparison.Ordinal);
-Equal(true, writeEventPatch >= 0, "public player-save write completion event is subscribed through the established event-handler hook");
-Equal(true, writeEventPatch < receiptConfigure, "write completion subscription is installed before cassette transactions can be configured or submitted");
-string writeEventPostfix = ExtractMethods(pluginSource, "public static void PlayerSaveWriteCompletedEventPostfix(").Single();
-Equal(true, writeEventPostfix.Contains("OnPlayerSaveWriteCompletedEvent", StringComparison.Ordinal), "public write-completed event is routed to the cassette transaction boundary");
-string writeEventConsumer = ExtractMethods(receiptRandomizationSource, "internal static void OnPlayerSaveWriteCompletedEvent(").Single();
-Equal(true, writeEventConsumer.Contains("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "write-completion handling requires the same public save synchronization gate");
-Equal(true, writeEventConsumer.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "synchronization is proven before an active disk-commit attempt consumes an event");
-Equal(true, writeEventConsumer.Contains("ObserveWriteCompletedEvent", StringComparison.Ordinal), "write event is correlated by the transaction runtime");
-Equal(true, writeEventConsumer.Contains("TryClaimLateEvent", StringComparison.Ordinal), "inactive terminal attempt admits at most one header-only late-event record");
-Equal(true, writeEventConsumer.Contains("CASSETTE DISK COMMIT LATE_EVENT", StringComparison.Ordinal), "late-event record is explicitly labeled");
-Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.Failure", StringComparison.Ordinal), "failed completion event emits the bounded terminal FAILURE snapshot");
-Equal(true, writeEventConsumer.Contains("TickDiskCommit(TimeSpan.Zero)", StringComparison.Ordinal), "successful write event wakes immediate public-state verification");
-Equal(false, writeEventConsumer.Contains("CassetteDiskCommitOutcome.Success", StringComparison.Ordinal), "event callback cannot declare disk success by itself");
-Equal(true, writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventHeader", StringComparison.Ordinal) < writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal), "compiled callback decodes mandatory event header before correlation");
-Equal(true, writeEventConsumer.IndexOf("ObserveWriteCompletedEvent", StringComparison.Ordinal) < writeEventConsumer.IndexOf("TryReadPlayerSaveWriteCompletedEventFailureReason", StringComparison.Ordinal), "compiled callback reads optional failure reason only after correlation");
-Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored", StringComparison.Ordinal), "prepared-phase event receives one behavior-neutral ignored-event record");
-Equal(true, writeEventConsumer.Contains("CassetteDiskCommitDiagnosticPhase.Event", StringComparison.Ordinal), "accepted event receives one bounded state snapshot");
-string diskDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogDiskCommitDiagnostic(").Single();
-foreach (string requiredField in new[] { "attempt=", "phase=", "eventOrdinal=", "elapsedSeconds=", "generation=", "epoch=", "slot=", "pointer=", "successTime=", "failureTime=", "currentGameTime=", "HasChanges=", "RequiresWriteToDisk=", "HasUnstagedChanges=", "redundancyIndex=", "redundancyRevision=", "statuses=", "activeSongs=", "queuedSongs=" })
-    Equal(true, diskDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"disk diagnostic snapshot includes {requiredField}");
-Equal(true, diskDiagnosticLogger.Contains("TryReadPublicWriteDiagnosticState", StringComparison.Ordinal), "disk diagnostic snapshot reads public write and GameTime state");
-Equal(true, diskDiagnosticLogger.Contains("context.Attempt.Pointer", StringComparison.Ordinal), "disk diagnostic snapshot verifies the exact attempt pointer");
-Equal(true, diskDiagnosticLogger.Contains("transactionBaseline", StringComparison.Ordinal), "disk diagnostic snapshot preserves the actual transaction baseline separately from later observation");
-Equal(true, diskDiagnosticLogger.Contains("failureKind", StringComparison.Ordinal), "terminal snapshot prints classified failure kind and detail");
-string diskTargetDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogDiskCommitTargetDiagnostic(").Single();
-Equal(true, diskTargetDiagnosticLogger.Contains("TryReadDiskCommitTargetDiagnostic", StringComparison.Ordinal), "target diagnostic logger uses only the bounded public target reader");
-Equal(true, diskTargetDiagnosticLogger.IndexOf("try", StringComparison.Ordinal) < diskTargetDiagnosticLogger.IndexOf("TryReadDiskCommitTargetDiagnostic", StringComparison.Ordinal), "target diagnostic establishes a no-throw boundary before any observational read or formatting");
-Equal(true, diskTargetDiagnosticLogger.LastIndexOf("catch", StringComparison.Ordinal) > diskTargetDiagnosticLogger.IndexOf("LogWarning", StringComparison.Ordinal), "target diagnostic catches failures through the final logger call so PRE/POST control flow always continues");
-foreach (string requiredField in new[] { "registryCount=", "playerProcessorPointer=", "registeredPersistProcessorPointer=", "retainedSaveDataProcessorPointer=", "saveDataStatePointer=", "selectedSlot=", "selectedEntryPointer=", "expectedSlotEntryPointer=", "effectiveStatuses=", "canonicalStatuses=", "defaultBundlePresent=", "defaultBundleChangeCount=" })
-    Equal(true, diskTargetDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"target diagnostic snapshot includes {requiredField}");
-foreach (string availabilityFlag in new[] { "HasPlayerProcessorPointer", "HasRegisteredPersistProcessorPointer", "HasRetainedSaveDataProcessorPointer", "HasSaveDataStatePointer", "HasSelectedPlayerSaveSlot", "HasSelectedEntryPointer", "HasExpectedSlotEntryPointer", "HasPlayer", "HasSelected" })
-    Equal(true, diskTargetDiagnosticLogger.Contains($"state.{availabilityFlag}", StringComparison.Ordinal), $"target diagnostic formats {availabilityFlag} independently of final readability");
-foreach (string formerlyGlobalGate in new[] { "playerProcessorPointer = readable ?", "registeredPersistProcessorPointer = readable ?", "retainedSaveDataProcessorPointer = readable ?", "saveDataStatePointer = readable ?", "selectedSlot = readable ?", "playerEffectiveStatuses = readable", "selectedEffectiveStatuses = readable" })
-    Equal(false, diskTargetDiagnosticLogger.Contains(formerlyGlobalGate, StringComparison.Ordinal), $"target diagnostic no longer hides partial values behind {formerlyGlobalGate}");
-foreach (string baselineField in new[] { "baselineSuccessTime=", "baselineFailureTime=", "baselineHasChanges=", "baselineRequiresWriteToDisk=" })
-    Equal(true, diskDiagnosticLogger.Contains(baselineField, StringComparison.Ordinal), $"disk diagnostic snapshot includes exact transaction {baselineField}");
-string lifecycleDiagnosticLogger = ExtractMethods(receiptRandomizationSource, "private static void LogSaveStateLifecycleDiagnostic(").Single();
-foreach (string requiredField in new[] { "StatePointer", "RedundancyBundleIndex", "RedundancyBundleRevision", "LastSuccessTime", "LastFailureTime", "Statuses" })
-    Equal(true, lifecycleDiagnosticLogger.Contains(requiredField, StringComparison.Ordinal), $"save lifecycle snapshot includes {requiredField}");
-Equal(true, lifecycleDiagnosticLogger.Contains("TryReadPublicWriteLifecycleDiagnosticState", StringComparison.Ordinal), "save lifecycle snapshot reads one public state object without imposing the old pointer");
-Equal(false, lifecycleDiagnosticLogger.Contains("TrySubmit", StringComparison.Ordinal), "save lifecycle diagnostic cannot submit persistence or reconciliation requests");
+Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationReady(pointer", StringComparison.Ordinal), "production readiness delegates only the active epoch pointer to the public selection enquiry");
+Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
+Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "no write-completed event subscription remains");
+Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -771,18 +628,11 @@ boundedSchedule.RecordSubmission("BADASS");
 Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(249)).Count, "attempt one cannot verify before 250ms");
 SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt one verifies at 250ms");
 boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
-Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unearned first verification permits bounded retry");
-boundedSchedule.RecordSubmission("BADASS");
-Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(999)).Count, "attempt two cannot verify before 1s");
-SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt two verifies at 1s");
-boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
-Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unearned second verification permits final bounded retry");
-boundedSchedule.RecordSubmission("BADASS");
-Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(2999)).Count, "attempt three cannot verify before 3s");
-SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt three verifies at 3s");
-boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
-Equal(false, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "three attempts exhaust the current epoch retry budget");
-Console.WriteLine("PASS: bounded_verification_schedule_uses_250ms_1s_3s");
+Equal(false, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "one semantic grant attempt exhausts the current epoch budget without duplicate grants");
+Equal(0, boundedSchedule.Tick(TimeSpan.FromSeconds(10)).Count, "completed unearned verification does not poll every Unity frame");
+boundedSchedule.ActivateSave(3);
+Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "new epoch revalidates AP ownership and permits one fresh semantic grant");
+Console.WriteLine("PASS: semantic_grant_is_once_per_epoch_with_bounded_verification");
 
 var staleVerification = new CassetteSaveEpochRuntime();
 staleVerification.Receive("BADASS");
@@ -1052,7 +902,7 @@ Equal(false, diskCommit.TryPrepare(12, 3, 4, 402, dirtyWrite, out _), "no verifi
 var alreadyDurableEpoch = new CassetteSaveEpochRuntime(); alreadyDurableEpoch.Receive("BADASS"); alreadyDurableEpoch.ActivateSave(4);
 alreadyDurableEpoch.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, alreadyDurableEpoch.IsPending("BADASS"), "already durable cassette status queues no grant or disk transaction");
-Console.WriteLine("PASS: cassette_disk_commit_transaction_is_bounded");
+Console.WriteLine("PASS: retired_disk_commit_runtime_has_no_production_wiring");
 
 
 foreach (var triggerGroup in CassetteCatalog.All
@@ -1379,57 +1229,41 @@ PlayerSaveManagementEnquiries.ResetDiagnosticState();
 Equal(0, RequestSystem.SubmitCount, "synchronization comparison diagnostics never submit a request");
 Console.WriteLine("PASS: save_synchronization_observation_diagnostics_are_public_bounded_and_behavior_neutral");
 
-var selectedZeroReadinessState = new DiskCommitTargetSaveDataStateFixture(
-    new IntPtr(0x333), new(true, 0), new());
-var selectedZeroReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), selectedZeroReadinessState);
-var selectedZeroReadinessWrapper = new RequestProcessor(new IntPtr(0x222), selectedZeroReadinessProcessor);
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedZeroReadinessWrapper));
-Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-    selectedZeroReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string selectedZeroReadinessStage),
-    "native selected slot zero defers cassette reconciliation before mutation");
-Equal("readiness-selected-slot-mismatch:expected=4:actual=0", selectedZeroReadinessStage, "selected-slot zero has an exact bounded defer stage");
-Equal(0, RequestSystem.SubmitCount, "selected-slot zero readiness probe cannot submit a save request");
-
-var wrongEntryReadinessState = new DiskCommitTargetSaveDataStateFixture(
-    new IntPtr(0x333), new(true, 4), new() { [4] = selectedTargetState });
-var wrongEntryReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), wrongEntryReadinessState);
-var wrongEntryReadinessWrapper = new RequestProcessor(new IntPtr(0x222), wrongEntryReadinessProcessor);
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(wrongEntryReadinessWrapper));
-Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-    wrongEntryReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string wrongEntryReadinessStage),
-    "correct selected slot with the wrong player-state pointer defers cassette reconciliation");
-Equal("readiness-selected-entry-pointer-mismatch:expected=0x700:actual=0x900", wrongEntryReadinessStage, "selected-entry pointer mismatch has an exact defer stage");
-Equal(0, RequestSystem.SubmitCount, "pointer mismatch readiness probe cannot submit a save request");
-
-var mismatchedRegisteredReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), targetSaveDataState);
-var mismatchedRegisteredReadinessWrapper = new RequestProcessor(new IntPtr(0x444), mismatchedRegisteredReadinessProcessor);
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(mismatchedRegisteredReadinessWrapper));
-Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-    retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700, out string processorMismatchReadinessStage),
-    "registered Persist and retained joined SaveData processor mismatch defers reconciliation");
-Equal("readiness-save-data-processor-pointer-mismatch:expected=0x222:actual=0x444", processorMismatchReadinessStage, "processor pointer mismatch has an exact defer stage");
-Equal(0, mismatchedRegisteredReadinessProcessor.ObtainStateCalls, "processor mismatch is rejected before obtaining the wrong registered state");
-Equal(0, RequestSystem.SubmitCount, "processor mismatch readiness probe cannot submit a save request");
-
-var exactReadinessState = new DiskCommitTargetSaveDataStateFixture(
-    new IntPtr(0x333), new(true, 4), new() { [4] = expectedTargetState });
-var exactReadinessProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), exactReadinessState);
-var exactReadinessWrapper = new RequestProcessor(new IntPtr(0x222), exactReadinessProcessor);
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(exactReadinessWrapper));
+PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 0);
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
 Equal(true, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-    exactReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out string exactReadinessStage),
-    "exact registered processor, selected slot, and player-state pointer admit reconciliation");
-Equal("success", exactReadinessStage, "exact synchronization reports success");
-Equal(1, exactReadinessProcessor.ObtainStateCalls, "exact readiness obtains one coherent SaveData state");
-Equal(0, RequestSystem.SubmitCount, "successful readiness probe remains side-effect free");
+    expectedPointer: 0x700, stage: out string authoritativeReadinessStage),
+    "numeric slot zero is accepted when public validity and selected-state pointer match the active epoch");
+Equal("success", authoritativeReadinessStage, "authoritative pointer readiness reports success");
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = false;
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    expectedPointer: 0x700, stage: out string invalidSelectionStage),
+    "invalid selected-save enquiry defers semantic reconciliation");
+Equal("readiness-selected-save-invalid", invalidSelectionStage, "invalid selection has an exact stage");
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x701));
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    expectedPointer: 0x700, stage: out string enquiryPointerMismatchStage),
+    "selected-state pointer mismatch defers semantic reconciliation");
+Equal("readiness-selected-state-pointer-mismatch:expected=0x700:actual=0x701", enquiryPointerMismatchStage, "selected-state pointer mismatch has an exact stage");
+PlayerSaveManagementEnquiries.ThrowOnStateRead = true;
+Equal(false, CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
+    expectedPointer: 0x700, stage: out string unreadableSelectionStage),
+    "throwing selected-state enquiry defers semantic reconciliation");
+Equal("readiness-selected-state-get-invocation:InvalidOperationException:diagnostic-state-read", unreadableSelectionStage, "throwing selected-state enquiry has an exact stage");
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
+Equal(0, RequestSystem.SubmitCount, "authoritative readiness checks never submit save requests");
+Console.WriteLine("PASS: authoritative_selected_save_pointer_gate_accepts_slot_zero_and_fails_closed");
 
 var readinessTransitionRuntime = new CassetteSaveEpochRuntime();
 readinessTransitionRuntime.Receive("BADASS");
 readinessTransitionRuntime.ActivateSave(4);
 int simulatedGrantRequests = 0;
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedZeroReadinessWrapper));
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = false;
+PlayerSaveManagementEnquiries.SelectedState = null;
 bool initiallyReady = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-    selectedZeroReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out _);
+    expectedPointer: 0x700, out _);
 if (initiallyReady && readinessTransitionRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true))
 {
     simulatedGrantRequests++;
@@ -1437,11 +1271,12 @@ if (initiallyReady && readinessTransitionRuntime.CanSubmit("BADASS", CassetteRan
 }
 Equal(0, simulatedGrantRequests, "deferred readiness preserves pending AP ownership without granting");
 Equal(true, readinessTransitionRuntime.IsPending("BADASS"), "deferred readiness retains the pending cassette for a later observation");
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(exactReadinessWrapper));
+PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
+PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
 for (int observation = 0; observation < 2; observation++)
 {
     bool ready = CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(
-        exactReadinessProcessor, expectedSlot: 4, expectedPointer: 0x700, out _);
+        expectedPointer: 0x700, out _);
     if (ready && readinessTransitionRuntime.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true))
     {
         simulatedGrantRequests++;
@@ -1450,6 +1285,7 @@ for (int observation = 0; observation < 2; observation++)
 }
 Equal(1, simulatedGrantRequests, "readiness transition admits the pending grant exactly once across repeated observations");
 Equal(0, RequestSystem.SubmitCount, "readiness transition itself never submits a disk commit");
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
 Console.WriteLine("PASS: cassette_save_synchronization_gate_defers_then_resumes_once");
 
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
@@ -1670,17 +1506,6 @@ Equal(false, writeEventSucceeded, "empty-reason failed event preserves mandatory
 Equal(false, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new object(), out _, out _, out _, out writeEventStage), "wrong event type fails closed");
 Equal("write-event-incompatible", writeEventStage, "wrong event type has an exact failure stage");
 Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
-Equal(true, CassetteSaveTransactionAdapter.TrySubmitDefaultUrgentPersist(out string persistDetail), "adapter submits narrow public persist request");
-Equal(1, RequestSystem.SubmitCount, "batched transaction submits one persist request");
-Equal(false, RequestSystem.LastRequest!.Bundle.HasValue, "submitted persist request carries a verified absent bundle");
-Equal(ePlayerSaveChangeBundleKey.DEFAULT, RequestSystem.EffectiveBundle, "native-shaped persist fallback resolves absent bundle to DEFAULT");
-Equal(eSaveFileWriteType.URGENT, RequestSystem.LastRequest.WriteTypeToRequest, "persist request uses exact URGENT write type");
-Equal(eSaveFileWriteType.URGENT, RequestSystem.EffectiveWriteType, "native-shaped persist processor receives numeric URGENT");
-Equal(true, RequestSystem.LastRequest.ParameterlessConstructorUsed, "submission uses the public parameterless persist constructor");
-Equal(0, PersistSaveChangeBundleRequest.SemanticConstructorCalls, "submission never invokes the broken two-argument persist constructor");
-Equal(0, RequestSystem.LastRequest.BundleSetterCalls, "submission never invokes the broken nullable persist setter");
-Equal(1, RequestSystem.LastRequest.WriteTypeSetterCalls, "submission explicitly assigns URGENT through the public plain-enum setter");
-Equal("actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)' actualWriteType='URGENT/0' route='RequestSystem.SubmitRequest<T>'", persistDetail, "persist detail records verified actual and effective semantics");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string targetCastAdapter = ExtractMethods(adapterSource, "internal static bool TryRewrapPublicSaveDataProcessorForDiagnostic(").Single();
@@ -1711,14 +1536,8 @@ Equal(false, processorIdentityAdapter.Contains("AllInstance", StringComparison.O
 string pointerJoinAdapter = ExtractMethods(adapterSource, "internal static bool TryMatchRegularSaveSlot(").Single();
 Equal(true, pointerJoinAdapter.Contains("PublicInstance", StringComparison.Ordinal), "regular-save pointer join uses public-only APIs");
 Equal(false, pointerJoinAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerJoinAdapter.Contains("AllStatic", StringComparison.Ordinal), "regular-save pointer join cannot bind non-public members");
-string persistAdapter = ExtractMethods(adapterSource, "internal static bool TrySubmitDefaultUrgentPersist(").Single();
-string persistFactory = ExtractMethods(factorySource, "internal static bool TryCreateDefaultUrgentPersistRequest(").Single();
-Equal(true, persistAdapter.Contains("PublicStatic", StringComparison.Ordinal) && persistFactory.Contains("PublicInstance", StringComparison.Ordinal), "disk persist uses public-only request construction and routing");
-Equal(false, persistAdapter.Contains("AllStatic", StringComparison.Ordinal) || persistAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk persist never resolves private APIs");
-Equal(false, persistFactory.Contains("BindingFlags.NonPublic", StringComparison.Ordinal), "persist request construction and readback never resolve private APIs");
-Equal(true, persistAdapter.Contains("TryCreateDefaultUrgentPersistRequest", StringComparison.Ordinal), "disk persist submits only a factory-verified absent-bundle request");
-Equal(false, adapterSource.Contains("BuildPublicNullable", StringComparison.Ordinal), "disk persist no longer constructs a reflected nullable bundle");
-Equal(true, persistFactory.Contains("Convert.ToInt32(nativeBundle) != 1", StringComparison.Ordinal) && persistFactory.Contains("Convert.ToInt32(nativeWriteType) != 0", StringComparison.Ordinal), "disk persist validates exact DEFAULT=1/URGENT=0 semantics");
+Equal(false, adapterSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "transaction adapter exposes no synthetic Persist submission path");
+Equal(false, factorySource.Contains("TryCreateDefaultUrgentPersistRequest", StringComparison.Ordinal), "request factory exposes no synthetic Persist construction path");
 string diagnosticAdapter = ExtractMethods(adapterSource, "private static bool TryReadPublicWriteDiagnosticStateCore(").Single();
 Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
 Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
@@ -1734,7 +1553,7 @@ foreach (string routingReader in new[] { "TryReadRecordSongCassetteStatusRequest
 }
 foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
-Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
+Console.WriteLine("PASS: native_save_selection_and_semantic_grant_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
 
 enum TestSong { INVALID, QUIERES_BAILAR }

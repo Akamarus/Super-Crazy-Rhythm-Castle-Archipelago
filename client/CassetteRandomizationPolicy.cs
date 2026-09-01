@@ -1063,11 +1063,9 @@ internal sealed class CassetteDiskCommitRuntime
 
 internal sealed class CassetteSaveEpochRuntime
 {
-    private static readonly TimeSpan[] RetryDelays =
+    private static readonly TimeSpan[] VerificationDelays =
     {
         TimeSpan.FromMilliseconds(250),
-        TimeSpan.FromSeconds(1),
-        TimeSpan.FromSeconds(3),
     };
     private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
     private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
@@ -1112,7 +1110,7 @@ internal sealed class CassetteSaveEpochRuntime
         processorAvailable &&
         CassetteRandomizationPolicy.IsUnearned(nativeStatus) &&
         !_verificationElapsed.ContainsKey(nativeSong) &&
-        (!_attemptsThisEpoch.TryGetValue(nativeSong, out int attempts) || attempts < RetryDelays.Length);
+        (!_attemptsThisEpoch.TryGetValue(nativeSong, out int attempts) || attempts < VerificationDelays.Length);
 
     internal void RecordSubmission(string nativeSong)
     {
@@ -1121,7 +1119,12 @@ internal sealed class CassetteSaveEpochRuntime
         _verificationElapsed[nativeSong] = TimeSpan.Zero;
     }
 
-    internal void RecordSubmissionFailure(string nativeSong) => _verificationElapsed.Remove(nativeSong);
+    internal void RecordSubmissionFailure(string nativeSong)
+    {
+        if (!IsPending(nativeSong)) return;
+        _attemptsThisEpoch[nativeSong] = _attemptsThisEpoch.TryGetValue(nativeSong, out int attempts) ? attempts + 1 : 1;
+        _verificationElapsed.Remove(nativeSong);
+    }
 
     internal IReadOnlyList<string> Tick(TimeSpan elapsed)
     {
@@ -1132,7 +1135,7 @@ internal sealed class CassetteSaveEpochRuntime
             TimeSpan total = _verificationElapsed[song] + elapsed;
             _verificationElapsed[song] = total;
             int attempt = _attemptsThisEpoch.TryGetValue(song, out int count) ? count : 1;
-            TimeSpan delay = RetryDelays[Math.Clamp(attempt - 1, 0, RetryDelays.Length - 1)];
+            TimeSpan delay = VerificationDelays[Math.Clamp(attempt - 1, 0, VerificationDelays.Length - 1)];
             if (total >= delay) ready.Add(song);
         }
         return ready;
