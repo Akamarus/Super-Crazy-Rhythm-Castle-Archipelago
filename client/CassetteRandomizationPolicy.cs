@@ -431,6 +431,127 @@ internal static class CassetteDiskCommitDiagnosticFormatter
     }
 }
 
+internal enum CassetteBundleRoutingBoundary
+{
+    RecordSong,
+    PersistBundle,
+    PersistAllBundles,
+    DiscardAllUnstaged,
+}
+
+internal enum CassetteBundleRoutingPhase { Entry, Exit }
+
+internal readonly record struct CassetteBundleRoutingDiagnosticToken(
+    long TokenId,
+    CassetteDiskCommitAttempt Attempt,
+    CassetteBundleRoutingBoundary Boundary,
+    CassetteBundleRoutingPhase Phase,
+    string SongKey,
+    long ExpectedPointer,
+    IReadOnlyList<string> Songs,
+    bool OriginalAllowed = true);
+
+internal sealed class CassetteBundleRoutingDiagnosticRuntime
+{
+    private readonly HashSet<string> _claimedEntries = new(StringComparer.Ordinal);
+    private readonly HashSet<long> _openTokens = new();
+    private readonly Dictionary<CassetteDiskCommitAttempt, HashSet<string>> _relevantSongs = new();
+    private CassetteDiskCommitAttempt? _candidateAttempt;
+    private long _tokenCounter;
+
+    internal void EstablishCandidate(CassetteDiskCommitAttempt attempt)
+    {
+        if (attempt.Id > 0 && attempt.Pointer != 0) _candidateAttempt = attempt;
+    }
+
+    internal void RegisterRelevantSong(
+        CassetteDiskCommitAttempt attempt,
+        string song,
+        bool establishCandidate)
+    {
+        if (attempt.Id <= 0 || attempt.Pointer == 0 || string.IsNullOrWhiteSpace(song)) return;
+        if (!_relevantSongs.TryGetValue(attempt, out HashSet<string>? songs))
+        {
+            songs = new HashSet<string>(StringComparer.Ordinal);
+            _relevantSongs[attempt] = songs;
+        }
+        songs.Add(song);
+        if (establishCandidate) EstablishCandidate(attempt);
+    }
+
+    internal bool TryResolveGlobalAttempt(
+        CassetteDiskCommitAttempt? activeAttempt,
+        CassetteDiskCommitAttempt previewAttempt,
+        out CassetteDiskCommitAttempt attempt)
+    {
+        if (activeAttempt.HasValue)
+        {
+            attempt = activeAttempt.Value;
+            return true;
+        }
+        if (_candidateAttempt.HasValue && _candidateAttempt.Value == previewAttempt)
+        {
+            attempt = previewAttempt;
+            return true;
+        }
+        attempt = default;
+        return false;
+    }
+
+    internal IReadOnlyList<string> GetRelevantSongs(CassetteDiskCommitAttempt attempt) =>
+        _relevantSongs.TryGetValue(attempt, out HashSet<string>? songs)
+            ? songs.OrderBy(song => song, StringComparer.Ordinal).ToArray()
+            : Array.Empty<string>();
+
+    internal bool TryBegin(
+        CassetteDiskCommitAttempt attempt,
+        CassetteBundleRoutingBoundary boundary,
+        string songKey,
+        IReadOnlyList<string> songs,
+        out CassetteBundleRoutingDiagnosticToken token)
+    {
+        token = default;
+        if (attempt.Id <= 0 || attempt.Pointer == 0) return false;
+        string normalizedSongKey = string.IsNullOrWhiteSpace(songKey) ? "<none>" : songKey;
+        string key = $"{attempt.Id}|{attempt.Generation}|{attempt.Epoch}|{attempt.Slot}|{attempt.Pointer}|{boundary}|{normalizedSongKey}";
+        if (!_claimedEntries.Add(key)) return false;
+        long tokenId = ++_tokenCounter;
+        _openTokens.Add(tokenId);
+        token = new(
+            tokenId,
+            attempt,
+            boundary,
+            CassetteBundleRoutingPhase.Entry,
+            normalizedSongKey,
+            attempt.Pointer,
+            songs.Where(song => !string.IsNullOrWhiteSpace(song))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(song => song, StringComparer.Ordinal)
+                .ToArray());
+        return true;
+    }
+
+    internal bool TryComplete(
+        CassetteBundleRoutingDiagnosticToken token,
+        out CassetteBundleRoutingDiagnosticToken completed)
+    {
+        completed = default;
+        if (token.TokenId <= 0 || token.Phase is not CassetteBundleRoutingPhase.Entry ||
+            !_openTokens.Remove(token.TokenId))
+            return false;
+        completed = token with { Phase = CassetteBundleRoutingPhase.Exit };
+        return true;
+    }
+
+    internal void Reset()
+    {
+        _claimedEntries.Clear();
+        _openTokens.Clear();
+        _relevantSongs.Clear();
+        _candidateAttempt = null;
+    }
+}
+
 internal sealed class CassetteDiskCommitRuntime
 {
     private sealed class TerminalDiagnosticTombstone
@@ -493,6 +614,14 @@ internal sealed class CassetteDiskCommitRuntime
     internal bool HasWork => _active || (_songs.Count > 0 && !_blocked);
     internal bool Active => _submitted;
     internal IReadOnlyList<string> Songs => (_active ? _activeSongs : _songs).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+    internal CassetteDiskCommitAttempt PreviewRoutingDiagnosticAttempt(
+        long generation,
+        long epoch,
+        int slot,
+        long pointer) =>
+        _active && _generation == generation && _epoch == epoch && _slot == slot && _pointer == pointer
+            ? _attempt
+            : new CassetteDiskCommitAttempt(_attemptCounter + 1, generation, epoch, slot, pointer);
     internal static TimeSpan CapActiveUpdateElapsed(TimeSpan elapsed) =>
         elapsed <= TimeSpan.Zero ? TimeSpan.Zero :
         elapsed > MaximumActiveUpdateElapsed ? MaximumActiveUpdateElapsed : elapsed;

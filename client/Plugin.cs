@@ -117,6 +117,9 @@ public sealed class Plugin : BasePlugin
         patched += PatchExactMethod("SaveDataRequestProcessor", "ChangeSelectedPlayerSaveSlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethodWithPrefixAndPostfix("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuildPlayerSaveStatePrefix), nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
+        patched += PatchExactMethodWithPrefixAndPostfix("SaveDataRequestProcessor", "ProcessRequest", "PersistSaveChangeBundleRequest", nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPostfix));
+        patched += PatchExactMethodWithPrefixAndPostfix("SaveDataRequestProcessor", "ProcessRequest", "PersistAllSaveChangeBundlesRequest", nameof(CassetteSaveTransactionPatches.PersistAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistAllRoutingPostfix));
+        patched += PatchExactMethodWithPrefixAndPostfix("SaveDataRequestProcessor", "ProcessRequest", "DiscardAllUnstagedSaveStateChangesRequest", nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPostfix));
         patched += PatchExactMethodPrefix("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix));
         patched += PatchMethodsByParameter("HandleEvent", "PlayerSaveWriteCompletedEvent", nameof(CassetteSaveTransactionPatches.PlayerSaveWriteCompletedEventPostfix));
         patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
@@ -476,7 +479,9 @@ public sealed class Plugin : BasePlugin
                 m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == requestType);
         MethodInfo? prefix = FindPatchMethod(
             typeof(GamePatches), nameof(GamePatches.CassetteStatusRequestPrefix));
-        if (target == null || prefix == null || _harmony == null)
+        MethodInfo? postfix = FindPatchMethod(
+            typeof(GamePatches), nameof(GamePatches.CassetteStatusRequestPostfix));
+        if (target == null || prefix == null || postfix == null || _harmony == null)
         {
             Log.LogWarning("[SCRC-AP] CASSETTE STATUS SOURCE hook unavailable.");
             return 0;
@@ -484,8 +489,8 @@ public sealed class Plugin : BasePlugin
 
         try
         {
-            _harmony.Patch(target, prefix: new HarmonyMethod(prefix));
-            Log.LogInfo("[SCRC-AP] CASSETTE STATUS SOURCE HOOKED PlayerSaveRequestProcessor.ProcessRequest(RecordSongCassetteStatusInSaveDataRequest).");
+            _harmony.Patch(target, prefix: new HarmonyMethod(prefix), postfix: new HarmonyMethod(postfix));
+            Log.LogInfo("[SCRC-AP] CASSETTE STATUS SOURCE/ROUTING HOOKED PlayerSaveRequestProcessor.ProcessRequest(RecordSongCassetteStatusInSaveDataRequest).");
             return 1;
         }
         catch (Exception ex)
@@ -11727,6 +11732,156 @@ internal static class CassetteSaveTransactionPatches
         CassetteReceiptRandomization.QueueSaveBoundarySignal(slot.Value, CassetteSaveBoundarySignalKind.Build);
     }
 
+    public static void PersistBundleRoutingPrefix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        out CassetteBundleRoutingDiagnosticToken __state)
+    {
+        __state = default;
+        try
+        {
+            object? request = ReflectionUtil.FindArg(__args, "PersistSaveChangeBundleRequest");
+            CassetteReceiptRandomization.BeginBundleRoutingDiagnostic(
+                CassetteBundleRoutingBoundary.PersistBundle,
+                __instance,
+                request,
+                __originalMethod,
+                originalAllowed: true,
+                out __state);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(PersistSaveChangeBundleRequest)",
+                "routing prefix",
+                ex);
+        }
+    }
+
+    public static void PersistBundleRoutingPostfix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        CassetteBundleRoutingDiagnosticToken __state)
+    {
+        try
+        {
+            CassetteReceiptRandomization.CompleteBundleRoutingDiagnostic(
+                __state,
+                __instance,
+                ReflectionUtil.FindArg(__args, "PersistSaveChangeBundleRequest"),
+                __originalMethod);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(PersistSaveChangeBundleRequest)",
+                "routing postfix",
+                ex);
+        }
+    }
+
+    public static void PersistAllRoutingPrefix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        out CassetteBundleRoutingDiagnosticToken __state)
+    {
+        __state = default;
+        try
+        {
+            object? request = ReflectionUtil.FindArg(__args, "PersistAllSaveChangeBundlesRequest");
+            CassetteReceiptRandomization.BeginBundleRoutingDiagnostic(
+                CassetteBundleRoutingBoundary.PersistAllBundles,
+                __instance,
+                request,
+                __originalMethod,
+                originalAllowed: true,
+                out __state);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(PersistAllSaveChangeBundlesRequest)",
+                "routing prefix",
+                ex);
+        }
+    }
+
+    public static void PersistAllRoutingPostfix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        CassetteBundleRoutingDiagnosticToken __state)
+    {
+        try
+        {
+            CassetteReceiptRandomization.CompleteBundleRoutingDiagnostic(
+                __state,
+                __instance,
+                ReflectionUtil.FindArg(__args, "PersistAllSaveChangeBundlesRequest"),
+                __originalMethod);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(PersistAllSaveChangeBundlesRequest)",
+                "routing postfix",
+                ex);
+        }
+    }
+
+    public static void DiscardAllRoutingPrefix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        out CassetteBundleRoutingDiagnosticToken __state)
+    {
+        __state = default;
+        try
+        {
+            object? request = ReflectionUtil.FindArg(__args, "DiscardAllUnstagedSaveStateChangesRequest");
+            CassetteReceiptRandomization.BeginBundleRoutingDiagnostic(
+                CassetteBundleRoutingBoundary.DiscardAllUnstaged,
+                __instance,
+                request,
+                __originalMethod,
+                originalAllowed: true,
+                out __state);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(DiscardAllUnstagedSaveStateChangesRequest)",
+                "routing prefix",
+                ex);
+        }
+    }
+
+    public static void DiscardAllRoutingPostfix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        CassetteBundleRoutingDiagnosticToken __state)
+    {
+        try
+        {
+            CassetteReceiptRandomization.CompleteBundleRoutingDiagnostic(
+                __state,
+                __instance,
+                ReflectionUtil.FindArg(__args, "DiscardAllUnstagedSaveStateChangesRequest"),
+                __originalMethod);
+        }
+        catch (Exception ex)
+        {
+            LogRoutingExtractionFailureSafely(
+                "SaveDataRequestProcessor.ProcessRequest(DiscardAllUnstagedSaveStateChangesRequest)",
+                "routing postfix",
+                ex);
+        }
+    }
+
     public static void MostRecentSelectionPrefix(object? __instance)
     {
         CassetteReceiptRandomization.BeginMostRecentSelectionBoundary(__instance);
@@ -11744,6 +11899,22 @@ internal static class CassetteSaveTransactionPatches
             return;
         }
         CassetteReceiptRandomization.OnPlayerSaveWriteCompletedEvent(nativeEvent);
+    }
+
+    private static void LogRoutingExtractionFailureSafely(
+        string identity,
+        string phase,
+        Exception exception)
+    {
+        try
+        {
+            string exceptionType = exception.GetBaseException().GetType().Name;
+            LogExtractionFailureOnce(identity, $"{phase} failed: {exceptionType}");
+        }
+        catch
+        {
+            // Diagnostic fallback logging must never affect the patched native request.
+        }
     }
 
     private static void LogExtractionFailureOnce(string identity, string reason)
@@ -11803,8 +11974,13 @@ internal static class GamePatches
         return CassetteSourceRandomization.AllowLevelCassetteEvaluation(succeeded);
     }
 
-    public static bool CassetteStatusRequestPrefix(object[]? __args)
+    public static bool CassetteStatusRequestPrefix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        out CassetteBundleRoutingDiagnosticToken __state)
     {
+        __state = default;
         object? request = ReflectionUtil.FindArg(__args, "RecordSongCassetteStatusInSaveDataRequest");
         if (request == null)
             return true;
@@ -11813,8 +11989,44 @@ internal static class GamePatches
                         ReflectionUtil.ReadMember(request, "_Song_k__BackingField"))?.ToString();
         string? status = (ReflectionUtil.ReadMember(request, "CassetteStatus") ??
                           ReflectionUtil.ReadMember(request, "_CassetteStatus_k__BackingField"))?.ToString();
-        return CassetteSourceRandomization.AllowCassetteStatusRequest(
+        bool allowed = CassetteSourceRandomization.AllowCassetteStatusRequest(
             song, status, CassetteReceiptRandomization.IsApplyingNativeGrant);
+        try
+        {
+            CassetteReceiptRandomization.BeginBundleRoutingDiagnostic(
+                CassetteBundleRoutingBoundary.RecordSong,
+                __instance,
+                request,
+                __originalMethod,
+                allowed,
+                out __state);
+        }
+        catch
+        {
+            // Diagnostics must never alter native cassette request suppression.
+            __state = default;
+        }
+        return allowed;
+    }
+
+    public static void CassetteStatusRequestPostfix(
+        object? __instance,
+        object[]? __args,
+        MethodBase __originalMethod,
+        CassetteBundleRoutingDiagnosticToken __state)
+    {
+        try
+        {
+            CassetteReceiptRandomization.CompleteBundleRoutingDiagnostic(
+                __state,
+                __instance,
+                ReflectionUtil.FindArg(__args, "RecordSongCassetteStatusInSaveDataRequest"),
+                __originalMethod);
+        }
+        catch
+        {
+            // Diagnostics must never alter native cassette request completion.
+        }
     }
 
     public static void ApplyResultPostfix(object[]? __args)
@@ -18024,6 +18236,7 @@ internal static class CassetteReceiptRandomization
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
     private static CassetteDiskCommitRuntime _diskCommit = new();
+    private static CassetteBundleRoutingDiagnosticRuntime _bundleRoutingDiagnostics = new();
     private static long _activeSaveGeneration;
     private static long _activeSavePointer;
     private static CassetteDiagnosticSignatureDeduplicator _mostRecentQueueLogDeduper = new();
@@ -18043,7 +18256,7 @@ internal static class CassetteReceiptRandomization
             Enabled = false; _slotDataSynchronized = false;
             _playerSaveRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
-            _diskCommit = new CassetteDiskCommitRuntime(); _activeSaveGeneration = 0; _activeSavePointer = 0;
+            _diskCommit = new CassetteDiskCommitRuntime(); _bundleRoutingDiagnostics = new CassetteBundleRoutingDiagnosticRuntime(); _activeSaveGeneration = 0; _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
@@ -18167,6 +18380,193 @@ internal static class CassetteReceiptRandomization
             $"StatePointer={pointer} RedundancyBundleIndex={redundancyIndex} RedundancyBundleRevision={redundancyRevision} LastSuccessTime='{success}' LastFailureTime='{failure}' Statuses='[{statuses}]' activeSongs='[{string.Join(",", context.ActiveSongs)}]' stateStage='{stateStage}'.");
     }
 
+    internal static void BeginBundleRoutingDiagnostic(
+        CassetteBundleRoutingBoundary boundary,
+        object? processor,
+        object? request,
+        MethodBase? originalMethod,
+        bool originalAllowed,
+        out CassetteBundleRoutingDiagnosticToken token)
+    {
+        token = default;
+        try
+        {
+            string songKey = "<all>";
+            string? requestSong = null;
+            if (boundary is CassetteBundleRoutingBoundary.RecordSong &&
+                CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(
+                    request, out CassetteRecordSongRoutingPayload payload, out _))
+            {
+                requestSong = payload.Song;
+                songKey = payload.Song;
+            }
+            else if (boundary is CassetteBundleRoutingBoundary.RecordSong)
+            {
+                songKey = "<unreadable>";
+            }
+
+            lock (Sync)
+            {
+                if (!_slotDataSynchronized || !Enabled || _saveIdentity.Pending || !_runtime.HasActiveSave ||
+                    !_runtime.ActiveSlot.HasValue || _activeSavePointer == 0)
+                    return;
+                CassetteDiskCommitAttempt previewAttempt = _diskCommit.PreviewRoutingDiagnosticAttempt(
+                    _activeSaveGeneration,
+                    _runtime.Epoch,
+                    _runtime.ActiveSlot.Value,
+                    _activeSavePointer);
+                CassetteDiskCommitAttempt activeAttemptValue;
+                CassetteDiskCommitAttempt? activeAttempt =
+                    _diskCommit.TryGetSubmittedAttempt(out activeAttemptValue) ||
+                    _diskCommit.TryGetPreparedAttempt(out activeAttemptValue)
+                        ? activeAttemptValue
+                        : null;
+                CassetteDiskCommitAttempt attempt;
+                if (boundary is CassetteBundleRoutingBoundary.RecordSong)
+                {
+                    if (!_applyingNativeGrant && !activeAttempt.HasValue) return;
+                    attempt = activeAttempt ?? previewAttempt;
+                    if (_applyingNativeGrant && !activeAttempt.HasValue)
+                        _bundleRoutingDiagnostics.EstablishCandidate(attempt);
+                    if (!string.IsNullOrWhiteSpace(requestSong))
+                        _bundleRoutingDiagnostics.RegisterRelevantSong(
+                            attempt,
+                            requestSong,
+                            establishCandidate: _applyingNativeGrant && !activeAttempt.HasValue);
+                }
+                else if (!_bundleRoutingDiagnostics.TryResolveGlobalAttempt(
+                             activeAttempt,
+                             previewAttempt,
+                             out attempt))
+                {
+                    return;
+                }
+                string[] songs = _diskCommit.Songs
+                    .Concat(_bundleRoutingDiagnostics.GetRelevantSongs(attempt))
+                    .Concat(string.IsNullOrWhiteSpace(requestSong) ? Array.Empty<string>() : new[] { requestSong })
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(song => song, StringComparer.Ordinal)
+                    .ToArray();
+                if (!_bundleRoutingDiagnostics.TryBegin(attempt, boundary, songKey, songs, out token))
+                    return;
+                token = token with { OriginalAllowed = originalAllowed };
+            }
+            LogBundleRoutingDiagnostic(token, processor, request, originalMethod);
+        }
+        catch
+        {
+            // Behavior-neutral diagnostic failure cannot affect the native request.
+            token = default;
+        }
+    }
+
+    internal static void CompleteBundleRoutingDiagnostic(
+        CassetteBundleRoutingDiagnosticToken token,
+        object? processor,
+        object? request,
+        MethodBase? originalMethod)
+    {
+        if (token.TokenId == 0) return;
+        try
+        {
+            CassetteBundleRoutingDiagnosticToken completed;
+            lock (Sync)
+            {
+                bool sameIdentity = !_saveIdentity.Pending && _runtime.HasActiveSave &&
+                    _activeSaveGeneration == token.Attempt.Generation &&
+                    _runtime.Epoch == token.Attempt.Epoch &&
+                    _runtime.ActiveSlot == token.Attempt.Slot &&
+                    _activeSavePointer == token.Attempt.Pointer;
+                if (!sameIdentity || !_bundleRoutingDiagnostics.TryComplete(token, out completed))
+                    return;
+            }
+            LogBundleRoutingDiagnostic(completed, processor, request, originalMethod);
+        }
+        catch
+        {
+            // Behavior-neutral diagnostic failure cannot affect the native request.
+        }
+    }
+
+    private static void LogBundleRoutingDiagnostic(
+        CassetteBundleRoutingDiagnosticToken token,
+        object? processor,
+        object? request,
+        MethodBase? originalMethod)
+    {
+        bool payloadReadable;
+        string payloadStage;
+        string requestSong = "<n/a>";
+        string requestStatus = "<n/a>";
+        string requestBundle = "<n/a>";
+        string requestWriteType = "<n/a>";
+        switch (token.Boundary)
+        {
+            case CassetteBundleRoutingBoundary.RecordSong:
+                payloadReadable = CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(
+                    request, out CassetteRecordSongRoutingPayload recordPayload, out payloadStage);
+                if (payloadReadable)
+                {
+                    requestSong = recordPayload.Song;
+                    requestStatus = recordPayload.Status;
+                    requestBundle = recordPayload.BundlePresent
+                        ? $"present=True value='{recordPayload.Bundle ?? "<null>"}'"
+                        : "present=False value='<null>'";
+                }
+                break;
+            case CassetteBundleRoutingBoundary.PersistBundle:
+                payloadReadable = CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(
+                    request, out CassettePersistBundleRoutingPayload persistPayload, out payloadStage);
+                if (payloadReadable)
+                {
+                    requestBundle = persistPayload.BundlePresent
+                        ? $"present=True value='{persistPayload.Bundle ?? "<null>"}'"
+                        : "present=False value='<null>'";
+                    requestWriteType = persistPayload.WriteType;
+                }
+                break;
+            case CassetteBundleRoutingBoundary.PersistAllBundles:
+                payloadReadable = CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(
+                    request, out string? persistAllWriteType, out payloadStage);
+                if (payloadReadable) requestWriteType = persistAllWriteType ?? "<null>";
+                break;
+            default:
+                payloadReadable = request != null && string.Equals(
+                    request.GetType().Name,
+                    "DiscardAllUnstagedSaveStateChangesRequest",
+                    StringComparison.Ordinal);
+                payloadStage = payloadReadable ? "success" : "routing-discard-incompatible";
+                break;
+        }
+
+        bool stateReadable;
+        int observedSlot = token.Attempt.Slot;
+        CassetteBundleRoutingState state;
+        string stateStage;
+        if (token.Boundary is CassetteBundleRoutingBoundary.RecordSong)
+        {
+            stateReadable = CassetteSaveTransactionAdapter.TryReadPlayerSaveBundleRoutingState(
+                processor, token.ExpectedPointer, token.Songs, out state, out stateStage);
+        }
+        else
+        {
+            stateReadable = CassetteSaveTransactionAdapter.TryReadSaveDataBundleRoutingState(
+                processor, token.ExpectedPointer, token.Songs, out observedSlot, out state, out stateStage);
+        }
+        string pointer = stateReadable ? $"0x{state.StatePointer:X}" : "<unavailable>";
+        string hasUnstaged = stateReadable ? state.HasUnstagedChanges.ToString() : "<unavailable>";
+        string statuses = stateReadable
+            ? string.Join(",", state.Statuses.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}={pair.Value}"))
+            : "<unavailable>";
+        string methodIdentity =
+            $"{originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{originalMethod?.Name ?? "ProcessRequest"}({request?.GetType().Name ?? "<null>"})";
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE BUNDLE ROUTING attempt={token.Attempt.Id} phase='{token.Phase.ToString().ToUpperInvariant()}' boundary='{token.Boundary}' generation={token.Attempt.Generation} epoch={token.Attempt.Epoch} slot={token.Attempt.Slot} observedSlot={observedSlot} expectedPointer=0x{token.ExpectedPointer:X} " +
+            $"requestType='{request?.GetType().Name ?? "<null>"}' method='{methodIdentity}' originalAllowed={token.OriginalAllowed} requestSong='{requestSong}' requestStatus='{requestStatus}' requestBundle='{requestBundle}' requestWriteType='{requestWriteType}' payloadReadable={payloadReadable} payloadStage='{payloadStage}' " +
+            $"StatePointer={pointer} HasUnstagedChanges={hasUnstaged} statuses='[{statuses}]' activeSongs='[{string.Join(",", token.Songs)}]' stateStage='{stateStage}'.");
+    }
+
     internal static void QueueSaveBoundarySignal(int expectedSlot, CassetteSaveBoundarySignalKind kind)
     {
         lock (Sync)
@@ -18224,6 +18624,7 @@ internal static class CassetteReceiptRandomization
             _activeSaveGeneration = generation;
             _activeSavePointer = pointer;
             _diskCommit.Reset();
+            _bundleRoutingDiagnostics.Reset();
             epoch = _runtime.Epoch;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
@@ -18238,6 +18639,7 @@ internal static class CassetteReceiptRandomization
             _activeSaveGeneration = 0;
             _activeSavePointer = 0;
             _diskCommit.Reset();
+            _bundleRoutingDiagnostics.Reset();
         }
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }

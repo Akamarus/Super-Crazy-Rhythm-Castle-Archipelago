@@ -10,6 +10,22 @@ internal readonly record struct CassetteRegularSavePointerEntry(
     long Pointer,
     long LastPlayDateTimeUtcTicks);
 
+internal readonly record struct CassetteRecordSongRoutingPayload(
+    string Song,
+    string Status,
+    bool BundlePresent,
+    string? Bundle);
+
+internal readonly record struct CassettePersistBundleRoutingPayload(
+    bool BundlePresent,
+    string? Bundle,
+    string WriteType);
+
+internal readonly record struct CassetteBundleRoutingState(
+    long StatePointer,
+    bool HasUnstagedChanges,
+    IReadOnlyDictionary<string, string> Statuses);
+
 internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -174,6 +190,204 @@ internal static class CassetteSaveTransactionAdapter
         out string stage) =>
         TryReadPublicWriteDiagnosticStateCore(
             processor, expectedPointer: null, nativeSongs, out state, out stage);
+
+    internal static bool TryReadRecordSongCassetteStatusRequest(
+        object? request,
+        out CassetteRecordSongRoutingPayload payload,
+        out string stage)
+    {
+        payload = default;
+        stage = "routing-record-start";
+        try
+        {
+            if (request == null || !string.Equals(
+                    request.GetType().Name,
+                    "RecordSongCassetteStatusInSaveDataRequest",
+                    StringComparison.Ordinal))
+            { stage = "routing-record-incompatible"; return false; }
+            Type requestType = request.GetType();
+            PropertyInfo? songProperty = requestType.GetProperty("Song", PublicInstance);
+            if (songProperty == null) { stage = "routing-record-song-missing"; return false; }
+            stage = "routing-record-song-get";
+            string? song = songProperty.GetValue(request)?.ToString();
+            if (string.IsNullOrWhiteSpace(song)) { stage = "routing-record-song-empty"; return false; }
+            PropertyInfo? statusProperty = requestType.GetProperty("CassetteStatus", PublicInstance);
+            if (statusProperty == null) { stage = "routing-record-status-missing"; return false; }
+            stage = "routing-record-status-get";
+            string? status = statusProperty.GetValue(request)?.ToString();
+            if (string.IsNullOrWhiteSpace(status)) { stage = "routing-record-status-empty"; return false; }
+            PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
+            if (bundleProperty == null) { stage = "routing-record-bundle-missing"; return false; }
+            stage = "routing-record-bundle-get";
+            object? rawBundle = ReadPublicNullableProperty(bundleProperty, request);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawBundle,
+                    "routing-record-bundle",
+                    out bool bundlePresent,
+                    out object? bundle,
+                    out stage))
+                return false;
+            payload = new(song, status, bundlePresent, bundle?.ToString());
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            payload = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadPersistSaveChangeBundleRequest(
+        object? request,
+        out CassettePersistBundleRoutingPayload payload,
+        out string stage)
+    {
+        payload = default;
+        stage = "routing-persist-start";
+        try
+        {
+            if (request == null || !string.Equals(
+                    request.GetType().Name,
+                    "PersistSaveChangeBundleRequest",
+                    StringComparison.Ordinal))
+            { stage = "routing-persist-incompatible"; return false; }
+            Type requestType = request.GetType();
+            PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
+            if (bundleProperty == null) { stage = "routing-persist-bundle-missing"; return false; }
+            stage = "routing-persist-bundle-get";
+            object? rawBundle = ReadPublicNullableProperty(bundleProperty, request);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawBundle,
+                    "routing-persist-bundle",
+                    out bool bundlePresent,
+                    out object? bundle,
+                    out stage))
+                return false;
+            PropertyInfo? writeTypeProperty = requestType.GetProperty("WriteTypeToRequest", PublicInstance);
+            if (writeTypeProperty == null) { stage = "routing-persist-write-type-missing"; return false; }
+            stage = "routing-persist-write-type-get";
+            string? writeType = writeTypeProperty.GetValue(request)?.ToString();
+            if (string.IsNullOrWhiteSpace(writeType)) { stage = "routing-persist-write-type-empty"; return false; }
+            payload = new(bundlePresent, bundle?.ToString(), writeType);
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            payload = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadPersistAllSaveChangeBundlesRequest(
+        object? request,
+        out string? writeType,
+        out string stage)
+    {
+        writeType = null;
+        stage = "routing-persist-all-start";
+        try
+        {
+            if (request == null || !string.Equals(
+                    request.GetType().Name,
+                    "PersistAllSaveChangeBundlesRequest",
+                    StringComparison.Ordinal))
+            { stage = "routing-persist-all-incompatible"; return false; }
+            PropertyInfo? writeTypeProperty = request.GetType().GetProperty("WriteTypeToRequest", PublicInstance);
+            if (writeTypeProperty == null) { stage = "routing-persist-all-write-type-missing"; return false; }
+            stage = "routing-persist-all-write-type-get";
+            writeType = writeTypeProperty.GetValue(request)?.ToString();
+            if (string.IsNullOrWhiteSpace(writeType)) { stage = "routing-persist-all-write-type-empty"; return false; }
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            writeType = null;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadPlayerSaveBundleRoutingState(
+        object? playerSaveProcessor,
+        long expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        out CassetteBundleRoutingState state,
+        out string stage)
+    {
+        state = default;
+        stage = "routing-player-start";
+        try
+        {
+            if (!TryObtainPublicState(playerSaveProcessor, "routing-player", out object? nativeState, out stage))
+                return false;
+            return TryReadBundleRoutingStateCore(
+                nativeState!, playerSaveProcessor!.GetType().Assembly, expectedPointer, nativeSongs, "routing-player", out state, out stage);
+        }
+        catch (Exception ex)
+        {
+            state = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadSaveDataBundleRoutingState(
+        object? saveDataProcessor,
+        long expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        out int selectedSlot,
+        out CassetteBundleRoutingState state,
+        out string stage)
+    {
+        selectedSlot = default;
+        state = default;
+        stage = "routing-save-data-start";
+        try
+        {
+            if (!TryObtainPublicState(saveDataProcessor, "routing-save-data", out object? saveDataState, out stage))
+                return false;
+            Type saveDataStateType = saveDataState!.GetType();
+            PropertyInfo? selectedSlotProperty = saveDataStateType.GetProperty("SelectedPlayerSaveSlot", PublicInstance);
+            if (selectedSlotProperty == null) { stage = "routing-save-data-selected-slot-missing"; return false; }
+            stage = "routing-save-data-selected-slot-get";
+            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
+            if (!TryUnwrapPublicDiagnosticNullable(
+                    rawSelectedSlot,
+                    "routing-save-data-selected-slot",
+                    out bool slotPresent,
+                    out object? slotValue,
+                    out stage))
+                return false;
+            if (!slotPresent || slotValue == null) { stage = "routing-save-data-selected-slot-empty"; return false; }
+            stage = "routing-save-data-selected-slot-convert";
+            selectedSlot = Convert.ToInt32(slotValue);
+            PropertyInfo? savesProperty = saveDataStateType.GetProperty("RegularPlayerSaves", PublicInstance);
+            if (savesProperty == null) { stage = "routing-save-data-regular-saves-missing"; return false; }
+            stage = "routing-save-data-regular-saves-get";
+            object? saves = savesProperty.GetValue(saveDataState);
+            if (saves == null) { stage = "routing-save-data-regular-saves-null"; return false; }
+            PropertyInfo? itemProperty = saves.GetType().GetProperty("Item", PublicInstance);
+            if (itemProperty == null || itemProperty.GetIndexParameters().Length != 1)
+            { stage = "routing-save-data-selected-state-indexer-missing"; return false; }
+            stage = "routing-save-data-selected-state-get";
+            object? selectedState = itemProperty.GetValue(saves, new object[] { selectedSlot });
+            if (selectedState == null) { stage = "routing-save-data-selected-state-null"; return false; }
+            return TryReadBundleRoutingStateCore(
+                selectedState, saveDataProcessor!.GetType().Assembly, expectedPointer, nativeSongs, "routing-save-data", out state, out stage);
+        }
+        catch (Exception ex)
+        {
+            selectedSlot = default;
+            state = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
 
     private static bool TryReadPublicWriteDiagnosticStateCore(
         object? processor,
@@ -519,6 +733,94 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"join-invocation:{SummarizeException(ex)}";
             return false;
         }
+    }
+
+    private static bool TryReadBundleRoutingStateCore(
+        object nativeState,
+        Assembly preferredAssembly,
+        long expectedPointer,
+        IReadOnlyList<string> nativeSongs,
+        string label,
+        out CassetteBundleRoutingState state,
+        out string stage)
+    {
+        state = default;
+        stage = $"{label}-state-start";
+        Type stateType = nativeState.GetType();
+        PropertyInfo? pointerProperty = stateType.GetProperty("Pointer", PublicInstance);
+        if (pointerProperty == null) { stage = $"{label}-pointer-missing"; return false; }
+        stage = $"{label}-pointer-get";
+        object? rawPointer = pointerProperty.GetValue(nativeState);
+        if (rawPointer is not IntPtr pointer) { stage = $"{label}-pointer-invalid"; return false; }
+        if (pointer == IntPtr.Zero) { stage = $"{label}-pointer-zero"; return false; }
+        long statePointer = pointer.ToInt64();
+        if (statePointer != expectedPointer)
+        {
+            stage = $"{label}-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
+            return false;
+        }
+        PropertyInfo? unstagedProperty = stateType.GetProperty("HasUnstagedChanges", PublicInstance);
+        if (unstagedProperty == null) { stage = $"{label}-has-unstaged-missing"; return false; }
+        stage = $"{label}-has-unstaged-get";
+        bool hasUnstagedChanges = Convert.ToBoolean(unstagedProperty.GetValue(nativeState));
+        Type? songType = FindType("ePlayableSong", preferredAssembly);
+        if (songType?.IsEnum != true) { stage = $"{label}-song-type-missing"; return false; }
+        MethodInfo? readStatus = stateType.GetMethod(
+            "GetCassetteStatusForSong",
+            PublicInstance,
+            binder: null,
+            types: new[] { songType },
+            modifiers: null);
+        if (readStatus == null) { stage = $"{label}-status-method-missing"; return false; }
+        var statuses = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal))
+        {
+            stage = $"{label}-status-{nativeSong}-song-parse";
+            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            stage = $"{label}-status-{nativeSong}-invoke";
+            string? status = readStatus.Invoke(nativeState, new[] { song })?.ToString();
+            if (string.IsNullOrWhiteSpace(status)) { stage = $"{label}-status-{nativeSong}-empty"; return false; }
+            statuses[nativeSong] = status;
+        }
+        state = new(statePointer, hasUnstagedChanges, statuses);
+        stage = "success";
+        return true;
+    }
+
+    private static bool TryUnwrapPublicDiagnosticNullable(
+        object? value,
+        string label,
+        out bool present,
+        out object? unwrapped,
+        out string stage)
+    {
+        present = false;
+        unwrapped = null;
+        stage = $"{label}-start";
+        if (value == null) { stage = "success"; return true; }
+        Type type = value.GetType();
+        string typeName = type.FullName ?? type.Name;
+        if (!typeName.Contains("Nullable`1", StringComparison.Ordinal))
+        {
+            present = true;
+            unwrapped = value;
+            stage = "success";
+            return true;
+        }
+        PropertyInfo? hasValueProperty = type.GetProperty("HasValue", PublicInstance);
+        PropertyInfo? valueProperty = type.GetProperty("Value", PublicInstance);
+        if (hasValueProperty == null || valueProperty == null)
+        { stage = $"{label}-contract-missing"; return false; }
+        stage = $"{label}-has-value-get";
+        object? rawPresent = hasValueProperty.GetValue(value);
+        if (rawPresent is not bool hasValue) { stage = $"{label}-has-value-invalid"; return false; }
+        present = hasValue;
+        if (!present) { stage = "success"; return true; }
+        stage = $"{label}-value-get";
+        unwrapped = valueProperty.GetValue(value);
+        if (unwrapped == null) { stage = $"{label}-value-null"; return false; }
+        stage = "success";
+        return true;
     }
 
     private static bool TryObtainPublicState(object? processor, string label, out object? state, out string stage)

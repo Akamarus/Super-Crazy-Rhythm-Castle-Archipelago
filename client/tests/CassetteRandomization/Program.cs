@@ -65,6 +65,9 @@ static string ExtractClass(string source, string className)
 }
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPrefix)", StringComparison.Ordinal), "absent Persist boundary is not hooked");
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.PersistPostfix)", StringComparison.Ordinal), "absent Persist postfix is not hooked");
+Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"PersistSaveChangeBundleRequest\", nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistBundleRoutingPostfix))", StringComparison.Ordinal), "exact narrow-persist routing diagnostic is installed");
+Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"PersistAllSaveChangeBundlesRequest\", nameof(CassetteSaveTransactionPatches.PersistAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.PersistAllRoutingPostfix))", StringComparison.Ordinal), "exact persist-all routing diagnostic is installed");
+Equal(true, pluginSource.Contains("PatchExactMethodWithPrefixAndPostfix(\"SaveDataRequestProcessor\", \"ProcessRequest\", \"DiscardAllUnstagedSaveStateChangesRequest\", nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPrefix), nameof(CassetteSaveTransactionPatches.DiscardAllRoutingPostfix))", StringComparison.Ordinal), "exact discard-all-unstaged routing diagnostic is installed");
 
 Equal(false, pluginSource.Contains("nameof(CassetteSaveTransactionPatches.SaveSelectionPostfix)", StringComparison.Ordinal), "broad selection postfix is non-authoritative");
 string selectedMutationPostfix = ExtractMethods(pluginSource, "public static void SelectedSlotMutationPostfix(").Single();
@@ -89,6 +92,33 @@ Equal(true, buildPrefix.Contains("try", StringComparison.Ordinal) && buildPrefix
 string extractionDiagnostic = ExtractMethods(pluginSource, "private static void LogExtractionFailureOnce(").Single();
 Equal(true, extractionDiagnostic.Contains("ExtractionFailures.Add", StringComparison.Ordinal), "extraction diagnostics are bounded by a one-time key set");
 Equal(false, extractionDiagnostic.Contains("ReflectionUtil.ReadMember", StringComparison.Ordinal), "diagnostic logger performs no unsafe object traversal");
+string recordRoutingPrefix = ExtractMethods(pluginSource, "public static bool CassetteStatusRequestPrefix(").Single();
+Equal(true, recordRoutingPrefix.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), "record-song processor entry captures actual request routing diagnostic");
+Equal(true, pluginSource.Contains("public static void CassetteStatusRequestPostfix(", StringComparison.Ordinal), "record-song processor exit callback is compiled into the patch seam");
+foreach (string callback in new[] { "PersistBundleRoutingPrefix", "PersistAllRoutingPrefix", "DiscardAllRoutingPrefix" })
+{
+    string callbackSource = ExtractMethods(pluginSource, $"public static void {callback}(").Single();
+    Equal(true, callbackSource.Contains("BeginBundleRoutingDiagnostic", StringComparison.Ordinal), $"{callback} captures a bounded entry diagnostic");
+    Equal(true, callbackSource.Contains("LogRoutingExtractionFailureSafely", StringComparison.Ordinal), $"{callback} exception fallback cannot escape into the native prefix");
+    Equal(false, callbackSource.Contains("GetBaseException", StringComparison.Ordinal), $"{callback} performs no throwable exception formatting outside the safe fallback");
+    Equal(false, callbackSource.Contains("TrySubmit", StringComparison.Ordinal), $"{callback} cannot submit save work");
+}
+foreach (string callback in new[] { "PersistBundleRoutingPostfix", "PersistAllRoutingPostfix", "DiscardAllRoutingPostfix" })
+{
+    string callbackSource = ExtractMethods(pluginSource, $"public static void {callback}(").Single();
+    Equal(true, callbackSource.Contains("CompleteBundleRoutingDiagnostic", StringComparison.Ordinal), $"{callback} captures the correlated exit diagnostic");
+    Equal(true, callbackSource.Contains("LogRoutingExtractionFailureSafely", StringComparison.Ordinal), $"{callback} exception fallback cannot escape from the native postfix");
+    Equal(false, callbackSource.Contains("GetBaseException", StringComparison.Ordinal), $"{callback} performs no throwable exception formatting outside the safe fallback");
+    Equal(false, callbackSource.Contains("TrySubmit", StringComparison.Ordinal), $"{callback} cannot submit save work");
+}
+string routingFallbackLogger = ExtractMethods(pluginSource, "private static void LogRoutingExtractionFailureSafely(").Single();
+Equal(true, routingFallbackLogger.Contains("try", StringComparison.Ordinal) && routingFallbackLogger.Contains("catch", StringComparison.Ordinal), "routing callback fallback logger is strictly no-throw");
+Equal(true, routingFallbackLogger.Contains("Exception exception", StringComparison.Ordinal) && routingFallbackLogger.Contains("GetBaseException", StringComparison.Ordinal), "routing callback fallback performs exception formatting only inside its no-throw boundary");
+string beginBundleRouting = ExtractMethods(ExtractClass(pluginSource, "CassetteReceiptRandomization"), "internal static void BeginBundleRoutingDiagnostic(").Single();
+Equal(true, beginBundleRouting.Contains("_slotDataSynchronized", StringComparison.Ordinal) && beginBundleRouting.Contains("Enabled", StringComparison.Ordinal), "routing diagnostics are inactive before compatible AP slot synchronization");
+Equal(true, beginBundleRouting.Contains("TryResolveGlobalAttempt", StringComparison.Ordinal), "global bundle diagnostics require a relevant AP candidate or real active attempt");
+Equal(true, beginBundleRouting.Contains("RegisterRelevantSong", StringComparison.Ordinal), "record request songs remain available to nested global snapshots before verification");
+Equal(true, beginBundleRouting.Contains("GetRelevantSongs", StringComparison.Ordinal), "every boundary unions retained record candidates into its coherent status snapshot");
 string mostRecentPrefix = ExtractMethods(pluginSource, "public static void MostRecentSelectionPrefix(").Single();
 Equal(true, mostRecentPrefix.Contains("BeginMostRecentSelectionBoundary(__instance)", StringComparison.Ordinal), "most-recent prefix immediately enters unresolved authority boundary");
 string beginMostRecentBoundary = ExtractMethods(pluginSource, "internal static void BeginMostRecentSelectionBoundary(").Single();
@@ -675,6 +705,36 @@ Equal("present=False value=<null> bits=<null>", CassetteDiskCommitDiagnosticForm
 Equal("present=True value=10.25 bits=0x4024800000000000", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(10.25), "nullable formatter preserves round-trip value and IEEE bits");
 Equal(true, CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(double.NaN).StartsWith("present=True value=NaN bits=0x", StringComparison.Ordinal), "nullable formatter preserves special double value and IEEE bits");
 
+var routingCommit = new CassetteDiskCommitRuntime();
+var routingDiagnostics = new CassetteBundleRoutingDiagnosticRuntime();
+CassetteDiskCommitAttempt routingCandidate = routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444);
+Equal(1L, routingCandidate.Id, "pre-grant routing diagnostics preview the next monotonic disk attempt without starting it");
+Equal(false, routingCommit.Active, "routing preview is behavior-neutral and cannot activate persistence");
+Equal(false, routingCommit.HasWork, "routing preview cannot stage disk work");
+Equal(false, routingDiagnostics.TryResolveGlobalAttempt(null, routingCandidate, out _), "unrelated global request before an AP record candidate cannot consume the future attempt budget");
+routingDiagnostics.RegisterRelevantSong(routingCandidate, "BADASS", establishCandidate: true);
+Equal(true, routingDiagnostics.TryResolveGlobalAttempt(null, routingCandidate, out CassetteDiskCommitAttempt resolvedCandidate), "relevant AP record establishes the only pre-attempt global diagnostic candidate");
+Equal(routingCandidate, resolvedCandidate, "pre-attempt global diagnostic resolves the exact AP record candidate");
+SequenceEqual(new[] { "BADASS" }, routingDiagnostics.GetRelevantSongs(routingCandidate), "nested global boundary retains AP request song before delayed verification stages it");
+Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "BADASS", new[] { "BADASS" }, out CassetteBundleRoutingDiagnosticToken recordRoutingToken), "record-song entry is admitted once per attempt/song/boundary");
+Equal(false, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "BADASS", new[] { "BADASS" }, out _), "duplicate record-song entry is bounded");
+Equal(true, routingDiagnostics.TryComplete(recordRoutingToken, out CassetteBundleRoutingDiagnosticToken recordRoutingExit), "record-song exit is correlated to its admitted entry");
+Equal(CassetteBundleRoutingPhase.Exit, recordRoutingExit.Phase, "correlated routing completion is labeled EXIT");
+Equal(false, routingDiagnostics.TryComplete(recordRoutingToken, out _), "duplicate record-song exit is bounded");
+Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "ON_THE_WAY", new[] { "ON_THE_WAY" }, out _), "another song retains its own bounded record diagnostic");
+Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.PersistBundle, "<bundle>", new[] { "BADASS", "ON_THE_WAY" }, out CassetteBundleRoutingDiagnosticToken persistRoutingToken), "persist boundary has an independent budget for the same attempt");
+routingCommit.Stage("BADASS");
+Equal(true, routingCommit.TryPrepare(31, 6, 4, 0x444, new(true, false, null, null, null), out CassetteDiskCommitAttempt preparedRoutingAttempt), "routing candidate becomes the real disk attempt only through the existing prepare path");
+Equal(routingCandidate, preparedRoutingAttempt, "pre-grant routing candidate correlates to the later disk attempt exactly");
+Equal(preparedRoutingAttempt, routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444), "active routing diagnostics use the exact current attempt token");
+routingDiagnostics.RegisterRelevantSong(preparedRoutingAttempt, "ON_THE_WAY", establishCandidate: false);
+SequenceEqual(new[] { "BADASS", "ON_THE_WAY" }, routingDiagnostics.GetRelevantSongs(preparedRoutingAttempt), "queued record song joins nested global snapshots during another active attempt");
+Equal(true, routingDiagnostics.TryResolveGlobalAttempt(preparedRoutingAttempt, routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444), out CassetteDiskCommitAttempt resolvedActive), "real active attempt authorizes global diagnostic without speculative admission");
+Equal(preparedRoutingAttempt, resolvedActive, "global diagnostic prefers the real prepared attempt");
+Equal(true, routingDiagnostics.TryComplete(persistRoutingToken, out _), "persist exit remains correlated after the existing prepare transition");
+routingDiagnostics.Reset();
+Equal(false, routingDiagnostics.TryComplete(recordRoutingToken, out _), "identity reset invalidates stale routing callbacks");
+
 phaseRuntime.Stage("BADASS");
 Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt newerAttempt), "same identity can prepare a later monotonic attempt");
 Equal(true, phaseRuntime.MarkSubmitted(newerAttempt, dirtyWrite), "later attempt is submitted");
@@ -964,6 +1024,52 @@ Equal(10d, lifecycleDiagnosticState.WriteState.LastSuccessTime, "lifecycle diagn
 Equal(8d, lifecycleDiagnosticState.WriteState.LastFailureTime, "lifecycle diagnostic reports nullable public failure time");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), lifecycleDiagnosticState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "lifecycle diagnostic reports active-song status from the same public state object");
 Equal("success", lifecycleDiagnosticStage, "lifecycle diagnostic reports success");
+var recordRoutingRequest = new RoutingFixture.RecordSongCassetteStatusInSaveDataRequest(
+    ePlayableSong.BADASS,
+    eSongCassetteStatus.HAVE_IN_BAG,
+    new(true, ePlayerSaveChangeBundleKey.DEFAULT));
+Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(recordRoutingRequest, out CassetteRecordSongRoutingPayload recordPayload, out string routingStage), "record-song diagnostic reads the exact public request payload");
+Equal(new CassetteRecordSongRoutingPayload(nameof(ePlayableSong.BADASS), nameof(eSongCassetteStatus.HAVE_IN_BAG), true, nameof(ePlayerSaveChangeBundleKey.DEFAULT)), recordPayload, "record-song payload preserves song, status, and nullable bundle");
+Equal("success", routingStage, "record-song payload reports success");
+Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new RoutingFixture.RecordSongCassetteStatusInSaveDataRequest(ePlayableSong.BADASS, eSongCassetteStatus.HAVE_IN_BAG, new(false, default)), out recordPayload, out routingStage), "record-song diagnostic preserves an empty public nullable bundle");
+Equal(false, recordPayload.BundlePresent, "empty record-song bundle remains absent");
+Equal<string?>(null, recordPayload.Bundle, "empty record-song bundle does not invent DEFAULT");
+Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new EmptyInteropRoutingFixture.RecordSongCassetteStatusInSaveDataRequest(), out recordPayload, out routingStage), "proven IL2CPP empty record-song bundle is normalized diagnostically");
+Equal(false, recordPayload.BundlePresent, "IL2CPP empty record-song bundle remains absent");
+Equal(false, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new ThrowingRoutingFixture.RecordSongCassetteStatusInSaveDataRequest(), out _, out routingStage), "throwing public record-song status fails diagnostically");
+Equal("routing-record-status-get-invocation:InvalidOperationException:record-status", routingStage, "throwing record-song status identifies its exact stage");
+var persistRoutingRequest = new PersistSaveChangeBundleRequest(new(true, ePlayerSaveChangeBundleKey.DEFAULT), eSaveFileWriteType.URGENT);
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(persistRoutingRequest, out CassettePersistBundleRoutingPayload persistPayload, out routingStage), "narrow persist diagnostic reads the exact public request payload");
+Equal(new CassettePersistBundleRoutingPayload(true, nameof(ePlayerSaveChangeBundleKey.DEFAULT), nameof(eSaveFileWriteType.URGENT)), persistPayload, "narrow persist payload preserves nullable bundle and write type");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new PersistSaveChangeBundleRequest(new(false, default), eSaveFileWriteType.URGENT), out persistPayload, out routingStage), "narrow persist diagnostic preserves an absent managed nullable bundle");
+Equal(false, persistPayload.BundlePresent, "absent managed narrow-persist bundle remains absent");
+Equal<string?>(null, persistPayload.Bundle, "absent managed narrow-persist bundle does not invent DEFAULT");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new EmptyInteropRoutingFixture.PersistSaveChangeBundleRequest(), out persistPayload, out routingStage), "proven IL2CPP empty narrow-persist bundle is normalized diagnostically");
+Equal(false, persistPayload.BundlePresent, "IL2CPP empty narrow-persist bundle remains absent");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new ThrowingRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "throwing public narrow-persist bundle fails diagnostically");
+Equal("routing-persist-bundle-get-invocation:InvalidOperationException:persist-bundle", routingStage, "throwing narrow-persist bundle identifies its exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new ThrowingWriteTypeRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "throwing public narrow-persist write type fails diagnostically");
+Equal("routing-persist-write-type-get-invocation:InvalidOperationException:persist-write-type", routingStage, "throwing narrow-persist write type identifies its exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new EmptyRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "empty public narrow-persist write type fails diagnostically");
+Equal("routing-persist-write-type-empty", routingStage, "empty narrow-persist write type identifies its exact stage");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new PersistAllSaveChangeBundlesRequest(eSaveFileWriteType.NON_URGENT), out string? persistAllWriteType, out routingStage), "persist-all diagnostic reads its public write type");
+Equal(nameof(eSaveFileWriteType.NON_URGENT), persistAllWriteType, "persist-all diagnostic preserves actual write type");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new ThrowingRoutingFixture.PersistAllSaveChangeBundlesRequest(), out _, out routingStage), "throwing public persist-all write type fails diagnostically");
+Equal("routing-persist-all-write-type-get-invocation:InvalidOperationException:persist-all-write-type", routingStage, "throwing persist-all write type identifies its exact stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new EmptyRoutingFixture.PersistAllSaveChangeBundlesRequest(), out _, out routingStage), "empty public persist-all write type fails diagnostically");
+Equal("routing-persist-all-write-type-empty", routingStage, "empty persist-all write type identifies its exact stage");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveBundleRoutingState(publicWriteProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassetteBundleRoutingState playerRoutingState, out routingStage), "record-song boundary reads one coherent public player state");
+Equal(0x700L, playerRoutingState.StatePointer, "record-song boundary preserves exact public state pointer");
+Equal(true, playerRoutingState.HasUnstagedChanges, "record-song boundary preserves public unstaged flag");
+Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), playerRoutingState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "record-song boundary reads status from the same state object");
+var saveDataRoutingProcessor = new SaveDataBundleRoutingProcessorFixture(
+    new SaveDataBundleRoutingStateFixture(new(true, 4), new() { [4] = new PublicWriteStateFixture() }));
+Equal(true, CassetteSaveTransactionAdapter.TryReadSaveDataBundleRoutingState(saveDataRoutingProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out int routingSlot, out CassetteBundleRoutingState saveDataRoutingState, out routingStage), "save-data boundary reads its own selected public player state");
+Equal(4, routingSlot, "save-data boundary preserves actual public selected slot");
+Equal(0x700L, saveDataRoutingState.StatePointer, "save-data boundary correlates the expected player-state pointer");
+Equal(true, saveDataRoutingState.HasUnstagedChanges, "save-data boundary preserves public unstaged flag");
+Equal(false, CassetteSaveTransactionAdapter.TryReadSaveDataBundleRoutingState(new SaveDataBundleRoutingProcessorFixture(new MissingSelectedSlotSaveDataBundleRoutingStateFixture()), 0x700, Array.Empty<string>(), out _, out _, out routingStage), "missing public selected slot fails at the exact routing stage");
+Equal("routing-save-data-selected-slot-missing", routingStage, "missing public selected slot has an exact stage");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x701, Array.Empty<string>(), out _, out publicDiagnosticStage), "diagnostic snapshot rejects a public state pointer from another save");
 Equal("write-diagnostic-pointer-mismatch:expected=0x701:actual=0x700", publicDiagnosticStage, "diagnostic snapshot reports the exact identity mismatch");
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new MissingDiagnosticHasChangesWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "missing core public write property fails at its exact field");
@@ -1050,7 +1156,13 @@ Equal(true, diagnosticAdapter.Contains("GetCassetteStatusForSong", StringCompari
 string lifecycleDiagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteLifecycleDiagnosticState(").Single();
 Equal(true, lifecycleDiagnosticAdapter.Contains("TryReadPublicWriteDiagnosticStateCore", StringComparison.Ordinal), "lifecycle diagnostic shares the public same-object snapshot reader");
 Equal(false, lifecycleDiagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || lifecycleDiagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "lifecycle diagnostics cannot bind non-public members");
-foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
+foreach (string routingReader in new[] { "TryReadRecordSongCassetteStatusRequest", "TryReadPersistSaveChangeBundleRequest", "TryReadPersistAllSaveChangeBundlesRequest", "TryReadPlayerSaveBundleRoutingState", "TryReadSaveDataBundleRoutingState" })
+{
+    string routingReaderSource = ExtractMethods(adapterSource, $"internal static bool {routingReader}(").Single();
+    Equal(true, routingReaderSource.Contains("PublicInstance", StringComparison.Ordinal) || routingReaderSource.Contains("TryRead", StringComparison.Ordinal), $"{routingReader} uses the public diagnostic boundary");
+    Equal(false, routingReaderSource.Contains("AllInstance", StringComparison.Ordinal) || routingReaderSource.Contains("AllStatic", StringComparison.Ordinal), $"{routingReader} cannot bind non-public members");
+}
+foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_persistence_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
@@ -1311,7 +1423,117 @@ sealed class PersistSaveChangeBundleRequest
     public eSaveFileWriteType WriteTypeToRequest { get; }
 }
 
-sealed class PersistAllSaveChangeBundlesRequest { }
+namespace RoutingFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public RecordSongCassetteStatusInSaveDataRequest(
+            ePlayableSong song,
+            eSongCassetteStatus cassetteStatus,
+            FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle)
+        {
+            Song = song;
+            CassetteStatus = cassetteStatus;
+            Bundle = bundle;
+        }
+
+        public ePlayableSong Song { get; }
+        public eSongCassetteStatus CassetteStatus { get; }
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
+    }
+
+}
+
+namespace ThrowingRoutingFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public ePlayableSong Song => ePlayableSong.BADASS;
+        public eSongCassetteStatus CassetteStatus => throw new InvalidOperationException("record-status");
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.DEFAULT);
+    }
+
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
+            throw new InvalidOperationException("persist-bundle");
+        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.URGENT;
+    }
+
+    sealed class PersistAllSaveChangeBundlesRequest
+    {
+        public eSaveFileWriteType WriteTypeToRequest =>
+            throw new InvalidOperationException("persist-all-write-type");
+    }
+}
+
+namespace ThrowingWriteTypeRoutingFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
+            new(true, ePlayerSaveChangeBundleKey.DEFAULT);
+        public eSaveFileWriteType WriteTypeToRequest =>
+            throw new InvalidOperationException("persist-write-type");
+    }
+}
+
+namespace EmptyInteropRoutingFixture
+{
+    sealed class RecordSongCassetteStatusInSaveDataRequest
+    {
+        public ePlayableSong Song => ePlayableSong.BADASS;
+        public eSongCassetteStatus CassetteStatus => eSongCassetteStatus.HAVE_IN_BAG;
+        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
+            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
+    }
+
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
+            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
+        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.URGENT;
+    }
+}
+
+namespace EmptyRoutingFixture
+{
+    sealed class PersistSaveChangeBundleRequest
+    {
+        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
+            new(true, ePlayerSaveChangeBundleKey.DEFAULT);
+        public string WriteTypeToRequest => string.Empty;
+    }
+
+    sealed class PersistAllSaveChangeBundlesRequest
+    {
+        public string WriteTypeToRequest => string.Empty;
+    }
+}
+
+sealed class PersistAllSaveChangeBundlesRequest
+{
+    public PersistAllSaveChangeBundlesRequest(eSaveFileWriteType writeTypeToRequest) =>
+        WriteTypeToRequest = writeTypeToRequest;
+    public eSaveFileWriteType WriteTypeToRequest { get; }
+}
+
+sealed class SaveDataBundleRoutingProcessorFixture
+{
+    private readonly object _state;
+    public SaveDataBundleRoutingProcessorFixture(object state) => _state = state;
+    public object ObtainState() => _state;
+}
+
+sealed record SaveDataBundleRoutingStateFixture(
+    FakeIl2CppNullable<int> SelectedPlayerSaveSlot,
+    Dictionary<int, PublicWriteStateFixture> RegularPlayerSaves);
+
+sealed class MissingSelectedSlotSaveDataBundleRoutingStateFixture
+{
+    public Dictionary<int, PublicWriteStateFixture> RegularPlayerSaves { get; } =
+        new() { [4] = new PublicWriteStateFixture() };
+}
 
 static class RequestSystem
 {
