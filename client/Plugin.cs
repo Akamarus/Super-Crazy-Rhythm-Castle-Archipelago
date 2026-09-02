@@ -18464,13 +18464,16 @@ internal static class CassetteReceiptRandomization
             ready = _runtime.Tick(elapsed).ToArray();
         }
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
-        IReadOnlyList<string> newlyVerifiedGrantWave;
-        lock (Sync) newlyVerifiedGrantWave = _runtime.ConsumeNewlyVerifiedGrantDiagnosticWave();
-        if (newlyVerifiedGrantWave.Count > 0)
-            LogPersistenceTargetOwnershipDiagnostic(newlyVerifiedGrantWave);
+        CassettePersistenceTargetDiagnosticWave diagnosticWave;
+        bool hasDiagnosticWave;
+        lock (Sync)
+            hasDiagnosticWave = _runtime.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+                _activeSaveGeneration, _activeSavePointer, out diagnosticWave);
+        if (hasDiagnosticWave)
+            LogPersistenceTargetOwnershipDiagnostic(diagnosticWave);
     }
 
-    private static void LogPersistenceTargetOwnershipDiagnostic(IReadOnlyList<string> newlyVerifiedSongs)
+    private static void LogPersistenceTargetOwnershipDiagnostic(CassettePersistenceTargetDiagnosticWave wave)
     {
         object? playerProcessor;
         object? retainedSaveDataProcessor;
@@ -18481,13 +18484,15 @@ internal static class CassetteReceiptRandomization
         string[] ownedSongs;
         lock (Sync)
         {
-            if (_saveIdentity.Pending || !_runtime.HasActiveSave || newlyVerifiedSongs.Count == 0) return;
+            if (_saveIdentity.Pending || !_runtime.HasActiveSave || wave.Songs.Count == 0 ||
+                !wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer))
+                return;
             playerProcessor = _playerSaveRequestProcessor;
             retainedSaveDataProcessor = _joinedSaveDataRequestProcessor;
-            generation = _activeSaveGeneration;
-            epoch = _runtime.Epoch;
-            slot = _runtime.ActiveSlot!.Value;
-            pointer = _activeSavePointer;
+            generation = wave.Identity.Generation;
+            epoch = wave.Identity.Epoch;
+            slot = wave.Identity.Slot;
+            pointer = wave.Identity.StatePointer;
             ownedSongs = _runtime.OwnedSongs.ToArray();
         }
 
@@ -18520,8 +18525,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             identityStillCurrent = !_saveIdentity.Pending && _runtime.HasActiveSave &&
-                _activeSaveGeneration == generation && _runtime.Epoch == epoch &&
-                _runtime.ActiveSlot == slot && _activeSavePointer == pointer;
+                wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer);
         }
 
         static string Pointer(bool readable, long value) => readable ? $"0x{value:X}" : "<unavailable>";
@@ -18549,7 +18553,7 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] CASSETTE PERSISTENCE TARGET SNAPSHOT generation={generation} epoch={epoch} slot={slot} " +
             $"expectedPointer=0x{pointer:X} frame={frame} thread={thread} identityCurrent={identityStillCurrent} " +
-            $"newlyVerified=[{string.Join(",", newlyVerifiedSongs)}] ownedSongs=[{string.Join(",", ownedSongs)}] " +
+            $"newlyVerified=[{string.Join(",", wave.Songs)}] ownedSongs=[{string.Join(",", ownedSongs)}] " +
             $"playerProcessorPointer={Pointer(target.HasPlayerProcessorPointer, target.PlayerProcessorPointer)} " +
             $"registeredPersistProcessorPointer={Pointer(target.HasRegisteredPersistProcessorPointer, target.RegisteredPersistProcessorPointer)} " +
             $"retainedSaveDataProcessorPointer={Pointer(target.HasRetainedSaveDataProcessorPointer, target.RetainedSaveDataProcessorPointer)} " +

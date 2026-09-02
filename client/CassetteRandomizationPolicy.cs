@@ -1178,6 +1178,21 @@ internal sealed class CassetteDiskCommitRuntime
     }
 }
 
+internal readonly record struct CassettePersistenceTargetDiagnosticIdentity(
+    long Generation,
+    long Epoch,
+    int Slot,
+    long StatePointer);
+
+internal readonly record struct CassettePersistenceTargetDiagnosticWave(
+    CassettePersistenceTargetDiagnosticIdentity Identity,
+    IReadOnlyList<string> Songs)
+{
+    internal bool IsCurrent(long generation, long epoch, int? slot, long statePointer) =>
+        slot.HasValue && Identity == new CassettePersistenceTargetDiagnosticIdentity(
+            generation, epoch, slot.Value, statePointer);
+}
+
 internal sealed class CassetteSaveEpochRuntime
 {
     private static readonly TimeSpan[] VerificationDelays =
@@ -1228,12 +1243,20 @@ internal sealed class CassetteSaveEpochRuntime
     internal IReadOnlyList<string> OwnedSongs => _owned
         .OrderBy(song => song, StringComparer.Ordinal).ToArray();
 
-    internal IReadOnlyList<string> ConsumeNewlyVerifiedGrantDiagnosticWave()
+    internal bool TryConsumeNewlyVerifiedGrantDiagnosticWave(
+        long generation,
+        long statePointer,
+        out CassettePersistenceTargetDiagnosticWave wave)
     {
+        wave = default;
+        if (!HasActiveSave || _newlyVerifiedGrantDiagnosticWave.Count == 0) return false;
         string[] songs = _newlyVerifiedGrantDiagnosticWave
             .OrderBy(song => song, StringComparer.Ordinal).ToArray();
         _newlyVerifiedGrantDiagnosticWave.Clear();
-        return songs;
+        wave = new(
+            new(generation, Epoch, ActiveSlot!.Value, statePointer),
+            songs);
+        return true;
     }
 
     internal bool CanSubmit(string nativeSong, string? nativeStatus, bool processorAvailable) =>
@@ -1284,12 +1307,22 @@ internal sealed class CassetteSaveEpochRuntime
     internal bool RecordVerification(string nativeSong, string? nativeStatus)
     {
         if (!IsPending(nativeSong)) return false;
+        bool delayedVerificationWasDue = IsVerificationDue(nativeSong);
         _verificationElapsed.Remove(nativeSong);
         Observe(nativeSong, nativeStatus);
         bool newlyVerifiedGrant = string.Equals(
             nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase);
-        if (newlyVerifiedGrant) _newlyVerifiedGrantDiagnosticWave.Add(nativeSong);
+        if (newlyVerifiedGrant && delayedVerificationWasDue)
+            _newlyVerifiedGrantDiagnosticWave.Add(nativeSong);
         return newlyVerifiedGrant;
+    }
+
+    private bool IsVerificationDue(string nativeSong)
+    {
+        if (!_verificationElapsed.TryGetValue(nativeSong, out TimeSpan elapsed)) return false;
+        int attempt = _attemptsThisEpoch.TryGetValue(nativeSong, out int count) ? count : 1;
+        TimeSpan delay = VerificationDelays[Math.Clamp(attempt - 1, 0, VerificationDelays.Length - 1)];
+        return elapsed >= delay;
     }
 
     private static bool IsSatisfiedNativeStatus(string? status) =>

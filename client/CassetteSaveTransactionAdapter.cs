@@ -937,6 +937,19 @@ internal static class CassetteSaveTransactionAdapter
 
             Type saveDataStateType = saveDataState!.GetType();
             if (!TryGetPublicReadableProperty(
+                    saveDataStateType, "RegularPlayerSaves", PublicInstance,
+                    "target-save-data-regular-saves", out PropertyInfo savesProperty, out stage))
+                return false;
+            stage = "target-save-data-regular-saves-get";
+            object? saves = savesProperty.GetValue(saveDataState);
+            if (saves == null) { stage = "target-save-data-regular-saves-null"; return false; }
+            if (!TryReadPublicDictionaryValue(saves, expectedSlot, "target-expected-entry", out object? expectedState, out stage))
+                return false;
+            if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
+                return false;
+            state = state with { ExpectedSlotEntryPointer = expectedSlotEntryPointer, HasExpectedSlotEntryPointer = true };
+
+            if (!TryGetPublicReadableProperty(
                     saveDataStateType, "SelectedPlayerSaveSlot", PublicInstance,
                     "target-save-data-selected-slot", out PropertyInfo selectedSlotProperty, out stage))
                 return false;
@@ -954,18 +967,6 @@ internal static class CassetteSaveTransactionAdapter
                 state = state with { SelectedPlayerSaveSlot = selectedSlot, HasSelectedPlayerSaveSlot = true };
             }
 
-            if (!TryGetPublicReadableProperty(
-                    saveDataStateType, "RegularPlayerSaves", PublicInstance,
-                    "target-save-data-regular-saves", out PropertyInfo savesProperty, out stage))
-                return false;
-            stage = "target-save-data-regular-saves-get";
-            object? saves = savesProperty.GetValue(saveDataState);
-            if (saves == null) { stage = "target-save-data-regular-saves-null"; return false; }
-            if (!TryReadPublicDictionaryValue(saves, expectedSlot, "target-expected-entry", out object? expectedState, out stage))
-                return false;
-            if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
-                return false;
-            state = state with { ExpectedSlotEntryPointer = expectedSlotEntryPointer, HasExpectedSlotEntryPointer = true };
             if (!hasSelectedSlot)
             {
                 stage = "target-save-data-selected-slot-empty";

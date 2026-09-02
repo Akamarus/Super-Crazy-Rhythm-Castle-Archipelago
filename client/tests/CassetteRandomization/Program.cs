@@ -242,7 +242,9 @@ Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationRea
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "no write-completed event subscription remains");
 Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
-Equal(true, unityTick.Contains("ConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal), "Unity update consumes one diagnostic only after delayed verification produced a newly verified mod grant");
+int delayedVerificationLoopIndex = unityTick.IndexOf("foreach (string song in ready) TryReconcileSong", StringComparison.Ordinal);
+int diagnosticWaveConsumeIndex = unityTick.IndexOf("TryConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal);
+Equal(true, delayedVerificationLoopIndex >= 0 && diagnosticWaveConsumeIndex > delayedVerificationLoopIndex, "Unity update consumes a diagnostic wave only after every due delayed verification has run");
 Equal(true, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves schedule the bounded ownership snapshot immediately afterward");
 string persistenceTargetLogger = ExtractMethods(receiptRandomizationSource, "private static void LogPersistenceTargetOwnershipDiagnostic(").Single();
 foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryReadDiskCommitTargetDiagnostic", "TryReadPersistenceTargetActiveState", "TryReadPublicWriteDiagnosticState" })
@@ -655,13 +657,48 @@ persistenceDiagnosticWave.Receive("HEAVY_METAL");
 persistenceDiagnosticWave.ActivateSave(4);
 persistenceDiagnosticWave.RecordSubmission("BADASS");
 persistenceDiagnosticWave.RecordSubmission("HEAVY_METAL");
+Equal(false, persistenceDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 9, statePointer: 0x700, out _),
+    "a submitted semantic grant cannot emit diagnostics before delayed authoritative verification");
+SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.Tick(TimeSpan.FromMilliseconds(250)),
+    "both delayed authoritative verifications become due before wave admission");
 Equal(true, persistenceDiagnosticWave.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag), "a newly verified mod grant enters the diagnostic wave");
 Equal(true, persistenceDiagnosticWave.RecordVerification("HEAVY_METAL", CassetteRandomizationPolicy.HaveInBag), "same-update newly verified grants coalesce into the diagnostic wave");
-SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave(), "one diagnostic wave contains every newly verified grant in stable order");
-Equal(0, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave().Count, "a verified wave is consumed at most once");
+Equal(true, persistenceDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 9, statePointer: 0x700, out CassettePersistenceTargetDiagnosticWave verifiedWave),
+    "one post-loop consume captures the verified wave and its save identity");
+SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, verifiedWave.Songs, "one diagnostic wave contains every newly verified grant in stable order");
+Equal(new CassettePersistenceTargetDiagnosticIdentity(9, 1, 4, 0x700), verifiedWave.Identity,
+    "the verified wave captures generation, epoch, slot, and pointer atomically");
+Equal(true, verifiedWave.IsCurrent(generation: 9, epoch: 1, slot: 4, statePointer: 0x700),
+    "the verified wave accepts only its exact save identity");
+Equal(false, persistenceDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 9, statePointer: 0x700, out _),
+    "a verified wave is consumed at most once");
 SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.OwnedSongs, "the snapshot retains all AP-owned cassette evidence, not only the last verified song");
 persistenceDiagnosticWave.ActivateSave(4);
-Equal(0, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave().Count, "a new save epoch invalidates a stale queued diagnostic wave");
+Equal(false, verifiedWave.IsCurrent(generation: 9, epoch: persistenceDiagnosticWave.Epoch, slot: 4, statePointer: 0x700),
+    "a boundary racing after consumption rejects the stale captured wave");
+
+var queuedBoundaryDiagnosticWave = new CassetteSaveEpochRuntime();
+queuedBoundaryDiagnosticWave.Receive("BADASS");
+queuedBoundaryDiagnosticWave.ActivateSave(4);
+queuedBoundaryDiagnosticWave.RecordSubmission("BADASS");
+queuedBoundaryDiagnosticWave.Tick(TimeSpan.FromMilliseconds(250));
+queuedBoundaryDiagnosticWave.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+queuedBoundaryDiagnosticWave.ActivateSave(4);
+Equal(false, queuedBoundaryDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 9, statePointer: 0x700, out _),
+    "a new save epoch clears a genuinely queued diagnostic wave before it can emit");
+
+var nonDelayedDiagnosticWave = new CassetteSaveEpochRuntime();
+nonDelayedDiagnosticWave.Receive("BADASS");
+nonDelayedDiagnosticWave.ActivateSave(4);
+nonDelayedDiagnosticWave.RecordSubmission("BADASS");
+nonDelayedDiagnosticWave.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, nonDelayedDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 10, statePointer: 0x701, out _),
+    "RecordVerification cannot admit a diagnostic wave until its bounded delay is actually due");
 Console.WriteLine("PASS: newly_verified_mod_grants_queue_one_identity_scoped_persistence_target_snapshot");
 
 Equal("identity-changed-no-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
@@ -1240,6 +1277,39 @@ Equal("target-save-data-selected-slot-empty", emptySelectedStage, "empty numeric
 Equal(false, emptySelectedDiagnostic.HasSelectedPlayerSaveSlot, "empty numeric selected slot cannot invent a value");
 Equal(true, emptySelectedDiagnostic.HasExpectedSlotEntryPointer, "active epoch entry is independently available when numeric selected slot is empty");
 Equal(0x700L, emptySelectedDiagnostic.ExpectedSlotEntryPointer, "active epoch pointer survives empty numeric selected-slot evidence");
+
+foreach ((object saveDataState, string expectedStagePrefix, string caseName) in new[]
+{
+    ((object)new ThrowingSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        new IntPtr(0x333), new() { [4] = expectedTargetState }),
+        "target-save-data-selected-slot-get-invocation:InvalidOperationException:selected-slot-get", "throwing-getter"),
+    ((object)new MalformedSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        new IntPtr(0x333), new() { [4] = expectedTargetState }),
+        "target-save-data-selected-slot-contract-missing", "malformed-nullable"),
+    ((object)new UnconvertibleSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        new IntPtr(0x333), new() { [4] = expectedTargetState }),
+        "target-save-data-selected-slot-convert-invocation:FormatException", "conversion-failure"),
+})
+{
+    var selectedFailureRegisteredProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), saveDataState);
+    var selectedFailureRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), selectedFailureRegisteredProcessor);
+    RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedFailureRegisteredWrapper));
+    Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+        targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+        new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
+        out CassetteDiskCommitTargetDiagnosticState selectedFailureDiagnostic,
+        out _, out string selectedFailureStage),
+        $"{caseName}: selected-slot failure remains an isolated partial diagnostic failure");
+    Equal(true, selectedFailureStage.StartsWith(expectedStagePrefix, StringComparison.Ordinal),
+        $"{caseName}: selected-slot failure retains its precise stage");
+    Equal(true, selectedFailureDiagnostic.HasExpectedSlotEntryPointer,
+        $"{caseName}: independently resolved expected-slot evidence survives selected-slot failure");
+    Equal(0x700L, selectedFailureDiagnostic.ExpectedSlotEntryPointer,
+        $"{caseName}: expected-slot pointer is checkpointed before selected-slot access");
+    Equal(false, selectedFailureDiagnostic.HasSelectedEntryPointer,
+        $"{caseName}: failed selected evidence cannot invent a selected-entry pointer");
+    Equal(0, RequestSystem.SubmitCount, $"{caseName}: partial diagnostics never mutate or submit requests");
+}
 
 Equal(true, CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
     targetPlayerProcessor, expectedPointer: 0x700,
@@ -3177,6 +3247,39 @@ sealed record DiskCommitTargetSaveDataStateFixture(
     IntPtr Pointer,
     FakeIl2CppNullable<int> SelectedPlayerSaveSlot,
     Dictionary<int, DiskCommitTargetPlayerStateFixture> RegularPlayerSaves);
+
+sealed class ThrowingSelectedSlotDiskCommitTargetSaveDataStateFixture
+{
+    public ThrowingSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        IntPtr pointer, Dictionary<int, DiskCommitTargetPlayerStateFixture> saves)
+    { Pointer = pointer; RegularPlayerSaves = saves; }
+    public IntPtr Pointer { get; }
+    public FakeIl2CppNullable<int> SelectedPlayerSaveSlot =>
+        throw new InvalidOperationException("selected-slot-get");
+    public Dictionary<int, DiskCommitTargetPlayerStateFixture> RegularPlayerSaves { get; }
+}
+
+sealed class MalformedSelectedNullable<T> { }
+
+sealed class MalformedSelectedSlotDiskCommitTargetSaveDataStateFixture
+{
+    public MalformedSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        IntPtr pointer, Dictionary<int, DiskCommitTargetPlayerStateFixture> saves)
+    { Pointer = pointer; RegularPlayerSaves = saves; }
+    public IntPtr Pointer { get; }
+    public MalformedSelectedNullable<int> SelectedPlayerSaveSlot { get; } = new();
+    public Dictionary<int, DiskCommitTargetPlayerStateFixture> RegularPlayerSaves { get; }
+}
+
+sealed class UnconvertibleSelectedSlotDiskCommitTargetSaveDataStateFixture
+{
+    public UnconvertibleSelectedSlotDiskCommitTargetSaveDataStateFixture(
+        IntPtr pointer, Dictionary<int, DiskCommitTargetPlayerStateFixture> saves)
+    { Pointer = pointer; RegularPlayerSaves = saves; }
+    public IntPtr Pointer { get; }
+    public FakeIl2CppNullable<string> SelectedPlayerSaveSlot { get; } = new(true, "not-an-integer");
+    public Dictionary<int, DiskCommitTargetPlayerStateFixture> RegularPlayerSaves { get; }
+}
 
 sealed class DiskCommitTargetPlayerStateFixture
 {
