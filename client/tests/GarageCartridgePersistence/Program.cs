@@ -50,7 +50,8 @@ Equal(GarageNativeGrantDecision.WaitForServer, GarageCartridgeInsertionPolicy.De
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 string storageSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "GarageCartridgeInsertionStorage.cs"));
 string connectMethod = MethodBody(pluginSource, "private bool TryConnectOnce()", "public void Shutdown()");
-string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private void ClearCurrentSession(");
+string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private bool ClearCurrentSession(");
+string clearCurrentSessionMethod = MethodBody(pluginSource, "private bool ClearCurrentSession(", "private void RequestReconnect(");
 int garageClassStart = pluginSource.IndexOf("internal static class GarageCartridgeAccess", StringComparison.Ordinal);
 if (garageClassStart < 0)
     throw new InvalidOperationException("Could not locate GarageCartridgeAccess.");
@@ -60,6 +61,7 @@ string itemCallback = MethodBody(garageSource, "public static bool TryApplyItem(
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
+int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
 int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(_server)", StringComparison.Ordinal);
 True(pluginSource.Contains("private long _connectionGeneration;", StringComparison.Ordinal),
     "ArchipelagoClient owns the connection generation");
@@ -69,8 +71,10 @@ True(pluginSource.Contains(
     "ArchipelagoClient uses an atomic session-generation lifecycle gate");
 True(generationIncrement >= 0 && generationIncrement < sessionCreation,
     "every new session attempt captures a unique generation before session creation");
+True(attemptAdmission > generationIncrement && attemptAdmission < sessionCreation,
+    "every session attempt is admitted before session creation so shutdown can reject publication");
 True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation", StringComparison.Ordinal) &&
-     connectMethod.Contains("ConnectionLifecycle.TryEnd(session, generation", StringComparison.Ordinal),
+     connectMethod.Contains("ClearCurrentSession(session, generation", StringComparison.Ordinal),
     "session callbacks atomically lease or end the matching session and generation");
 False(pluginSource.Contains("private bool IsCurrentSession(", StringComparison.Ordinal),
     "the former check-then-act session helper is not available for callback dispatch");
@@ -82,24 +86,33 @@ True(garageSlotData >= 0 && beginServerSync > garageSlotData && connected > begi
     "compatible Garage server sync begins after slot data and before the client becomes connected");
 
 string socketCloseHandler = MethodBody(connectMethod, "session.Socket.SocketClosed += reason =>", "session.Socket.ErrorReceived += (exception, message) =>");
-True(socketCloseHandler.Contains("ConnectionLifecycle.TryEnd(session, generation", StringComparison.Ordinal) &&
-     socketCloseHandler.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
-    "current-session socket close ends only its server synchronization generation");
+True(socketCloseHandler.Contains("ClearCurrentSession(session, generation, () =>", StringComparison.Ordinal) &&
+     socketCloseHandler.Contains("RequestReconnect($\"socket closed: {reason}\")", StringComparison.Ordinal),
+    "current-session socket close performs its terminal work through the exclusive lifecycle callback");
+string socketErrorHandler = MethodBody(connectMethod, "session.Socket.ErrorReceived += (exception, message) =>", "session.Items.ItemReceived += helper =>");
+True(socketErrorHandler.Contains("ClearCurrentSession(session, generation, () =>", StringComparison.Ordinal) &&
+     socketErrorHandler.Contains("RequestReconnect($\"terminal socket error: {message}\")", StringComparison.Ordinal),
+    "terminal socket error performs its teardown and reconnect decision through the exclusive lifecycle callback");
 string failedLogin = MethodBody(connectMethod, "if (!result.Successful)", "if (result is LoginSuccessful loginSuccess)");
-True(failedLogin.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+True(failedLogin.Contains("ClearCurrentSession(session, generation);", StringComparison.Ordinal),
     "failed login ends its server synchronization generation");
-True(connectMethod.Contains("GarageCartridgeAccess.EndServerSync(previousGeneration);", StringComparison.Ordinal),
+True(connectMethod.Contains("GarageCartridgeAccess.EndServerSync(previousSession.Generation);", StringComparison.Ordinal),
     "replacing a session ends the replaced synchronization generation");
-True(connectMethod.Contains("ConnectionLifecycle.Replace(session, generation", StringComparison.Ordinal),
-    "session replacement is an atomic lifecycle claim");
+True(connectMethod.Contains("ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal),
+    "session publication is an admitted atomic lifecycle claim");
 True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? loginLease)", StringComparison.Ordinal),
     "successful login holds a current-session lease through server sync begin and connected publication");
 True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease)", StringComparison.Ordinal),
     "received-item dispatch holds a current-session lease so replacement cannot overtake it");
-True(connectMethod.Contains("catch (Exception ex)\n        {\n            GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+True(connectMethod.Contains("ConnectionLifecycle.Abandon(generation)", StringComparison.Ordinal),
     "connection exception cleanup ends its synchronization generation");
-True(shutdownMethod.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
-    "deliberate shutdown ends the current synchronization generation");
+True(shutdownMethod.Contains("ConnectionLifecycle.Shutdown(current =>", StringComparison.Ordinal) &&
+     shutdownMethod.Contains("GarageCartridgeAccess.EndServerSync(current.Generation);", StringComparison.Ordinal),
+    "deliberate shutdown atomically closes admission and ends the current synchronization generation");
+True(clearCurrentSessionMethod.Contains("ConnectionLifecycle.TryEnd(session, generation, () =>", StringComparison.Ordinal) &&
+     clearCurrentSessionMethod.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal) &&
+     clearCurrentSessionMethod.Contains("terminal?.Invoke();", StringComparison.Ordinal),
+    "terminal teardown and reconnect decisions run inside the exclusive lifecycle claim");
 
 True(configureMethod.Contains("ServerSyncLifecycle.EndActive", StringComparison.Ordinal) &&
      configureMethod.Contains("ResetNativeBagObservations", StringComparison.Ordinal),
@@ -181,8 +194,10 @@ False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal
     object oldSession = new();
     object newSession = new();
     var sessions = new SessionGenerationLeaseGate<object>();
-    sessions.Replace(oldSession, 1);
-    sessions.Replace(newSession, 2);
+    True(sessions.TryAdmit(1), "old callback generation is admitted");
+    True(sessions.TryPublish(oldSession, 1, _ => { }, out _), "old callback session is published");
+    True(sessions.TryAdmit(2), "replacement callback generation is admitted");
+    True(sessions.TryPublish(newSession, 2, _ => { }, out _), "replacement callback session is published");
     var dispatchCount = 0;
     if (sessions.TryAcquire(oldSession, 1, out LifecycleLease? callbackLease))
     {
@@ -197,7 +212,8 @@ False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal
     object oldSession = new();
     object newSession = new();
     var sessions = new SessionGenerationLeaseGate<object>();
-    sessions.Replace(oldSession, 1);
+    True(sessions.TryAdmit(1), "leased callback generation is admitted");
+    True(sessions.TryPublish(oldSession, 1, _ => { }, out _), "leased callback session is published");
     True(sessions.TryAcquire(oldSession, 1, out LifecycleLease? callbackLease),
         "current callback acquires an atomic dispatch lease");
     using var replaceStarted = new ManualResetEventSlim();
@@ -205,7 +221,8 @@ False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal
     Task replaceTask = Task.Run(() =>
     {
         replaceStarted.Set();
-        sessions.Replace(newSession, 2);
+        True(sessions.TryAdmit(2), "replacement generation is admitted after callback lease");
+        True(sessions.TryPublish(newSession, 2, _ => { }, out _), "replacement publishes after callback lease");
         replaceCompleted.Set();
     });
     True(replaceStarted.Wait(TimeSpan.FromSeconds(1)), "replacement attempt starts");
@@ -214,6 +231,64 @@ False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal
     callbackLease!.Dispose();
     True(replaceCompleted.Wait(TimeSpan.FromSeconds(1)), "replacement completes after callback dispatch ends");
     await replaceTask;
+}
+
+{
+    object session = new();
+    var sessions = new SessionGenerationLeaseGate<object>();
+    True(sessions.TryAdmit(1), "pre-publication attempt is admitted");
+    var shutdownCount = 0;
+    GenerationSession<object> shutdownCurrent = sessions.Shutdown(_ => shutdownCount++);
+    Equal(null, shutdownCurrent.Session, "shutdown before publication has no published session");
+    Equal(1, shutdownCount, "shutdown transition executes exactly once");
+    var publishCount = 0;
+    False(sessions.TryPublish(session, 1, _ => publishCount++, out _),
+        "an attempt admitted before shutdown cannot publish after shutdown wins");
+    False(sessions.TryAdmit(2), "shutdown permanently rejects later connection attempts");
+    Equal(0, publishCount, "shutdown-before-publication never invokes publication work");
+}
+
+{
+    object oldSession = new();
+    object newSession = new();
+    var sessions = new SessionGenerationLeaseGate<object>();
+    True(sessions.TryAdmit(1), "terminal-race generation is admitted");
+    True(sessions.TryPublish(oldSession, 1, _ => { }, out _), "terminal-race session is published");
+    True(sessions.TryAdmit(2), "replacement attempt is admitted before the old terminal callback");
+    using var terminalStarted = new ManualResetEventSlim();
+    using var releaseTerminal = new ManualResetEventSlim();
+    using var replacementStarted = new ManualResetEventSlim();
+    using var replacementCompleted = new ManualResetEventSlim();
+    var order = 0;
+    var terminalOrder = 0;
+    var replacementOrder = 0;
+    Task terminalTask = Task.Run(() =>
+    {
+        True(sessions.TryEnd(oldSession, 1, () =>
+        {
+            terminalStarted.Set();
+            True(releaseTerminal.Wait(TimeSpan.FromSeconds(1)), "terminal callback is released");
+            terminalOrder = Interlocked.Increment(ref order);
+        }), "old terminal callback ends its current generation");
+    });
+    True(terminalStarted.Wait(TimeSpan.FromSeconds(1)), "terminal callback owns the lifecycle claim");
+    Task replacementTask = Task.Run(() =>
+    {
+        replacementStarted.Set();
+        True(sessions.TryPublish(newSession, 2, _ =>
+        {
+            replacementOrder = Interlocked.Increment(ref order);
+        }, out _), "replacement publishes after terminal work");
+        replacementCompleted.Set();
+    });
+    True(replacementStarted.Wait(TimeSpan.FromSeconds(1)), "replacement attempt starts while terminal work is active");
+    False(replacementCompleted.Wait(TimeSpan.FromMilliseconds(100)),
+        "replacement cannot publish while old terminal teardown and reconnect decisions are active");
+    releaseTerminal.Set();
+    True(replacementCompleted.Wait(TimeSpan.FromSeconds(1)), "replacement completes after terminal work");
+    await Task.WhenAll(terminalTask, replacementTask);
+    True(terminalOrder > 0 && replacementOrder > terminalOrder,
+        "old terminal side effects finish before the replacement becomes current");
 }
 
 var inserted = new GarageInsertionObservation(true, true, false, GarageInsertionServerValue.NotInserted, true, true, true, true, true, false);

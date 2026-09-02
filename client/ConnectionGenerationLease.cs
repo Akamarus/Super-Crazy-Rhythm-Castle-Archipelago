@@ -118,25 +118,63 @@ internal sealed class SessionGenerationLeaseGate<TSession>
     private readonly ReaderWriterLockSlim _gate = new(LockRecursionPolicy.NoRecursion);
     private TSession? _session;
     private long _generation = long.MinValue;
+    private long _admittedGeneration = long.MinValue;
     private long _highestGeneration = long.MinValue;
+    private bool _shutdown;
 
-    internal GenerationSession<TSession> Replace(
-        TSession session,
-        long generation,
-        Action? replace = null)
+    internal bool TryAdmit(long generation)
     {
-        ArgumentNullException.ThrowIfNull(session);
         _gate.EnterWriteLock();
         try
         {
-            if (generation <= _highestGeneration)
-                throw new ArgumentOutOfRangeException(nameof(generation), "Session generations must increase.");
-            var previous = new GenerationSession<TSession>(_session, _generation);
+            if (_shutdown || generation <= _highestGeneration)
+                return false;
+            _admittedGeneration = generation;
+            _highestGeneration = generation;
+            return true;
+        }
+        finally
+        {
+            _gate.ExitWriteLock();
+        }
+    }
+
+    internal bool TryPublish(
+        TSession session,
+        long generation,
+        Action<GenerationSession<TSession>> publish,
+        out GenerationSession<TSession> previous)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(publish);
+        _gate.EnterWriteLock();
+        try
+        {
+            if (_shutdown || _admittedGeneration != generation)
+            {
+                previous = default;
+                return false;
+            }
+            previous = new GenerationSession<TSession>(_session, _generation);
             _session = session;
             _generation = generation;
-            _highestGeneration = generation;
-            replace?.Invoke();
-            return previous;
+            _admittedGeneration = long.MinValue;
+            publish(previous);
+            return true;
+        }
+        finally
+        {
+            _gate.ExitWriteLock();
+        }
+    }
+
+    internal void Abandon(long generation)
+    {
+        _gate.EnterWriteLock();
+        try
+        {
+            if (_admittedGeneration == generation)
+                _admittedGeneration = long.MinValue;
         }
         finally
         {
@@ -201,15 +239,20 @@ internal sealed class SessionGenerationLeaseGate<TSession>
         }
     }
 
-    internal GenerationSession<TSession> EndCurrent(Action? end = null)
+    internal GenerationSession<TSession> Shutdown(Action<GenerationSession<TSession>> shutdown)
     {
+        ArgumentNullException.ThrowIfNull(shutdown);
         _gate.EnterWriteLock();
         try
         {
+            if (_shutdown)
+                return default;
+            _shutdown = true;
+            _admittedGeneration = long.MinValue;
             var current = new GenerationSession<TSession>(_session, _generation);
             _session = null;
             _generation = long.MinValue;
-            end?.Invoke();
+            shutdown(current);
             return current;
         }
         finally

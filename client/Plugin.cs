@@ -1293,6 +1293,8 @@ internal sealed class ArchipelagoClient
         {
         Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=connect-entered");
         long generation = Interlocked.Increment(ref _connectionGeneration);
+        if (!ConnectionLifecycle.TryAdmit(generation))
+            return false;
         ArchipelagoSession? session = null;
 
         try
@@ -1315,23 +1317,23 @@ internal sealed class ArchipelagoClient
 
             session.Socket.SocketClosed += reason =>
             {
-                if (!ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
-                    return;
-                GarageCartridgeAccess.EndServerSync(generation);
-                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{reason}'");
-                RequestReconnect($"socket closed: {reason}");
+                ClearCurrentSession(session, generation, () =>
+                {
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{reason}'");
+                    RequestReconnect($"socket closed: {reason}");
+                });
             };
 
             session.Socket.ErrorReceived += (exception, message) =>
             {
                 if (!session.Socket.Connected)
                 {
-                    if (!ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
-                        return;
-                    GarageCartridgeAccess.EndServerSync(generation);
-                    Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
-                    RequestReconnect($"terminal socket error: {message}");
+                    ClearCurrentSession(session, generation, () =>
+                    {
+                        Plugin.LoggerInstance?.LogError(
+                            $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
+                        RequestReconnect($"terminal socket error: {message}");
+                    });
                     return;
                 }
 
@@ -1399,15 +1401,23 @@ internal sealed class ArchipelagoClient
                 }
             };
 
-            GenerationSession<ArchipelagoSession> replaced =
-                ConnectionLifecycle.Replace(session, generation, () => _connected = false);
-            ArchipelagoSession? previous = replaced.Session;
-            long previousGeneration = replaced.Generation;
-            if (previous != null && !ReferenceEquals(previous, session))
+            if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
+                {
+                    _connected = false;
+                    if (previousSession.Session != null &&
+                        !ReferenceEquals(previousSession.Session, session))
+                    {
+                        GarageCartridgeAccess.EndServerSync(previousSession.Generation);
+                    }
+                }, out GenerationSession<ArchipelagoSession> replaced))
             {
-                GarageCartridgeAccess.EndServerSync(previousGeneration);
-                _ = previous.Socket.DisconnectAsync();
+                GarageCartridgeAccess.EndServerSync(generation);
+                _ = session.Socket.DisconnectAsync();
+                return false;
             }
+            ArchipelagoSession? previous = replaced.Session;
+            if (previous != null && !ReferenceEquals(previous, session))
+                _ = previous.Socket.DisconnectAsync();
 
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] NET stage=login-begin server='{_server}' slot='{_slot}' game='{Plugin.GameName}'");
@@ -1426,7 +1436,6 @@ internal sealed class ArchipelagoClient
             if (!result.Successful)
             {
                 ClearCurrentSession(session, generation);
-                GarageCartridgeAccess.EndServerSync(generation);
                 _ = session.Socket.DisconnectAsync();
                 if (result is LoginFailure failure)
                     Plugin.LoggerInstance?.LogError(
@@ -1467,7 +1476,6 @@ internal sealed class ArchipelagoClient
                 }
                 catch (Exception ex)
                 {
-                    GarageCartridgeAccess.EndServerSync(generation);
                     ClearCurrentSession(session, generation);
                     _ = session.Socket.DisconnectAsync();
                     Plugin.LoggerInstance?.LogError(
@@ -1488,12 +1496,19 @@ internal sealed class ArchipelagoClient
         }
         catch (Exception ex)
         {
-            GarageCartridgeAccess.EndServerSync(generation);
-            _connected = false;
             if (session != null)
             {
-                ClearCurrentSession(session, generation);
+                if (!ClearCurrentSession(session, generation))
+                {
+                    ConnectionLifecycle.Abandon(generation);
+                    GarageCartridgeAccess.EndServerSync(generation);
+                }
                 _ = session.Socket.DisconnectAsync();
+            }
+            else
+            {
+                ConnectionLifecycle.Abandon(generation);
+                GarageCartridgeAccess.EndServerSync(generation);
             }
             Plugin.LoggerInstance?.LogError(
                 $"[SCRC-AP] NET inner exception type={ex.GetType().FullName}: {ex}");
@@ -1504,20 +1519,30 @@ internal sealed class ArchipelagoClient
 
     public void Shutdown()
     {
-        _reconnectPolicy.OnDeliberateShutdown();
-        _shutdownToken.Cancel();
-        GenerationSession<ArchipelagoSession> current =
-            ConnectionLifecycle.EndCurrent(() => _connected = false);
+        GenerationSession<ArchipelagoSession> current = ConnectionLifecycle.Shutdown(current =>
+        {
+            _connected = false;
+            _reconnectPolicy.OnDeliberateShutdown();
+            _shutdownToken.Cancel();
+            if (current.Session != null)
+                GarageCartridgeAccess.EndServerSync(current.Generation);
+        });
         ArchipelagoSession? session = current.Session;
-        long generation = current.Generation;
-        GarageCartridgeAccess.EndServerSync(generation);
         if (session != null)
             _ = session.Socket.DisconnectAsync();
     }
 
-    private void ClearCurrentSession(ArchipelagoSession session, long generation)
+    private bool ClearCurrentSession(
+        ArchipelagoSession session,
+        long generation,
+        Action? terminal = null)
     {
-        ConnectionLifecycle.TryEnd(session, generation, () => _connected = false);
+        return ConnectionLifecycle.TryEnd(session, generation, () =>
+        {
+            _connected = false;
+            GarageCartridgeAccess.EndServerSync(generation);
+            terminal?.Invoke();
+        });
     }
 
     private void RequestReconnect(string reason)
@@ -1618,11 +1643,11 @@ internal sealed class ArchipelagoClient
             }
         }
 
-        if (sendFailed && ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
-        {
-            GarageCartridgeAccess.EndServerSync(generation);
-            RequestReconnect("location check send failed");
-        }
+        if (sendFailed)
+            ClearCurrentSession(
+                session,
+                generation,
+                () => RequestReconnect("location check send failed"));
     }
 }
 
