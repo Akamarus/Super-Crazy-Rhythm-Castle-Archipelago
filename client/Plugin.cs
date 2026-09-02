@@ -20763,7 +20763,10 @@ internal static class GarageCartridgeAccess
         RequestUnityReconciliation("Garage native cartridge consumption observed");
     }
 
-    public static bool TryReleaseCartridgeObject(string song, Action releaseAction)
+    public static bool TryReleaseCartridgeObject(
+        string song,
+        bool releasedThisVisit,
+        Action releaseAction)
     {
         ArgumentNullException.ThrowIfNull(releaseAction);
         GarageCartridgeNativeDefinition cartridge = Cartridges.FirstOrDefault(candidate =>
@@ -20773,7 +20776,8 @@ internal static class GarageCartridgeAccess
 
         if (cartridge.UsesPhysicalVanillaEntrance)
         {
-            releaseAction();
+            if (!releasedThisVisit)
+                releaseAction();
             return true;
         }
 
@@ -20786,14 +20790,25 @@ internal static class GarageCartridgeAccess
             if (!GarageCartridgeInsertionPolicy.ShouldReleaseObject(
                     cartridge.UsesPhysicalVanillaEntrance,
                     serverValue))
-                return;
-
-            current.Release(() =>
             {
-                releaseAction();
+                lock (Sync)
+                    ReleasedThisVisit.Remove(cartridge.Song);
+                return;
+            }
+
+            if (!releasedThisVisit)
+            {
+                current.Release(() =>
+                {
+                    releaseAction();
+                    RecordGarageObjectReleasedWithinLease(cartridge.Song, serverValue);
+                });
+            }
+            else
+            {
                 RecordGarageObjectReleasedWithinLease(cartridge.Song, serverValue);
-                released = true;
-            });
+            }
+            released = true;
         });
         return released;
     }
@@ -21131,8 +21146,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
 
     private readonly Dictionary<string, GameObject> _objects =
         new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _releasedThisVisit =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly GarageCartridgeReleaseVisitCoordinator _releaseVisit = new();
     private readonly Dictionary<string, bool> _lastOwned =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -21154,7 +21168,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 $"room transition '{_lastRoom}' -> '{room}'");
             _lastRoom = room;
             _objects.Clear();
-            _releasedThisVisit.Clear();
+            _releaseVisit.Clear();
             _lastOwned.Clear();
             _waitingLogged = false;
             _nextPoll = 0f;
@@ -21192,34 +21206,38 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
             {
                 if (obj.activeSelf)
                     obj.SetActive(false);
-                _releasedThisVisit.Remove(cartridge.Song);
+                _releaseVisit.Clear(cartridge.Song);
             }
-            else if (decision == GarageObjectDecision.Active &&
-                     !_releasedThisVisit.Contains(cartridge.Song))
+            else if (decision == GarageObjectDecision.Active)
             {
                 // Release the real Garage cartridge exactly once per room visit.
                 // After this, vanilla may reparent/deactivate it while the player
                 // carries/inserts it; do not continuously force it active.
-                bool released = GarageCartridgeAccess.TryReleaseCartridgeObject(cartridge.Song, () =>
-                {
-                    if (!obj.activeSelf)
-                        obj.SetActive(true);
-                    _releasedThisVisit.Add(cartridge.Song);
-                    MusicLabDiscovery.NotifyRandomizedGarageCartridgeReleased(cartridge.Song);
-                });
-                if (!released)
-                {
-                    if (obj.activeSelf)
-                        obj.SetActive(false);
-                    _releasedThisVisit.Remove(cartridge.Song);
-                }
+                _releaseVisit.Poll(
+                    cartridge.Song,
+                    (releasedThisVisit, releaseAction) =>
+                        GarageCartridgeAccess.TryReleaseCartridgeObject(
+                            cartridge.Song,
+                            releasedThisVisit,
+                            releaseAction),
+                    () =>
+                    {
+                        if (!obj.activeSelf)
+                            obj.SetActive(true);
+                        MusicLabDiscovery.NotifyRandomizedGarageCartridgeReleased(cartridge.Song);
+                    },
+                    () =>
+                    {
+                        if (obj.activeSelf)
+                            obj.SetActive(false);
+                    });
             }
 
             if (!_lastOwned.TryGetValue(cartridge.Song, out bool previousOwned) || previousOwned != owned)
             {
                 _lastOwned[cartridge.Song] = owned;
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} objectActive={obj.activeSelf} releasedThisVisit={_releasedThisVisit.Contains(cartridge.Song)}.");
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} objectActive={obj.activeSelf} releasedThisVisit={_releaseVisit.WasReleased(cartridge.Song)}.");
             }
         }
     }

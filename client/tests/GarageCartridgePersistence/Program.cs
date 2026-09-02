@@ -62,7 +62,7 @@ string observeNativeBagMethod = MethodBody(garageSource, "public static void Obs
 string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
-string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(string song, Action releaseAction)", "public static void NoteGarageObjectReleased(string song)");
+string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
@@ -166,9 +166,10 @@ True(releaseGarageObjectMethod.Contains("ServerSyncLifecycle.TryRunCurrent", Str
      releaseGarageObjectMethod.Contains("current.Release(() =>", StringComparison.Ordinal) &&
      releaseGarageObjectMethod.Contains("RecordGarageObjectReleasedWithinLease", StringComparison.Ordinal),
     "keeper release eligibility, Unity action, and release recording share the current-generation lease");
-True(garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(cartridge.Song, () =>", StringComparison.Ordinal) &&
-     garageSource.Contains("if (!released)", StringComparison.Ordinal),
-    "keeper runs activation through the leased release seam and deactivates when it is rejected");
+True(garageSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal) &&
+     garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(", StringComparison.Ordinal) &&
+     garageSource.Contains("_releaseVisit.WasReleased(cartridge.Song)", StringComparison.Ordinal),
+    "keeper revalidates every active poll while retaining one-shot visit release state");
 
 {
     var access = new GarageCartridgeReconciliationAccess();
@@ -229,6 +230,131 @@ True(garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(cart
     False(access.TryRunCurrent(current => current.Release(() => releaseActionCount++)),
         "teardown winning first rejects the stale release action");
     Equal(0, releaseActionCount, "rejected stale release action cannot activate an object");
+}
+
+static bool TryManagedReleasePoll(
+    GarageCartridgeReconciliationAccess access,
+    GarageInsertionServerValue serverValue,
+    bool releasedThisVisit,
+    Action releaseAction)
+{
+    bool accepted = false;
+    access.TryRunCurrent(current =>
+    {
+        accepted = GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+            usesPhysicalVanillaEntrance: false,
+            serverValue);
+        if (accepted && !releasedThisVisit)
+            current.Release(releaseAction);
+    });
+    return accepted;
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    var visit = new GarageCartridgeReleaseVisitCoordinator();
+    var serverValue = GarageInsertionServerValue.NotInserted;
+    var objectActive = false;
+    var releaseNotifications = 0;
+    var deactivations = 0;
+    True(access.TryBegin(44, () => { }), "inserted-transition visit generation begins");
+
+    True(visit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                serverValue,
+                releasedThisVisit,
+                releaseAction),
+            () =>
+            {
+                objectActive = true;
+                releaseNotifications++;
+            },
+            () =>
+            {
+                objectActive = false;
+                deactivations++;
+            }),
+        "authoritative not-inserted poll releases the object");
+    True(objectActive, "successful release activates the object");
+    True(visit.WasReleased("Bloody Tears"), "successful release records the visit marker");
+
+    True(visit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                serverValue,
+                releasedThisVisit,
+                releaseAction),
+            () => releaseNotifications++,
+            () => deactivations++),
+        "later active poll revalidates authoritative not-inserted state");
+    Equal(1, releaseNotifications, "valid visit release notification remains one-shot");
+
+    serverValue = GarageInsertionServerValue.Inserted;
+    False(visit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                serverValue,
+                releasedThisVisit,
+                releaseAction),
+            () => releaseNotifications++,
+            () =>
+            {
+                objectActive = false;
+                deactivations++;
+            }),
+        "next active poll rejects an object after insertion becomes terminal");
+    False(objectActive, "inserted transition deactivates the formerly released object");
+    False(visit.WasReleased("Bloody Tears"), "inserted transition clears the keeper visit marker");
+    Equal(1, releaseNotifications, "inserted transition does not repeat release notification");
+    Equal(1, deactivations, "inserted transition deactivates exactly once");
+    True(access.End(44, () => { }), "inserted-transition visit generation ends");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    var visit = new GarageCartridgeReleaseVisitCoordinator();
+    var objectActive = false;
+    var releaseNotifications = 0;
+    var deactivations = 0;
+    True(access.TryBegin(45, () => { }), "teardown revalidation visit generation begins");
+    True(visit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                releasedThisVisit,
+                releaseAction),
+            () =>
+            {
+                objectActive = true;
+                releaseNotifications++;
+            },
+            () => deactivations++),
+        "pre-teardown authoritative poll releases the object");
+    True(access.End(45, () => { }), "teardown wins before the next active poll");
+
+    False(visit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                releasedThisVisit,
+                releaseAction),
+            () => releaseNotifications++,
+            () =>
+            {
+                objectActive = false;
+                deactivations++;
+            }),
+        "next active poll rejects release after teardown");
+    False(objectActive, "teardown revalidation deactivates the formerly released object");
+    False(visit.WasReleased("Bloody Tears"), "teardown revalidation clears the keeper visit marker");
+    Equal(1, releaseNotifications, "teardown does not repeat release notification");
+    Equal(1, deactivations, "teardown revalidation deactivates exactly once");
 }
 
 {
