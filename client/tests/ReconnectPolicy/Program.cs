@@ -7,6 +7,21 @@ static void Equal<T>(T expected, T actual, string scenario)
 }
 static void True(bool value, string scenario) => Equal(true, value, scenario);
 static void False(bool value, string scenario) => Equal(false, value, scenario);
+static void WaitUntilBlocked(Thread thread, string scenario)
+{
+    var timeout = System.Diagnostics.Stopwatch.StartNew();
+    var spinner = new SpinWait();
+    while (timeout.Elapsed < TimeSpan.FromSeconds(5))
+    {
+        ThreadState state = thread.ThreadState;
+        if ((state & ThreadState.WaitSleepJoin) != 0)
+            return;
+        if ((state & ThreadState.Stopped) != 0)
+            throw new InvalidOperationException($"{scenario}: thread completed instead of blocking");
+        spinner.SpinOnce();
+    }
+    throw new InvalidOperationException($"{scenario}: thread did not block within the timeout");
+}
 
 var policy = new ReconnectPolicy();
 Equal<TimeSpan?>(null, policy.NextDelay(), "connected startup has no retry");
@@ -106,6 +121,123 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
         "retry worker is admitted while its retry intent remains current");
     False(connected, "admitted retry reports the connection attempt result");
     Equal(1, sessionCreationCount, "current retry reaches session creation exactly once");
+}
+
+{
+    var serializedPolicy = new ReconnectPolicy();
+    var connectionLock = new object();
+    serializedPolicy.OnUnexpectedDisconnect();
+    ReconnectAttempt attempt = serializedPolicy.NextAttempt()!.Value;
+    var connectionDelegateCalls = 0;
+    var admitted = true;
+    var connected = true;
+    using var workerReady = new ManualResetEventSlim();
+    using var wakeWorker = new ManualResetEventSlim();
+    using var admissionStarted = new ManualResetEventSlim();
+    using var workerFinished = new ManualResetEventSlim();
+    var worker = new Thread(() =>
+    {
+        workerReady.Set();
+        wakeWorker.Wait();
+        admissionStarted.Set();
+        admitted = ReconnectAttemptAdmission.TryExecute(
+            connectionLock,
+            serializedPolicy,
+            attempt,
+            () =>
+            {
+                Interlocked.Increment(ref connectionDelegateCalls);
+                return true;
+            },
+            out connected);
+        workerFinished.Set();
+    });
+
+    worker.Start();
+    True(workerReady.Wait(TimeSpan.FromSeconds(5)), "retry worker is waiting to be woken");
+    Monitor.Enter(connectionLock);
+    try
+    {
+        True(Monitor.IsEntered(connectionLock), "replacement owns the connection lock before waking the retry worker");
+        wakeWorker.Set();
+        True(admissionStarted.Wait(TimeSpan.FromSeconds(5)), "retry worker attempts admission while replacement holds the connection lock");
+        WaitUntilBlocked(worker, "retry admission waits behind the replacement connection lock");
+        False(workerFinished.IsSet, "retry admission cannot complete while replacement holds the connection lock");
+        serializedPolicy.OnConnected();
+        False(workerFinished.IsSet, "replacement invalidates retry intent before releasing the connection lock");
+    }
+    finally
+    {
+        Monitor.Exit(connectionLock);
+    }
+
+    True(worker.Join(TimeSpan.FromSeconds(5)), "retry admission completes after replacement releases the connection lock");
+    False(admitted, "retry intent is validated only after admission acquires the connection lock");
+    False(connected, "retry denied after replacement reports no connection result");
+    Equal(0, connectionDelegateCalls, "replacement invalidation prevents stale connection execution");
+}
+
+{
+    var serializedPolicy = new ReconnectPolicy();
+    var connectionLock = new object();
+    serializedPolicy.OnUnexpectedDisconnect();
+    ReconnectAttempt attempt = serializedPolicy.NextAttempt()!.Value;
+    using var connectionDelegateEntered = new ManualResetEventSlim();
+    using var releaseConnectionDelegate = new ManualResetEventSlim();
+    using var replacementAcquiredLock = new ManualResetEventSlim();
+    using var workerFinished = new ManualResetEventSlim();
+    var sequence = 0;
+    var delegateExitSequence = 0;
+    var replacementAcquireSequence = 0;
+    var admitted = false;
+    var connected = true;
+    var worker = new Thread(() =>
+    {
+        admitted = ReconnectAttemptAdmission.TryExecute(
+            connectionLock,
+            serializedPolicy,
+            attempt,
+            () =>
+            {
+                connectionDelegateEntered.Set();
+                releaseConnectionDelegate.Wait();
+                delegateExitSequence = Interlocked.Increment(ref sequence);
+                return false;
+            },
+            out connected);
+        workerFinished.Set();
+    });
+    worker.Start();
+    True(connectionDelegateEntered.Wait(TimeSpan.FromSeconds(5)), "valid retry enters its connection delegate");
+
+    var replacement = new Thread(() =>
+    {
+        lock (connectionLock)
+        {
+            replacementAcquireSequence = Interlocked.Increment(ref sequence);
+            serializedPolicy.OnConnected();
+            replacementAcquiredLock.Set();
+        }
+    });
+    replacement.Start();
+    try
+    {
+        WaitUntilBlocked(replacement, "replacement waits behind the active retry connection delegate");
+        False(replacementAcquiredLock.IsSet, "replacement cannot acquire the connection lock while retry connection executes");
+        False(workerFinished.IsSet, "retry admission remains active until its connection delegate exits");
+    }
+    finally
+    {
+        releaseConnectionDelegate.Set();
+    }
+
+    True(worker.Join(TimeSpan.FromSeconds(5)), "retry admission completes after its connection delegate exits");
+    True(replacement.Join(TimeSpan.FromSeconds(5)), "replacement acquires the connection lock after retry connection exits");
+    True(admitted, "current retry is admitted");
+    False(connected, "admitted retry propagates the connection delegate result");
+    True(replacementAcquiredLock.IsSet, "replacement eventually acquires the connection lock");
+    Equal(1, delegateExitSequence, "retry connection delegate exits before replacement lock acquisition");
+    Equal(2, replacementAcquireSequence, "replacement lock acquisition is serialized after retry connection execution");
 }
 
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
