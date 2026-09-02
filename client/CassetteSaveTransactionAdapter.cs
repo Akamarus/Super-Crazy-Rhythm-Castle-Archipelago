@@ -104,6 +104,21 @@ internal readonly record struct CassettePostLoadDiagnosticState(
     CassetteDiagnosticValue<IReadOnlyList<string>?> BagSongs,
     IReadOnlyList<CassettePostLoadSongDiagnostic> Songs);
 
+internal readonly record struct CassettePointerBoundPersistenceInvocationPlan(
+    object State,
+    MethodInfo PersistDefaultMethod,
+    MethodInfo RequestUrgentWriteMethod,
+    object DefaultBundle,
+    long ExpectedPointer);
+
+internal enum CassettePointerBoundPersistenceInvocationResult
+{
+    NotInvoked,
+    PromotionIndeterminate,
+    UrgencyIndeterminate,
+    Invoked,
+}
+
 internal static class CassetteSaveTransactionAdapter
 {
     private const BindingFlags AllStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -297,6 +312,121 @@ internal static class CassetteSaveTransactionAdapter
             $"uiBagAny={Text(state.HasAnyBagCassettes, value => value.ToString())} " +
             $"uiBagSongs={Text(state.BagSongs, value => $"[{string.Join(",", value ?? Array.Empty<string>())}]")} " +
             $"songs=[{songText}]";
+    }
+
+    internal static bool TryPreparePointerBoundPersistenceInvocation(
+        object? playerSaveProcessor,
+        long expectedPointer,
+        out CassettePointerBoundPersistenceInvocationPlan plan,
+        out string stage)
+    {
+        plan = default;
+        stage = "acceptance-plan-start";
+        try
+        {
+            if (!TryObtainPublicState(
+                    playerSaveProcessor, "acceptance-plan", out object? state, out stage))
+                return false;
+            Type stateType = state!.GetType();
+            if (!string.Equals(stateType.Name, "PlayerSaveFileState", StringComparison.Ordinal))
+            {
+                stage = "acceptance-plan-player-state-type-mismatch";
+                return false;
+            }
+            if (!TryReadPublicPointer(state, "acceptance-plan", out long pointer, out stage))
+                return false;
+            if (pointer != expectedPointer)
+            {
+                stage = $"acceptance-plan-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{pointer:X}";
+                return false;
+            }
+
+            Type? bundleType = FindType("ePlayerSaveChangeBundleKey", stateType.Assembly);
+            if (bundleType?.IsEnum != true)
+            {
+                stage = "acceptance-plan-bundle-type-missing";
+                return false;
+            }
+            stage = "acceptance-plan-default-parse";
+            object defaultBundle = Enum.Parse(bundleType, "DEFAULT", ignoreCase: false);
+            if (Convert.ToInt32(defaultBundle) != 1)
+            {
+                stage = "acceptance-plan-default-numeric-mismatch";
+                return false;
+            }
+
+            MethodInfo? persist = stateType.GetMethod(
+                "PersistAllChangesInBundle", PublicInstance, binder: null,
+                types: new[] { bundleType }, modifiers: null);
+            if (persist == null || persist.ReturnType != typeof(void) ||
+                !string.Equals(persist.DeclaringType?.Name, "PlayerSaveFileState", StringComparison.Ordinal))
+            {
+                stage = "acceptance-plan-persist-contract-missing";
+                return false;
+            }
+            MethodInfo? urgent = stateType.GetMethod(
+                "RequestUrgentWriteToDisk", PublicInstance, binder: null,
+                types: Type.EmptyTypes, modifiers: null);
+            if (urgent == null || urgent.ReturnType != typeof(void) ||
+                !string.Equals(urgent.DeclaringType?.Name, "BaseSaveFileState", StringComparison.Ordinal))
+            {
+                stage = "acceptance-plan-urgent-contract-missing";
+                return false;
+            }
+
+            plan = new(state, persist, urgent, defaultBundle, expectedPointer);
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            plan = default;
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static CassettePointerBoundPersistenceInvocationResult InvokePointerBoundPersistence(
+        CassettePointerBoundPersistenceInvocationPlan plan,
+        out string stage)
+    {
+        stage = "acceptance-invoke-start";
+        if (plan.State == null || plan.PersistDefaultMethod == null ||
+            plan.RequestUrgentWriteMethod == null || plan.DefaultBundle == null ||
+            plan.ExpectedPointer == 0)
+        {
+            stage = "acceptance-invoke-plan-invalid";
+            return CassettePointerBoundPersistenceInvocationResult.NotInvoked;
+        }
+        try
+        {
+            stage = "acceptance-invoke-promote";
+            plan.PersistDefaultMethod.Invoke(plan.State, new[] { plan.DefaultBundle });
+        }
+        catch (Exception ex)
+        {
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return CassettePointerBoundPersistenceInvocationResult.PromotionIndeterminate;
+        }
+        try
+        {
+            if (!TryReadPublicPointer(plan.State, "acceptance-invoke-post-promote", out long pointer, out stage) ||
+                pointer != plan.ExpectedPointer)
+            {
+                if (pointer != 0 && pointer != plan.ExpectedPointer)
+                    stage = $"acceptance-invoke-post-promote-pointer-mismatch:expected=0x{plan.ExpectedPointer:X}:actual=0x{pointer:X}";
+                return CassettePointerBoundPersistenceInvocationResult.PromotionIndeterminate;
+            }
+            stage = "acceptance-invoke-urgent";
+            plan.RequestUrgentWriteMethod.Invoke(plan.State, null);
+            stage = "success";
+            return CassettePointerBoundPersistenceInvocationResult.Invoked;
+        }
+        catch (Exception ex)
+        {
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return CassettePointerBoundPersistenceInvocationResult.UrgencyIndeterminate;
+        }
     }
 
     private static CassetteDiagnosticValue<bool> ReadSelectedSaveValidityDiagnostic()

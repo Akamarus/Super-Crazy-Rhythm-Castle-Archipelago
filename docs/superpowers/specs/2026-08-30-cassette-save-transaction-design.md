@@ -82,7 +82,7 @@ After a loaded-save epoch is confirmed, reconciliation runs only on the Unity th
 
 Live close-and-relaunch testing disproved the earlier ordinary-lifecycle assumption. After the gameplay-ready gate opened, all four mod grants verified as `HAVE_IN_BAG` on the exact selected/player pointer and appeared in the UI bag, while the public state still reported `HasUnstagedChanges=true`. A normal close did not persist those changes; the next launch loaded all four as unearned and reconciliation granted them again. The semantic request therefore proves an in-memory `DEFAULT` bundle change only, not disk durability.
 
-Cassette reconciliation still does not construct or submit `PersistSaveChangeBundleRequest`, `PersistAllSaveChangeBundlesRequest`, `TriggerUrgentSaveWriteIfAnyChangesRequest`, or `RequestWriteForPlayerSave`; it does not subscribe to `PlayerSaveWriteCompletedEvent`; and it runs no synthetic disk-write timer or success/failure transaction. The client never calls a private save manager or flush method. A bounded, behavior-neutral ownership snapshot now runs once after a delayed verification wave newly verifies one or more mod-granted `HAVE_IN_BAG` songs. It records the authoritative selected/player identity, registered and retained SaveData processor identities, the active-slot and numeric-selected dictionary entries, public state/bundle/write metadata, and cassette/UI evidence without submitting a request or mutating save state.
+Cassette reconciliation still does not construct or submit `PersistSaveChangeBundleRequest`, `PersistAllSaveChangeBundlesRequest`, `TriggerUrgentSaveWriteIfAnyChangesRequest`, or `RequestWriteForPlayerSave`; automatic production behavior runs no synthetic disk-write transaction. The client never calls a private save manager or flush method. A bounded ownership snapshot runs once after a delayed verification wave newly verifies one or more mod-granted `HAVE_IN_BAG` songs. It records the authoritative selected/player identity, registered and retained SaveData processor identities, the active-slot and numeric-selected dictionary entries, public state/bundle/write metadata, and cassette/UI evidence.
 
 The diagnostic decision rule is observational only:
 
@@ -93,6 +93,14 @@ The diagnostic decision rule is observational only:
 The active epoch entry is looked up before the numeric selected-slot entry so a missing or empty global selection cannot hide positive manager ownership evidence. None of these diagnostic outcomes authorizes a write by itself.
 
 The exact cassette request mechanism has live evidence: the parameterless request with explicit `Song`/`CassetteStatus` and absent `Bundle` reaches the native RecordSong processor as effective `DEFAULT`, while reflected nullable bundle construction produced invalid payloads. Safe loaded-save timing and epoch-scoped verification are now established; durable promotion of that verified unstaged bundle remains an unresolved, separately gated persistence boundary.
+
+### Explicit pointer-bound persistence acceptance trial
+
+`Developer.EnableCassettePointerBoundPersistenceAcceptance` is an acceptance-only switch and defaults to `false`. It is not automatic production persistence. When explicitly enabled at startup, one newly verified mod-grant wave may start at most one trial in the current epoch, and only on the Unity thread after all of these public facts are freshly proven: compatible cassette routing; live gameplay-ready identity; current generation/epoch/slot/pointer; valid selected-save enquiry with the exact active pointer; registered Persist processor identity equal to the retained/joined SaveData processor; `RegularPlayerSaves[active slot]` equal to the active player-state pointer; the diagnostic decision is exactly `pointer-bound-public-state-candidate`; the `DEFAULT` bundle exists and has changes; all wave cassettes remain `HAVE_IN_BAG`; `HasUnstagedChanges` and `HasChanges` are true; and no write is already required. The aggregate target reader may be partially false only for the live-proven `target-selected-entry-missing` shape after all mandatory expected-slot evidence was captured; all other unreadable or malformed target shapes reject the trial.
+
+Before mutation the client resolves the exact public method owners/signatures and installs an immutable attempt token plus write/redundancy/status baseline. It then invokes, on the same exact `PlayerSaveFileState`, `PersistAllChangesInBundle(DEFAULT)` followed by inherited public `BaseSaveFileState.RequestUrgentWriteToDisk()`. It does not construct a generic Persist request, submit through `RequestSystem`, call a private writer/manager, mutate selection, persist other bundles, or retry after either call may have executed. If promotion returns but urgency throws, the epoch is indeterminate and tombstoned.
+
+The opt-in event hook treats `PlayerSaveWriteCompletedEvent` only as a same-slot wake or terminal failure hint. Success still requires fresh exact identity/ownership and retained cassette statuses; `HasUnstagedChanges=false`, `RequiresWriteToDisk=false`, and `HasChanges=false`; no advanced failure time/reason; and either an advanced public success timestamp or redundancy index/revision beyond the immutable PRE baseline. A 130-second active-update watchdog bounds the trial. Save boundary, deactivation, or config disable cancels the logical attempt; late and wrong-slot events cannot reopen it. Logs are bounded to `PRE`, `INVOKED`, `IMMEDIATE POST`, `EVENT`, and one terminal `VERIFIED`, `FAILED`, `TIMEOUT`, or `CANCELLED` marker.
 
 ### Load and switch behavior
 
@@ -149,7 +157,11 @@ Automated tests must prove:
 14. Authoritative-read failures fail closed.
 15. A receipt arriving during campaign or Music Lab result processing waits for the Unity keeper rather than writing inside the result transaction.
 16. Same-slot reload after a transient bag observation revalidates and repairs the active save.
-17. Source wiring contains no selected-slot event hook, synthetic Persist construction/submission, write-completed event consumer, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
+17. Default production wiring contains no selected-slot event hook, synthetic Persist request construction/submission, private save flush/save-manager API, forced deposit/unlock, or process-wide satisfaction cache.
+18. The acceptance switch defaults false; only an explicit startup opt-in installs the write-completed event observer and admits one pointer-bound trial per epoch.
+19. Every acceptance gate rejects independently; the exact public invocation order is promotion then urgency on one pointer-validated state, with the token installed before either call.
+20. Event success alone never verifies; status/identity/failure/unreadable regressions fail closed, a 130-second watchdog tombstones, and save switches cancel with late events ignored.
+21. A relaunch where the cassette is already persisted produces no newly verified mod-grant wave and therefore no trial. A relaunch where it is missing may produce one fresh trial only in the new epoch and only when the opt-in remains enabled.
 
 Live acceptance uses fresh seed `8302601` at `127.0.0.1:38282`, slot `Jack`, with UI save slot 4:
 

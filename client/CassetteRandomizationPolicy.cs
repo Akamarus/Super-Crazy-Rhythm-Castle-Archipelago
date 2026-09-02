@@ -1345,6 +1345,293 @@ internal static class CassettePersistenceTargetDiagnosticDecision
                     : "no-write-candidate";
 }
 
+internal readonly record struct CassettePersistenceAcceptanceIdentity(
+    long Generation,
+    long Epoch,
+    int Slot,
+    long Pointer);
+
+internal readonly record struct CassettePersistenceAcceptanceBaseline(
+    CassettePublicWriteState WriteState,
+    int RedundancyBundleIndex,
+    int RedundancyBundleRevision,
+    IReadOnlyList<string> Songs);
+
+internal readonly record struct CassettePersistenceAcceptanceAttempt(
+    long Id,
+    long Generation,
+    long Epoch,
+    int Slot,
+    long Pointer)
+{
+    internal CassettePersistenceAcceptanceIdentity Identity =>
+        new(Generation, Epoch, Slot, Pointer);
+}
+
+internal enum CassettePersistenceAcceptanceOutcome
+{
+    None,
+    Pending,
+    Verified,
+    Failed,
+    Timeout,
+    Cancelled,
+}
+
+internal enum CassettePersistenceAcceptanceEventOutcome
+{
+    Ignored,
+    SuccessWake,
+    Failure,
+}
+
+internal static class CassettePersistenceAcceptanceDefaults
+{
+    internal const bool Enabled = false;
+}
+
+internal readonly record struct CassettePersistenceAcceptanceEligibilityEvidence(
+    bool OptInEnabled,
+    bool RoutingCompatible,
+    bool GameplayReady,
+    bool WaveCurrent,
+    bool SelectionValid,
+    bool SelectedPointerMatches,
+    bool RegisteredRetainedProcessorMatch,
+    bool ExpectedSlotEntryMatches,
+    bool PointerBoundDecision,
+    bool DefaultBundlePresent,
+    int DefaultBundleChangeCount,
+    bool StatusesRetainedInBag,
+    bool HasUnstagedChanges,
+    bool HasChanges,
+    bool RequiresWriteToDisk);
+
+internal static class CassettePersistenceAcceptanceEligibility
+{
+    internal static bool Evaluate(
+        CassettePersistenceAcceptanceEligibilityEvidence evidence,
+        out string stage)
+    {
+        if (!evidence.OptInEnabled) { stage = "acceptance-disabled"; return false; }
+        if (!evidence.RoutingCompatible) { stage = "acceptance-routing-incompatible"; return false; }
+        if (!evidence.GameplayReady) { stage = "acceptance-gameplay-not-ready"; return false; }
+        if (!evidence.WaveCurrent) { stage = "acceptance-wave-stale"; return false; }
+        if (!evidence.SelectionValid) { stage = "acceptance-selection-invalid"; return false; }
+        if (!evidence.SelectedPointerMatches) { stage = "acceptance-selected-pointer-mismatch"; return false; }
+        if (!evidence.RegisteredRetainedProcessorMatch) { stage = "acceptance-processor-ownership-mismatch"; return false; }
+        if (!evidence.ExpectedSlotEntryMatches) { stage = "acceptance-expected-entry-mismatch"; return false; }
+        if (!evidence.PointerBoundDecision) { stage = "acceptance-not-pointer-bound-candidate"; return false; }
+        if (!evidence.DefaultBundlePresent) { stage = "acceptance-default-bundle-missing"; return false; }
+        if (evidence.DefaultBundleChangeCount <= 0) { stage = "acceptance-default-bundle-empty"; return false; }
+        if (!evidence.StatusesRetainedInBag) { stage = "acceptance-status-not-retained"; return false; }
+        if (!evidence.HasUnstagedChanges) { stage = "acceptance-no-unstaged-changes"; return false; }
+        if (!evidence.HasChanges) { stage = "acceptance-no-changes"; return false; }
+        if (evidence.RequiresWriteToDisk) { stage = "acceptance-write-already-required"; return false; }
+        stage = "success";
+        return true;
+    }
+}
+
+internal static class CassettePersistenceAcceptanceOwnershipProof
+{
+    internal static bool IsExactPointerBoundOwner(
+        bool hasRegisteredPointer,
+        long registeredPointer,
+        bool hasRetainedPointer,
+        long retainedPointer,
+        bool hasExpectedEntryPointer,
+        long expectedEntryPointer,
+        long expectedStatePointer) =>
+        hasRegisteredPointer && registeredPointer != 0 &&
+        hasRetainedPointer && retainedPointer == registeredPointer &&
+        hasExpectedEntryPointer && expectedEntryPointer == expectedStatePointer &&
+        expectedStatePointer != 0;
+
+    internal static bool IsKnownExpectedSlotOnlyDiagnostic(
+        bool aggregateReadable,
+        string stage,
+        bool hasSelectedSlot,
+        bool hasSelectedEntryPointer,
+        bool hasSelectedSide) =>
+        aggregateReadable ||
+        string.Equals(stage, "target-selected-entry-missing", StringComparison.Ordinal) &&
+        hasSelectedSlot && !hasSelectedEntryPointer && !hasSelectedSide;
+}
+
+internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
+{
+    private static readonly TimeSpan HardTimeout = TimeSpan.FromSeconds(130);
+    private static readonly TimeSpan MaximumUpdateElapsed = TimeSpan.FromSeconds(1);
+    private CassettePersistenceAcceptanceIdentity _epochIdentity;
+    private bool _hasEpoch;
+    private bool _attemptedThisEpoch;
+    private bool _active;
+    private bool _invoked;
+    private bool _successEventObserved;
+    private long _attemptCounter;
+    private CassettePersistenceAcceptanceAttempt _attempt;
+    private CassettePersistenceAcceptanceBaseline _baseline;
+    private TimeSpan _elapsed;
+
+    internal bool Active => _active;
+    internal bool Invoked => _active && _invoked;
+    internal CassettePersistenceAcceptanceAttempt Attempt => _attempt;
+    internal CassettePersistenceAcceptanceBaseline Baseline => _baseline;
+    internal CassettePersistenceAcceptanceOutcome LastOutcome { get; private set; }
+    internal string LastFailure { get; private set; } = string.Empty;
+
+    internal void BeginEpoch(CassettePersistenceAcceptanceIdentity identity)
+    {
+        if (_hasEpoch && _epochIdentity == identity) return;
+        if (_active) Finish(CassettePersistenceAcceptanceOutcome.Cancelled, "new-save-epoch");
+        _epochIdentity = identity;
+        _hasEpoch = true;
+        _attemptedThisEpoch = false;
+        _active = false;
+        _invoked = false;
+        _successEventObserved = false;
+        _attempt = default;
+        _baseline = default;
+        _elapsed = TimeSpan.Zero;
+        LastOutcome = CassettePersistenceAcceptanceOutcome.None;
+        LastFailure = string.Empty;
+    }
+
+    internal bool TryPrepare(
+        CassettePersistenceAcceptanceIdentity identity,
+        CassettePersistenceAcceptanceBaseline baseline,
+        out CassettePersistenceAcceptanceAttempt attempt)
+    {
+        attempt = default;
+        if (!_hasEpoch || identity != _epochIdentity || identity.Pointer == 0 ||
+            baseline.Songs.Count == 0 || _active || _attemptedThisEpoch)
+            return false;
+        _attempt = new(++_attemptCounter, identity.Generation, identity.Epoch, identity.Slot, identity.Pointer);
+        _baseline = baseline with
+        {
+            Songs = baseline.Songs.Distinct(StringComparer.Ordinal)
+                .OrderBy(song => song, StringComparer.Ordinal).ToArray(),
+        };
+        _active = true;
+        _invoked = false;
+        _successEventObserved = false;
+        _elapsed = TimeSpan.Zero;
+        LastOutcome = CassettePersistenceAcceptanceOutcome.Pending;
+        LastFailure = string.Empty;
+        attempt = _attempt;
+        return true;
+    }
+
+    internal bool MarkInvoked(CassettePersistenceAcceptanceAttempt attempt)
+    {
+        if (!_active || attempt != _attempt) return false;
+        _attemptedThisEpoch = true;
+        _invoked = true;
+        return true;
+    }
+
+    internal CassettePersistenceAcceptanceOutcome MarkIndeterminate(
+        CassettePersistenceAcceptanceAttempt attempt,
+        string stage)
+    {
+        if (!_active || attempt != _attempt) return CassettePersistenceAcceptanceOutcome.None;
+        _attemptedThisEpoch = true;
+        return Finish(CassettePersistenceAcceptanceOutcome.Failed, $"indeterminate:{stage}");
+    }
+
+    internal CassettePersistenceAcceptanceEventOutcome ObserveWriteCompletedEvent(
+        CassettePersistenceAcceptanceAttempt attempt,
+        int eventSlot,
+        bool succeeded)
+    {
+        if (!_active || attempt != _attempt || eventSlot != _attempt.Slot)
+            return CassettePersistenceAcceptanceEventOutcome.Ignored;
+        if (!succeeded)
+        {
+            _attemptedThisEpoch = true;
+            Finish(CassettePersistenceAcceptanceOutcome.Failed, "same-slot-event-failure");
+            return CassettePersistenceAcceptanceEventOutcome.Failure;
+        }
+        if (_successEventObserved) return CassettePersistenceAcceptanceEventOutcome.Ignored;
+        _successEventObserved = true;
+        return CassettePersistenceAcceptanceEventOutcome.SuccessWake;
+    }
+
+    internal CassettePersistenceAcceptanceOutcome Observe(
+        CassettePersistenceAcceptanceAttempt attempt,
+        CassettePersistenceAcceptanceIdentity currentIdentity,
+        CassettePublicWriteDiagnosticState state,
+        bool statusesRetained,
+        bool stateReadable,
+        TimeSpan elapsed,
+        out bool eventWasObserved)
+    {
+        eventWasObserved = _successEventObserved;
+        if (!_active || !_invoked || attempt != _attempt)
+            return CassettePersistenceAcceptanceOutcome.None;
+        if (currentIdentity != _epochIdentity || currentIdentity != attempt.Identity ||
+            stateReadable && state.StatePointer != attempt.Pointer)
+            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "identity-or-pointer-changed");
+        if (!statusesRetained)
+            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "cassette-status-regression");
+        if (!stateReadable)
+            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "public-state-unreadable");
+
+        CassettePublicWriteState baselineWrite = _baseline.WriteState;
+        CassettePublicWriteState currentWrite = state.WriteState;
+        bool failureAdvanced = currentWrite.LastFailureTime.HasValue &&
+            (!baselineWrite.LastFailureTime.HasValue ||
+             currentWrite.LastFailureTime.Value > baselineWrite.LastFailureTime.Value);
+        if (failureAdvanced)
+            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "failure-time-advanced");
+        if (!string.IsNullOrWhiteSpace(currentWrite.FailureReason) &&
+            !string.Equals(currentWrite.FailureReason, baselineWrite.FailureReason, StringComparison.Ordinal))
+            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "failure-reason-changed");
+
+        bool successAdvanced = currentWrite.LastSuccessTime.HasValue &&
+            (!baselineWrite.LastSuccessTime.HasValue ||
+             currentWrite.LastSuccessTime.Value > baselineWrite.LastSuccessTime.Value);
+        bool redundancyAdvanced = state.RedundancyBundleRevision > _baseline.RedundancyBundleRevision ||
+            state.RedundancyBundleIndex != _baseline.RedundancyBundleIndex;
+        if (!state.HasUnstagedChanges && !currentWrite.HasChanges && !currentWrite.RequiresWriteToDisk &&
+            (successAdvanced || redundancyAdvanced))
+        {
+            _attemptedThisEpoch = true;
+            return Finish(CassettePersistenceAcceptanceOutcome.Verified, string.Empty);
+        }
+
+        TimeSpan boundedElapsed = elapsed <= TimeSpan.Zero
+            ? TimeSpan.Zero
+            : elapsed > MaximumUpdateElapsed ? MaximumUpdateElapsed : elapsed;
+        _elapsed += boundedElapsed;
+        if (_elapsed >= HardTimeout)
+        {
+            _attemptedThisEpoch = true;
+            return Finish(CassettePersistenceAcceptanceOutcome.Timeout, "hard-timeout-130s");
+        }
+        return CassettePersistenceAcceptanceOutcome.Pending;
+    }
+
+    internal CassettePersistenceAcceptanceOutcome Cancel(string reason)
+    {
+        if (!_active) return CassettePersistenceAcceptanceOutcome.None;
+        _attemptedThisEpoch = true;
+        return Finish(CassettePersistenceAcceptanceOutcome.Cancelled, reason);
+    }
+
+    private CassettePersistenceAcceptanceOutcome Finish(
+        CassettePersistenceAcceptanceOutcome outcome,
+        string failure)
+    {
+        _active = false;
+        _invoked = false;
+        LastOutcome = outcome;
+        LastFailure = failure;
+        return outcome;
+    }
+}
+
 internal static class CassetteAuthoritativeStateReader
 {
     internal static bool TryRead(

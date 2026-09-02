@@ -111,7 +111,9 @@ string requestFactorySource = File.ReadAllText(Path.Combine(Directory.GetCurrent
 string transactionAdapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string cassetteSaveDesignSource = File.ReadAllText(Path.Combine(
     Directory.GetCurrentDirectory(), "docs", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
-Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "cassette production wiring consumes no save-write completion event");
+int acceptanceEventGuard = pluginSource.IndexOf("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal);
+int acceptanceEventHook = pluginSource.IndexOf("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
+Equal(true, acceptanceEventGuard >= 0 && acceptanceEventHook > acceptanceEventGuard, "write-completed event observation is narrowly installed only after the acceptance opt-in guard");
 Equal(false, pluginSource.Contains("TickDiskCommit(elapsed);", StringComparison.Ordinal), "Unity reconciliation never advances the retired synthetic disk-commit state machine");
 foreach (string prohibitedWritePath in new[] { "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
     Equal(false, pluginSource.Contains(prohibitedWritePath, StringComparison.Ordinal) || transactionAdapterSource.Contains(prohibitedWritePath, StringComparison.Ordinal), $"production avoids prohibited forced write path {prohibitedWritePath}");
@@ -240,7 +242,13 @@ Equal(false, unityTick.Contains("TryConfirmSaveSynchronizationReady", StringComp
 Equal(false, synchronizationGateSource.Contains("TrySubmit", StringComparison.Ordinal), "synchronization diagnostic wiring cannot submit grant or persistence requests");
 Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationReady(pointer", StringComparison.Ordinal), "production readiness delegates only the active epoch pointer to the public selection enquiry");
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
-Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "no write-completed event subscription remains");
+Equal(true, pluginSource.Contains("EnableCassettePointerBoundPersistenceAcceptance\", false", StringComparison.Ordinal), "pointer-bound persistence acceptance config is explicitly default false");
+Equal(true, pluginSource.Contains("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal), "write-completed event hook is installed only for an explicit startup opt-in");
+string acceptanceConfigUpdate = ExtractMethods(receiptRandomizationSource, "internal static void SetPersistenceAcceptanceEnabled(").Single();
+Equal(true, acceptanceConfigUpdate.Contains("if (enabled)", StringComparison.Ordinal) && acceptanceConfigUpdate.Contains("restart is required", StringComparison.Ordinal),
+    "runtime opt-in cannot start without the startup-only event hook; enabling requires a restart");
+Equal(false, acceptanceConfigUpdate.Contains("_persistenceAcceptanceEnabled = true", StringComparison.Ordinal),
+    "a live config change cannot partially enable the acceptance trial without its event observer");
 Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
 int delayedVerificationLoopIndex = unityTick.IndexOf("foreach (string song in ready) TryReconcileSong", StringComparison.Ordinal);
 int diagnosticWaveConsumeIndex = unityTick.IndexOf("TryConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal);
@@ -252,6 +260,17 @@ foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryRe
 foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitRequest", "ProcessRequest", "PersistAllChangesInBundle", "RequestUrgentWriteToDisk", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
     Equal(false, persistenceTargetLogger.Contains(prohibitedMutation, StringComparison.Ordinal), $"persistence target snapshot contains no mutation path {prohibitedMutation}");
 Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
+string persistenceAcceptanceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistenceAcceptance(").Single();
+int acceptancePlanIndex = persistenceAcceptanceStarter.IndexOf("TryPreparePointerBoundPersistenceInvocation", StringComparison.Ordinal);
+int acceptanceTokenIndex = persistenceAcceptanceStarter.IndexOf("_persistenceAcceptance.TryPrepare", StringComparison.Ordinal);
+int acceptanceInvokeIndex = persistenceAcceptanceStarter.IndexOf("InvokePointerBoundPersistence", StringComparison.Ordinal);
+Equal(true, acceptancePlanIndex >= 0 && acceptanceTokenIndex > acceptancePlanIndex && acceptanceInvokeIndex > acceptanceTokenIndex,
+    "acceptance resolves the immutable public call plan, then installs PRE token, then mutates");
+Equal(true, persistenceAcceptanceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "acceptance starter executes the complete pure gate before preparing");
+foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
+    Equal(false, persistenceAcceptanceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"acceptance starter cannot use prohibited path {prohibitedAcceptance}");
+foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "EVENT", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
+    Equal(true, receiptRandomizationSource.Contains($"CASSETTE PERSISTENCE ACCEPTANCE {marker}", StringComparison.Ordinal), $"acceptance emits exact bounded marker {marker}");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -699,6 +718,29 @@ nonDelayedDiagnosticWave.RecordVerification("BADASS", CassetteRandomizationPolic
 Equal(false, nonDelayedDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
     generation: 10, statePointer: 0x701, out _),
     "RecordVerification cannot admit a diagnostic wave until its bounded delay is actually due");
+
+var relaunchPersisted = new CassetteSaveEpochRuntime();
+relaunchPersisted.Receive("BADASS");
+relaunchPersisted.ActivateSave(4);
+relaunchPersisted.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(false, relaunchPersisted.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 11, statePointer: 0x702, out _),
+    "a relaunch that reads an already-persisted cassette produces no mod-grant acceptance wave");
+
+var relaunchMissing = new CassetteSaveEpochRuntime();
+relaunchMissing.Receive("BADASS");
+relaunchMissing.ActivateSave(4);
+Equal(true, relaunchMissing.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, processorAvailable: true),
+    "a relaunch where the cassette is missing admits one fresh semantic grant in the new epoch");
+relaunchMissing.RecordSubmission("BADASS");
+relaunchMissing.Tick(TimeSpan.FromMilliseconds(250));
+relaunchMissing.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
+Equal(true, relaunchMissing.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 12, statePointer: 0x703, out _),
+    "the newly verified relaunch repair produces one fresh acceptance wave");
+Equal(false, relaunchMissing.TryConsumeNewlyVerifiedGrantDiagnosticWave(
+    generation: 12, statePointer: 0x703, out _),
+    "the fresh relaunch repair wave remains one-shot");
 Console.WriteLine("PASS: newly_verified_mod_grants_queue_one_identity_scoped_persistence_target_snapshot");
 
 Equal("identity-changed-no-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
@@ -714,6 +756,193 @@ Equal("no-write-candidate", CassettePersistenceTargetDiagnosticDecision.Classify
     identityCurrent: true, expectedEntryMatches: false, selectedEntryMatches: false),
     "a current snapshot without an entry match remains closed");
 Console.WriteLine("PASS: persistence_target_decision_fails_closed_on_identity_race");
+
+var acceptanceRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var acceptanceIdentity = new CassettePersistenceAcceptanceIdentity(41, 7, 4, 0x700);
+var acceptanceBaseline = new CassettePersistenceAcceptanceBaseline(
+    new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"),
+    RedundancyBundleIndex: 2,
+    RedundancyBundleRevision: 5,
+    new[] { "BADASS", "HEAVY_METAL" });
+acceptanceRuntime.BeginEpoch(acceptanceIdentity);
+Equal(true, acceptanceRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt acceptanceAttempt),
+    "opt-in acceptance installs an immutable token and PRE baseline before invocation");
+Equal(CassettePersistenceAcceptanceEventOutcome.SuccessWake,
+    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt, eventSlot: 4, succeeded: true),
+    "a synchronous matching success event is retained after token installation");
+Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
+    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt, eventSlot: 3, succeeded: true),
+    "a wrong-slot event is ignored");
+Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
+    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt with { Epoch = 8 }, eventSlot: 4, succeeded: true),
+    "a stale identity event is ignored");
+Equal(true, acceptanceRuntime.MarkInvoked(acceptanceAttempt), "completed native calls move the prepared token to polling");
+Equal(CassettePersistenceAcceptanceOutcome.Pending,
+    acceptanceRuntime.Observe(
+        acceptanceAttempt, acceptanceIdentity,
+        new CassettePublicWriteDiagnosticState(
+            acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
+            new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
+        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
+    "event alone cannot prove success while write flags and PRE revision remain unchanged");
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    acceptanceRuntime.Observe(
+        acceptanceAttempt, acceptanceIdentity,
+        new CassettePublicWriteDiagnosticState(
+            new CassettePublicWriteState(false, false, 10, 8, "IO_ERROR"), 12, false, 0, 6, 0x700,
+            new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
+        statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+    "cleared public flags plus advanced redundancy beyond immutable PRE proves success");
+Equal(false, acceptanceRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+    "a completed trial cannot retry in the same epoch");
+
+foreach ((string Case, CassettePublicWriteDiagnosticState State, bool Statuses, bool Readable, CassettePersistenceAcceptanceOutcome Expected) failure in new[]
+{
+    ("failure-time", new CassettePublicWriteDiagnosticState(new(true, false, 10, 9, "IO_ERROR"), 11, true, 2, 5, 0x700, new Dictionary<string, string>()), true, true, CassettePersistenceAcceptanceOutcome.Failed),
+    ("failure-reason", new CassettePublicWriteDiagnosticState(new(true, false, 10, 8, "VALIDATION_FAILED"), 11, true, 2, 5, 0x700, new Dictionary<string, string>()), true, true, CassettePersistenceAcceptanceOutcome.Failed),
+    ("status-regression", new CassettePublicWriteDiagnosticState(new(true, false, 10, 8, "IO_ERROR"), 11, true, 2, 5, 0x700, new Dictionary<string, string>()), false, true, CassettePersistenceAcceptanceOutcome.Failed),
+    ("unreadable", default, true, false, CassettePersistenceAcceptanceOutcome.Failed),
+})
+{
+    var failedRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+    failedRuntime.BeginEpoch(acceptanceIdentity);
+    failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt failedAttempt);
+    failedRuntime.MarkInvoked(failedAttempt);
+    Equal(failure.Expected, failedRuntime.Observe(
+        failedAttempt, acceptanceIdentity, failure.State, failure.Statuses, failure.Readable,
+        TimeSpan.Zero, out _), $"acceptance {failure.Case} fails closed");
+    Equal(false, failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+        $"acceptance {failure.Case} tombstones the epoch");
+}
+
+var identityFailureRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+identityFailureRuntime.BeginEpoch(acceptanceIdentity);
+identityFailureRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt identityFailureAttempt);
+identityFailureRuntime.MarkInvoked(identityFailureAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Failed, identityFailureRuntime.Observe(
+    identityFailureAttempt, acceptanceIdentity with { Pointer = 0x701 }, default,
+    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+    "pointer or save identity change fails the active trial");
+
+var eventFailureRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+eventFailureRuntime.BeginEpoch(acceptanceIdentity);
+eventFailureRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt eventFailureAttempt);
+Equal(CassettePersistenceAcceptanceEventOutcome.Failure,
+    eventFailureRuntime.ObserveWriteCompletedEvent(eventFailureAttempt, 4, succeeded: false),
+    "same-slot failed event is terminal even during synchronous invocation");
+Equal(false, eventFailureRuntime.MarkInvoked(eventFailureAttempt), "terminal synchronous failure cannot be overwritten by invocation completion");
+Equal(CassettePersistenceAcceptanceOutcome.None,
+    eventFailureRuntime.MarkIndeterminate(eventFailureAttempt, "nested-call-threw-after-event"),
+    "a terminal synchronous failure cannot emit a second terminal indeterminate outcome");
+
+var indeterminateRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+indeterminateRuntime.BeginEpoch(acceptanceIdentity);
+indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt indeterminateAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Failed,
+    indeterminateRuntime.MarkIndeterminate(indeterminateAttempt, "urgency-invocation"),
+    "promotion success followed by urgency throw is tombstoned indeterminate");
+Equal(false, indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+    "indeterminate promotion is never retried in the epoch");
+
+var timeoutRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+timeoutRuntime.BeginEpoch(acceptanceIdentity);
+timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt timeoutAttempt);
+timeoutRuntime.MarkInvoked(timeoutAttempt);
+var unchangedAcceptanceState = new CassettePublicWriteDiagnosticState(
+    acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
+    new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag });
+for (int second = 0; second < 129; second++)
+    Equal(CassettePersistenceAcceptanceOutcome.Pending, timeoutRuntime.Observe(
+        timeoutAttempt, acceptanceIdentity, unchangedAcceptanceState, true, stateReadable: true,
+        TimeSpan.FromSeconds(1), out _), $"acceptance remains pending through active-update second {second + 1}");
+Equal(CassettePersistenceAcceptanceOutcome.Timeout, timeoutRuntime.Observe(
+    timeoutAttempt, acceptanceIdentity, unchangedAcceptanceState, true, stateReadable: true,
+    TimeSpan.FromSeconds(1), out _), "acceptance times out at 130 active-update seconds");
+Equal(false, timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _), "timeout tombstones the epoch");
+
+var cancelledRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+cancelledRuntime.BeginEpoch(acceptanceIdentity);
+cancelledRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt cancelledAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Cancelled, cancelledRuntime.Cancel("save-boundary"), "save boundary cancels logical acceptance state");
+Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
+    cancelledRuntime.ObserveWriteCompletedEvent(cancelledAttempt, 4, true), "late event after cancellation is ignored");
+cancelledRuntime.BeginEpoch(acceptanceIdentity with { Generation = 42, Epoch = 8 });
+Equal(true, cancelledRuntime.TryPrepare(
+    acceptanceIdentity with { Generation = 42, Epoch = 8 }, acceptanceBaseline, out _),
+    "a genuinely new save epoch may run one fresh opt-in trial");
+Console.WriteLine("PASS: pointer_bound_acceptance_runtime_is_one_shot_identity_safe_and_event_insufficient");
+
+var eligibleAcceptance = new CassettePersistenceAcceptanceEligibilityEvidence(
+    OptInEnabled: true,
+    RoutingCompatible: true,
+    GameplayReady: true,
+    WaveCurrent: true,
+    SelectionValid: true,
+    SelectedPointerMatches: true,
+    RegisteredRetainedProcessorMatch: true,
+    ExpectedSlotEntryMatches: true,
+    PointerBoundDecision: true,
+    DefaultBundlePresent: true,
+    DefaultBundleChangeCount: 2,
+    StatusesRetainedInBag: true,
+    HasUnstagedChanges: true,
+    HasChanges: true,
+    RequiresWriteToDisk: false);
+Equal(true, CassettePersistenceAcceptanceEligibility.Evaluate(eligibleAcceptance, out string eligibleAcceptanceStage),
+    "every approved public gate admits exactly one pointer-bound acceptance trial");
+Equal("success", eligibleAcceptanceStage, "complete acceptance evidence reports success");
+Equal(true, CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
+    hasRegisteredPointer: true, registeredPointer: 0x900,
+    hasRetainedPointer: true, retainedPointer: 0x900,
+    hasExpectedEntryPointer: true, expectedEntryPointer: 0x700,
+    expectedStatePointer: 0x700),
+    "acceptance ownership remains provable from the exact required fields when the unrelated numeric selected-entry branch is unreadable");
+Equal(false, CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
+    true, 0x900, true, 0x901, true, 0x700, 0x700),
+    "registered and retained processor divergence rejects acceptance ownership");
+Equal(false, CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
+    true, 0x900, true, 0x900, true, 0x701, 0x700),
+    "expected-slot entry pointer divergence rejects acceptance ownership");
+Equal(true, CassettePersistenceAcceptanceOwnershipProof.IsKnownExpectedSlotOnlyDiagnostic(
+    aggregateReadable: false, stage: "target-selected-entry-missing",
+    hasSelectedSlot: true, hasSelectedEntryPointer: false, hasSelectedSide: false),
+    "the one known aggregate-false selected-entry-absent shape preserves mandatory expected-slot ownership evidence");
+foreach ((string Stage, bool HasSlot, bool HasPointer, bool HasSide) malformed in new[]
+{
+    ("target-save-data-selected-slot-empty", false, false, false),
+    ("target-selected-entry-pointer-get-invocation:InvalidOperationException:target-pointer", true, false, false),
+    ("target-selected-entry-missing", false, false, false),
+    ("target-selected-entry-missing", true, true, false),
+    ("target-selected-entry-missing", true, false, true),
+})
+    Equal(false, CassettePersistenceAcceptanceOwnershipProof.IsKnownExpectedSlotOnlyDiagnostic(
+        aggregateReadable: false, malformed.Stage, malformed.HasSlot, malformed.HasPointer, malformed.HasSide),
+        $"malformed aggregate-false target evidence remains rejected: {malformed}");
+foreach ((string Case, CassettePersistenceAcceptanceEligibilityEvidence Evidence, string Stage) gateFailure in new[]
+{
+    ("default-off", eligibleAcceptance with { OptInEnabled = false }, "acceptance-disabled"),
+    ("routing", eligibleAcceptance with { RoutingCompatible = false }, "acceptance-routing-incompatible"),
+    ("gameplay", eligibleAcceptance with { GameplayReady = false }, "acceptance-gameplay-not-ready"),
+    ("wave", eligibleAcceptance with { WaveCurrent = false }, "acceptance-wave-stale"),
+    ("validity", eligibleAcceptance with { SelectionValid = false }, "acceptance-selection-invalid"),
+    ("selected-pointer", eligibleAcceptance with { SelectedPointerMatches = false }, "acceptance-selected-pointer-mismatch"),
+    ("processor-owner", eligibleAcceptance with { RegisteredRetainedProcessorMatch = false }, "acceptance-processor-ownership-mismatch"),
+    ("expected-entry", eligibleAcceptance with { ExpectedSlotEntryMatches = false }, "acceptance-expected-entry-mismatch"),
+    ("decision", eligibleAcceptance with { PointerBoundDecision = false }, "acceptance-not-pointer-bound-candidate"),
+    ("bundle-missing", eligibleAcceptance with { DefaultBundlePresent = false }, "acceptance-default-bundle-missing"),
+    ("bundle-empty", eligibleAcceptance with { DefaultBundleChangeCount = 0 }, "acceptance-default-bundle-empty"),
+    ("status", eligibleAcceptance with { StatusesRetainedInBag = false }, "acceptance-status-not-retained"),
+    ("unstaged", eligibleAcceptance with { HasUnstagedChanges = false }, "acceptance-no-unstaged-changes"),
+    ("changes", eligibleAcceptance with { HasChanges = false }, "acceptance-no-changes"),
+    ("write-in-flight", eligibleAcceptance with { RequiresWriteToDisk = true }, "acceptance-write-already-required"),
+})
+{
+    Equal(false, CassettePersistenceAcceptanceEligibility.Evaluate(gateFailure.Evidence, out string gateStage),
+        $"{gateFailure.Case}: missing acceptance evidence fails closed");
+    Equal(gateFailure.Stage, gateStage, $"{gateFailure.Case}: acceptance gate retains an exact stage");
+}
+Equal(false, CassettePersistenceAcceptanceDefaults.Enabled, "acceptance runtime default is false independently of config binding text");
+Console.WriteLine("PASS: pointer_bound_acceptance_requires_every_approved_gate");
 
 var boundedSchedule = new CassetteSaveEpochRuntime();
 boundedSchedule.Receive("BADASS");
@@ -1319,6 +1548,72 @@ Equal(true, CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
 Equal("success", activeTargetStage, "active persistence state reports success");
 Equal(new CassettePersistenceTargetActiveState(0x700, true, true, true, true, 2), activeTargetState, "active persistence state preserves the exact public target fields");
 Equal(0, RequestSystem.SubmitCount, "active persistence-state diagnostics never submit a request");
+
+var pointerBoundCalls = new List<string>();
+var pointerBoundState = new PlayerSaveFileState(new IntPtr(0x700), pointerBoundCalls);
+var pointerBoundProcessor = new DiskCommitTargetPlayerProcessorFixture(new IntPtr(0x111), pointerBoundState);
+Equal(true, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
+    pointerBoundProcessor, expectedPointer: 0x700,
+    out CassettePointerBoundPersistenceInvocationPlan pointerBoundPlan,
+    out string pointerBoundStage),
+    "exact public PlayerSaveFileState/BaseSaveFileState methods prepare a pointer-bound plan without mutation");
+Equal("success", pointerBoundStage, "pointer-bound plan preparation reports success");
+Equal(0, pointerBoundCalls.Count, "plan resolution performs no persistence mutation");
+
+var synchronousAdapterRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+synchronousAdapterRuntime.BeginEpoch(acceptanceIdentity);
+synchronousAdapterRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt synchronousAdapterAttempt);
+CassettePersistenceAcceptanceEventOutcome synchronousAdapterEvent = CassettePersistenceAcceptanceEventOutcome.Ignored;
+pointerBoundState.OnUrgentWrite = () => synchronousAdapterEvent =
+    synchronousAdapterRuntime.ObserveWriteCompletedEvent(synchronousAdapterAttempt, 4, succeeded: true);
+Equal(CassettePointerBoundPersistenceInvocationResult.Invoked,
+    CassetteSaveTransactionAdapter.InvokePointerBoundPersistence(
+        pointerBoundPlan, out string pointerBoundInvokeStage),
+    "exact public pointer-bound promotion and urgent write both return normally");
+Equal("success", pointerBoundInvokeStage, "successful pointer-bound invocation reports success");
+SequenceEqual(new[] { "PersistAllChangesInBundle:DEFAULT:1", "RequestUrgentWriteToDisk" }, pointerBoundCalls,
+    "pointer-bound invocation calls DEFAULT promotion then urgent write exactly once on the same state");
+Equal(CassettePersistenceAcceptanceEventOutcome.SuccessWake, synchronousAdapterEvent,
+    "attempt token exists before a synchronous write-completed callback from the urgency call");
+Equal(0, RequestSystem.SubmitCount, "pointer-bound invocation never constructs or submits a generic request");
+
+Equal(false, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
+    pointerBoundProcessor, expectedPointer: 0x701, out _, out string pointerMismatchPlanStage),
+    "pointer-bound plan rejects a state pointer mismatch before mutation");
+Equal(true, pointerMismatchPlanStage.StartsWith("acceptance-plan-pointer-mismatch", StringComparison.Ordinal),
+    "pointer mismatch has a precise plan stage");
+Equal(false, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
+    new DiskCommitTargetPlayerProcessorFixture(new IntPtr(0x111), new WrongOwnerPointerBoundState(new IntPtr(0x700))),
+    expectedPointer: 0x700, out _, out string wrongOwnerPlanStage),
+    "lookalike methods on the wrong public owner are rejected");
+Equal("acceptance-plan-player-state-type-mismatch", wrongOwnerPlanStage, "wrong owner has an exact stage");
+
+foreach ((bool ThrowPromotion, bool ThrowUrgency, CassettePointerBoundPersistenceInvocationResult Expected, string StagePrefix, string[] Calls) invocationFailure in new[]
+{
+    (true, false, CassettePointerBoundPersistenceInvocationResult.PromotionIndeterminate,
+        "acceptance-invoke-promote-invocation", new[] { "PersistAllChangesInBundle:DEFAULT:1" }),
+    (false, true, CassettePointerBoundPersistenceInvocationResult.UrgencyIndeterminate,
+        "acceptance-invoke-urgent-invocation", new[] { "PersistAllChangesInBundle:DEFAULT:1", "RequestUrgentWriteToDisk" }),
+})
+{
+    var failureCalls = new List<string>();
+    var failureState = new PlayerSaveFileState(new IntPtr(0x700), failureCalls)
+    {
+        ThrowPromotion = invocationFailure.ThrowPromotion,
+        ThrowUrgency = invocationFailure.ThrowUrgency,
+    };
+    var failureProcessor = new DiskCommitTargetPlayerProcessorFixture(new IntPtr(0x111), failureState);
+    Equal(true, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
+        failureProcessor, 0x700, out CassettePointerBoundPersistenceInvocationPlan failurePlan, out _),
+        "throwing invocation fixture still resolves the exact public contract before mutation");
+    Equal(invocationFailure.Expected,
+        CassetteSaveTransactionAdapter.InvokePointerBoundPersistence(failurePlan, out string failureInvokeStage),
+        "possibly mutating invocation failure is classified indeterminate");
+    Equal(true, failureInvokeStage.StartsWith(invocationFailure.StagePrefix, StringComparison.Ordinal),
+        "possibly mutating invocation failure retains its exact stage");
+    SequenceEqual(invocationFailure.Calls, failureCalls, "invocation stops at the exact throwing boundary without retry");
+}
+Console.WriteLine("PASS: pointer_bound_acceptance_adapter_uses_exact_public_state_methods_in_order");
 
 var synchronizationDiagnosticGlobalState = new DiskCommitTargetSaveDataStateFixture(
     new IntPtr(0x333), new(true, 0), new());
@@ -2026,7 +2321,14 @@ foreach (string routingReader in new[] { "TryReadRecordSongCassetteStatusRequest
     Equal(true, routingReaderSource.Contains("PublicInstance", StringComparison.Ordinal) || routingReaderSource.Contains("TryRead", StringComparison.Ordinal), $"{routingReader} uses the public diagnostic boundary");
     Equal(false, routingReaderSource.Contains("AllInstance", StringComparison.Ordinal) || routingReaderSource.Contains("AllStatic", StringComparison.Ordinal), $"{routingReader} cannot bind non-public members");
 }
-foreach (string prohibited in new[] { "PersistAllChangesInBundle", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
+string pointerBoundPlanAdapter = ExtractMethods(adapterSource, "internal static bool TryPreparePointerBoundPersistenceInvocation(").Single();
+string pointerBoundInvokeAdapter = ExtractMethods(adapterSource, "internal static CassettePointerBoundPersistenceInvocationResult InvokePointerBoundPersistence(").Single();
+Equal(true, pointerBoundPlanAdapter.Contains("PublicInstance", StringComparison.Ordinal), "acceptance plan resolves only public instance methods");
+Equal(false, pointerBoundPlanAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerBoundPlanAdapter.Contains("NonPublic", StringComparison.Ordinal), "acceptance plan cannot bind private methods");
+Equal(true, pointerBoundInvokeAdapter.Contains("PersistDefaultMethod.Invoke", StringComparison.Ordinal) && pointerBoundInvokeAdapter.Contains("RequestUrgentWriteMethod.Invoke", StringComparison.Ordinal), "acceptance invocation is limited to its prevalidated exact public methods");
+foreach (string prohibitedAcceptancePath in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
+    Equal(false, pointerBoundPlanAdapter.Contains(prohibitedAcceptancePath, StringComparison.Ordinal) || pointerBoundInvokeAdapter.Contains(prohibitedAcceptancePath, StringComparison.Ordinal), $"pointer-bound acceptance prohibits {prohibitedAcceptancePath}");
+foreach (string prohibited in new[] { "RequestWriteForPlayerSave", "SaveDataManager", "WritePlayerSaveFile", "SelectedPlayerSaveSlotChangedEvent", "TriggerUrgentSaveWriteIfAnyChangesRequest" })
     Equal(false, adapterSource.Contains(prohibited, StringComparison.Ordinal), $"transaction adapter prohibits {prohibited}");
 Console.WriteLine("PASS: native_save_selection_and_semantic_grant_adapters");
 Console.WriteLine("Cassette randomization catalog and source policy tests passed.");
@@ -3279,6 +3581,41 @@ sealed class UnconvertibleSelectedSlotDiskCommitTargetSaveDataStateFixture
     public IntPtr Pointer { get; }
     public FakeIl2CppNullable<string> SelectedPlayerSaveSlot { get; } = new(true, "not-an-integer");
     public Dictionary<int, DiskCommitTargetPlayerStateFixture> RegularPlayerSaves { get; }
+}
+
+class BaseSaveFileState
+{
+    private readonly List<string> _calls;
+    protected BaseSaveFileState(IntPtr pointer, List<string> calls) { Pointer = pointer; _calls = calls; }
+    public IntPtr Pointer { get; }
+    public bool ThrowUrgency { get; set; }
+    public Action? OnUrgentWrite { get; set; }
+    public void RequestUrgentWriteToDisk()
+    {
+        _calls.Add("RequestUrgentWriteToDisk");
+        OnUrgentWrite?.Invoke();
+        if (ThrowUrgency) throw new InvalidOperationException("urgent-write");
+    }
+}
+
+class PlayerSaveFileState : BaseSaveFileState
+{
+    private readonly List<string> _calls;
+    public PlayerSaveFileState(IntPtr pointer, List<string> calls) : base(pointer, calls) => _calls = calls;
+    public bool ThrowPromotion { get; set; }
+    public void PersistAllChangesInBundle(ePlayerSaveChangeBundleKey bundle)
+    {
+        _calls.Add($"PersistAllChangesInBundle:{bundle}:{Convert.ToInt32(bundle)}");
+        if (ThrowPromotion) throw new InvalidOperationException("promote-default");
+    }
+}
+
+sealed class WrongOwnerPointerBoundState
+{
+    public WrongOwnerPointerBoundState(IntPtr pointer) => Pointer = pointer;
+    public IntPtr Pointer { get; }
+    public void PersistAllChangesInBundle(ePlayerSaveChangeBundleKey bundle) { }
+    public void RequestUrgentWriteToDisk() { }
 }
 
 sealed class DiskCommitTargetPlayerStateFixture
