@@ -31,14 +31,6 @@ For runtime bugs, upload `BepInEx\LogOutput.log` from the exact build/seed being
 
 Generated game DLLs, interop assemblies, credentials, and private tokens must not be added to the repository or uploaded as source artifacts.
 
-## Controlled local AI workflow
-
-The local AI bridge under `tools/local-ai/` uses PowerShell as its only execution and policy layer. Open WebUI is restricted to `http://127.0.0.1:8080` with model ID `jacks-assistant`; the model has no terminal or direct filesystem access.
-
-Investigation tasks operate read-only and produce local findings/handoffs. Implementation tasks use a task-specific branch and worktree outside the main checkout. Review the generated handoff and diff before accepting any result.
-
-Bridge acceptance never performs Git integration. Merging, rebasing, pushing, merge-request creation, branch deletion, and worktree removal remain manual owner decisions. See `tools/local-ai/README.md` for command examples and recovery guidance.
-
 ## Living project documentation
 
 Any milestone that changes player-facing randomizer behavior must update `docs/PROJECT_OVERVIEW.md` in the same commit. This includes new/renamed items or checks, progression requirements, area routing, difficulty rules, Star-gating behavior, and implemented-system status.

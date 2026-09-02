@@ -91,20 +91,6 @@ python .\tools\validate-repo.py
 
 This validates the APWorld Python syntax, metadata, committed ID frontier, key progression mappings, and repository layout without requiring an Archipelago installation.
 
-## Evaluate the local AI profiles
-
-Contributors with both allowlisted Open WebUI profiles can run the manual comparison from the repository root:
-
-```powershell
-Import-Module .\tools\local-ai\LocalAiBridge.psd1 -Force
-Invoke-LocalAiModelEvaluation `
-    -RepositoryRoot $PWD `
-    -ModelId @('jacks-assistant','jacks-assistant-fast') `
-    -OpenWebUiTimeoutSec 600
-```
-
-The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.psd1` may manually select `jacks-assistant-fast`. Reports are written beneath ignored `.local-ai/evaluations/<evaluation-id>/` directories and never change configuration automatically. Scoring is deterministic but intentionally narrow, so its recommendation is advisory: human review remains mandatory, and local model evaluation does not validate APWorld generation, the client runtime, or gameplay. See [`tools/local-ai/README.md`](tools/local-ai/README.md) for setup, report, and selection details.
-
 ## Repository rules
 
 1. Never reuse an existing or historical Archipelago item/location ID. See [`docs/IDS.md`](docs/IDS.md).

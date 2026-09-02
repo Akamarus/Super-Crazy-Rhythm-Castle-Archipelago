@@ -65,17 +65,6 @@ Before accepting a Roots milestone, confirm:
 
 `LogOutput.log` is a test artifact, not source. Do not commit it. For public reports, follow the redaction and excerpt guidance in [Testing and issue reports](TESTING_AND_ISSUES.md); do not attach credentials, private addresses, personal paths, game files, or proprietary assemblies.
 
-For bridge-assisted development, log watching must be started for an explicit implementation task with `Start-LocalAiDevelopmentSession` and stopped with `Stop-LocalAiDevelopmentSession`. It tails only the configured game's `BepInEx\LogOutput.log`, starts at the current end, and stores filtered output under ignored `.local-ai/<task-id>/` state. It does not launch the game or persist outside the owning PowerShell session.
-
-Run the bridge regression suite before reviewing bridge changes:
-
-```powershell
-Invoke-Pester .\tools\local-ai\tests -Output Detailed
-python .\tools\validate-repo.py
-```
-
-Bridge tests do not replace the runtime checklist below. Gameplay verification remains required for client behavior.
-
 Useful exact log phrases for the current Roots chain include:
 
 ```text

@@ -2,7 +2,6 @@
 
 - Read `docs/PROJECT_OVERVIEW.md`, `docs/IDS.md`, `docs/PROGRESSION.md`, `docs/WORKFLOW.md`, and `docs/TESTING.md` before changing player-facing behavior.
 - Never reuse or guess Archipelago IDs. Do not allocate IDs until native mapping and implementation scope are confirmed.
-- Use `tools/local-ai/` only through its named PowerShell commands. Never execute model output as PowerShell or provide a general-purpose command runner.
 - Keep AI implementation changes in isolated Git worktrees. Preserve the main checkout as the accepted baseline.
 - Never automatically merge, rebase, push, open a merge request, delete a branch, or remove a worktree.
 - Build the client without deployment first. Deploy only with explicit confirmation to `<GameDir>\BepInEx\plugins\RhythmCastleAP`.

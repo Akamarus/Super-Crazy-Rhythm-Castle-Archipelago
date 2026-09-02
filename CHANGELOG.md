@@ -89,14 +89,6 @@
 
 Documentation only: this section does not indicate a client or APWorld version bump, release artifact, or completed randomizer milestone.
 
-## Unreleased — Local AI model evaluation
-
-- Added a deterministic exact-answer comparison for the allowlisted `jacks-assistant` and `jacks-assistant-fast` profiles, with redacted reports beneath ignored `.local-ai/evaluations/` state.
-- Documented the manual evaluation and model-selection workflow. `jacks-assistant` remains the default, reports never update local configuration automatically, and human review remains required.
-- Added repository validation for the fixed decision ledger, evaluation cases, model allowlist, public evaluation command, and manifest export.
-
-Tooling and documentation only: the evaluation is intentionally narrow and advisory. It does not validate or change gameplay, APWorld generation, client behavior, review requirements, build/deployment containment, or release state.
-
 ## Documentation
 
 - Added `docs/PROJECT_OVERVIEW.md` as the living player/contributor-facing architecture and randomizer design guide.

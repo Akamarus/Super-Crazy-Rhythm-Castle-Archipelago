@@ -18,7 +18,7 @@
 - Current APWorld v0.15 forces Roots as the starter and requires a freshly generated seed after APWorld changes.
 - Client installation targets only `<GameDir>\BepInEx\plugins\RhythmCastleAP`.
 - Never instruct testers to commit or publicly attach passwords, API keys, full save folders, game binaries, BepInEx binaries, or proprietary IL2CPP assemblies.
-- Publish only confirmed public-facing files; leave unrelated local-AI bridge modifications unstaged.
+- Publish only confirmed public-facing files.
 - Do not merge the publishing pull request automatically.
 
 ---
@@ -247,8 +247,6 @@ Expected: tester evidence, secret-redaction guidance, limitations, and the discl
 
 **Files:**
 - Verify: all confirmed documentation files from Tasks 1–3
-- Do not stage: `docs/superpowers/plans/2026-08-20-local-ai-bridge.md`
-- Do not stage: `docs/superpowers/specs/2026-08-20-local-ai-bridge-design.md`
 
 **Interfaces:**
 - Consumes: completed documentation and approved GitHub publication scope.
@@ -274,7 +272,7 @@ git status --short
 git diff -- README.md CHANGELOG.md client/README.md apworld/README.md apworld/scrc/docs/setup_en.md docs/INSTALL.md docs/ROADMAP.md docs/TESTING.md docs/TESTING_AND_ISSUES.md docs/PROJECT_OVERVIEW.md docs/PROGRESSION.md docs/HISTORICAL_GAMEPLAY_EVIDENCE.md docs/superpowers/plans/2026-08-20-public-testing-documentation.md
 ```
 
-Expected: only confirmed public/testing documentation is selected for publication; local-AI bridge edits remain unstaged.
+Expected: only confirmed public/testing documentation is selected for publication.
 
 - [ ] **Step 3: Commit only confirmed paths**
 
