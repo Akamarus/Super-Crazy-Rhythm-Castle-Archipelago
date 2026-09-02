@@ -5,6 +5,7 @@
 - Activated 30 Music Lab cassette items and 30 idempotent sources. Five point-chest songs reuse their existing 32/64/89/111/140-point chest locations.
 - Added exact schema/count/item/source/reused-location compatibility. Any mismatch logs the differing key and leaves native cassette behavior enabled.
 - AP receipts persist `HAVE_IN_BAG`; `HAVE_DEPOSITED` remains terminal, so insertion stays a normal player action.
+- Added automatic native save persistence for newly received AP cassettes. Live testing verified two sequential cassette writes in one save session and a clean restart with both cassettes restored, no duplicate grants, and no extra save attempt.
 - Requires a fresh v0.22 seed. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending; no individual live verification is claimed without evidence.
 - Removed the temporary INSERT cassette-catalog diagnostic binding from runtime release behavior. The evidence report and extraction tooling remain available to maintainers.
 - The separate Game Garage cartridge native-inventory blocker remains open.
