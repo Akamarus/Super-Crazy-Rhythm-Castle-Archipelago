@@ -189,6 +189,8 @@ Equal(true, reconcileSongSource.Contains("TryReadCassetteStatus(processor!, nati
 Equal(true, reconcileSongSource.Contains("TrySubmitHaveInBag(processor!, nativeSong", StringComparison.Ordinal), "reconciliation uses exact semantic request adapter");
 Equal(false, reconcileSongSource.Contains("HAVE_DEPOSITED", StringComparison.Ordinal), "reconciliation never submits deposited status");
 Equal(true, reconcileSongSource.Contains("verificationDue &&", StringComparison.Ordinal) && reconcileSongSource.Contains("_runtime.RecordVerification(nativeSong, null)", StringComparison.Ordinal), "an unreadable scheduled verification is consumed once without enabling a duplicate grant");
+Equal(true, reconcileSongSource.Contains("!_productionPersistence.Active &&", StringComparison.Ordinal),
+    "an active pointer-bound write blocks only additional semantic grant submission");
 
 string cassetteProcessorCapture = ExtractMethods(pluginSource, "internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)").Single();
 Equal(true, cassetteProcessorCapture.Contains("CASSETTE PLAYER PROCESSOR CAPTURED", StringComparison.Ordinal), "compatible player processor capture is observable");
@@ -244,15 +246,21 @@ Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationRea
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
 Equal(true, pluginSource.Contains("EnableCassettePointerBoundPersistenceAcceptance\", false", StringComparison.Ordinal), "pointer-bound persistence acceptance config is explicitly default false");
 Equal(true, pluginSource.Contains("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal), "write-completed event hook is installed only for an explicit startup opt-in");
-string acceptanceConfigUpdate = ExtractMethods(receiptRandomizationSource, "internal static void SetPersistenceAcceptanceEnabled(").Single();
+Equal(true, pluginSource.Contains("CassetteReceiptRandomization.Configure(\n            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal),
+    "default-false acceptance configuration controls diagnostics only");
+string acceptanceConfigUpdate = ExtractMethods(receiptRandomizationSource, "internal static void SetPersistenceAcceptanceDiagnosticsEnabled(").Single();
 Equal(true, acceptanceConfigUpdate.Contains("if (enabled)", StringComparison.Ordinal) && acceptanceConfigUpdate.Contains("restart is required", StringComparison.Ordinal),
-    "runtime opt-in cannot start without the startup-only event hook; enabling requires a restart");
-Equal(false, acceptanceConfigUpdate.Contains("_persistenceAcceptanceEnabled = true", StringComparison.Ordinal),
-    "a live config change cannot partially enable the acceptance trial without its event observer");
+    "runtime diagnostic opt-in cannot start without the startup-only event hook; enabling requires a restart");
+Equal(false, acceptanceConfigUpdate.Contains("_productionPersistence.Cancel", StringComparison.Ordinal),
+    "changing acceptance diagnostics cannot cancel or control production durability");
 Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
 int delayedVerificationLoopIndex = unityTick.IndexOf("foreach (string song in ready) TryReconcileSong", StringComparison.Ordinal);
 int diagnosticWaveConsumeIndex = unityTick.IndexOf("TryConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal);
 Equal(true, delayedVerificationLoopIndex >= 0 && diagnosticWaveConsumeIndex > delayedVerificationLoopIndex, "Unity update consumes a diagnostic wave only after every due delayed verification has run");
+int productionWaveEnqueueIndex = unityTick.IndexOf("_persistenceWaves.TryEnqueue", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
+int persistenceEligibilityIndex = unityTick.IndexOf("TryStartPointerBoundPersistence", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
+Equal(true, productionWaveEnqueueIndex > diagnosticWaveConsumeIndex && persistenceEligibilityIndex > productionWaveEnqueueIndex,
+    "newly verified waves are identity-bound and queued before any production eligibility attempt");
 Equal(true, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves schedule the bounded ownership snapshot immediately afterward");
 string persistenceTargetLogger = ExtractMethods(receiptRandomizationSource, "private static void LogPersistenceTargetOwnershipDiagnostic(").Single();
 foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryReadDiskCommitTargetDiagnostic", "TryReadPersistenceTargetActiveState", "TryReadPublicWriteDiagnosticState" })
@@ -260,46 +268,71 @@ foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryRe
 foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitRequest", "ProcessRequest", "PersistAllChangesInBundle", "RequestUrgentWriteToDisk", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
     Equal(false, persistenceTargetLogger.Contains(prohibitedMutation, StringComparison.Ordinal), $"persistence target snapshot contains no mutation path {prohibitedMutation}");
 Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
-string persistenceAcceptanceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistenceAcceptance(").Single();
-int acceptancePlanIndex = persistenceAcceptanceStarter.IndexOf("TryPreparePointerBoundPersistenceInvocation", StringComparison.Ordinal);
-int acceptanceTokenIndex = persistenceAcceptanceStarter.IndexOf("_persistenceAcceptance.TryPrepare", StringComparison.Ordinal);
-int acceptanceInvokeIndex = persistenceAcceptanceStarter.IndexOf("InvokePointerBoundPersistence", StringComparison.Ordinal);
-Equal(true, acceptancePlanIndex >= 0 && acceptanceTokenIndex > acceptancePlanIndex && acceptanceInvokeIndex > acceptanceTokenIndex,
-    "acceptance resolves the immutable public call plan, then installs PRE token, then mutates");
-Equal(true, persistenceAcceptanceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "acceptance starter executes the complete pure gate before preparing");
-int acceptanceMarkInvokedIndex = persistenceAcceptanceStarter.IndexOf("invocationAccepted = _persistenceAcceptance.MarkInvoked", StringComparison.Ordinal);
-int acceptanceMarkSuccessIndex = persistenceAcceptanceStarter.IndexOf("if (invocationAccepted)", acceptanceMarkInvokedIndex, StringComparison.Ordinal);
-int acceptanceInvokedAdmissionIndex = persistenceAcceptanceStarter.IndexOf("\"INVOKED\"", acceptanceMarkSuccessIndex, StringComparison.Ordinal);
-int acceptanceMarkerDrainIndex = persistenceAcceptanceStarter.IndexOf("DrainPersistenceAcceptanceMarkers", acceptanceInvokedAdmissionIndex, StringComparison.Ordinal);
-Equal(true, acceptanceMarkInvokedIndex > acceptanceInvokeIndex &&
-            acceptanceMarkSuccessIndex > acceptanceMarkInvokedIndex &&
-            acceptanceInvokedAdmissionIndex > acceptanceMarkSuccessIndex &&
-            acceptanceMarkerDrainIndex > acceptanceInvokedAdmissionIndex,
+string persistenceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistence(").Single();
+int persistencePlanIndex = persistenceStarter.IndexOf("TryPreparePointerBoundPersistenceInvocation", StringComparison.Ordinal);
+int persistenceTokenIndex = persistenceStarter.IndexOf("_productionPersistence.TryPrepare", StringComparison.Ordinal);
+int persistenceInvokeIndex = persistenceStarter.IndexOf("InvokePointerBoundPersistence", StringComparison.Ordinal);
+Equal(true, persistencePlanIndex >= 0 && persistenceTokenIndex > persistencePlanIndex && persistenceInvokeIndex > persistenceTokenIndex,
+    "production resolves the immutable public call plan, then installs PRE token, then mutates");
+Equal(true, persistenceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "production starter executes the complete pure gate before preparing");
+Equal(true, persistenceStarter.Contains("_persistenceWaves.TryPeek", StringComparison.Ordinal),
+    "production starts only from the exact queued identity-bound wave");
+Equal(true, persistenceStarter.Contains("OptInEnabled: true", StringComparison.Ordinal) &&
+            persistenceStarter.Contains("routingCompatible = _slotDataSynchronized && Enabled", StringComparison.Ordinal),
+    "compatible full cassette routing enables production independently of default-false diagnostics");
+Equal(false, persistenceStarter.Contains("_acceptanceDiagnosticsEnabled", StringComparison.Ordinal),
+    "diagnostic configuration cannot gate or cancel production persistence");
+int persistenceMarkInvokedIndex = persistenceStarter.IndexOf("invocationAccepted = _productionPersistence.MarkInvoked", StringComparison.Ordinal);
+int persistenceMarkSuccessIndex = persistenceStarter.IndexOf("if (invocationAccepted)", persistenceMarkInvokedIndex, StringComparison.Ordinal);
+int persistenceInvokedAdmissionIndex = persistenceStarter.IndexOf("\"INVOKED\"", persistenceMarkSuccessIndex, StringComparison.Ordinal);
+int persistenceMarkerDrainIndex = persistenceStarter.IndexOf("DrainPersistenceMarkers", persistenceInvokedAdmissionIndex, StringComparison.Ordinal);
+Equal(true, persistenceMarkInvokedIndex > persistenceInvokeIndex &&
+            persistenceMarkSuccessIndex > persistenceMarkInvokedIndex &&
+            persistenceInvokedAdmissionIndex > persistenceMarkSuccessIndex &&
+            persistenceMarkerDrainIndex > persistenceInvokedAdmissionIndex,
     "orchestration admits INVOKED only after MarkInvoked accepts the still-active token, then uses the serialized drain");
 string acceptanceEventObserver = ExtractMethods(
     receiptRandomizationSource, "internal static void ObservePersistenceAcceptanceWriteCompletedEvent(").Single();
-Equal(false, acceptanceEventObserver.Contains("LogPersistenceAcceptance(\"FAILED\"", StringComparison.Ordinal),
-    "uncorrelated native events never emit a terminal acceptance marker");
-string acceptanceMarkerDrain = ExtractMethods(
-    receiptRandomizationSource, "private static void DrainPersistenceAcceptanceMarkers(").Single();
-Equal(true, acceptanceMarkerDrain.Contains("_persistenceAcceptanceMarkerEmitter.Drain", StringComparison.Ordinal) &&
-            acceptanceMarkerDrain.Contains("TryTakePersistenceAcceptanceMarker", StringComparison.Ordinal) &&
-            acceptanceMarkerDrain.Contains("EmitPersistenceAcceptanceMarker", StringComparison.Ordinal),
+Equal(true, acceptanceEventObserver.Contains("_acceptanceDiagnosticsEnabled", StringComparison.Ordinal),
+    "uncorrelated native event hints are observed only when startup diagnostics were enabled");
+Equal(false, acceptanceEventObserver.Contains("terminal: true", StringComparison.Ordinal),
+    "uncorrelated native events never emit a terminal production marker");
+string persistenceMarkerDrain = ExtractMethods(
+    receiptRandomizationSource, "private static void DrainPersistenceMarkers(").Single();
+Equal(true, persistenceMarkerDrain.Contains("_persistenceMarkerEmitter.Drain", StringComparison.Ordinal) &&
+            persistenceMarkerDrain.Contains("TryTakePersistenceMarker", StringComparison.Ordinal) &&
+            persistenceMarkerDrain.Contains("EmitPersistenceMarker", StringComparison.Ordinal),
     "all admitted markers use one serialized drain/emitter path");
-string acceptanceMarkerEmitter = ExtractMethods(
-    receiptRandomizationSource, "private static void EmitPersistenceAcceptanceMarker(").Single();
-Equal(true, acceptanceMarkerEmitter.Contains("LogPersistenceAcceptance", StringComparison.Ordinal),
-    "only the serialized marker emitter reaches the physical acceptance logger");
-Equal(2, receiptRandomizationSource.Split("LogPersistenceAcceptance(", StringSplitOptions.None).Length - 1,
-    "acceptance lifecycle has exactly one logger definition and one serialized emitter call; transition callers never log independently");
-Equal(true, persistenceAcceptanceStarter.Contains("_persistenceAcceptanceMarkers.TryBeginAttempt", StringComparison.Ordinal),
+string persistenceMarkerEmitter = ExtractMethods(
+    receiptRandomizationSource, "private static void EmitPersistenceMarker(").Single();
+Equal(true, persistenceMarkerEmitter.Contains("LogPersistence", StringComparison.Ordinal),
+    "only the serialized marker emitter reaches the physical production logger");
+Equal(2, receiptRandomizationSource.Split("LogPersistence(", StringSplitOptions.None).Length - 1,
+    "production lifecycle has exactly one logger definition and one serialized emitter call; transition callers never log independently");
+Equal(true, persistenceStarter.Contains("_persistenceMarkers.TryBeginAttempt", StringComparison.Ordinal),
     "PRE admission is atomic with attempt preparation under the acceptance lock");
-Equal(true, acceptanceEventObserver.Contains("_persistenceAcceptanceMarkers.TryAppend", StringComparison.Ordinal),
+Equal(true, acceptanceEventObserver.Contains("_persistenceMarkers.TryAppend", StringComparison.Ordinal),
     "EVENT admission is atomic with event-state observation under the acceptance lock");
 foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
-    Equal(false, persistenceAcceptanceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"acceptance starter cannot use prohibited path {prohibitedAcceptance}");
-foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "EVENT", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
-    Equal(true, receiptRandomizationSource.Contains($"CASSETTE PERSISTENCE ACCEPTANCE {marker}", StringComparison.Ordinal), $"acceptance emits exact bounded marker {marker}");
+    Equal(false, persistenceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"production starter cannot use prohibited path {prohibitedAcceptance}");
+foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
+    Equal(true, receiptRandomizationSource.Contains($"CASSETTE PERSISTENCE {marker}", StringComparison.Ordinal), $"production emits exact bounded marker {marker}");
+Equal(false, receiptRandomizationSource.Contains("CASSETTE PERSISTENCE EVENT", StringComparison.Ordinal),
+    "normal production has no event lifecycle marker");
+Equal(true, receiptRandomizationSource.Contains("CassettePersistenceAttemptPolicy.SequentialVerifiedBatches", StringComparison.Ordinal),
+    "compatible routing uses the sequential production persistence policy independently of diagnostics");
+string persistencePoll = ExtractMethods(receiptRandomizationSource, "private static void PollPointerBoundPersistence(").Single();
+Equal(true, persistencePoll.Contains("_persistenceWaves.Complete", StringComparison.Ordinal) &&
+            persistencePoll.Contains("RequestUnityReconciliation", StringComparison.Ordinal),
+    "VERIFIED completes the exact wave and resumes Unity reconciliation for a later batch");
+Equal(true, persistencePoll.Contains("_persistenceWaves.TombstoneEpoch", StringComparison.Ordinal),
+    "FAILED or TIMEOUT clears and tombstones later same-epoch waves");
+Equal(true, persistenceStarter.Contains("_productionPersistence.MarkIndeterminate", StringComparison.Ordinal) &&
+            persistenceStarter.Contains("_persistenceWaves.TombstoneEpoch", StringComparison.Ordinal),
+    "a possibly mutating invocation ambiguity tombstones the exact epoch and prevents another adapter call");
+string cancelPersistence = ExtractMethods(receiptRandomizationSource, "private static void CancelPointerBoundPersistence(").Single();
+Equal(true, cancelPersistence.Contains("_persistenceWaves.CancelEpoch", StringComparison.Ordinal),
+    "save boundaries cancel and clear queued epoch-local persistence work");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");

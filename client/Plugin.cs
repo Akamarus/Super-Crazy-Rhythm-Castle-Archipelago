@@ -54,7 +54,7 @@ public sealed class Plugin : BasePlugin
         var cassettePointerBoundPersistenceAcceptance = Config.Bind(
             "Developer",
             "EnableCassettePointerBoundPersistenceAcceptance", false,
-            "ACCEPTANCE ONLY: run one guarded pointer-bound cassette persistence trial per loaded save epoch. Disabled by default; restart after changing this setting.");
+            "DIAGNOSTICS ONLY: observe uncorrelated native save-write completion hints for cassette persistence. Production durability is independent of this setting. Disabled by default; restart after enabling.");
         var areaAccessPrototype = Config.Bind("Developer", "EnableAreaAccessPrototype", false,
             "EXPERIMENTAL: gate the six Hub6 destination phones using randomizer Area Access permissions. With APWorld v0.13, use PrototypeStartingArea=AP so the seed's precollected Area Access item determines the starter. Music Lab / Hub6 and Game Garage remain available.");
         var prototypeStartingArea = Config.Bind("Developer", "PrototypeStartingArea", "AP",
@@ -161,9 +161,10 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
-        CassetteReceiptRandomization.Configure(cassettePointerBoundPersistenceAcceptance.Value);
+        CassetteReceiptRandomization.Configure(
+            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value);
         cassettePointerBoundPersistenceAcceptance.SettingChanged += (_, _) =>
-            CassetteReceiptRandomization.SetPersistenceAcceptanceEnabled(cassettePointerBoundPersistenceAcceptance.Value);
+            CassetteReceiptRandomization.SetPersistenceAcceptanceDiagnosticsEnabled(cassettePointerBoundPersistenceAcceptance.Value);
         CassetteSourceRandomization.Configure();
         PreviewAbilityRandomization.Configure();
         BottomHudDiagnostic.Configure();
@@ -17968,16 +17969,23 @@ internal static class CassetteReceiptRandomization
     private static bool _saveSynchronizationReady;
     private static bool _saveSynchronizationDeferredLogged;
     private static bool _saveSynchronizationReadyLogged;
-    private static bool _persistenceAcceptanceEnabled;
-    private static CassettePointerBoundPersistenceAcceptanceRuntime _persistenceAcceptance = new();
-    private static CassettePersistenceAcceptanceMarkerJournal _persistenceAcceptanceMarkers = new();
-    private static readonly CassettePersistenceAcceptanceMarkerEmitter _persistenceAcceptanceMarkerEmitter = new();
+    private static bool _acceptanceDiagnosticsEnabled;
+    private static CassettePointerBoundPersistenceRuntime _productionPersistence =
+        new(CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+    private static CassettePersistenceWaveQueue _persistenceWaves = new();
+    private static CassettePersistenceAcceptanceMarkerJournal _persistenceMarkers = new();
+    private static readonly CassettePersistenceAcceptanceMarkerEmitter _persistenceMarkerEmitter = new();
+    private static long _persistenceDeferredLoggedWaveId;
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
     internal static bool IsApplyingNativeGrant => _applyingNativeGrant;
+    internal static bool IsPersistenceWriteActive
+    {
+        get { lock (Sync) return _productionPersistence.Active; }
+    }
 
-    internal static void Configure(bool persistenceAcceptanceEnabled = false)
+    internal static void Configure(bool acceptanceDiagnosticsEnabled = false)
     {
         lock (Sync)
         {
@@ -17990,39 +17998,31 @@ internal static class CassetteReceiptRandomization
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
             _saveSynchronizationReady = false; _saveSynchronizationDeferredLogged = false; _saveSynchronizationReadyLogged = false;
-            _persistenceAcceptanceEnabled = persistenceAcceptanceEnabled;
-            _persistenceAcceptance = new CassettePointerBoundPersistenceAcceptanceRuntime();
-            _persistenceAcceptanceMarkers = new CassettePersistenceAcceptanceMarkerJournal();
+            _acceptanceDiagnosticsEnabled = acceptanceDiagnosticsEnabled;
+            _productionPersistence = new CassettePointerBoundPersistenceRuntime(
+                CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+            _persistenceWaves = new CassettePersistenceWaveQueue();
+            _persistenceMarkers = new CassettePersistenceAcceptanceMarkerJournal();
+            _persistenceDeferredLoggedWaveId = 0;
         }
     }
 
-    internal static void SetPersistenceAcceptanceEnabled(bool enabled)
+    internal static void SetPersistenceAcceptanceDiagnosticsEnabled(bool enabled)
     {
         if (enabled)
         {
             Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] CASSETTE PERSISTENCE ACCEPTANCE enable deferred; restart is required so the opt-in event observer and acceptance state are installed together.");
+                "[SCRC-AP] CASSETTE PERSISTENCE DIAGNOSTICS enable deferred; restart is required so the opt-in write-completed event observer is installed at startup.");
             return;
         }
-        CassettePersistenceAcceptanceOutcome cancelled;
-        CassettePersistenceAcceptanceAttempt attempt;
-        lock (Sync)
-        {
-            attempt = _persistenceAcceptance.Attempt;
-            cancelled = _persistenceAcceptance.Cancel("acceptance-config-disabled");
-            if (cancelled == CassettePersistenceAcceptanceOutcome.Cancelled)
-                _persistenceAcceptanceMarkers.TryAppend(
-                    attempt, "CANCELLED", "reason='acceptance-config-disabled'", terminal: true);
-            _persistenceAcceptanceEnabled = false;
-        }
-        DrainPersistenceAcceptanceMarkers();
+        lock (Sync) _acceptanceDiagnosticsEnabled = false;
     }
 
     internal static void ApplySlotData(Dictionary<string, object>? slotData)
     {
         CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
         bool enabled = compatibility.Compatible;
-        if (!enabled) CancelPersistenceAcceptance("cassette-routing-disabled");
+        if (!enabled) CancelPointerBoundPersistence("cassette-routing-disabled");
         lock (Sync)
         {
             Enabled = enabled;
@@ -18031,7 +18031,6 @@ internal static class CassetteReceiptRandomization
             {
                 _runtime.DeactivateSave();
                 _gameplayReady.BeginBoundary();
-                _persistenceAcceptanceMarkers.RetireAttempt(_persistenceAcceptance.Attempt);
             }
         }
         Plugin.LoggerInstance?.LogWarning(enabled
@@ -18130,13 +18129,13 @@ internal static class CassetteReceiptRandomization
 
     internal static void SuspendGameplayReadinessForBoundary()
     {
-        CancelPersistenceAcceptance("save-boundary");
+        CancelPointerBoundPersistence("save-boundary");
         lock (Sync) _gameplayReady.BeginBoundary();
     }
 
     internal static void BeginMostRecentSelectionBoundary(object? saveDataProcessor)
     {
-        CancelPersistenceAcceptance("most-recent-save-boundary");
+        CancelPointerBoundPersistence("most-recent-save-boundary");
         string stage;
         bool log;
         lock (Sync)
@@ -18172,11 +18171,10 @@ internal static class CassetteReceiptRandomization
 
     internal static void ActivateLoadedSave(long generation, int slot, long pointer, string reason)
     {
-        CancelPersistenceAcceptance("new-save-epoch");
+        CancelPointerBoundPersistence("new-save-epoch");
         long epoch;
         lock (Sync)
         {
-            _persistenceAcceptanceMarkers.RetireAttempt(_persistenceAcceptance.Attempt);
             _runtime.ActivateSave(slot);
             _activeSaveGeneration = generation;
             _activeSavePointer = pointer;
@@ -18185,7 +18183,10 @@ internal static class CassetteReceiptRandomization
             _saveSynchronizationDeferredLogged = false;
             _saveSynchronizationReadyLogged = false;
             epoch = _runtime.Epoch;
-            _persistenceAcceptance.BeginEpoch(new(generation, epoch, slot, pointer));
+            var identity = new CassettePersistenceAcceptanceIdentity(generation, epoch, slot, pointer);
+            _productionPersistence.BeginEpoch(identity);
+            _persistenceWaves.BeginEpoch(identity);
+            _persistenceDeferredLoggedWaveId = 0;
         }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE EPOCH ACTIVATED epoch={epoch} slot={slot} reason='{reason}'.");
         RequestUnityReconciliation("save selection completed");
@@ -18193,10 +18194,9 @@ internal static class CassetteReceiptRandomization
 
     internal static void DeactivateLoadedSave(string reason)
     {
-        CancelPersistenceAcceptance("save-deactivated");
+        CancelPointerBoundPersistence("save-deactivated");
         lock (Sync)
         {
-            _persistenceAcceptanceMarkers.RetireAttempt(_persistenceAcceptance.Attempt);
             _runtime.DeactivateSave();
             _activeSaveGeneration = 0;
             _activeSavePointer = 0;
@@ -18209,19 +18209,27 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
     }
 
-    private static void CancelPersistenceAcceptance(string reason)
+    private static void CancelPointerBoundPersistence(string reason)
     {
         CassettePersistenceAcceptanceAttempt attempt;
         CassettePersistenceAcceptanceOutcome outcome;
         lock (Sync)
         {
-            attempt = _persistenceAcceptance.Attempt;
-            outcome = _persistenceAcceptance.Cancel(reason);
+            attempt = _productionPersistence.Attempt;
+            var identity = new CassettePersistenceAcceptanceIdentity(
+                _activeSaveGeneration,
+                _runtime.Epoch,
+                _runtime.ActiveSlot ?? -1,
+                _activeSavePointer);
+            outcome = _productionPersistence.Cancel(reason);
             if (outcome == CassettePersistenceAcceptanceOutcome.Cancelled)
-                _persistenceAcceptanceMarkers.TryAppend(
+                _persistenceMarkers.TryAppend(
                     attempt, "CANCELLED", $"reason='{reason}'", terminal: true);
+            if (identity.Pointer != 0) _persistenceWaves.CancelEpoch(identity);
+            _persistenceDeferredLoggedWaveId = 0;
         }
-        DrainPersistenceAcceptanceMarkers();
+        DrainPersistenceMarkers();
+        lock (Sync) _persistenceMarkers.RetireAttempt(attempt);
     }
 
     internal static void TryReconcile(string reason)
@@ -18382,7 +18390,8 @@ internal static class CassetteReceiptRandomization
                 Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE VERIFIED nativeSong='{nativeSong}' status='{status}' epoch={epoch} reason='{reason}'.");
                 return;
             }
-            submit = _runtime.CanSubmit(nativeSong, status, processorAvailable: true);
+            submit = !_productionPersistence.Active &&
+                _runtime.CanSubmit(nativeSong, status, processorAvailable: true);
         }
         if (!submit) return;
         bool submitted;
@@ -18504,7 +18513,7 @@ internal static class CassetteReceiptRandomization
             ActivateLoadedSave(loaded.Generation, loaded.Slot, loaded.Pointer, $"{loaded.Reason} generation={loaded.Generation} pointer=0x{loaded.Pointer:X} build={loaded.IncludesBuild}");
         }
 
-        PollPointerBoundPersistenceAcceptance(elapsed, "UPDATE");
+        PollPointerBoundPersistence(elapsed, "UPDATE");
 
         string? reason = null;
         lock (Sync)
@@ -18535,14 +18544,26 @@ internal static class CassetteReceiptRandomization
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
         CassettePersistenceTargetDiagnosticWave diagnosticWave;
         bool hasDiagnosticWave;
+        bool queuedPersistenceWave = false;
         lock (Sync)
+        {
             hasDiagnosticWave = _runtime.TryConsumeNewlyVerifiedGrantDiagnosticWave(
                 _activeSaveGeneration, _activeSavePointer, out diagnosticWave);
-        if (hasDiagnosticWave)
+            if (hasDiagnosticWave)
+            {
+                var identity = new CassettePersistenceAcceptanceIdentity(
+                    diagnosticWave.Identity.Generation,
+                    diagnosticWave.Identity.Epoch,
+                    diagnosticWave.Identity.Slot,
+                    diagnosticWave.Identity.StatePointer);
+                queuedPersistenceWave = _persistenceWaves.TryEnqueue(identity, diagnosticWave.Songs);
+            }
+        }
+        if (queuedPersistenceWave)
         {
             LogPersistenceTargetOwnershipDiagnostic(diagnosticWave);
-            TryStartPointerBoundPersistenceAcceptance(diagnosticWave);
         }
+        TryStartPointerBoundPersistence();
     }
 
     private static void LogPersistenceTargetOwnershipDiagnostic(CassettePersistenceTargetDiagnosticWave wave)
@@ -18637,23 +18658,25 @@ internal static class CassetteReceiptRandomization
             CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(selectedEvidence));
     }
 
-    private static void TryStartPointerBoundPersistenceAcceptance(CassettePersistenceTargetDiagnosticWave wave)
+    private static void TryStartPointerBoundPersistence()
     {
         object? playerProcessor;
         object? retainedSaveDataProcessor;
         string[] ownedSongs;
         CassettePersistenceAcceptanceIdentity identity;
-        bool optInEnabled;
+        CassettePersistenceQueuedWave wave;
         bool routingCompatible;
         bool gameplayReady;
         bool waveCurrent;
         lock (Sync)
         {
             identity = new(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot ?? -1, _activeSavePointer);
-            optInEnabled = _persistenceAcceptanceEnabled;
             routingCompatible = _slotDataSynchronized && Enabled;
+            if (!routingCompatible || _productionPersistence.Active ||
+                !_persistenceWaves.TryPeek(identity, out wave))
+                return;
             waveCurrent = !_saveIdentity.Pending && _runtime.HasActiveSave &&
-                wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer);
+                wave.Identity == identity;
             gameplayReady = waveCurrent && _gameplayReady.IsOpen(
                 new(identity.Generation, identity.Epoch, identity.Slot, identity.Pointer));
             playerProcessor = _playerSaveRequestProcessor;
@@ -18701,7 +18724,7 @@ internal static class CassetteReceiptRandomization
             string.Equals(status, "HAVE_IN_BAG", StringComparison.Ordinal));
 
         var evidence = new CassettePersistenceAcceptanceEligibilityEvidence(
-            optInEnabled,
+            OptInEnabled: true,
             routingCompatible,
             gameplayReady,
             waveCurrent,
@@ -18717,19 +18740,20 @@ internal static class CassetteReceiptRandomization
             activeReadable && activeState.HasChanges,
             !activeReadable || activeState.RequiresWriteToDisk);
         if (!CassettePersistenceAcceptanceEligibility.Evaluate(evidence, out string gateStage))
+        {
+            LogPersistenceDeferredOnce(wave, gateStage);
             return;
+        }
         if (!writeReadable)
         {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] CASSETTE PERSISTENCE ACCEPTANCE FAILED preInvocation=true stage='{writeStage}'.");
+            LogPersistenceDeferredOnce(wave, writeStage);
             return;
         }
         if (!CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
                 playerProcessor, identity.Pointer,
                 out CassettePointerBoundPersistenceInvocationPlan plan, out string planStage))
         {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] CASSETTE PERSISTENCE ACCEPTANCE FAILED preInvocation=true stage='{planStage}'.");
+            LogPersistenceDeferredOnce(wave, planStage);
             return;
         }
 
@@ -18746,17 +18770,20 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             bool stillCurrent = !_saveIdentity.Pending && _runtime.HasActiveSave &&
-                wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer) &&
-                _persistenceAcceptanceEnabled;
-            if (!stillCurrent || !_persistenceAcceptance.TryPrepare(identity, baseline, out attempt))
+                identity == new CassettePersistenceAcceptanceIdentity(
+                    _activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot ?? -1, _activeSavePointer) &&
+                _persistenceWaves.TryPeek(identity, out CassettePersistenceQueuedWave currentWave) &&
+                currentWave.WaveId == wave.WaveId;
+            if (!stillCurrent || !_productionPersistence.TryPrepare(identity, baseline, out attempt))
                 return;
-            if (!_persistenceAcceptanceMarkers.TryBeginAttempt(attempt, preDetail))
+            if (!_persistenceMarkers.TryBeginAttempt(attempt, preDetail))
             {
-                _persistenceAcceptance.MarkIndeterminate(attempt, "marker-pre-admission");
+                _productionPersistence.MarkIndeterminate(attempt, "marker-pre-admission");
+                _persistenceWaves.TombstoneEpoch(identity);
                 return;
             }
         }
-        DrainPersistenceAcceptanceMarkers();
+        DrainPersistenceMarkers();
 
         CassettePointerBoundPersistenceInvocationResult invocation =
             CassetteSaveTransactionAdapter.InvokePointerBoundPersistence(plan, out string invokeStage);
@@ -18765,32 +18792,36 @@ internal static class CassetteReceiptRandomization
             CassettePersistenceAcceptanceOutcome indeterminate;
             lock (Sync)
             {
-                indeterminate = _persistenceAcceptance.MarkIndeterminate(attempt, invokeStage);
+                indeterminate = _productionPersistence.MarkIndeterminate(attempt, invokeStage);
                 if (indeterminate == CassettePersistenceAcceptanceOutcome.Failed)
-                    _persistenceAcceptanceMarkers.TryAppend(
+                {
+                    _persistenceWaves.TombstoneEpoch(identity);
+                    _persistenceMarkers.TryAppend(
                         attempt,
                         "FAILED",
                         $"outcome='{invocation}' stage='{invokeStage}' indeterminate=true",
                         terminal: true);
+                }
             }
-            DrainPersistenceAcceptanceMarkers();
+            DrainPersistenceMarkers();
+            lock (Sync) _persistenceMarkers.RetireAttempt(attempt);
             return;
         }
 
         bool invocationAccepted;
         lock (Sync)
         {
-            invocationAccepted = _persistenceAcceptance.MarkInvoked(attempt);
+            invocationAccepted = _productionPersistence.MarkInvoked(attempt);
             if (invocationAccepted)
-                _persistenceAcceptanceMarkers.TryAppend(
+                _persistenceMarkers.TryAppend(
                     attempt,
                     "INVOKED",
                     $"stage='{invokeStage}' order='PersistAllChangesInBundle(DEFAULT/1),RequestUrgentWriteToDisk'",
                     terminal: false);
         }
-        DrainPersistenceAcceptanceMarkers();
+        DrainPersistenceMarkers();
         if (!invocationAccepted) return;
-        PollPointerBoundPersistenceAcceptance(TimeSpan.Zero, "IMMEDIATE POST");
+        PollPointerBoundPersistence(TimeSpan.Zero, "IMMEDIATE POST");
     }
 
     internal static void ObservePersistenceAcceptanceWriteCompletedEvent(object? nativeEvent)
@@ -18802,20 +18833,20 @@ internal static class CassetteReceiptRandomization
         CassettePersistenceAcceptanceEventOutcome outcome;
         lock (Sync)
         {
-            if (!_persistenceAcceptanceEnabled || !_persistenceAcceptance.Active) return;
-            attempt = _persistenceAcceptance.Attempt;
-            outcome = _persistenceAcceptance.ObserveWriteCompletedEvent(attempt, slot, succeeded);
+            if (!_acceptanceDiagnosticsEnabled || !_productionPersistence.Active) return;
+            attempt = _productionPersistence.Attempt;
+            outcome = _productionPersistence.ObserveWriteCompletedEvent(attempt, slot, succeeded);
             if (outcome != CassettePersistenceAcceptanceEventOutcome.Ignored)
-                _persistenceAcceptanceMarkers.TryAppend(
+                _persistenceMarkers.TryAppend(
                     attempt,
                     "EVENT",
                     $"slot={slot} succeeded={succeeded} failureReason='{failureReason ?? "<null>"}' stage='{stage}' outcome='{outcome}'",
                     terminal: false);
         }
-        DrainPersistenceAcceptanceMarkers();
+        DrainPersistenceMarkers();
     }
 
-    private static void PollPointerBoundPersistenceAcceptance(TimeSpan elapsed, string phase)
+    private static void PollPointerBoundPersistence(TimeSpan elapsed, string phase)
     {
         CassettePersistenceAcceptanceAttempt attempt;
         CassettePersistenceAcceptanceBaseline baseline;
@@ -18823,11 +18854,10 @@ internal static class CassetteReceiptRandomization
         object? retainedSaveDataProcessor;
         lock (Sync)
         {
-            if (!_persistenceAcceptanceEnabled || !_persistenceAcceptance.Active ||
-                !_persistenceAcceptance.Invoked)
+            if (!_productionPersistence.Active || !_productionPersistence.Invoked)
                 return;
-            attempt = _persistenceAcceptance.Attempt;
-            baseline = _persistenceAcceptance.Baseline;
+            attempt = _productionPersistence.Attempt;
+            baseline = _productionPersistence.Baseline;
             playerProcessor = _playerSaveRequestProcessor;
             retainedSaveDataProcessor = _joinedSaveDataRequestProcessor;
         }
@@ -18868,35 +18898,58 @@ internal static class CassetteReceiptRandomization
         string stateDetail = writeReadable
             ? FormatPersistenceAcceptanceState(writeState)
             : "state=<unavailable>";
+        bool requestReconciliation = false;
+        bool terminal = false;
         lock (Sync)
         {
-            outcome = _persistenceAcceptance.Observe(
+            outcome = _productionPersistence.Observe(
                 attempt, currentIdentity, writeState, statusesRetained, coherentReadable,
                 elapsed, out eventObserved);
             if (outcome != CassettePersistenceAcceptanceOutcome.None &&
                 string.Equals(phase, "IMMEDIATE POST", StringComparison.Ordinal))
-                _persistenceAcceptanceMarkers.TryAppend(
+                _persistenceMarkers.TryAppend(
                     attempt,
                     "IMMEDIATE POST",
                     $"targetStage='{targetStage}' writeStage='{writeStage}' eventObserved={eventObserved} {stateDetail}",
                     terminal: false);
             if (outcome == CassettePersistenceAcceptanceOutcome.Verified)
-                _persistenceAcceptanceMarkers.TryAppend(
+            {
+                if (_persistenceWaves.TryPeek(attempt.Identity, out CassettePersistenceQueuedWave completedWave))
+                    _persistenceWaves.Complete(completedWave);
+                _persistenceMarkers.TryAppend(
                     attempt, "VERIFIED", stateDetail, terminal: true);
+                _persistenceDeferredLoggedWaveId = 0;
+                requestReconciliation = true;
+                terminal = true;
+            }
             else if (outcome == CassettePersistenceAcceptanceOutcome.Failed)
-                _persistenceAcceptanceMarkers.TryAppend(
+            {
+                _persistenceWaves.TombstoneEpoch(attempt.Identity);
+                _persistenceMarkers.TryAppend(
                     attempt,
                     "FAILED",
-                    $"reason='{_persistenceAcceptance.LastFailure}' targetStage='{targetStage}' writeStage='{writeStage}'",
+                    $"reason='{_productionPersistence.LastFailure}' targetStage='{targetStage}' writeStage='{writeStage}'",
                     terminal: true);
+                terminal = true;
+            }
             else if (outcome == CassettePersistenceAcceptanceOutcome.Timeout)
-                _persistenceAcceptanceMarkers.TryAppend(
+            {
+                _persistenceWaves.TombstoneEpoch(attempt.Identity);
+                _persistenceMarkers.TryAppend(
                     attempt,
                     "TIMEOUT",
-                    $"reason='{_persistenceAcceptance.LastFailure}' targetStage='{targetStage}' writeStage='{writeStage}'",
+                    $"reason='{_productionPersistence.LastFailure}' targetStage='{targetStage}' writeStage='{writeStage}'",
                     terminal: true);
+                terminal = true;
+            }
         }
-        DrainPersistenceAcceptanceMarkers();
+        DrainPersistenceMarkers();
+        if (terminal)
+        {
+            lock (Sync) _persistenceMarkers.RetireAttempt(attempt);
+        }
+        if (requestReconciliation)
+            RequestUnityReconciliation("cassette persistence verified");
     }
 
     private static string FormatPersistenceAcceptanceState(CassettePublicWriteDiagnosticState state) =>
@@ -18907,22 +18960,37 @@ internal static class CassetteReceiptRandomization
         $"lastFailure={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(state.WriteState.LastFailureTime)} " +
         $"failureReason='{state.WriteState.FailureReason ?? "<null>"}'";
 
-    private static void DrainPersistenceAcceptanceMarkers() =>
-        _persistenceAcceptanceMarkerEmitter.Drain(
-            TryTakePersistenceAcceptanceMarker,
-            EmitPersistenceAcceptanceMarker);
-
-    private static bool TryTakePersistenceAcceptanceMarker(
-        out CassettePersistenceAcceptanceMarkerRecord marker)
+    private static void LogPersistenceDeferredOnce(
+        CassettePersistenceQueuedWave wave,
+        string stage)
     {
-        lock (Sync) return _persistenceAcceptanceMarkers.TryDequeue(out marker);
+        lock (Sync)
+        {
+            if (_persistenceDeferredLoggedWaveId == wave.WaveId) return;
+            _persistenceDeferredLoggedWaveId = wave.WaveId;
+        }
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] CASSETTE PERSISTENCE DEFERRED wave={wave.WaveId} " +
+            $"generation={wave.Identity.Generation} epoch={wave.Identity.Epoch} slot={wave.Identity.Slot} " +
+            $"pointer=0x{wave.Identity.Pointer:X} stage='{stage}'; exact verified wave remains queued.");
     }
 
-    private static void EmitPersistenceAcceptanceMarker(
-        CassettePersistenceAcceptanceMarkerRecord marker) =>
-        LogPersistenceAcceptance(marker.Marker, marker.Attempt, marker.Detail, marker.Sequence);
+    private static void DrainPersistenceMarkers() =>
+        _persistenceMarkerEmitter.Drain(
+            TryTakePersistenceMarker,
+            EmitPersistenceMarker);
 
-    private static void LogPersistenceAcceptance(
+    private static bool TryTakePersistenceMarker(
+        out CassettePersistenceAcceptanceMarkerRecord marker)
+    {
+        lock (Sync) return _persistenceMarkers.TryDequeue(out marker);
+    }
+
+    private static void EmitPersistenceMarker(
+        CassettePersistenceAcceptanceMarkerRecord marker) =>
+        LogPersistence(marker.Marker, marker.Attempt, marker.Detail, marker.Sequence);
+
+    private static void LogPersistence(
         string marker,
         CassettePersistenceAcceptanceAttempt attempt,
         string detail,
@@ -18930,15 +18998,15 @@ internal static class CassetteReceiptRandomization
     {
         string label = marker switch
         {
-            "PRE" => "CASSETTE PERSISTENCE ACCEPTANCE PRE",
-            "INVOKED" => "CASSETTE PERSISTENCE ACCEPTANCE INVOKED",
-            "IMMEDIATE POST" => "CASSETTE PERSISTENCE ACCEPTANCE IMMEDIATE POST",
+            "PRE" => "CASSETTE PERSISTENCE PRE",
+            "INVOKED" => "CASSETTE PERSISTENCE INVOKED",
+            "IMMEDIATE POST" => "CASSETTE PERSISTENCE IMMEDIATE POST",
             "EVENT" => "CASSETTE PERSISTENCE ACCEPTANCE EVENT",
-            "VERIFIED" => "CASSETTE PERSISTENCE ACCEPTANCE VERIFIED",
-            "FAILED" => "CASSETTE PERSISTENCE ACCEPTANCE FAILED",
-            "TIMEOUT" => "CASSETTE PERSISTENCE ACCEPTANCE TIMEOUT",
-            "CANCELLED" => "CASSETTE PERSISTENCE ACCEPTANCE CANCELLED",
-            _ => $"CASSETTE PERSISTENCE ACCEPTANCE {marker}",
+            "VERIFIED" => "CASSETTE PERSISTENCE VERIFIED",
+            "FAILED" => "CASSETTE PERSISTENCE FAILED",
+            "TIMEOUT" => "CASSETTE PERSISTENCE TIMEOUT",
+            "CANCELLED" => "CASSETTE PERSISTENCE CANCELLED",
+            _ => $"CASSETTE PERSISTENCE {marker}",
         };
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] {label} sequence={sequence} attempt={attempt.Id} " +
