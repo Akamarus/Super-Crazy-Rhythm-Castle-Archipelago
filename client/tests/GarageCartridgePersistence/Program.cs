@@ -62,7 +62,7 @@ string observeNativeBagMethod = MethodBody(garageSource, "public static void Obs
 string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
-string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool ShouldReleaseCartridgeObject(string song)", "internal sealed class GarageCartridgeAccessKeeper");
+string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(string song, Action releaseAction)", "public static void NoteGarageObjectReleased(string song)");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
@@ -162,11 +162,13 @@ True(garageSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\n 
     "room transition resets visit-local native bag evidence before reconciliation");
 True(releaseGarageObjectMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
      releaseGarageObjectMethod.Contains("InsertionCoordinator.InitialSyncReady", StringComparison.Ordinal) &&
-     releaseGarageObjectMethod.Contains("GarageCartridgeInsertionPolicy.ShouldReleaseObject", StringComparison.Ordinal),
-    "keeper release eligibility holds the current generation and requires authoritative insertion state");
-True(garageSource.Contains("bool releaseAllowed = GarageCartridgeAccess.ShouldReleaseCartridgeObject(cartridge.Song);", StringComparison.Ordinal) &&
-     garageSource.Contains("if (decision == GarageObjectDecision.Inactive || !releaseAllowed)", StringComparison.Ordinal),
-    "keeper deactivates randomized objects until authoritative not-inserted release eligibility exists");
+     releaseGarageObjectMethod.Contains("GarageCartridgeInsertionPolicy.ShouldReleaseObject", StringComparison.Ordinal) &&
+     releaseGarageObjectMethod.Contains("current.Release(() =>", StringComparison.Ordinal) &&
+     releaseGarageObjectMethod.Contains("RecordGarageObjectReleasedWithinLease", StringComparison.Ordinal),
+    "keeper release eligibility, Unity action, and release recording share the current-generation lease");
+True(garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(cartridge.Song, () =>", StringComparison.Ordinal) &&
+     garageSource.Contains("if (!released)", StringComparison.Ordinal),
+    "keeper runs activation through the leased release seam and deactivates when it is rejected");
 
 {
     var access = new GarageCartridgeReconciliationAccess();
@@ -182,6 +184,51 @@ True(garageSource.Contains("bool releaseAllowed = GarageCartridgeAccess.ShouldRe
     Equal(1, observations, "the leased observation executes exactly once");
     Equal(1, decisions, "decision work executes under the same lease after observation");
     True(access.End(41, () => { }), "production Garage reconciliation access ends the generation");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    True(access.TryBegin(42, () => { }), "overlap regression generation begins");
+    using var releaseActionEntered = new ManualResetEventSlim();
+    using var allowReleaseActionExit = new ManualResetEventSlim();
+    using var endStarted = new ManualResetEventSlim();
+    using var endCompleted = new ManualResetEventSlim();
+    var releaseActionCount = 0;
+    Task releaseTask = Task.Run(() =>
+    {
+        True(access.TryRunCurrent(current => current.Release(() =>
+        {
+            Interlocked.Increment(ref releaseActionCount);
+            releaseActionEntered.Set();
+            True(allowReleaseActionExit.Wait(TimeSpan.FromSeconds(1)),
+                "leased release action is allowed to exit");
+        })), "release action enters through the current-generation seam");
+    });
+    True(releaseActionEntered.Wait(TimeSpan.FromSeconds(1)),
+        "release action enters before concurrent teardown");
+    Task endTask = Task.Run(() =>
+    {
+        endStarted.Set();
+        True(access.End(42, () => { }), "concurrent teardown ends the release generation");
+        endCompleted.Set();
+    });
+    True(endStarted.Wait(TimeSpan.FromSeconds(1)), "concurrent teardown attempt starts");
+    False(endCompleted.Wait(TimeSpan.FromMilliseconds(100)),
+        "teardown cannot complete while object activation and release recording are in flight");
+    allowReleaseActionExit.Set();
+    await Task.WhenAll(releaseTask, endTask);
+    True(endCompleted.IsSet, "teardown completes after the release action exits");
+    Equal(1, releaseActionCount, "overlapped release action executes exactly once");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    True(access.TryBegin(43, () => { }), "teardown-first generation begins");
+    True(access.End(43, () => { }), "teardown wins before the release action");
+    var releaseActionCount = 0;
+    False(access.TryRunCurrent(current => current.Release(() => releaseActionCount++)),
+        "teardown winning first rejects the stale release action");
+    Equal(0, releaseActionCount, "rejected stale release action cannot activate an object");
 }
 
 {

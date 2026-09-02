@@ -20763,6 +20763,41 @@ internal static class GarageCartridgeAccess
         RequestUnityReconciliation("Garage native cartridge consumption observed");
     }
 
+    public static bool TryReleaseCartridgeObject(string song, Action releaseAction)
+    {
+        ArgumentNullException.ThrowIfNull(releaseAction);
+        GarageCartridgeNativeDefinition cartridge = Cartridges.FirstOrDefault(candidate =>
+            string.Equals(candidate.Song, song, StringComparison.OrdinalIgnoreCase));
+        if (!Enabled || string.IsNullOrEmpty(cartridge.Song))
+            return false;
+
+        if (cartridge.UsesPhysicalVanillaEntrance)
+        {
+            releaseAction();
+            return true;
+        }
+
+        bool released = false;
+        ServerSyncLifecycle.TryRunCurrent(current =>
+        {
+            GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
+                ? InsertionCoordinator.GetServerValue(cartridge.Song)
+                : GarageInsertionServerValue.Unknown;
+            if (!GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+                    cartridge.UsesPhysicalVanillaEntrance,
+                    serverValue))
+                return;
+
+            current.Release(() =>
+            {
+                releaseAction();
+                RecordGarageObjectReleasedWithinLease(cartridge.Song, serverValue);
+                released = true;
+            });
+        });
+        return released;
+    }
+
     public static void NoteGarageObjectReleased(string song)
     {
         if (!Enabled ||
@@ -20771,13 +20806,22 @@ internal static class GarageCartridgeAccess
                 string.Equals(cartridge.Song, song, StringComparison.OrdinalIgnoreCase)))
             return;
 
-        GarageInsertionServerValue serverValue = GarageInsertionServerValue.Unknown;
         ServerSyncLifecycle.TryRunCurrent(_ =>
         {
-            if (InsertionCoordinator.InitialSyncReady)
-                serverValue = InsertionCoordinator.GetServerValue(song);
+            GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
+                ? InsertionCoordinator.GetServerValue(song)
+                : GarageInsertionServerValue.Unknown;
+            if (GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+                    usesPhysicalVanillaEntrance: false,
+                    serverValue))
+                RecordGarageObjectReleasedWithinLease(song, serverValue);
         });
+    }
 
+    private static void RecordGarageObjectReleasedWithinLease(
+        string song,
+        GarageInsertionServerValue serverValue)
+    {
         bool logCandidateArmed;
         lock (Sync)
         {
@@ -21078,32 +21122,6 @@ internal static class GarageCartridgeAccess
             return OwnedSongs.Contains(song);
     }
 
-    public static bool ShouldReleaseCartridgeObject(string song)
-    {
-        GarageCartridgeNativeDefinition cartridge = Cartridges.FirstOrDefault(candidate =>
-            string.Equals(candidate.Song, song, StringComparison.OrdinalIgnoreCase));
-        if (!Enabled || string.IsNullOrEmpty(cartridge.Song))
-            return false;
-
-        if (cartridge.UsesPhysicalVanillaEntrance)
-        {
-            return GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-                usesPhysicalVanillaEntrance: true,
-                GarageInsertionServerValue.Unknown);
-        }
-
-        bool release = false;
-        ServerSyncLifecycle.TryRunCurrent(_ =>
-        {
-            GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
-                ? InsertionCoordinator.GetServerValue(cartridge.Song)
-                : GarageInsertionServerValue.Unknown;
-            release = GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-                usesPhysicalVanillaEntrance: false,
-                serverValue);
-        });
-        return release;
-    }
 }
 
 internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
@@ -21165,13 +21183,12 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 continue;
 
             bool owned = GarageCartridgeAccess.HasCartridge(cartridge.Song);
-            bool releaseAllowed = GarageCartridgeAccess.ShouldReleaseCartridgeObject(cartridge.Song);
             GarageObjectDecision decision = GarageAvailabilityPolicy.Decide(
                 enabled: true,
                 compatible: true,
                 ownsCartridge: owned,
                 role: GarageObjectRole.SongCartridge);
-            if (decision == GarageObjectDecision.Inactive || !releaseAllowed)
+            if (decision == GarageObjectDecision.Inactive)
             {
                 if (obj.activeSelf)
                     obj.SetActive(false);
@@ -21183,18 +21200,26 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 // Release the real Garage cartridge exactly once per room visit.
                 // After this, vanilla may reparent/deactivate it while the player
                 // carries/inserts it; do not continuously force it active.
-                if (!obj.activeSelf)
-                    obj.SetActive(true);
-                _releasedThisVisit.Add(cartridge.Song);
-                GarageCartridgeAccess.NoteGarageObjectReleased(cartridge.Song);
-                MusicLabDiscovery.NotifyRandomizedGarageCartridgeReleased(cartridge.Song);
+                bool released = GarageCartridgeAccess.TryReleaseCartridgeObject(cartridge.Song, () =>
+                {
+                    if (!obj.activeSelf)
+                        obj.SetActive(true);
+                    _releasedThisVisit.Add(cartridge.Song);
+                    MusicLabDiscovery.NotifyRandomizedGarageCartridgeReleased(cartridge.Song);
+                });
+                if (!released)
+                {
+                    if (obj.activeSelf)
+                        obj.SetActive(false);
+                    _releasedThisVisit.Remove(cartridge.Song);
+                }
             }
 
             if (!_lastOwned.TryGetValue(cartridge.Song, out bool previousOwned) || previousOwned != owned)
             {
                 _lastOwned[cartridge.Song] = owned;
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} releaseAllowed={releaseAllowed} objectActive={obj.activeSelf} releasedThisVisit={_releasedThisVisit.Contains(cartridge.Song)}.");
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} objectActive={obj.activeSelf} releasedThisVisit={_releasedThisVisit.Contains(cartridge.Song)}.");
             }
         }
     }

@@ -167,10 +167,20 @@ internal sealed class GarageCartridgeReconciliationLease
 
     internal void Observe(Action observation)
     {
-        ArgumentNullException.ThrowIfNull(observation);
+        Execute(observation);
+    }
+
+    internal void Release(Action release)
+    {
+        Execute(release);
+    }
+
+    private void Execute(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
         if (!_active)
             throw new ObjectDisposedException(nameof(GarageCartridgeReconciliationLease));
-        observation();
+        action();
     }
 
     internal void Invalidate() => _active = false;
