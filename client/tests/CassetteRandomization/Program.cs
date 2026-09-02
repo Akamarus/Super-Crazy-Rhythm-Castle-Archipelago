@@ -4,6 +4,7 @@ using System.Text.Json;
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
+static string ReadTextNormalized(string path) => File.ReadAllText(path).ReplaceLineEndings("\n");
 static DirectLookupRegistryFixture BuildTargetRegistry(object processor, int otherEntries = 0)
 {
     var entries = new Dictionary<PublicTypeKeyFixture, RegisteredRequestProcessor>();
@@ -127,10 +128,10 @@ foreach (var rejectedFactory in new[]
 }
 
 Equal(0, RequestSystem.SubmitCount, "semantic cassette request construction never reaches global persist submission");
-string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
-string requestFactorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
-string transactionAdapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
-string cassetteSaveDesignSource = File.ReadAllText(Path.Combine(
+string pluginSource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+string requestFactorySource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
+string transactionAdapterSource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
+string cassetteSaveDesignSource = ReadTextNormalized(Path.Combine(
     Directory.GetCurrentDirectory(), "docs", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
 int acceptanceEventGuard = pluginSource.IndexOf("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal);
 int acceptanceEventHook = pluginSource.IndexOf("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
