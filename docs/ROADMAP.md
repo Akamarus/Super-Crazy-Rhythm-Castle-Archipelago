@@ -18,7 +18,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 | Work | Status | Current v0.68.0 / v0.22.0 boundary |
 | --- | --- | --- |
-| Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
+| Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The accepted pre-entry bootstrap suppresses the displaced Roots arrival presentation. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
 | Active AP performance difficulty filtering | Implemented | Normal/Hard/Expert/Perfection address 92/129/166/202 locations after adding 24 cassette sources. |
 | Star item registration and pool-capacity helper | Implemented | Star owns permanent ID 187256118 and the planner represents 66 individual items. They are not placed because the current modeled locations cannot yet fit Stars plus existing required progression. |
@@ -27,7 +27,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Plant Pipes source and item | Implemented / needs more testing | Fresh testing verified Frog/Hippo AP delivery plus Plant Pipes use across Level 3, Hub2/Level 4 scene changes, restart, and save load. Completed-Level-4 persistence remains pending. |
 | Hip Glasses and Chicken Bucket chain | Implemented / needs gameplay acceptance | Level 4 and the Bucket Minion trade are AP checks. AP delivers both held items; native interactions consume them and produce non-network Combo Bucket. |
 | Levels 1–3 campaign completion checks | Implemented / needs more testing | These are the only current campaign completion checks. |
-| Game Garage cartridges and sticker checks | Implemented / live entrance accepted | Vampire Killer remains a physical vanilla pickup; five cartridges are AP items. All six songs retain cumulative Bronze through Platinum checks. |
+| Game Garage cartridges and sticker checks | Implemented / needs gameplay acceptance | Vampire Killer remains a physical vanilla pickup; five cartridges are AP items. The current repair reconciles those five to native bag/registered state, while all six songs retain cumulative Bronze through Platinum checks. |
 | Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks. The four I Got Money medal checks require Money Cassette. |
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | The verified `Level_06 -> 110 -> I_GOT_MONEY` source sends `Level 2 - Money Cassette`; AP receipt reconciles `HAVE_IN_BAG` and normal Music Lab insertion deposits it. Fresh-save and save-switch IL2CPP acceptance remain pending. |
 | Music Lab reward chests | Implemented / needs more testing | Nine native point-threshold chests are AP checks and are reconciled from the save. Native medal score remains the current currency. |
@@ -58,7 +58,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 
 | Work | Status | Planned result |
 | --- | --- | --- |
-| AP connection and item delivery for the prototype | Implemented / needs more testing | Client v0.67.94 recognizes the retained implementation prefix; v0.20 adds APWorld-only difficulty filtering while native REG/PRO remains player-controlled. |
+| AP connection and item delivery for the prototype | Implemented / needs more testing | Client v0.68.0 recognizes the retained implementation prefix; APWorld v0.22 adds full cassette routing while native REG/PRO remains player-controlled. |
 | Seed/save binding, robust synchronization, and offline reconciliation | Design approved / not implemented | Future sessions must validate compatibility, rebuild inventory safely, and queue checks across reconnects. |
 | Player-facing AP notifications and integrated text log | Deferred | A later optional in-game text client will expose items, checks, connection state, and errors. |
 | Local co-op verification | Design approved / not implemented | The architecture supports it by design, but shared-result behavior has not been smoke-tested. |
@@ -68,7 +68,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Work | Status | Acceptance boundary |
 | --- | --- | --- |
 | Difficulty-filtering generator matrix | Complete for v0.22 automated matrix | Normal, Hard, Expert, and Perfection pass the eight-option cassette/solver matrix at 92/129/166/202 addressed locations; representative gameplay remains pending. |
-| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.20.0 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
+| Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.22 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
 | Full generated-seed matrix | Design approved / not implemented | Validate every supported start, difficulty, Star goal, and optional-area route. |
 | Level 22 victory | Design approved / not implemented | Victory will require the synchronized AP Star goal and a subsequent Level 22 completion. |
 | Full single-player acceptance run | Design approved / not implemented | Includes a post-threshold Level 22 clear, chest checks, representative difficulty tiers, and optional routes. |
@@ -80,7 +80,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | --- | --- | --- |
 | DeathLink and traps | Deferred | DeathLink is planned off by default only after safe failure behavior is tested. |
 | Online co-op | Deferred | Intended as a later, low-priority host-authoritative feature. |
-| Release packaging | Deferred | Public testers currently build both components from source. |
+| Release packaging | Implemented for development testing | Matching client and APWorld packages are published as GitHub prereleases; they remain experimental test builds rather than stable releases. |
 | Full release claim | Deferred | This project remains an experimental development build until the gates above are complete. |
 
 For detailed current behavior, see the [project overview](PROJECT_OVERVIEW.md), [progression reference](PROGRESSION.md), and [historical gameplay evidence](HISTORICAL_GAMEPLAY_EVIDENCE.md). The [approved randomizer design](superpowers/specs/2026-08-20-randomizer-logic-design.md) describes future architecture, not a claim that it is implemented.

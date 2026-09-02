@@ -61,6 +61,18 @@ Before accepting a Roots milestone, confirm:
 - An old/incompatible seed and a non-AP save retain the complete vanilla chain.
 - Stable unrelated systems remain intact: Game Garage, Music Lab reward chests, cassettes, Secret Bunker.
 
+## Game Garage cartridge persistence checklist
+
+Use a compatible fresh v0.22 seed. Keep Vampire Killer on its physical vanilla route. For each randomized cartridge—Bloody Tears, Gradius Remix, Smooch, Superstar, and Wag the Dog—confirm:
+
+- the AP receipt appears in the native inventory;
+- the matching cartridge is available for normal insertion in Game Garage;
+- inserting it unlocks the matching song and removes the bag item normally;
+- leaving and re-entering Game Garage preserves the registered song;
+- save reload and AP reconnect preserve either the held or registered state;
+- received-item history never restores an already registered cartridge to the bag;
+- no unreceived cartridge or song becomes available.
+
 ## Logs
 
 `LogOutput.log` is a test artifact, not source. Do not commit it. For public reports, follow the redaction and excerpt guidance in [Testing and issue reports](TESTING_AND_ISSUES.md); do not attach credentials, private addresses, personal paths, game files, or proprietary assemblies.
@@ -82,6 +94,7 @@ ROOTS BUCKET RANDOMIZATION ENABLED
 ROOTS BUCKET VANILLA GRANT SUPPRESSED
 ROOTS BUCKET SOURCE AP CHECK
 ROOTS BUCKET NATIVE GRANT APPLIED
+GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED
 ```
 
 When testing later score or objective checks without Combo Bucket, report the exact level/song, native difficulty, AP performance tier, score, stars, medal or missed objective, player count, abilities, attempt count, best result, and whether `COMBO_BUCKET_ABILITY` was absent. Include a focused log excerpt and video when practical. A success proves feasibility under those conditions; a failed attempt alone does not prove impossibility and must not create a solver requirement by itself.

@@ -1,8 +1,8 @@
 # Next release bug-fix gate
 
-This checklist records release-blocking defects confirmed during the v0.17 / Client v0.67.60 fresh-save run. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.
+This checklist records release-blocking defects carried forward from focused fresh-save testing. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.
 
-Client v0.67.94 / APWorld v0.19 contains the accepted Roots arrival/computer repair on top of the consolidated preview. Remaining boxes stay open until their applicable gameplay acceptance passes.
+The current public boundary is Client v0.68.0 / APWorld v0.22.0. Remaining boxes stay open until their applicable gameplay acceptance passes.
 
 The failed regression seed is `AP_28223804408101432968`. It is useful for reproducing solver mistakes but must not be presented as playable.
 
@@ -10,7 +10,7 @@ The failed regression seed is `AP_28223804408101432968`. It is useful for reprod
 
 - [x] **Prevent BK'd seed generation within the v0.19 world boundary.** Progression is prohibited from native Music Lab point chests, inactive difficulty tiers, unsupported Level-22 tiers, and inaccurately modeled cartridge sources. Game Garage checks retain their matching-cartridge access rules, Royal Access exposes only the confirmed phone-side Level-22 route, and the client bypasses the Music Lab construction barriers. The retained failed-seed placements are rejected, the 100-seed/four-difficulty logical matrix passes, the previously failed seed regenerates with a valid progression playthrough, and five additional real Archipelago generator seeds place no progression in point chests or Normal-difficulty Platinum checks. Rerun both matrices whenever new regions, checks, or victory requirements become active.
 - [x] **Respect the native Game Garage entrance prerequisite.** Game Garage is not normally enterable with zero physical entrance cartridges, so the earlier zero-cartridge black-screen scenario was not a valid supported route. Live testing entered through the required cartridge, loaded and exited normally, and exposed only the matching AP-owned song. Do not force unsupported zero-cartridge entry.
-- [ ] **Persist AP-received Game Garage cartridges in native inventory.** A fresh v0.21 test sent `Level 2 - Money Cassette` and received `Superstar Cartridge`, but Superstar did not appear in the item bag and was not playable in Game Garage. Logs prove the current client only records transient AP ownership and activates the Garage scene object; it never grants the native cartridge bag flag. Replace that scene-object-only assumption with durable native reconciliation using the verified Superstar flag `LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM` (`127021`), then generalize and test all randomized Garage cartridges across receipt, inventory display, Garage availability, room reload, save reload, and reconnect. Keep the physical vanilla Vampire Killer route unchanged.
+- [ ] **Persist AP-received Game Garage cartridges in native inventory.** A fresh v0.21 test sent `Level 2 - Money Cassette` and received `Superstar Cartridge`, but Superstar did not appear in the item bag and was not playable in Game Garage. The automated repair now reconciles all five randomized cartridges to their verified native bag flags and treats each registered-cartridge flag as terminal after insertion. Vampire Killer remains physical and vanilla. Keep this open until gameplay confirms inventory display, Garage availability, room reload, save reload, reconnect, and no post-insertion resurrection for all five cartridges.
 
 > This Game Garage cartridge defect is separate from v0.22 Music Lab cassette randomization and remains open.
 - [ ] **Finish Level 22 failure-path acceptance.** Automated coverage now requires a matching `Level_28` result with at least one Star before sending ordinary Level-22 checks, and a live one-Star clear sent the expected ordinary checks without Victory. One clean failed attempt on the current repair is still needed to confirm no check is sent; later Star receipt must also remain unable to trigger Victory retroactively.
@@ -44,7 +44,7 @@ After all blockers above pass automated tests:
 3. Generate a fresh seed and use a fresh in-game save.
 4. Verify BepInEx, version compatibility, slot-data, and server connection.
 5. Complete the Weed Killer -> Frog/Hippo -> Plant Pipes -> Level 4 -> Hip Glasses -> Lift Quest -> Bucket Minion -> Chicken Bucket route without admin item commands.
-6. Enter Game Garage only through its native physical entrance-cartridge prerequisite, then confirm it loads/exits and exposes only AP-owned songs.
+6. Enter Game Garage only through its native physical Vampire Killer prerequisite. For each of the five AP cartridges, confirm receipt appears in inventory, insertion unlocks only the matching song, room/save reload and reconnect preserve the correct state, and an inserted cartridge is not restored to the bag.
 7. Verify all AP-bypassed Music Lab cassette groups are physically reachable and inactive performance tiers contain no progression.
 8. Record one failed Level-22 result with no AP check, then clear it for one Star and confirm the ordinary AP checks.
 9. Restart the game at multiple points and confirm all received progression remains durable.

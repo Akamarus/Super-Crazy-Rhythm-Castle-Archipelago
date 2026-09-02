@@ -20442,23 +20442,20 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 
 internal static class GarageCartridgeAccess
 {
-    internal readonly record struct CartridgeDefinition(
-        string Song,
-        string ItemName,
-        string RelativePath);
-
-    internal static readonly CartridgeDefinition[] Cartridges =
-    {
-        new("Bloody Tears", "Bloody Tears Cartridge", "CartridgeHolder_BloodyTears/GR27_GameCartridge_BloodyTears"),
-        new("Gradius Remix", "Gradius Remix Cartridge", "CartridgeHolder_LoveShine/GR27_GameCartridge_Gradius"),
-        new("Smooch", "Smooch Cartridge", "CartridgeHolder_Smooch/GR27_GameCartridge_Smooch"),
-        new("Superstar", "Superstar Cartridge", "CartridgeHolder_StarEater/GR27_GameCartridge_Superstar"),
-        new("Vampire Killer", "Vampire Killer Cartridge", "CartridgeHolder_VampireKiller/GR27_GameCartridge_VampireKiller"),
-        new("Wag the Dog", "Wag the Dog Cartridge", "CartridgeHolder_SuperCrazyRhythmCastle/GR27_GameCartridge_WagTheDog"),
-    };
+    internal static readonly GarageCartridgeNativeDefinition[] Cartridges =
+        GarageCartridgeNativePolicy.AllCartridges;
 
     private static readonly object Sync = new();
     private static readonly HashSet<string> OwnedSongs = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, GarageCartridgeNativeDecision> LastNativeDecisions =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> NativeProbePendingLogged =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static object? _playerSaveRequestProcessor;
+
+    [ThreadStatic]
+    private static int _applyingArchipelagoGrant;
+
     public static bool Enabled { get; private set; }
     public static bool SourceRandomizationEnabled { get; private set; }
     public static bool VanillaEntranceEnabled { get; private set; }
@@ -20473,12 +20470,15 @@ internal static class GarageCartridgeAccess
         lock (Sync)
         {
             OwnedSongs.Clear();
+            LastNativeDecisions.Clear();
+            NativeProbePendingLogged.Clear();
+            _playerSaveRequestProcessor = null;
         }
     }
 
     public static bool TryApplyItem(string itemName)
     {
-        foreach (CartridgeDefinition cartridge in Cartridges)
+        foreach (GarageCartridgeNativeDefinition cartridge in Cartridges)
         {
             if (!string.Equals(cartridge.ItemName, itemName, StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -20495,6 +20495,107 @@ internal static class GarageCartridgeAccess
         }
 
         return false;
+    }
+
+    public static void CapturePlayerSaveRequestProcessor(object? instance)
+    {
+        if (instance == null ||
+            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
+            return;
+
+        lock (Sync)
+            _playerSaveRequestProcessor = instance;
+    }
+
+    public static void TryFlushPendingNativeGrants()
+    {
+        if (_applyingArchipelagoGrant != 0)
+            return;
+
+        object? processor;
+        bool enabled;
+        bool vanillaEntranceEnabled;
+        HashSet<string> ownedSongs;
+        lock (Sync)
+        {
+            processor = _playerSaveRequestProcessor;
+            enabled = Enabled;
+            vanillaEntranceEnabled = VanillaEntranceEnabled;
+            ownedSongs = new HashSet<string>(OwnedSongs, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (!enabled || processor == null || ownedSongs.Count == 0)
+            return;
+
+        foreach (GarageCartridgeNativeDefinition cartridge in Cartridges)
+        {
+            if (!ownedSongs.Contains(cartridge.Song) ||
+                (vanillaEntranceEnabled && cartridge.UsesPhysicalVanillaEntrance))
+                continue;
+
+            if (!RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeBagFlag, out bool bagHeld) ||
+                !RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeRegisteredFlag, out bool registered))
+            {
+                bool log;
+                lock (Sync)
+                    log = NativeProbePendingLogged.Add(cartridge.Song);
+                if (log)
+                {
+                    Plugin.LoggerInstance?.LogInfo(
+                        $"[SCRC-AP] GAME GARAGE CARTRIDGE native reconciliation deferred song='{cartridge.Song}' until progression enquiries are available.");
+                }
+                continue;
+            }
+
+            GarageCartridgeNativeDecision decision = GarageCartridgeNativePolicy.Decide(
+                enabled,
+                receivedCount: 1,
+                nativeBagItemHeld: bagHeld,
+                nativeCartridgeRegistered: registered);
+
+            bool decisionChanged;
+            lock (Sync)
+            {
+                NativeProbePendingLogged.Remove(cartridge.Song);
+                decisionChanged = !LastNativeDecisions.TryGetValue(cartridge.Song, out GarageCartridgeNativeDecision previous) ||
+                                  previous != decision;
+                LastNativeDecisions[cartridge.Song] = decision;
+            }
+            if (decisionChanged && decision != GarageCartridgeNativeDecision.ApplyBagItem)
+            {
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE native reconciliation song='{cartridge.Song}' result='{decision}'.");
+            }
+
+            if (decision != GarageCartridgeNativeDecision.ApplyBagItem)
+                continue;
+
+            _applyingArchipelagoGrant++;
+            bool submitted;
+            string detail;
+            try
+            {
+                submitted = WeedKillerRandomization.TrySubmitProgressionFlag(
+                    processor,
+                    cartridge.NativeBagFlag,
+                    true,
+                    out detail);
+            }
+            finally
+            {
+                _applyingArchipelagoGrant--;
+            }
+
+            if (!submitted)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE native grant pending song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. {detail}");
+                continue;
+            }
+
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. The physical cartridge remains player-inserted; registered flag '{cartridge.NativeRegisteredFlag}' prevents resurrection after use. {detail}");
+        }
     }
 
     public static void ApplySlotData(Dictionary<string, object>? slotData)
@@ -20564,7 +20665,9 @@ internal static class GarageCartridgeAccess
 
     public static bool ShouldSuppressVanillaSourceGrant(object request, string flag)
     {
-        if (!SourceRandomizationEnabled || string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_27", StringComparison.Ordinal))
+        if (_applyingArchipelagoGrant != 0 ||
+            !SourceRandomizationEnabled ||
+            string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_27", StringComparison.Ordinal))
             return false;
 
         bool value = ReflectionUtil.ReadBool(request, "Value") ?? false;
@@ -20671,6 +20774,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
 
     private string _lastRoom = string.Empty;
     private float _nextPoll;
+    private float _nextNativeReconcile;
     private bool _waitingLogged;
 
     public GarageCartridgeAccessKeeper(IntPtr pointer) : base(pointer)
@@ -20679,6 +20783,12 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
 
     private void Update()
     {
+        if (Time.unscaledTime >= _nextNativeReconcile)
+        {
+            _nextNativeReconcile = Time.unscaledTime + 1f;
+            GarageCartridgeAccess.TryFlushPendingNativeGrants();
+        }
+
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal))
         {
@@ -20700,7 +20810,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
         if (!EnsureBindings())
             return;
 
-        foreach (GarageCartridgeAccess.CartridgeDefinition cartridge in GarageCartridgeAccess.Cartridges)
+        foreach (GarageCartridgeNativeDefinition cartridge in GarageCartridgeAccess.Cartridges)
         {
             if (!_objects.TryGetValue(cartridge.Song, out GameObject? obj) || obj == null)
                 continue;
@@ -20756,7 +20866,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
         }
 
         _waitingLogged = false;
-        foreach (GarageCartridgeAccess.CartridgeDefinition cartridge in GarageCartridgeAccess.Cartridges)
+        foreach (GarageCartridgeNativeDefinition cartridge in GarageCartridgeAccess.Cartridges)
         {
             Transform? tr = null;
             try { tr = root.transform.Find(cartridge.RelativePath); }
@@ -25707,6 +25817,7 @@ internal static class ProgressionPatches
     public static bool ProgressionRequestPrefix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+        GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
@@ -25755,6 +25866,7 @@ internal static class ProgressionPatches
     public static void ProgressionRequestPostfix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+        GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
         WeedKillerRandomization.TryFlushPendingNativeGrant();
@@ -25821,6 +25933,7 @@ internal static class ProgressionPatches
     public static void BagItemRequestPostfix(object? __instance, object[]? __args)
     {
         NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+        GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
 
         object? req = ReflectionUtil.FindArg(__args, "ObtainBagItemRequest");
         if (req == null) return;
