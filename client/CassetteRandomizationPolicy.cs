@@ -1382,7 +1382,7 @@ internal enum CassettePersistenceAcceptanceEventOutcome
 {
     Ignored,
     SuccessWake,
-    Failure,
+    FailureWake,
 }
 
 internal static class CassettePersistenceAcceptanceDefaults
@@ -1468,7 +1468,7 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     private bool _attemptedThisEpoch;
     private bool _active;
     private bool _invoked;
-    private bool _successEventObserved;
+    private bool _eventObserved;
     private long _attemptCounter;
     private CassettePersistenceAcceptanceAttempt _attempt;
     private CassettePersistenceAcceptanceBaseline _baseline;
@@ -1490,7 +1490,7 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         _attemptedThisEpoch = false;
         _active = false;
         _invoked = false;
-        _successEventObserved = false;
+        _eventObserved = false;
         _attempt = default;
         _baseline = default;
         _elapsed = TimeSpan.Zero;
@@ -1515,7 +1515,7 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         };
         _active = true;
         _invoked = false;
-        _successEventObserved = false;
+        _eventObserved = false;
         _elapsed = TimeSpan.Zero;
         LastOutcome = CassettePersistenceAcceptanceOutcome.Pending;
         LastFailure = string.Empty;
@@ -1547,15 +1547,11 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     {
         if (!_active || attempt != _attempt || eventSlot != _attempt.Slot)
             return CassettePersistenceAcceptanceEventOutcome.Ignored;
-        if (!succeeded)
-        {
-            _attemptedThisEpoch = true;
-            Finish(CassettePersistenceAcceptanceOutcome.Failed, "same-slot-event-failure");
-            return CassettePersistenceAcceptanceEventOutcome.Failure;
-        }
-        if (_successEventObserved) return CassettePersistenceAcceptanceEventOutcome.Ignored;
-        _successEventObserved = true;
-        return CassettePersistenceAcceptanceEventOutcome.SuccessWake;
+        if (_eventObserved) return CassettePersistenceAcceptanceEventOutcome.Ignored;
+        _eventObserved = true;
+        return succeeded
+            ? CassettePersistenceAcceptanceEventOutcome.SuccessWake
+            : CassettePersistenceAcceptanceEventOutcome.FailureWake;
     }
 
     internal CassettePersistenceAcceptanceOutcome Observe(
@@ -1567,7 +1563,7 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         TimeSpan elapsed,
         out bool eventWasObserved)
     {
-        eventWasObserved = _successEventObserved;
+        eventWasObserved = _eventObserved;
         if (!_active || !_invoked || attempt != _attempt)
             return CassettePersistenceAcceptanceOutcome.None;
         if (currentIdentity != _epochIdentity || currentIdentity != attempt.Identity ||

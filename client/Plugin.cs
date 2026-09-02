@@ -18755,7 +18755,9 @@ internal static class CassetteReceiptRandomization
             return;
         }
 
-        lock (Sync) _persistenceAcceptance.MarkInvoked(attempt);
+        bool invocationAccepted;
+        lock (Sync) invocationAccepted = _persistenceAcceptance.MarkInvoked(attempt);
+        if (!invocationAccepted) return;
         LogPersistenceAcceptance("INVOKED", attempt,
             $"stage='{invokeStage}' order='PersistAllChangesInBundle(DEFAULT/1),RequestUrgentWriteToDisk'");
         PollPointerBoundPersistenceAcceptance(TimeSpan.Zero, "IMMEDIATE POST");
@@ -18777,8 +18779,6 @@ internal static class CassetteReceiptRandomization
         if (outcome == CassettePersistenceAcceptanceEventOutcome.Ignored) return;
         LogPersistenceAcceptance("EVENT", attempt,
             $"slot={slot} succeeded={succeeded} failureReason='{failureReason ?? "<null>"}' stage='{stage}' outcome='{outcome}'");
-        if (outcome == CassettePersistenceAcceptanceEventOutcome.Failure)
-            LogPersistenceAcceptance("FAILED", attempt, "reason='same-slot-event-failure'");
     }
 
     private static void PollPointerBoundPersistenceAcceptance(TimeSpan elapsed, string phase)

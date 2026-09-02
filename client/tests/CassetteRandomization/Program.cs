@@ -267,6 +267,17 @@ int acceptanceInvokeIndex = persistenceAcceptanceStarter.IndexOf("InvokePointerB
 Equal(true, acceptancePlanIndex >= 0 && acceptanceTokenIndex > acceptancePlanIndex && acceptanceInvokeIndex > acceptanceTokenIndex,
     "acceptance resolves the immutable public call plan, then installs PRE token, then mutates");
 Equal(true, persistenceAcceptanceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "acceptance starter executes the complete pure gate before preparing");
+int acceptanceMarkInvokedIndex = persistenceAcceptanceStarter.IndexOf("invocationAccepted = _persistenceAcceptance.MarkInvoked", StringComparison.Ordinal);
+int acceptanceMarkGuardIndex = persistenceAcceptanceStarter.IndexOf("if (!invocationAccepted) return", StringComparison.Ordinal);
+int acceptanceInvokedLogIndex = persistenceAcceptanceStarter.IndexOf("LogPersistenceAcceptance(\"INVOKED\"", StringComparison.Ordinal);
+Equal(true, acceptanceMarkInvokedIndex > acceptanceInvokeIndex &&
+            acceptanceMarkGuardIndex > acceptanceMarkInvokedIndex &&
+            acceptanceInvokedLogIndex > acceptanceMarkGuardIndex,
+    "orchestration logs INVOKED only after MarkInvoked accepts the still-active token; a synchronous terminal callback cannot produce a later marker");
+string acceptanceEventObserver = ExtractMethods(
+    receiptRandomizationSource, "internal static void ObservePersistenceAcceptanceWriteCompletedEvent(").Single();
+Equal(false, acceptanceEventObserver.Contains("LogPersistenceAcceptance(\"FAILED\"", StringComparison.Ordinal),
+    "uncorrelated native events never emit a terminal acceptance marker");
 foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
     Equal(false, persistenceAcceptanceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"acceptance starter cannot use prohibited path {prohibitedAcceptance}");
 foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "EVENT", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
@@ -827,13 +838,38 @@ Equal(CassettePersistenceAcceptanceOutcome.Failed, identityFailureRuntime.Observ
 var eventFailureRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
 eventFailureRuntime.BeginEpoch(acceptanceIdentity);
 eventFailureRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt eventFailureAttempt);
-Equal(CassettePersistenceAcceptanceEventOutcome.Failure,
+Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake,
     eventFailureRuntime.ObserveWriteCompletedEvent(eventFailureAttempt, 4, succeeded: false),
-    "same-slot failed event is terminal even during synchronous invocation");
-Equal(false, eventFailureRuntime.MarkInvoked(eventFailureAttempt), "terminal synchronous failure cannot be overwritten by invocation completion");
-Equal(CassettePersistenceAcceptanceOutcome.None,
-    eventFailureRuntime.MarkIndeterminate(eventFailureAttempt, "nested-call-threw-after-event"),
-    "a terminal synchronous failure cannot emit a second terminal indeterminate outcome");
+    "an uncorrelated same-slot failed event is a wake hint, never terminal");
+Equal(true, eventFailureRuntime.Active, "failed event alone leaves the current attempt active");
+Equal(true, eventFailureRuntime.MarkInvoked(eventFailureAttempt), "failed event hint cannot block invocation completion");
+Equal(CassettePersistenceAcceptanceOutcome.Pending, eventFailureRuntime.Observe(
+    eventFailureAttempt, acceptanceIdentity, new CassettePublicWriteDiagnosticState(
+        acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
+        new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
+    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out bool failedEventObserved),
+    "failed event alone cannot complete or tombstone the attempt without advanced public failure evidence");
+Equal(true, failedEventObserved, "failed event hint is retained for bounded diagnostics");
+
+var staleSameSlotEventRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+staleSameSlotEventRuntime.BeginEpoch(acceptanceIdentity);
+staleSameSlotEventRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt cancelledSameSlotAttempt);
+staleSameSlotEventRuntime.Cancel("save-boundary");
+var freshSameSlotIdentity = acceptanceIdentity with { Generation = 42, Epoch = 8 };
+staleSameSlotEventRuntime.BeginEpoch(freshSameSlotIdentity);
+staleSameSlotEventRuntime.TryPrepare(freshSameSlotIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt freshSameSlotAttempt);
+Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake,
+    staleSameSlotEventRuntime.ObserveWriteCompletedEvent(freshSameSlotAttempt, eventSlot: 4, succeeded: false),
+    "an old uncorrelated same-slot failure can only wake the fresh trial whose token the handler currently holds");
+Equal(true, staleSameSlotEventRuntime.MarkInvoked(freshSameSlotAttempt),
+    "old same-slot failure cannot tombstone a fresh epoch's invocation");
+Equal(CassettePersistenceAcceptanceOutcome.Pending, staleSameSlotEventRuntime.Observe(
+    freshSameSlotAttempt, freshSameSlotIdentity,
+    new CassettePublicWriteDiagnosticState(
+        acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
+        new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
+    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+    "cancel then fresh same-slot prepare remains pending after the prior epoch's failed event");
 
 var indeterminateRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
 indeterminateRuntime.BeginEpoch(acceptanceIdentity);
@@ -1564,8 +1600,14 @@ var synchronousAdapterRuntime = new CassettePointerBoundPersistenceAcceptanceRun
 synchronousAdapterRuntime.BeginEpoch(acceptanceIdentity);
 synchronousAdapterRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt synchronousAdapterAttempt);
 CassettePersistenceAcceptanceEventOutcome synchronousAdapterEvent = CassettePersistenceAcceptanceEventOutcome.Ignored;
-pointerBoundState.OnUrgentWrite = () => synchronousAdapterEvent =
-    synchronousAdapterRuntime.ObserveWriteCompletedEvent(synchronousAdapterAttempt, 4, succeeded: true);
+var synchronousMarkerOrder = new List<string> { "PRE" };
+pointerBoundState.OnUrgentWrite = () =>
+{
+    synchronousAdapterEvent = synchronousAdapterRuntime.ObserveWriteCompletedEvent(
+        synchronousAdapterAttempt, 4, succeeded: false);
+    if (synchronousAdapterEvent != CassettePersistenceAcceptanceEventOutcome.Ignored)
+        synchronousMarkerOrder.Add("EVENT");
+};
 Equal(CassettePointerBoundPersistenceInvocationResult.Invoked,
     CassetteSaveTransactionAdapter.InvokePointerBoundPersistence(
         pointerBoundPlan, out string pointerBoundInvokeStage),
@@ -1573,8 +1615,14 @@ Equal(CassettePointerBoundPersistenceInvocationResult.Invoked,
 Equal("success", pointerBoundInvokeStage, "successful pointer-bound invocation reports success");
 SequenceEqual(new[] { "PersistAllChangesInBundle:DEFAULT:1", "RequestUrgentWriteToDisk" }, pointerBoundCalls,
     "pointer-bound invocation calls DEFAULT promotion then urgent write exactly once on the same state");
-Equal(CassettePersistenceAcceptanceEventOutcome.SuccessWake, synchronousAdapterEvent,
-    "attempt token exists before a synchronous write-completed callback from the urgency call");
+if (synchronousAdapterRuntime.MarkInvoked(synchronousAdapterAttempt))
+    synchronousMarkerOrder.Add("INVOKED");
+Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake, synchronousAdapterEvent,
+    "attempt token exists before a synchronous uncorrelated failure callback from the urgency call");
+SequenceEqual(new[] { "PRE", "EVENT", "INVOKED" }, synchronousMarkerOrder,
+    "synchronous failure hint logs EVENT before INVOKED and emits no terminal FAILED marker");
+Equal(true, synchronousAdapterRuntime.Active,
+    "synchronous uncorrelated failure event leaves the invoked trial pending for public-state polling");
 Equal(0, RequestSystem.SubmitCount, "pointer-bound invocation never constructs or submits a generic request");
 
 Equal(false, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(

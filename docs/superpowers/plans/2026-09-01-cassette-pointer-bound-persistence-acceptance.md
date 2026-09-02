@@ -16,7 +16,7 @@
 - Acceptance invokes no generic Persist request, private save manager/writer, raw-pointer wrapper, selected-slot mutation, PersistAll-bundles request, TriggerUrgent request, or RequestWrite method.
 - Both native calls run only from the existing Unity keeper tick and target the exact active public state object.
 - A token and immutable PRE baseline exist before either native call; any possibly-mutating invocation failure tombstones the epoch trial.
-- A completion event is only a wake/failure hint. Public state and identity proof are mandatory for success.
+- A completion event is only an uncorrelated wake hint. Neither success nor failure is terminal; public state and identity proof are mandatory for every terminal outcome.
 - There is no retry after invocation, indeterminate outcome, terminal failure, or timeout in the same epoch.
 
 ---
