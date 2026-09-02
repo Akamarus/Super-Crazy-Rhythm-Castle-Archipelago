@@ -268,16 +268,34 @@ Equal(true, acceptancePlanIndex >= 0 && acceptanceTokenIndex > acceptancePlanInd
     "acceptance resolves the immutable public call plan, then installs PRE token, then mutates");
 Equal(true, persistenceAcceptanceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "acceptance starter executes the complete pure gate before preparing");
 int acceptanceMarkInvokedIndex = persistenceAcceptanceStarter.IndexOf("invocationAccepted = _persistenceAcceptance.MarkInvoked", StringComparison.Ordinal);
-int acceptanceMarkGuardIndex = persistenceAcceptanceStarter.IndexOf("if (!invocationAccepted) return", StringComparison.Ordinal);
-int acceptanceInvokedLogIndex = persistenceAcceptanceStarter.IndexOf("LogPersistenceAcceptance(\"INVOKED\"", StringComparison.Ordinal);
+int acceptanceMarkSuccessIndex = persistenceAcceptanceStarter.IndexOf("if (invocationAccepted)", acceptanceMarkInvokedIndex, StringComparison.Ordinal);
+int acceptanceInvokedAdmissionIndex = persistenceAcceptanceStarter.IndexOf("\"INVOKED\"", acceptanceMarkSuccessIndex, StringComparison.Ordinal);
+int acceptanceMarkerDrainIndex = persistenceAcceptanceStarter.IndexOf("DrainPersistenceAcceptanceMarkers", acceptanceInvokedAdmissionIndex, StringComparison.Ordinal);
 Equal(true, acceptanceMarkInvokedIndex > acceptanceInvokeIndex &&
-            acceptanceMarkGuardIndex > acceptanceMarkInvokedIndex &&
-            acceptanceInvokedLogIndex > acceptanceMarkGuardIndex,
-    "orchestration logs INVOKED only after MarkInvoked accepts the still-active token; a synchronous terminal callback cannot produce a later marker");
+            acceptanceMarkSuccessIndex > acceptanceMarkInvokedIndex &&
+            acceptanceInvokedAdmissionIndex > acceptanceMarkSuccessIndex &&
+            acceptanceMarkerDrainIndex > acceptanceInvokedAdmissionIndex,
+    "orchestration admits INVOKED only after MarkInvoked accepts the still-active token, then uses the serialized drain");
 string acceptanceEventObserver = ExtractMethods(
     receiptRandomizationSource, "internal static void ObservePersistenceAcceptanceWriteCompletedEvent(").Single();
 Equal(false, acceptanceEventObserver.Contains("LogPersistenceAcceptance(\"FAILED\"", StringComparison.Ordinal),
     "uncorrelated native events never emit a terminal acceptance marker");
+string acceptanceMarkerDrain = ExtractMethods(
+    receiptRandomizationSource, "private static void DrainPersistenceAcceptanceMarkers(").Single();
+Equal(true, acceptanceMarkerDrain.Contains("_persistenceAcceptanceMarkerEmitter.Drain", StringComparison.Ordinal) &&
+            acceptanceMarkerDrain.Contains("TryTakePersistenceAcceptanceMarker", StringComparison.Ordinal) &&
+            acceptanceMarkerDrain.Contains("EmitPersistenceAcceptanceMarker", StringComparison.Ordinal),
+    "all admitted markers use one serialized drain/emitter path");
+string acceptanceMarkerEmitter = ExtractMethods(
+    receiptRandomizationSource, "private static void EmitPersistenceAcceptanceMarker(").Single();
+Equal(true, acceptanceMarkerEmitter.Contains("LogPersistenceAcceptance", StringComparison.Ordinal),
+    "only the serialized marker emitter reaches the physical acceptance logger");
+Equal(2, receiptRandomizationSource.Split("LogPersistenceAcceptance(", StringSplitOptions.None).Length - 1,
+    "acceptance lifecycle has exactly one logger definition and one serialized emitter call; transition callers never log independently");
+Equal(true, persistenceAcceptanceStarter.Contains("_persistenceAcceptanceMarkers.TryBeginAttempt", StringComparison.Ordinal),
+    "PRE admission is atomic with attempt preparation under the acceptance lock");
+Equal(true, acceptanceEventObserver.Contains("_persistenceAcceptanceMarkers.TryAppend", StringComparison.Ordinal),
+    "EVENT admission is atomic with event-state observation under the acceptance lock");
 foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
     Equal(false, persistenceAcceptanceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"acceptance starter cannot use prohibited path {prohibitedAcceptance}");
 foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "EVENT", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
@@ -907,6 +925,94 @@ Equal(true, cancelledRuntime.TryPrepare(
     acceptanceIdentity with { Generation = 42, Epoch = 8 }, acceptanceBaseline, out _),
     "a genuinely new save epoch may run one fresh opt-in trial");
 Console.WriteLine("PASS: pointer_bound_acceptance_runtime_is_one_shot_identity_safe_and_event_insufficient");
+
+var orderedMarkerJournal = new CassettePersistenceAcceptanceMarkerJournal();
+var orderedMarkerEmitter = new CassettePersistenceAcceptanceMarkerEmitter();
+var orderedMarkerSync = new object();
+var orderedMarkers = new List<CassettePersistenceAcceptanceMarkerRecord>();
+bool TakeOrderedMarker(out CassettePersistenceAcceptanceMarkerRecord marker)
+{
+    lock (orderedMarkerSync) return orderedMarkerJournal.TryDequeue(out marker);
+}
+void EmitOrderedMarker(CassettePersistenceAcceptanceMarkerRecord marker) => orderedMarkers.Add(marker);
+
+var invocationThenCancelAttempt = new CassettePersistenceAcceptanceAttempt(101, 50, 10, 4, 0x700);
+lock (orderedMarkerSync)
+{
+    Equal(true, orderedMarkerJournal.TryBeginAttempt(invocationThenCancelAttempt, "pre"),
+        "PRE begins one marker stream for the exact attempt");
+    Equal(true, orderedMarkerJournal.TryAppend(invocationThenCancelAttempt, "INVOKED", "invoked", terminal: false),
+        "MarkInvoked transition admits INVOKED before a later config cancellation");
+    Equal(true, orderedMarkerJournal.TryAppend(invocationThenCancelAttempt, "CANCELLED", "config-disabled", terminal: true),
+        "config cancellation atomically seals the attempt with its terminal marker");
+}
+using (var delayedEarlierDrain = new ManualResetEventSlim(false))
+{
+    Task earlierInvocationCaller = Task.Run(() =>
+    {
+        delayedEarlierDrain.Wait();
+        orderedMarkerEmitter.Drain(TakeOrderedMarker, EmitOrderedMarker);
+    });
+    orderedMarkerEmitter.Drain(TakeOrderedMarker, EmitOrderedMarker);
+    delayedEarlierDrain.Set();
+    earlierInvocationCaller.GetAwaiter().GetResult();
+}
+SequenceEqual(new[] { "PRE", "INVOKED", "CANCELLED" }, orderedMarkers.Select(marker => marker.Marker),
+    "a later cancellation caller draining first still physically emits admitted INVOKED before terminal CANCELLED");
+SequenceEqual(new[] { "1", "2", "3" }, orderedMarkers.Select(marker => marker.Sequence.ToString()),
+    "serialized emission preserves the global journal sequence without duplicates or gaps");
+Equal(false, orderedMarkerJournal.TryAppend(invocationThenCancelAttempt, "EVENT", "late", terminal: false),
+    "terminal cancellation rejects every later marker for that attempt");
+orderedMarkerJournal.RetireAttempt(invocationThenCancelAttempt);
+
+orderedMarkers.Clear();
+var eventThenPollAttempt = new CassettePersistenceAcceptanceAttempt(102, 51, 11, 4, 0x700);
+lock (orderedMarkerSync)
+{
+    Equal(true, orderedMarkerJournal.TryBeginAttempt(eventThenPollAttempt, "pre"),
+        "retirement permits a fresh attempt after the sealed stream");
+    Equal(true, orderedMarkerJournal.TryAppend(eventThenPollAttempt, "EVENT", "failure-wake", terminal: false),
+        "event hint is admitted before a polling terminal result");
+    Equal(true, orderedMarkerJournal.TryAppend(eventThenPollAttempt, "FAILED", "failure-time-advanced", terminal: true),
+        "polling terminal atomically seals after the admitted event hint");
+}
+using (var delayedEventDrain = new ManualResetEventSlim(false))
+{
+    Task earlierEventCaller = Task.Run(() =>
+    {
+        delayedEventDrain.Wait();
+        orderedMarkerEmitter.Drain(TakeOrderedMarker, EmitOrderedMarker);
+    });
+    orderedMarkerEmitter.Drain(TakeOrderedMarker, EmitOrderedMarker);
+    delayedEventDrain.Set();
+    earlierEventCaller.GetAwaiter().GetResult();
+}
+SequenceEqual(new[] { "PRE", "EVENT", "FAILED" }, orderedMarkers.Select(marker => marker.Marker),
+    "poll terminal caller draining first still physically emits EVENT before final FAILED");
+Equal(eventThenPollAttempt, orderedMarkers[^1].Attempt,
+    "terminal poll marker retains the exact attempt identity");
+orderedMarkerJournal.RetireAttempt(eventThenPollAttempt);
+
+orderedMarkers.Clear();
+var oldTerminalAttempt = new CassettePersistenceAcceptanceAttempt(103, 52, 12, 4, 0x700);
+var freshAfterResetAttempt = new CassettePersistenceAcceptanceAttempt(104, 53, 13, 4, 0x700);
+lock (orderedMarkerSync)
+{
+    orderedMarkerJournal.TryBeginAttempt(oldTerminalAttempt, "old-pre");
+    orderedMarkerJournal.TryAppend(oldTerminalAttempt, "TIMEOUT", "old-terminal", terminal: true);
+    orderedMarkerJournal.RetireAttempt(oldTerminalAttempt);
+    Equal(true, orderedMarkerJournal.TryBeginAttempt(freshAfterResetAttempt, "fresh-pre"),
+        "epoch reset permits one fresh attempt after retiring the old identity");
+    orderedMarkerJournal.TryAppend(freshAfterResetAttempt, "INVOKED", "fresh-invoked", terminal: false);
+}
+orderedMarkerEmitter.Drain(TakeOrderedMarker, EmitOrderedMarker);
+SequenceEqual(new[] { "PRE", "TIMEOUT", "PRE", "INVOKED" }, orderedMarkers.Select(marker => marker.Marker),
+    "old terminal, reset, and fresh attempt retain one global physical emission order");
+SequenceEqual(new[] { "103", "103", "104", "104" }, orderedMarkers.Select(marker => marker.Attempt.Id.ToString()),
+    "old terminal cannot be mislabeled or emitted after the fresh epoch markers");
+SequenceEqual(new[] { "7", "8", "9", "10" }, orderedMarkers.Select(marker => marker.Sequence.ToString()),
+    "global marker sequence continues across retired and fresh attempt identities");
+Console.WriteLine("PASS: pointer_bound_acceptance_markers_are_globally_ordered_and_terminal");
 
 var eligibleAcceptance = new CassettePersistenceAcceptanceEligibilityEvidence(
     OptInEnabled: true,

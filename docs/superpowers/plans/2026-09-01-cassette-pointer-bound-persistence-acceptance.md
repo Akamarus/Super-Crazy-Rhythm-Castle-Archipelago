@@ -4,7 +4,7 @@
 
 **Goal:** Add one explicitly opt-in, one-shot acceptance trial that promotes and urgently writes the exact active player-save state after a newly verified cassette grant wave, without enabling automatic production persistence.
 
-**Architecture:** A new pure `CassettePointerBoundPersistenceAcceptanceRuntime` owns immutable attempt identity/baselines, event hints, one-shot/tombstone state, timeout, and terminal decisions. `CassetteSaveTransactionAdapter` resolves and invokes only public `PlayerSaveFileState.PersistAllChangesInBundle(DEFAULT)` followed by public `BaseSaveFileState.RequestUrgentWriteToDisk()` on the exact pointer-bearing state. `CassetteReceiptRandomization` admits a trial only from the existing post-verification wave after every public identity, ownership, status, bundle, and no-write-in-flight gate passes.
+**Architecture:** A new pure `CassettePointerBoundPersistenceAcceptanceRuntime` owns immutable attempt identity/baselines, event hints, one-shot/tombstone state, timeout, and terminal decisions. A lock-owned marker journal atomically sequences each accepted transition and a single serialized drain physically emits records in global order. `CassetteSaveTransactionAdapter` resolves and invokes only public `PlayerSaveFileState.PersistAllChangesInBundle(DEFAULT)` followed by public `BaseSaveFileState.RequestUrgentWriteToDisk()` on the exact pointer-bearing state. `CassetteReceiptRandomization` admits a trial only from the existing post-verification wave after every public identity, ownership, status, bundle, and no-write-in-flight gate passes.
 
 **Tech Stack:** C#/.NET 6 plugin, .NET 8 executable policy fixtures, Harmony public event observation, BepInEx configuration, IL2CPP public reflection.
 
@@ -18,6 +18,7 @@
 - A token and immutable PRE baseline exist before either native call; any possibly-mutating invocation failure tombstones the epoch trial.
 - A completion event is only an uncorrelated wake hint. Neither success nor failure is terminal; public state and identity proof are mandatory for every terminal outcome.
 - There is no retry after invocation, indeterminate outcome, terminal failure, or timeout in the same epoch.
+- Transition and marker admission share the acceptance lock; one serialized emitter drains the global journal after unlocking, so terminal/reset interleavings cannot reorder physical logs.
 
 ---
 

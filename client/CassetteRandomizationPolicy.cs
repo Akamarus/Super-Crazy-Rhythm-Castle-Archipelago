@@ -1628,6 +1628,92 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     }
 }
 
+internal readonly record struct CassettePersistenceAcceptanceMarkerRecord(
+    long Sequence,
+    CassettePersistenceAcceptanceAttempt Attempt,
+    string Marker,
+    string Detail,
+    bool Terminal);
+
+internal delegate bool CassettePersistenceAcceptanceMarkerTake(
+    out CassettePersistenceAcceptanceMarkerRecord marker);
+
+internal sealed class CassettePersistenceAcceptanceMarkerJournal
+{
+    private readonly Queue<CassettePersistenceAcceptanceMarkerRecord> _pending = new();
+    private long _sequence;
+    private bool _hasAttempt;
+    private bool _terminal;
+    private CassettePersistenceAcceptanceAttempt _attempt;
+
+    internal bool TryBeginAttempt(
+        CassettePersistenceAcceptanceAttempt attempt,
+        string detail)
+    {
+        if (_hasAttempt || attempt.Id <= 0 || attempt.Pointer == 0) return false;
+        _hasAttempt = true;
+        _terminal = false;
+        _attempt = attempt;
+        return Enqueue(attempt, "PRE", detail, terminal: false);
+    }
+
+    internal bool TryAppend(
+        CassettePersistenceAcceptanceAttempt attempt,
+        string marker,
+        string detail,
+        bool terminal)
+    {
+        if (!_hasAttempt || _terminal || attempt != _attempt ||
+            string.IsNullOrWhiteSpace(marker))
+            return false;
+        bool appended = Enqueue(attempt, marker, detail, terminal);
+        if (appended && terminal) _terminal = true;
+        return appended;
+    }
+
+    internal void RetireAttempt(CassettePersistenceAcceptanceAttempt attempt)
+    {
+        if (!_hasAttempt || attempt != _attempt) return;
+        _hasAttempt = false;
+        _terminal = false;
+        _attempt = default;
+    }
+
+    internal bool TryDequeue(out CassettePersistenceAcceptanceMarkerRecord marker) =>
+        _pending.TryDequeue(out marker);
+
+    private bool Enqueue(
+        CassettePersistenceAcceptanceAttempt attempt,
+        string marker,
+        string detail,
+        bool terminal)
+    {
+        _pending.Enqueue(new(
+            ++_sequence,
+            attempt,
+            marker,
+            detail ?? string.Empty,
+            terminal));
+        return true;
+    }
+}
+
+internal sealed class CassettePersistenceAcceptanceMarkerEmitter
+{
+    private readonly object _emissionSync = new();
+
+    internal void Drain(
+        CassettePersistenceAcceptanceMarkerTake take,
+        Action<CassettePersistenceAcceptanceMarkerRecord> emit)
+    {
+        lock (_emissionSync)
+        {
+            while (take(out CassettePersistenceAcceptanceMarkerRecord marker))
+                emit(marker);
+        }
+    }
+}
+
 internal static class CassetteAuthoritativeStateReader
 {
     internal static bool TryRead(
