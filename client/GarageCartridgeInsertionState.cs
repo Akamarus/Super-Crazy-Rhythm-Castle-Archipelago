@@ -67,9 +67,9 @@ internal static class GarageCartridgeInsertionPolicy
     internal static bool ShouldReleaseObject(
         bool usesPhysicalVanillaEntrance,
         GarageInsertionServerValue serverValue,
-        bool currentVisitNativeBagObserved) =>
+        bool currentVisitNativeBagHeldObserved) =>
         usesPhysicalVanillaEntrance ||
-        (currentVisitNativeBagObserved && serverValue == GarageInsertionServerValue.NotInserted);
+        (currentVisitNativeBagHeldObserved && serverValue == GarageInsertionServerValue.NotInserted);
 }
 
 internal sealed class GarageCartridgeInsertionTracker
@@ -115,10 +115,6 @@ internal sealed class GarageCartridgeInsertionTracker
         _previous.TryGetValue(song, out GarageNativeBagObservation observation) &&
         observation.Readable &&
         observation.Held;
-
-    internal bool HasAuthoritativeObservation(string song) =>
-        _previous.TryGetValue(song, out GarageNativeBagObservation observation) &&
-        observation.Readable;
 
     internal void Reset() => _previous.Clear();
 

@@ -106,7 +106,7 @@ string garageSource = pluginSource[garageClassStart..];
 string configureMethod = MethodBody(garageSource, "public static void Configure()", "public static bool TryApplyItem(string itemName)");
 string itemCallback = MethodBody(garageSource, "public static bool TryApplyItem(string itemName)", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
 string observeNativeBagMethod = MethodBody(garageSource, "public static void ObserveNativeBag(", "public static void NoteGarageObjectReleased(");
-string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
+string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "private static bool RecordGarageObjectReleasedWithinLease(");
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
@@ -217,6 +217,9 @@ True(garageSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal) &&
      garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(", StringComparison.Ordinal) &&
      garageSource.Contains("_releaseVisit.WasReleased(cartridge.Song)", StringComparison.Ordinal),
     "keeper revalidates every active poll while retaining one-shot visit release state");
+True(releaseGarageObjectMethod.Contains("InsertionTracker.HasAuthoritativeHeldObservation", StringComparison.Ordinal) &&
+     noteGarageObjectReleasedMethod.Contains("InsertionTracker.HasAuthoritativeHeldObservation", StringComparison.Ordinal),
+    "substituting HasAuthoritativeObservation for held-only evidence is rejected in both production release paths");
 
 {
     var access = new GarageCartridgeReconciliationAccess();
@@ -282,7 +285,7 @@ True(garageSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal) &&
 static bool TryManagedReleasePoll(
     GarageCartridgeReconciliationAccess access,
     GarageInsertionServerValue serverValue,
-    bool currentVisitNativeBagObserved,
+    bool currentVisitNativeBagHeldObserved,
     bool releasedThisVisit,
     Action releaseAction)
 {
@@ -292,7 +295,7 @@ static bool TryManagedReleasePoll(
         accepted = GarageCartridgeInsertionPolicy.ShouldReleaseObject(
             usesPhysicalVanillaEntrance: false,
             serverValue,
-            currentVisitNativeBagObserved);
+            currentVisitNativeBagHeldObserved);
         if (accepted && !releasedThisVisit)
             current.Release(releaseAction);
     });
@@ -312,7 +315,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
                 releasedThisVisit,
                 releaseAction),
             () => releaseActionCount++,
@@ -337,7 +340,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
                 releasedThisVisit,
                 releaseAction),
             () => releaseActionCount++,
@@ -345,6 +348,75 @@ static bool TryManagedReleasePoll(
         "release becomes eligible only after the authoritative current-visit bag sample");
     Equal(1, releaseActionCount, "post-sample release performs one real Unity action");
     True(access.End(439, () => { }), "Garage-entry ordering generation ends");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
+    var nativeObservations = new GarageCartridgeInsertionTracker();
+    var releaseActionCount = 0;
+    True(access.TryBegin(4391, () => { }), "absent-to-held release generation begins");
+    keeperVisit.SynchronizeResetEpoch(1);
+
+    False(nativeObservations.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: false,
+            inGarage: true,
+            releasedThisVisit: false),
+        "an authoritative readable-absent sample records observation without insertion");
+    Equal(GarageNativeGrantDecision.ApplyBagItem,
+        GarageCartridgeInsertionPolicy.DecideGrant(
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            nativeBagReadable: true,
+            nativeBagHeld: false),
+        "AP native grant reconciliation may remain active after the authoritative absent sample");
+    False(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "an authoritative readable-absent sample cannot release a randomized Garage cartridge");
+    Equal(0, releaseActionCount,
+        "the randomized Garage object stays closed until held evidence exists");
+
+    False(nativeObservations.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: true,
+            inGarage: true,
+            releasedThisVisit: false),
+        "a subsequent authoritative readable-held sample records history without insertion");
+    True(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "a subsequent authoritative held sample permits randomized Garage release");
+    Equal(1, releaseActionCount,
+        "the held-gated release performs one real Unity action");
+    True(access.End(4391, () => { }), "absent-to-held release generation ends");
 }
 
 {
@@ -370,7 +442,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
                 releasedThisVisit,
                 releaseAction),
             () => releaseActionCount++,
@@ -398,7 +470,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
                 releasedThisVisit,
                 releaseAction),
             () => releaseActionCount++,

@@ -20808,17 +20808,17 @@ internal static class GarageCartridgeAccess
             GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
                 ? InsertionCoordinator.GetServerValue(cartridge.Song)
                 : GarageInsertionServerValue.Unknown;
-            bool currentVisitNativeBagObserved;
+            bool currentVisitNativeBagHeldObserved;
             lock (Sync)
             {
-                currentVisitNativeBagObserved =
+                currentVisitNativeBagHeldObserved =
                     nativeBagObservationResetEpoch == _nativeBagObservationResetEpoch &&
-                    InsertionTracker.HasAuthoritativeObservation(cartridge.Song);
+                    InsertionTracker.HasAuthoritativeHeldObservation(cartridge.Song);
             }
             if (!GarageCartridgeInsertionPolicy.ShouldReleaseObject(
                     cartridge.UsesPhysicalVanillaEntrance,
                     serverValue,
-                    currentVisitNativeBagObserved))
+                    currentVisitNativeBagHeldObserved))
             {
                 lock (Sync)
                 {
@@ -20863,17 +20863,17 @@ internal static class GarageCartridgeAccess
             GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
                 ? InsertionCoordinator.GetServerValue(song)
                 : GarageInsertionServerValue.Unknown;
-            bool currentVisitNativeBagObserved;
+            bool currentVisitNativeBagHeldObserved;
             long nativeBagObservationResetEpoch;
             lock (Sync)
             {
-                currentVisitNativeBagObserved = InsertionTracker.HasAuthoritativeObservation(song);
+                currentVisitNativeBagHeldObserved = InsertionTracker.HasAuthoritativeHeldObservation(song);
                 nativeBagObservationResetEpoch = _nativeBagObservationResetEpoch;
             }
             if (GarageCartridgeInsertionPolicy.ShouldReleaseObject(
                     usesPhysicalVanillaEntrance: false,
                     serverValue,
-                    currentVisitNativeBagObserved))
+                    currentVisitNativeBagHeldObserved))
             {
                 RecordGarageObjectReleasedWithinLease(
                     song,
