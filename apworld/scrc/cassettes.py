@@ -194,13 +194,13 @@ CASSETTES: tuple[CassetteDefinition, ...] = (
         _trigger("Level_15", "LevelVariant_Default", "Meat Dimension", "Meat Dimension Access", "Hypno Pan"),
     )),
     _level_definition("Epical", "THE_EPICAL", BASE_ID + 141, BASE_ID + 203, "Lobby / Cell Tower return", (
-        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Hypno Pan"),
+        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Lobby Access", "Hypno Pan"),
     )),
     _level_definition("Hollywood Trailer", "HOLLYWOOD_TRAILER", BASE_ID + 142, BASE_ID + 204, "Lobby / Cell Tower return", (
-        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Hypno Pan"),
+        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Lobby Access", "Hypno Pan"),
     )),
     _level_definition("False Data", "FALSE_DATA", BASE_ID + 143, BASE_ID + 205, "Lobby / Cell Tower return", (
-        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Hypno Pan"),
+        _trigger("Level_21", "LevelVariant_Default", "Lobby", "Lobby Access", "Hypno Pan"),
     )),
     _level_definition("Gotta Get Up", "GOTTA_GET_UP", BASE_ID + 144, BASE_ID + 206, "Tower of Fear", (
         _trigger("Level_03", "LevelVariant_Default", "Tower of Fear", "Tower of Fear Access"),

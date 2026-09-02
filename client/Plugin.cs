@@ -1350,15 +1350,17 @@ internal sealed class ArchipelagoClient
                             // Area Access is core routing state in APWorld v0.13+, not an
                             // experimental native-save mutation. Always consume these six
                             // item names when Area Access routing is enabled.
-                            bool handledAreaAccess = AreaAccessPrototype.TryApplyItem(item.ItemName);
-                            bool handledGarageCartridge = GarageCartridgeAccess.TryApplyItem(item.ItemName);
-                            bool handledWeedKiller = WeedKillerRandomization.TryApplyItem(item.ItemName);
-                            bool handledPlantPipes = PlantPipesRandomization.TryApplyItem(item.ItemName);
-                            bool handledPreviewAbility = PreviewAbilityRandomization.TryApplyItem(item.ItemName);
-                            bool handledRootsBucket = RootsBucketRandomization.TryApplyItem(item.ItemName);
-
-                            if (!handledAreaAccess && !handledGarageCartridge && !handledWeedKiller && !handledPlantPipes && !handledPreviewAbility && !handledRootsBucket && _applyReceivedProgression)
-                                NativeProgression.ApplyArchipelagoItem(item.ItemName);
+                            ReceivedItemDispatch.TryApply(
+                                item.ItemName,
+                                _applyReceivedProgression,
+                                AreaAccessPrototype.TryApplyItem,
+                                GarageCartridgeAccess.TryApplyItem,
+                                WeedKillerRandomization.TryApplyItem,
+                                PlantPipesRandomization.TryApplyItem,
+                                PreviewAbilityRandomization.TryApplyItem,
+                                RootsBucketRandomization.TryApplyItem,
+                                CassetteReceiptRandomization.TryApplyItem,
+                                NativeProgression.ApplyArchipelagoItem);
                         }
                         catch (Exception ex)
                         {

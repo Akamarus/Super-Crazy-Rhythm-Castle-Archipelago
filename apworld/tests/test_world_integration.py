@@ -257,6 +257,29 @@ class WorldIntegrationTests(unittest.TestCase):
                         self.location_is_reachable(world, source, State(bunker_only_items))
                     )
 
+    def test_cell_tower_return_cassettes_require_lobby_route_and_hypno_pan(self):
+        world = self.build_world(difficulty=3)
+
+        for song in ("Epical", "Hollywood Trailer", "False Data"):
+            with self.subTest(song=song):
+                source = world.multiworld.get_location(
+                    f"Cassette Source - {song}",
+                    world.player,
+                )
+                self.assertFalse(
+                    self.location_is_reachable(world, source, State({"Hypno Pan"}))
+                )
+                self.assertFalse(
+                    self.location_is_reachable(world, source, State({"Lobby Access"}))
+                )
+                self.assertTrue(
+                    self.location_is_reachable(
+                        world,
+                        source,
+                        State({"Lobby Access", "Hypno Pan"}),
+                    )
+                )
+
     def test_all_music_lab_point_chests_reject_required_progression(self):
         world = self.build_world(difficulty=3)
         required = world.create_item(self.catalog.CASSETTES[0].item_name)

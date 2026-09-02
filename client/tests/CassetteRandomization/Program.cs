@@ -34,6 +34,27 @@ static IReadOnlyList<string> ExtractMethods(string source, string signaturePrefi
     return methods;
 }
 
+bool cassetteHandlerCalled = false;
+bool experimentalFallbackCalled = false;
+bool cassetteHandledWithExperimentalProgressionDisabled = ReceivedItemDispatch.TryApply(
+    "Heavy Metal Cassette",
+    applyReceivedProgression: false,
+    areaAccessHandler: _ => false,
+    garageCartridgeHandler: _ => false,
+    weedKillerHandler: _ => false,
+    plantPipesHandler: _ => false,
+    previewAbilityHandler: _ => false,
+    rootsBucketHandler: _ => false,
+    cassetteHandler: itemName =>
+    {
+        cassetteHandlerCalled = itemName == "Heavy Metal Cassette";
+        return true;
+    },
+    experimentalFallback: _ => experimentalFallbackCalled = true);
+Equal(true, cassetteHandledWithExperimentalProgressionDisabled, "cassette dispatch is handled when experimental progression is disabled");
+Equal(true, cassetteHandlerCalled, "cassette dispatch invokes the always-on cassette handler");
+Equal(false, experimentalFallbackCalled, "cassette dispatch does not invoke experimental fallback");
+
 TestCassetteRequest.ResetCounters();
 var constructedRequest = CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
     typeof(TestCassetteRequest),
