@@ -189,8 +189,8 @@ Equal(true, reconcileSongSource.Contains("TryReadCassetteStatus(processor!, nati
 Equal(true, reconcileSongSource.Contains("TrySubmitHaveInBag(processor!, nativeSong", StringComparison.Ordinal), "reconciliation uses exact semantic request adapter");
 Equal(false, reconcileSongSource.Contains("HAVE_DEPOSITED", StringComparison.Ordinal), "reconciliation never submits deposited status");
 Equal(true, reconcileSongSource.Contains("verificationDue &&", StringComparison.Ordinal) && reconcileSongSource.Contains("_runtime.RecordVerification(nativeSong, null)", StringComparison.Ordinal), "an unreadable scheduled verification is consumed once without enabling a duplicate grant");
-Equal(true, reconcileSongSource.Contains("!_productionPersistence.Active &&", StringComparison.Ordinal),
-    "an active pointer-bound write blocks only additional semantic grant submission");
+Equal(true, reconcileSongSource.Contains("_productionPersistence.CanSubmitNativeCassetteGrant(", StringComparison.Ordinal),
+    "semantic grant admission delegates active-write coordination to the executable production coordinator");
 
 string cassetteProcessorCapture = ExtractMethods(pluginSource, "internal static void CapturePlayerSaveRequestProcessor(object? instance, bool reconcileNow = true)").Single();
 Equal(true, cassetteProcessorCapture.Contains("CASSETTE PLAYER PROCESSOR CAPTURED", StringComparison.Ordinal), "compatible player processor capture is observable");
@@ -200,6 +200,10 @@ Equal(true, cassetteProcessorFallback.Contains("CassetteSaveTransactionAdapter.T
 Equal(true, cassetteProcessorFallback.Contains("PlayerSaveRequestProcessor", StringComparison.Ordinal), "stateless fallback constructs only the proven processor type");
 
 string receiptRandomizationSource = ExtractClass(pluginSource, "CassetteReceiptRandomization");
+string persistencePolicySource = File.ReadAllText(Path.Combine(
+    Directory.GetCurrentDirectory(), "client", "CassetteRandomizationPolicy.cs"));
+string persistenceCoordinatorSource = ExtractClass(
+    persistencePolicySource, "CassetteProductionPersistenceCoordinator");
 string receiptApplySlotData = ExtractMethods(receiptRandomizationSource, "internal static void ApplySlotData(").Single();
 Equal(true, receiptApplySlotData.Contains("RequestUnityReconciliation(\"slot data synchronized\")", StringComparison.Ordinal), "slot-data synchronization queues Unity-thread work");
 Equal(false, receiptApplySlotData.Contains("TryReconcile(", StringComparison.Ordinal), "slot-data synchronization performs no native reconciliation");
@@ -257,7 +261,7 @@ Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringCompariso
 int delayedVerificationLoopIndex = unityTick.IndexOf("foreach (string song in ready) TryReconcileSong", StringComparison.Ordinal);
 int diagnosticWaveConsumeIndex = unityTick.IndexOf("TryConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal);
 Equal(true, delayedVerificationLoopIndex >= 0 && diagnosticWaveConsumeIndex > delayedVerificationLoopIndex, "Unity update consumes a diagnostic wave only after every due delayed verification has run");
-int productionWaveEnqueueIndex = unityTick.IndexOf("_persistenceWaves.TryEnqueue", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
+int productionWaveEnqueueIndex = unityTick.IndexOf("_productionPersistence.TryEnqueue", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
 int persistenceEligibilityIndex = unityTick.IndexOf("TryStartPointerBoundPersistence", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
 Equal(true, productionWaveEnqueueIndex > diagnosticWaveConsumeIndex && persistenceEligibilityIndex > productionWaveEnqueueIndex,
     "newly verified waves are identity-bound and queued before any production eligibility attempt");
@@ -270,27 +274,27 @@ foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitReque
 Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
 string persistenceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistence(").Single();
 int persistencePlanIndex = persistenceStarter.IndexOf("TryPreparePointerBoundPersistenceInvocation", StringComparison.Ordinal);
-int persistenceTokenIndex = persistenceStarter.IndexOf("_productionPersistence.TryPrepare", StringComparison.Ordinal);
+int persistenceTokenIndex = persistenceStarter.IndexOf("_productionPersistence.TryInvoke", StringComparison.Ordinal);
 int persistenceInvokeIndex = persistenceStarter.IndexOf("InvokePointerBoundPersistence", StringComparison.Ordinal);
 Equal(true, persistencePlanIndex >= 0 && persistenceTokenIndex > persistencePlanIndex && persistenceInvokeIndex > persistenceTokenIndex,
-    "production resolves the immutable public call plan, then installs PRE token, then mutates");
+    "production resolves the immutable public call plan, then delegates token installation before the adapter callback mutates");
 Equal(true, persistenceStarter.Contains("CassettePersistenceAcceptanceEligibility.Evaluate", StringComparison.Ordinal), "production starter executes the complete pure gate before preparing");
-Equal(true, persistenceStarter.Contains("_persistenceWaves.TryPeek", StringComparison.Ordinal),
-    "production starts only from the exact queued identity-bound wave");
+Equal(true, persistenceStarter.Contains("_productionPersistence.TryPeek", StringComparison.Ordinal),
+    "production starts only from the exact identity-bound wave exposed by the coordinator");
 Equal(true, persistenceStarter.Contains("OptInEnabled: true", StringComparison.Ordinal) &&
             persistenceStarter.Contains("routingCompatible = _slotDataSynchronized && Enabled", StringComparison.Ordinal),
     "compatible full cassette routing enables production independently of default-false diagnostics");
 Equal(false, persistenceStarter.Contains("_acceptanceDiagnosticsEnabled", StringComparison.Ordinal),
     "diagnostic configuration cannot gate or cancel production persistence");
-int persistenceMarkInvokedIndex = persistenceStarter.IndexOf("invocationAccepted = _productionPersistence.MarkInvoked", StringComparison.Ordinal);
-int persistenceMarkSuccessIndex = persistenceStarter.IndexOf("if (invocationAccepted)", persistenceMarkInvokedIndex, StringComparison.Ordinal);
-int persistenceInvokedAdmissionIndex = persistenceStarter.IndexOf("\"INVOKED\"", persistenceMarkSuccessIndex, StringComparison.Ordinal);
-int persistenceMarkerDrainIndex = persistenceStarter.IndexOf("DrainPersistenceMarkers", persistenceInvokedAdmissionIndex, StringComparison.Ordinal);
-Equal(true, persistenceMarkInvokedIndex > persistenceInvokeIndex &&
-            persistenceMarkSuccessIndex > persistenceMarkInvokedIndex &&
-            persistenceInvokedAdmissionIndex > persistenceMarkSuccessIndex &&
-            persistenceMarkerDrainIndex > persistenceInvokedAdmissionIndex,
-    "orchestration admits INVOKED only after MarkInvoked accepts the still-active token, then uses the serialized drain");
+int persistencePrepareAdmissionIndex = persistenceCoordinatorSource.IndexOf("_markers.TryBeginAttempt", StringComparison.Ordinal);
+int persistenceAdapterCallbackIndex = persistenceCoordinatorSource.IndexOf("result = invokeAdapter()", persistencePrepareAdmissionIndex, StringComparison.Ordinal);
+int persistenceMarkInvokedIndex = persistenceCoordinatorSource.IndexOf("_runtime.MarkInvoked", persistenceAdapterCallbackIndex, StringComparison.Ordinal);
+int persistenceInvokedAdmissionIndex = persistenceCoordinatorSource.IndexOf("\"INVOKED\"", persistenceMarkInvokedIndex, StringComparison.Ordinal);
+Equal(true, persistencePrepareAdmissionIndex >= 0 &&
+            persistenceAdapterCallbackIndex > persistencePrepareAdmissionIndex &&
+            persistenceMarkInvokedIndex > persistenceAdapterCallbackIndex &&
+            persistenceInvokedAdmissionIndex > persistenceMarkInvokedIndex,
+    "coordinator installs PRE before the adapter callback and admits INVOKED only after the still-active token accepts it");
 string acceptanceEventObserver = ExtractMethods(
     receiptRandomizationSource, "internal static void ObservePersistenceAcceptanceWriteCompletedEvent(").Single();
 Equal(true, acceptanceEventObserver.Contains("_acceptanceDiagnosticsEnabled", StringComparison.Ordinal),
@@ -309,30 +313,33 @@ Equal(true, persistenceMarkerEmitter.Contains("LogPersistence", StringComparison
     "only the serialized marker emitter reaches the physical production logger");
 Equal(2, receiptRandomizationSource.Split("LogPersistence(", StringSplitOptions.None).Length - 1,
     "production lifecycle has exactly one logger definition and one serialized emitter call; transition callers never log independently");
-Equal(true, persistenceStarter.Contains("_persistenceMarkers.TryBeginAttempt", StringComparison.Ordinal),
-    "PRE admission is atomic with attempt preparation under the acceptance lock");
-Equal(true, acceptanceEventObserver.Contains("_persistenceMarkers.TryAppend", StringComparison.Ordinal),
-    "EVENT admission is atomic with event-state observation under the acceptance lock");
+Equal(true, persistenceCoordinatorSource.Contains("_markers.TryBeginAttempt", StringComparison.Ordinal),
+    "PRE admission is atomic with attempt preparation inside the coordinator");
+Equal(true, acceptanceEventObserver.Contains("_productionPersistence.ObserveWriteCompletedEvent", StringComparison.Ordinal) &&
+            persistenceCoordinatorSource.Contains("_markers.TryAppend", StringComparison.Ordinal),
+    "event observation and marker admission delegate atomically to the coordinator");
 foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
     Equal(false, persistenceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"production starter cannot use prohibited path {prohibitedAcceptance}");
 foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
     Equal(true, receiptRandomizationSource.Contains($"CASSETTE PERSISTENCE {marker}", StringComparison.Ordinal), $"production emits exact bounded marker {marker}");
 Equal(false, receiptRandomizationSource.Contains("CASSETTE PERSISTENCE EVENT", StringComparison.Ordinal),
     "normal production has no event lifecycle marker");
-Equal(true, receiptRandomizationSource.Contains("CassettePersistenceAttemptPolicy.SequentialVerifiedBatches", StringComparison.Ordinal),
+Equal(true, persistenceCoordinatorSource.Contains("CassettePersistenceAttemptPolicy.SequentialVerifiedBatches", StringComparison.Ordinal),
     "compatible routing uses the sequential production persistence policy independently of diagnostics");
 string persistencePoll = ExtractMethods(receiptRandomizationSource, "private static void PollPointerBoundPersistence(").Single();
-Equal(true, persistencePoll.Contains("_persistenceWaves.Complete", StringComparison.Ordinal) &&
-            persistencePoll.Contains("RequestUnityReconciliation", StringComparison.Ordinal),
-    "VERIFIED completes the exact wave and resumes Unity reconciliation for a later batch");
-Equal(true, persistencePoll.Contains("_persistenceWaves.TombstoneEpoch", StringComparison.Ordinal),
-    "FAILED or TIMEOUT clears and tombstones later same-epoch waves");
-Equal(true, persistenceStarter.Contains("_productionPersistence.MarkIndeterminate", StringComparison.Ordinal) &&
-            persistenceStarter.Contains("_persistenceWaves.TombstoneEpoch", StringComparison.Ordinal),
-    "a possibly mutating invocation ambiguity tombstones the exact epoch and prevents another adapter call");
+Equal(true, persistencePoll.Contains("_productionPersistence.Observe", StringComparison.Ordinal) &&
+            persistenceCoordinatorSource.Contains("_waves.Complete", StringComparison.Ordinal) &&
+            persistenceCoordinatorSource.Contains("_requestReconciliation", StringComparison.Ordinal),
+    "VERIFIED delegates exact-wave completion and later-batch reconciliation to the coordinator");
+Equal(true, persistenceCoordinatorSource.Contains("_waves.TombstoneEpoch", StringComparison.Ordinal),
+    "FAILED, TIMEOUT, and indeterminate invocation tombstone later same-epoch work inside the coordinator");
 string cancelPersistence = ExtractMethods(receiptRandomizationSource, "private static void CancelPointerBoundPersistence(").Single();
-Equal(true, cancelPersistence.Contains("_persistenceWaves.CancelEpoch", StringComparison.Ordinal),
-    "save boundaries cancel and clear queued epoch-local persistence work");
+Equal(true, cancelPersistence.Contains("_productionPersistence.CancelEpoch", StringComparison.Ordinal),
+    "save boundaries delegate cancellation and queue clearing to the coordinator");
+Equal(false, receiptRandomizationSource.Contains("new CassettePersistenceWaveQueue", StringComparison.Ordinal) ||
+             receiptRandomizationSource.Contains("new CassettePointerBoundPersistenceRuntime", StringComparison.Ordinal) ||
+             receiptRandomizationSource.Contains("new CassettePersistenceAcceptanceMarkerJournal", StringComparison.Ordinal),
+    "Plugin does not duplicate the coordinator's queue, runtime, or marker state");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -993,6 +1000,248 @@ Equal(true, oneShotCompatibilityRuntime.TryPrepare(
 Equal(true, nextEpochCompatibilityAttempt.Id > oneShotCompatibilityAttempt.Id,
     "attempt identifiers remain monotonic across epoch boundaries");
 Console.WriteLine("PASS: pointer_bound_persistence_runtime_supports_sequential_verified_batches");
+
+int productionReconciliationRequests = 0;
+int productionAdapterAdmissions = 0;
+var productionCoordinator = new CassetteProductionPersistenceCoordinator(
+    () => productionReconciliationRequests++);
+productionCoordinator.BeginEpoch(sequentialIdentity);
+Equal(true, productionCoordinator.TryEnqueue(
+    sequentialIdentity, new[] { "ON_THE_WAY", "BADASS", "BADASS" }),
+    "production queues the exact verified batch before eligibility is evaluated");
+Equal(true, productionCoordinator.TryPeek(
+    sequentialIdentity, out CassettePersistenceQueuedWave deferredProductionWave),
+    "the queued production wave is available to the gate evaluator");
+Equal(CassetteProductionPersistenceStartOutcome.Deferred,
+    productionCoordinator.TryInvoke(
+        sequentialIdentity,
+        deferredProductionWave.WaveId,
+        eligible: false,
+        firstSequentialBaseline,
+        preDetail: "transient-target-unreadable",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            productionAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "transient pre-invocation unreadability defers without consuming the wave");
+Equal(0, productionAdapterAdmissions,
+    "a transient production gate failure invokes the adapter zero times");
+Equal(true, productionCoordinator.TryPeek(
+    sequentialIdentity, out CassettePersistenceQueuedWave recoveredProductionWave),
+    "the exact wave remains queued after transient deferral");
+Equal(deferredProductionWave.WaveId, recoveredProductionWave.WaveId,
+    "gate recovery observes the same immutable queued wave");
+Equal(CassetteProductionPersistenceStartOutcome.Invoked,
+    productionCoordinator.TryInvoke(
+        sequentialIdentity,
+        recoveredProductionWave.WaveId,
+        eligible: true,
+        firstSequentialBaseline,
+        preDetail: "ready",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            productionAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "gate recovery invokes the exact queued batch once");
+Equal(1, productionAdapterAdmissions,
+    "gate recovery admits the adapter exactly once");
+Equal(CassetteProductionPersistenceStartOutcome.Stale,
+    productionCoordinator.TryInvoke(
+        sequentialIdentity,
+        recoveredProductionWave.WaveId,
+        eligible: true,
+        firstSequentialBaseline,
+        preDetail: "repeat-frame",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            productionAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "a repeated frame cannot admit the already-active wave again");
+Equal(1, productionAdapterAdmissions,
+    "repeated frame evaluation invokes the adapter zero additional times");
+Equal(false, productionCoordinator.CanSubmitNativeCassetteGrant(semanticEligible: true),
+    "an active production write blocks only additional semantic grant submission");
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    productionCoordinator.Observe(
+        productionCoordinator.Attempt,
+        sequentialIdentity,
+        firstSequentialVerifiedState,
+        statusesRetained: true,
+        stateReadable: true,
+        TimeSpan.FromMilliseconds(16),
+        phase: "UPDATE",
+        targetStage: "target-selected-entry-missing",
+        writeStage: "success",
+        stateDetail: "verified"),
+    "public polling verification completes the exact active production wave");
+Equal(1, productionReconciliationRequests,
+    "VERIFIED requests Unity reconciliation exactly once");
+Equal(false, productionCoordinator.TryPeek(sequentialIdentity, out _),
+    "VERIFIED removes only the completed production wave");
+Equal(true, productionCoordinator.CanSubmitNativeCassetteGrant(semanticEligible: true),
+    "VERIFIED releases semantic grant admission for a later batch");
+Equal(true, productionCoordinator.TryEnqueue(sequentialIdentity, new[] { "HEAVY_METAL" }),
+    "a later verified cassette forms a second batch in the unchanged epoch");
+productionCoordinator.TryPeek(sequentialIdentity, out CassettePersistenceQueuedWave secondProductionWave);
+Equal(CassetteProductionPersistenceStartOutcome.Invoked,
+    productionCoordinator.TryInvoke(
+        sequentialIdentity,
+        secondProductionWave.WaveId,
+        eligible: true,
+        secondSequentialBaseline,
+        preDetail: "second-ready",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            productionAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "a second verified batch may invoke once in the same exact epoch");
+Equal(2, productionAdapterAdmissions,
+    "two sequential verified batches produce exactly two adapter admissions");
+
+foreach (string terminalCase in new[] { "indeterminate", "failed", "timeout" })
+{
+    int terminalAdapterAdmissions = 0;
+    var terminalCoordinator = new CassetteProductionPersistenceCoordinator(() => { });
+    terminalCoordinator.BeginEpoch(sequentialIdentity);
+    terminalCoordinator.TryEnqueue(sequentialIdentity, new[] { "BADASS" });
+    terminalCoordinator.TryPeek(sequentialIdentity, out CassettePersistenceQueuedWave terminalWave);
+    CassetteProductionPersistenceStartOutcome startOutcome = terminalCoordinator.TryInvoke(
+        sequentialIdentity,
+        terminalWave.WaveId,
+        eligible: true,
+        firstSequentialBaseline,
+        preDetail: terminalCase,
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            terminalAdapterAdmissions++;
+            return terminalCase == "indeterminate"
+                ? new(false, "urgency-invocation", "UrgencyIndeterminate")
+                : new(true, "success", "Invoked");
+        });
+    if (terminalCase == "indeterminate")
+    {
+        Equal(CassetteProductionPersistenceStartOutcome.Indeterminate, startOutcome,
+            "possibly mutating adapter ambiguity terminally tombstones production");
+    }
+    else
+    {
+        Equal(CassetteProductionPersistenceStartOutcome.Invoked, startOutcome,
+            $"{terminalCase} fixture reaches public polling");
+        if (terminalCase == "failed")
+        {
+            Equal(CassettePersistenceAcceptanceOutcome.Failed,
+                terminalCoordinator.Observe(
+                    terminalCoordinator.Attempt,
+                    sequentialIdentity,
+                    firstSequentialVerifiedState,
+                    statusesRetained: false,
+                    stateReadable: true,
+                    TimeSpan.Zero,
+                    phase: "UPDATE",
+                    targetStage: "success",
+                    writeStage: "success",
+                    stateDetail: "status-regression"),
+                "polling failure tombstones production");
+        }
+        else
+        {
+            for (int second = 0; second < 129; second++)
+                Equal(CassettePersistenceAcceptanceOutcome.Pending,
+                    terminalCoordinator.Observe(
+                        terminalCoordinator.Attempt,
+                        sequentialIdentity,
+                        unchangedSequentialState,
+                        statusesRetained: true,
+                        stateReadable: true,
+                        TimeSpan.FromSeconds(1),
+                        phase: "UPDATE",
+                        targetStage: "success",
+                        writeStage: "success",
+                        stateDetail: "pending"),
+                    $"production timeout fixture remains pending through second {second + 1}");
+            Equal(CassettePersistenceAcceptanceOutcome.Timeout,
+                terminalCoordinator.Observe(
+                    terminalCoordinator.Attempt,
+                    sequentialIdentity,
+                    unchangedSequentialState,
+                    statusesRetained: true,
+                    stateReadable: true,
+                    TimeSpan.FromSeconds(1),
+                    phase: "UPDATE",
+                    targetStage: "success",
+                    writeStage: "success",
+                    stateDetail: "timeout"),
+                "130-second public polling timeout tombstones production");
+        }
+    }
+    Equal(false, terminalCoordinator.TryEnqueue(sequentialIdentity, new[] { "ON_THE_WAY" }),
+        $"{terminalCase} tombstone rejects every later same-epoch wave");
+    Equal(false, terminalCoordinator.TryInvoke(
+            sequentialIdentity,
+            terminalWave.WaveId,
+            eligible: true,
+            firstSequentialBaseline,
+            preDetail: "later",
+            onPrepared: () => { },
+            invokeAdapter: () =>
+            {
+                terminalAdapterAdmissions++;
+                return new(true, "success", "Invoked");
+            }) == CassetteProductionPersistenceStartOutcome.Invoked,
+        $"{terminalCase} tombstone rejects later adapter admission");
+    Equal(1, terminalAdapterAdmissions,
+        $"{terminalCase} allows no adapter call after the terminal tombstone");
+}
+
+var boundaryCoordinator = new CassetteProductionPersistenceCoordinator(() => { });
+var boundaryIdentity = new CassettePersistenceAcceptanceIdentity(70, 20, 4, 0xA400);
+boundaryCoordinator.BeginEpoch(boundaryIdentity);
+boundaryCoordinator.TryEnqueue(boundaryIdentity, new[] { "BADASS" });
+boundaryCoordinator.TryPeek(boundaryIdentity, out CassettePersistenceQueuedWave boundaryWave);
+boundaryCoordinator.TryInvoke(
+    boundaryIdentity,
+    boundaryWave.WaveId,
+    eligible: true,
+    firstSequentialBaseline,
+    preDetail: "old-ready",
+    onPrepared: () => { },
+    invokeAdapter: () => new(true, "success", "Invoked"));
+Equal(CassettePersistenceAcceptanceOutcome.Cancelled,
+    boundaryCoordinator.CancelEpoch(boundaryIdentity, "save-boundary"),
+    "a save boundary cancels the old active production attempt");
+Equal(false, boundaryCoordinator.TryPeek(boundaryIdentity, out _),
+    "boundary cancellation clears the old identity-bound queue");
+var freshBoundaryIdentity = boundaryIdentity with { Generation = 71, Epoch = 21, Pointer = 0xA500 };
+boundaryCoordinator.BeginEpoch(freshBoundaryIdentity);
+boundaryCoordinator.TryEnqueue(freshBoundaryIdentity, new[] { "ON_THE_WAY" });
+boundaryCoordinator.TryPeek(freshBoundaryIdentity, out CassettePersistenceQueuedWave freshBoundaryWave);
+boundaryCoordinator.TryInvoke(
+    freshBoundaryIdentity,
+    freshBoundaryWave.WaveId,
+    eligible: true,
+    firstSequentialBaseline with { Songs = new[] { "ON_THE_WAY" } },
+    preDetail: "fresh-ready",
+    onPrepared: () => { },
+    invokeAdapter: () => new(true, "success", "Invoked"));
+var boundaryMarkers = new List<CassettePersistenceAcceptanceMarkerRecord>();
+while (boundaryCoordinator.TryDequeueMarker(out CassettePersistenceAcceptanceMarkerRecord boundaryMarker))
+    boundaryMarkers.Add(boundaryMarker);
+SequenceEqual(new[] { "PRE", "INVOKED", "CANCELLED", "PRE", "INVOKED" },
+    boundaryMarkers.Select(marker => marker.Marker),
+    "old attempt terminal markers remain globally ordered before the fresh epoch PRE");
+SequenceEqual(new[] { "1", "1", "1", "2", "2" },
+    boundaryMarkers.Select(marker => marker.Attempt.Id.ToString()),
+    "boundary marker ordering never relabels the old attempt as the fresh epoch");
+Console.WriteLine("PASS: production_persistence_coordinator_executes_queue_gate_terminal_and_boundary_behavior");
 
 var acceptanceRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
 var acceptanceIdentity = new CassettePersistenceAcceptanceIdentity(41, 7, 4, 0x700);

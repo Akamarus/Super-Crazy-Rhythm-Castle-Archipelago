@@ -1819,6 +1819,274 @@ internal sealed class CassettePersistenceAcceptanceMarkerEmitter
     }
 }
 
+internal enum CassetteProductionPersistenceStartOutcome
+{
+    Deferred,
+    Invoked,
+    Indeterminate,
+    Stale,
+}
+
+internal readonly record struct CassetteProductionPersistenceAdapterResult(
+    bool Invoked,
+    string Stage,
+    string Detail);
+
+internal sealed class CassetteProductionPersistenceCoordinator
+{
+    private readonly object _sync = new();
+    private readonly Action _requestReconciliation;
+    private readonly CassettePointerBoundPersistenceRuntime _runtime =
+        new(CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+    private readonly CassettePersistenceWaveQueue _waves = new();
+    private readonly CassettePersistenceAcceptanceMarkerJournal _markers = new();
+    private CassettePersistenceQueuedWave _activeWave;
+    private bool _hasActiveWave;
+    private long _deferredLoggedWaveId;
+
+    internal CassetteProductionPersistenceCoordinator(Action requestReconciliation) =>
+        _requestReconciliation = requestReconciliation ?? throw new ArgumentNullException(nameof(requestReconciliation));
+
+    internal bool Active
+    {
+        get { lock (_sync) return _runtime.Active; }
+    }
+
+    internal bool Invoked
+    {
+        get { lock (_sync) return _runtime.Invoked; }
+    }
+
+    internal CassettePersistenceAcceptanceAttempt Attempt
+    {
+        get { lock (_sync) return _runtime.Attempt; }
+    }
+
+    internal CassettePersistenceAcceptanceBaseline Baseline
+    {
+        get { lock (_sync) return _runtime.Baseline; }
+    }
+
+    internal string LastFailure
+    {
+        get { lock (_sync) return _runtime.LastFailure; }
+    }
+
+    internal void BeginEpoch(CassettePersistenceAcceptanceIdentity identity)
+    {
+        lock (_sync)
+        {
+            _runtime.BeginEpoch(identity);
+            _waves.BeginEpoch(identity);
+            _activeWave = default;
+            _hasActiveWave = false;
+            _deferredLoggedWaveId = 0;
+        }
+    }
+
+    internal bool TryEnqueue(
+        CassettePersistenceAcceptanceIdentity identity,
+        IEnumerable<string> songs)
+    {
+        lock (_sync) return _waves.TryEnqueue(identity, songs);
+    }
+
+    internal bool TryPeek(
+        CassettePersistenceAcceptanceIdentity identity,
+        out CassettePersistenceQueuedWave wave)
+    {
+        lock (_sync) return _waves.TryPeek(identity, out wave);
+    }
+
+    internal bool CanSubmitNativeCassetteGrant(bool semanticEligible)
+    {
+        lock (_sync) return !_runtime.Active && semanticEligible;
+    }
+
+    internal bool ShouldLogDeferred(long waveId)
+    {
+        lock (_sync)
+        {
+            if (waveId <= 0 || _deferredLoggedWaveId == waveId) return false;
+            _deferredLoggedWaveId = waveId;
+            return true;
+        }
+    }
+
+    internal CassetteProductionPersistenceStartOutcome TryInvoke(
+        CassettePersistenceAcceptanceIdentity identity,
+        long waveId,
+        bool eligible,
+        CassettePersistenceAcceptanceBaseline baseline,
+        string preDetail,
+        Action onPrepared,
+        Func<CassetteProductionPersistenceAdapterResult> invokeAdapter)
+    {
+        if (!eligible) return CassetteProductionPersistenceStartOutcome.Deferred;
+        if (onPrepared == null) throw new ArgumentNullException(nameof(onPrepared));
+        if (invokeAdapter == null) throw new ArgumentNullException(nameof(invokeAdapter));
+
+        CassettePersistenceAcceptanceAttempt attempt;
+        lock (_sync)
+        {
+            if (!_waves.TryPeek(identity, out CassettePersistenceQueuedWave wave) ||
+                wave.WaveId != waveId || !_runtime.TryPrepare(identity, baseline, out attempt))
+                return CassetteProductionPersistenceStartOutcome.Stale;
+            if (!_markers.TryBeginAttempt(attempt, preDetail))
+            {
+                _runtime.MarkIndeterminate(attempt, "marker-pre-admission");
+                _waves.TombstoneEpoch(identity);
+                _activeWave = default;
+                _hasActiveWave = false;
+                return CassetteProductionPersistenceStartOutcome.Indeterminate;
+            }
+            _activeWave = wave;
+            _hasActiveWave = true;
+        }
+
+        onPrepared();
+
+        CassetteProductionPersistenceAdapterResult result;
+        try
+        {
+            result = invokeAdapter();
+        }
+        catch (Exception ex)
+        {
+            result = new(false, "adapter-callback-throw", $"{ex.GetType().Name}:{ex.Message}");
+        }
+
+        lock (_sync)
+        {
+            if (!_runtime.Active || _runtime.Attempt != attempt)
+                return CassetteProductionPersistenceStartOutcome.Stale;
+            if (!result.Invoked)
+            {
+                _runtime.MarkIndeterminate(attempt, result.Stage);
+                _waves.TombstoneEpoch(identity);
+                _markers.TryAppend(
+                    attempt,
+                    "FAILED",
+                    $"reason='{_runtime.LastFailure}' stage='{result.Stage}' detail='{result.Detail}'",
+                    terminal: true);
+                _markers.RetireAttempt(attempt);
+                _activeWave = default;
+                _hasActiveWave = false;
+                return CassetteProductionPersistenceStartOutcome.Indeterminate;
+            }
+            if (!_runtime.MarkInvoked(attempt))
+                return CassetteProductionPersistenceStartOutcome.Stale;
+            _markers.TryAppend(attempt, "INVOKED", result.Detail, terminal: false);
+            return CassetteProductionPersistenceStartOutcome.Invoked;
+        }
+    }
+
+    internal CassettePersistenceAcceptanceEventOutcome ObserveWriteCompletedEvent(
+        CassettePersistenceAcceptanceAttempt attempt,
+        int slot,
+        bool succeeded,
+        string detail = "")
+    {
+        lock (_sync)
+        {
+            CassettePersistenceAcceptanceEventOutcome outcome =
+                _runtime.ObserveWriteCompletedEvent(attempt, slot, succeeded);
+            if (outcome != CassettePersistenceAcceptanceEventOutcome.Ignored)
+                _markers.TryAppend(
+                    attempt,
+                    "EVENT",
+                    string.IsNullOrWhiteSpace(detail)
+                        ? $"slot={slot} succeeded={succeeded} outcome={outcome}"
+                        : $"{detail} outcome={outcome}",
+                    terminal: false);
+            return outcome;
+        }
+    }
+
+    internal CassettePersistenceAcceptanceOutcome Observe(
+        CassettePersistenceAcceptanceAttempt attempt,
+        CassettePersistenceAcceptanceIdentity currentIdentity,
+        CassettePublicWriteDiagnosticState state,
+        bool statusesRetained,
+        bool stateReadable,
+        TimeSpan elapsed,
+        string phase,
+        string targetStage,
+        string writeStage,
+        string stateDetail)
+    {
+        bool reconcile = false;
+        CassettePersistenceAcceptanceOutcome outcome;
+        lock (_sync)
+        {
+            outcome = _runtime.Observe(
+                attempt, currentIdentity, state, statusesRetained, stateReadable,
+                elapsed, out bool eventWasObserved);
+            if (outcome != CassettePersistenceAcceptanceOutcome.None &&
+                string.Equals(phase, "IMMEDIATE POST", StringComparison.Ordinal))
+                _markers.TryAppend(
+                    attempt,
+                    "IMMEDIATE POST",
+                    $"targetStage='{targetStage}' writeStage='{writeStage}' eventObserved={eventWasObserved} {stateDetail}",
+                    terminal: false);
+            if (outcome == CassettePersistenceAcceptanceOutcome.Verified)
+            {
+                if (_hasActiveWave && _activeWave.Identity == attempt.Identity)
+                    _waves.Complete(_activeWave);
+                _markers.TryAppend(attempt, "VERIFIED", stateDetail, terminal: true);
+                _markers.RetireAttempt(attempt);
+                _activeWave = default;
+                _hasActiveWave = false;
+                _deferredLoggedWaveId = 0;
+                reconcile = true;
+            }
+            else if (outcome is CassettePersistenceAcceptanceOutcome.Failed or
+                     CassettePersistenceAcceptanceOutcome.Timeout)
+            {
+                _waves.TombstoneEpoch(attempt.Identity);
+                string marker = outcome == CassettePersistenceAcceptanceOutcome.Timeout
+                    ? "TIMEOUT"
+                    : "FAILED";
+                _markers.TryAppend(
+                    attempt,
+                    marker,
+                    $"reason='{_runtime.LastFailure}' targetStage='{targetStage}' writeStage='{writeStage}'",
+                    terminal: true);
+                _markers.RetireAttempt(attempt);
+                _activeWave = default;
+                _hasActiveWave = false;
+            }
+        }
+        if (reconcile) _requestReconciliation();
+        return outcome;
+    }
+
+    internal CassettePersistenceAcceptanceOutcome CancelEpoch(
+        CassettePersistenceAcceptanceIdentity identity,
+        string reason)
+    {
+        lock (_sync)
+        {
+            CassettePersistenceAcceptanceAttempt attempt = _runtime.Attempt;
+            CassettePersistenceAcceptanceOutcome outcome = _runtime.Cancel(reason);
+            if (outcome == CassettePersistenceAcceptanceOutcome.Cancelled)
+                _markers.TryAppend(
+                    attempt, "CANCELLED", $"reason='{reason}'", terminal: true);
+            _waves.CancelEpoch(identity);
+            _markers.RetireAttempt(attempt);
+            _activeWave = default;
+            _hasActiveWave = false;
+            _deferredLoggedWaveId = 0;
+            return outcome;
+        }
+    }
+
+    internal bool TryDequeueMarker(out CassettePersistenceAcceptanceMarkerRecord marker)
+    {
+        lock (_sync) return _markers.TryDequeue(out marker);
+    }
+}
+
 internal static class CassetteAuthoritativeStateReader
 {
     internal static bool TryRead(
