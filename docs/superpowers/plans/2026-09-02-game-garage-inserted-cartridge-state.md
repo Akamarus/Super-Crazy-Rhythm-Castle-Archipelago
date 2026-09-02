@@ -43,7 +43,7 @@
 - `GarageInsertionObservation`: immutable input containing compatibility, AP ownership, physical-vanilla status, server value, Garage-room state, released-this-visit state, previous authoritative bag observation, and current authoritative bag observation.
 - `GarageCartridgeInsertionPolicy.DecideGrant(...)` and `GarageCartridgeInsertionPolicy.ShouldRecordInsertion(...)` remain pure and have no Archipelago, reflection, or Unity references.
 
-- [ ] **Step 1: Add a focused test project that links only pure production files**
+- [x] **Step 1: Add a focused test project that links only pure production files**
 
 Create `client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj`:
 
@@ -62,7 +62,7 @@ Create `client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests
 </Project>
 ```
 
-- [ ] **Step 2: Write strict RED tests for catalog identity and grant gating**
+- [x] **Step 2: Write strict RED tests for catalog identity and grant gating**
 
 In `client/tests/GarageCartridgePersistence/Program.cs`, add local `Equal`, `True`, and `False` assertions and prove:
 
@@ -106,7 +106,7 @@ Equal(GarageNativeGrantDecision.AlreadyInserted,
 
 Also test incompatible routing, no AP ownership, unreadable native bag, already-held bag, and a physical-vanilla cartridge. Explicitly assert that Vampire Killer is absent from `RandomizedCartridges` and has no server key.
 
-- [ ] **Step 3: Write strict RED tests for insertion evidence**
+- [x] **Step 3: Write strict RED tests for insertion evidence**
 
 Build observations proving all of these are false independently: missing bag outside Garage, missing bag without a previous authoritative held observation, missing bag before its Garage object was released, AP unowned, server unknown, server already inserted, incompatible routing, and physical-vanilla entrance.
 
@@ -129,7 +129,7 @@ True(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted),
     "released AP cartridge held-to-absent transition records insertion");
 ```
 
-- [ ] **Step 4: Run the new suite and capture RED**
+- [x] **Step 4: Run the new suite and capture RED**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -137,17 +137,17 @@ dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePers
 
 Expected: compilation fails because the new state types, policy, and server keys do not exist.
 
-- [ ] **Step 5: Implement the minimal pure model and exact key mapping**
+- [x] **Step 5: Implement the minimal pure model and exact key mapping**
 
 Create the enums, record, and two pure methods in `GarageCartridgeInsertionState.cs`. `DecideGrant` must check, in order: compatibility/AP/physical-vanilla eligibility, server readiness/value, native readability, inserted terminal state, held idempotence, then grant. `ShouldRecordInsertion` must require every approved observation and exactly `previous held && current absent`.
 
 Add the five exact keys to the existing definitions. Do not add a key to Vampire Killer. Remove `nativeCartridgeRegistered` and `AlreadyRegistered` from the old grant policy rather than maintaining two competing terminal-state models.
 
-- [ ] **Step 6: Update the existing mapping regression test**
+- [x] **Step 6: Update the existing mapping regression test**
 
 Keep the verified `eRoom27GameCartridgeType` names in `GarageAvailability/Program.cs` as diagnostic metadata, append each server key to its expected mapping, and delete assertions that treat `HasGarageCartridgeBeenCollected` as terminal insertion state.
 
-- [ ] **Step 7: Run both focused suites GREEN**
+- [x] **Step 7: Run both focused suites GREEN**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -156,7 +156,7 @@ dotnet run --project client/tests/GarageAvailability/GarageAvailability.Tests.cs
 
 Expected: both pass.
 
-- [ ] **Step 8: Commit the pure state machine**
+- [x] **Step 8: Commit the pure state machine**
 
 ```powershell
 git add client/GarageCartridgeInsertionState.cs client/GarageCartridgeNativePolicy.cs client/tests/GarageCartridgePersistence client/tests/GarageAvailability/Program.cs
@@ -178,7 +178,7 @@ git commit -m "test(client): define garage insertion state"
 - `GarageCartridgeInsertionCoordinator` owns one immutable key set, current connection generation, per-song server values, pending writes, and initial-sync readiness.
 - Public coordinator operations are `BeginConnection(long generation, IGarageInsertionDataStore store)`, `EndConnection(long generation)`, `NoteInserted(string song)`, `RetryPendingWrites()`, `GetServerValue(string song)`, and `InitialSyncReady`.
 
-- [ ] **Step 1: Add RED coordinator tests with a deterministic fake store**
+- [x] **Step 1: Add RED coordinator tests with a deterministic fake store**
 
 Link `GarageCartridgeInsertionStorage.cs` into the test project. Implement a fake only in `Program.cs` that records reads/writes and completes them under test control. Prove:
 
@@ -193,7 +193,7 @@ Link `GarageCartridgeInsertionStorage.cs` into the test project. Implement a fak
 9. A successful confirmed write clears pending state and logs/raises one durable transition.
 10. Server `true` after simulated restart prevents the state returning to not-inserted.
 
-- [ ] **Step 2: Run the focused suite and capture RED**
+- [x] **Step 2: Run the focused suite and capture RED**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -201,7 +201,7 @@ dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePers
 
 Expected: compilation fails because storage results, interface, and coordinator are missing.
 
-- [ ] **Step 3: Implement the minimal coordinator without Archipelago library references**
+- [x] **Step 3: Implement the minimal coordinator without Archipelago library references**
 
 Keep the coordinator pure managed C#. Use a monotonically increasing `long generation` supplied by the caller. Every continuation checks the captured generation under a private lock before mutating state. Use a per-song state record:
 
@@ -216,7 +216,7 @@ internal sealed record GarageInsertionEntryState(
 
 `NoteInserted` must synchronously set `ServerValue = Inserted` and `WritePending = true`, then start/queue the write. A write failure clears only `WriteInFlight`; it must not clear `Inserted` or `WritePending`. `EndConnection` cancels that generation and leaves monotonic pending writes available for the next compatible connection.
 
-- [ ] **Step 4: Implement the production Archipelago adapter in the same file**
+- [x] **Step 4: Implement the production Archipelago adapter in the same file**
 
 Add `ArchipelagoGarageInsertionDataStore`, wrapping the authenticated `ArchipelagoSession`. Read each key only through `session.DataStorage[Scope.Slot, key]`:
 
@@ -242,7 +242,7 @@ JToken confirmed = await _session.DataStorage[Scope.Slot, key].GetAsync().Config
 
 Return success only when both the callback and reread are boolean `true`. Catch socket, cancellation, conversion, and malformed-value failures into typed results; do not throw them onto the Unity thread. Do not log passwords, connection URIs containing credentials, or raw slot data.
 
-- [ ] **Step 5: Run the focused suite GREEN and compile the real client**
+- [x] **Step 5: Run the focused suite GREEN and compile the real client**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -251,7 +251,7 @@ dotnet build client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary
 
 Expected: coordinator tests pass and the Archipelago 6.7.1 adapter compiles against the installed package API.
 
-- [ ] **Step 6: Commit the storage layer**
+- [x] **Step 6: Commit the storage layer**
 
 ```powershell
 git add client/GarageCartridgeInsertionStorage.cs client/tests/GarageCartridgePersistence
@@ -273,7 +273,7 @@ git commit -m "feat(client): persist garage insertion state by AP slot"
 - `GarageCartridgeAccess` stores AP ownership immediately but delegates inserted values/readiness/pending writes to one `GarageCartridgeInsertionCoordinator`.
 - Native reconciliation remains Unity-dispatched through the existing keeper; network continuations call `RequestUnityReconciliation` rather than native APIs.
 
-- [ ] **Step 1: Add RED production-wiring assertions**
+- [x] **Step 1: Add RED production-wiring assertions**
 
 Extend the focused test to inspect `client/Plugin.cs` as text and require:
 
@@ -285,7 +285,7 @@ Extend the focused test to inspect `client/Plugin.cs` as text and require:
 
 Update `PlantPipesReconciler/Program.cs` to preserve its existing assertion that `PlantPipesRandomization.EnsureProcessorAvailable()` shares a discovered `PlayerSaveRequestProcessor` with `GarageCartridgeAccess`.
 
-- [ ] **Step 2: Run focused suites and capture RED**
+- [x] **Step 2: Run focused suites and capture RED**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -294,7 +294,7 @@ dotnet run --project client/tests/PlantPipesReconciler/PlantPipesReconciler.Test
 
 Expected: Garage lifecycle assertions fail before production wiring exists; Plant Pipes remains green.
 
-- [ ] **Step 3: Wire a unique generation around each session**
+- [x] **Step 3: Wire a unique generation around each session**
 
 At session creation, capture `long generation = Interlocked.Increment(ref _connectionGeneration)`. Every socket handler must first prove both `IsCurrentSession(session)` and that its generation is current. After a successful login:
 
@@ -307,7 +307,7 @@ Item history may have already populated `OwnedSongs`; this is allowed. Native gr
 
 On close/replacement/shutdown/failure, call `EndServerSync` for that generation. Ensure callbacks from the old session cannot update the coordinator after a reconnect.
 
-- [ ] **Step 4: Replace the failed native registration experiment**
+- [x] **Step 4: Replace the failed native registration experiment**
 
 In `GarageCartridgeAccess.TryFlushPendingNativeGrants`:
 
@@ -320,7 +320,7 @@ In `GarageCartridgeAccess.TryFlushPendingNativeGrants`:
 
 Keep the processor-sharing call added to `PlantPipesRandomization.EnsureProcessorAvailable`; it is the proven fix that lets Garage receive the stateless processor discovered by another subsystem.
 
-- [ ] **Step 5: Run focused and connection-regression suites GREEN**
+- [x] **Step 5: Run focused and connection-regression suites GREEN**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -332,7 +332,7 @@ dotnet build client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit connection lifecycle integration**
+- [x] **Step 6: Commit connection lifecycle integration**
 
 ```powershell
 git add client/Plugin.cs client/tests/GarageCartridgePersistence/Program.cs client/tests/PlantPipesReconciler/Program.cs
@@ -354,7 +354,7 @@ git commit -m "fix(client): gate garage grants on slot state"
 - `GarageCartridgeAccess.NoteGarageObjectReleased(string song)` records only the current `GameRoom_27` visit.
 - `GarageCartridgeInsertionCoordinator.NoteInserted(song)` provides immediate in-memory terminal state and queues the monotonic server write.
 
-- [ ] **Step 1: Add RED sequence tests**
+- [x] **Step 1: Add RED sequence tests**
 
 Use a small managed `GarageCartridgeInsertionTracker` (or the coordinator if it remains pure enough) to test full sequences rather than only individual policy calls:
 
@@ -369,7 +369,7 @@ Use a small managed `GarageCartridgeInsertionTracker` (or the coordinator if it 
 
 Add a source-safety assertion over production source text that no Garage AP insertion/grant method submits any flag ending `_COLLECTED`.
 
-- [ ] **Step 2: Run the focused suite and capture RED**
+- [x] **Step 2: Run the focused suite and capture RED**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -377,7 +377,7 @@ dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePers
 
 Expected: sequence tests fail because the tracker/runtime integration does not exist.
 
-- [ ] **Step 3: Feed authoritative native observations from the Unity keeper**
+- [x] **Step 3: Feed authoritative native observations from the Unity keeper**
 
 During the keeper's one-second native reconciliation poll, read each randomized cartridge's exact `NativeBagFlag`. Preserve readability separately from its boolean value. During the 0.15-second Garage object poll, call `NoteGarageObjectReleased` only after the real object has been activated/released for that visit.
 
@@ -394,7 +394,7 @@ GarageCartridgeAccess.ObserveNativeBag(
 
 Do not infer absence when reflection fails. Clear only visit-local release and bag-history evidence on room/save transitions.
 
-- [ ] **Step 4: Implement the insertion transition**
+- [x] **Step 4: Implement the insertion transition**
 
 When the policy returns true:
 
@@ -406,11 +406,11 @@ When the policy returns true:
 
 Never reactivate a consumed Garage object, regrant its native bag flag, or call native save APIs from the write continuation. `HasCartridge(song)` continues to mean AP ownership for Garage availability, so the inserted song remains playable.
 
-- [ ] **Step 5: Preserve source checks and vanilla entrance behavior**
+- [x] **Step 5: Preserve source checks and vanilla entrance behavior**
 
 Keep `ShouldSuppressVanillaSourceGrant` scoped to randomized bag-item writes outside `GameRoom_27`. Keep `RecordVanillaSourceCollected` as the sole handler for native `*_COLLECTED` source events and its existing AP location mapping. Confirm Vampire Killer's source grant is not suppressed under v0.21/v0.22-compatible slot data.
 
-- [ ] **Step 6: Run all cartridge-focused tests and client build GREEN**
+- [x] **Step 6: Run all cartridge-focused tests and client build GREEN**
 
 ```powershell
 dotnet run --project client/tests/GarageCartridgePersistence/GarageCartridgePersistence.Tests.csproj -c Release
@@ -421,7 +421,7 @@ dotnet build client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary
 
 Expected: all pass with no native `*_COLLECTED` write path.
 
-- [ ] **Step 7: Commit the insertion detector**
+- [x] **Step 7: Commit the insertion detector**
 
 ```powershell
 git add client/Plugin.cs client/tests/GarageCartridgePersistence/Program.cs client/tests/GarageAvailability/Program.cs
@@ -438,7 +438,7 @@ git commit -m "fix(client): record garage cartridge insertion"
 - Modify: `docs/TESTING.md`
 - Modify: `docs/superpowers/plans/2026-09-02-game-garage-inserted-cartridge-state.md`
 
-- [ ] **Step 1: Document candidate behavior without claiming live completion**
+- [x] **Step 1: Document candidate behavior without claiming live completion**
 
 Add a concise Game Garage persistence section covering:
 
@@ -463,7 +463,7 @@ GAME GARAGE ALREADY INSERTED NO REGRANT
 
 Do not claim fixed/released or change public installation instructions yet.
 
-- [ ] **Step 2: Run every client console suite**
+- [x] **Step 2: Run every client console suite**
 
 ```powershell
 $projects = Get-ChildItem -LiteralPath client/tests -Recurse -Filter *.csproj | Sort-Object FullName
@@ -475,7 +475,7 @@ foreach ($project in $projects) {
 
 Expected: all 18 projects pass (the current 17 plus `GarageCartridgePersistence`). Record the actual count in this plan's completion record rather than trusting the expected count if repository contents changed.
 
-- [ ] **Step 3: Run the APWorld suite and repository validator**
+- [x] **Step 3: Run the APWorld suite and repository validator**
 
 ```powershell
 py -m unittest discover apworld/tests -v
@@ -484,7 +484,7 @@ py tools/validate-repo.py
 
 Expected: all APWorld tests pass and validation reports no client/APWorld contract or permanent-ID regressions.
 
-- [ ] **Step 4: Run a clean Release build without deployment**
+- [x] **Step 4: Run a clean Release build without deployment**
 
 ```powershell
 dotnet clean client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary\steamapps\common\Titus'
@@ -493,7 +493,7 @@ dotnet build client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary
 
 Expected: build succeeds. Do not copy the result into `BepInEx\plugins\RhythmCastleAP` during this task.
 
-- [ ] **Step 5: Inspect the final diff for scope and unsafe state writes**
+- [x] **Step 5: Inspect the final diff for scope and unsafe state writes**
 
 ```powershell
 git diff --check
@@ -509,14 +509,23 @@ Manually verify:
 - no new Garage grant/insertion path writes a native `_COLLECTED` flag;
 - unrelated files and the main checkout's untracked `WordFactori/` are untouched.
 
-- [ ] **Step 6: Commit documentation and completion evidence**
+- [x] **Step 6: Commit documentation and completion evidence**
 
-Update this plan with the exact commands, pass counts, build result, and commit hashes. Then commit only documentation changes:
+Update this plan with the exact commands, pass counts, build result, and commit hashes. The Task 5 scope ruling also adds the one required test-project isolation entry; then commit only that entry and Task 5 documentation/evidence:
 
 ```powershell
-git add docs/PROJECT_OVERVIEW.md docs/NEXT_RELEASE_BUG_FIXES.md docs/TESTING.md docs/superpowers/plans/2026-09-02-game-garage-inserted-cartridge-state.md
+git add client/tests/DiagnosticHotkeyRouting.Tests.csproj docs/PROJECT_OVERVIEW.md docs/NEXT_RELEASE_BUG_FIXES.md docs/TESTING.md docs/superpowers/plans/2026-09-02-game-garage-inserted-cartridge-state.md
 git commit -m "docs: add garage insertion persistence testing"
 ```
+
+#### Completion record (2026-09-02)
+
+- Completed implementation commits: Task 1 `cd350b5`, `1a007ac`; Task 2 `5c83c1c`; Task 3 `58528a1`, `dab8ed8`, `a16116d`, `53f3b9d`, `0e146d3`; Task 4 `be23e29`, `4c2c64b`, `b7cc26b`, `3e09d8b`.
+- The prescribed client loop discovered 18 projects. Its first run was deliberately recorded RED at `DiagnosticHotkeyRouting.Tests.csproj`: the project did not exclude the new `GarageCartridgePersistence` sibling and therefore compiled duplicate top-level statements plus unavailable Garage-only types. The approved one-line `DefaultItemExcludes` addition for `GarageCartridgePersistence\**` made the focused `dotnet run --project client/tests/DiagnosticHotkeyRouting.Tests.csproj -c Release` GREEN. The full prescribed loop was then restarted from the beginning and passed all **18/18** projects.
+- `py -m unittest discover apworld/tests -v` passed **83 tests** in **13.941s**. `py tools/validate-repo.py` passed, retained Client **v0.68.0** / APWorld **v0.22.0**, and reported no client/APWorld contract or permanent-ID regression.
+- `dotnet clean client/RhythmCastleAP.csproj -c Release -p:GameDir='D:\SteamLibrary\steamapps\common\Titus'` succeeded with **0 warnings, 0 errors**. The following clean `dotnet build` succeeded with **7 nullable warnings, 0 errors**; its output remained in `client/bin/Release/net6.0` and was not copied into `BepInEx\plugins\RhythmCastleAP`.
+- `git diff --check` passed. State-write inspection found exactly the five approved production `scrc:garage_inserted:v1:*` keys, a single `Scope.Slot` assignment whose `DataStorageElement write = true`, no `HasGarageCartridgeBeenCollected` in terminal reconciliation, and no Garage AP grant/insertion path that writes a native `_COLLECTED` flag. The final status contains only this approved test-isolation file and Task 5 documentation/evidence; no main-checkout `WordFactori/` content was touched.
+- The release blocker stays open. This is automated candidate evidence only; live completion still requires the separately approved Superstar sequence in Task 6.
 
 ---
 

@@ -63,13 +63,13 @@ Before accepting a Roots milestone, confirm:
 
 ## Game Garage cartridge persistence checklist
 
-Use a compatible fresh v0.22 seed. Keep Vampire Killer on its physical vanilla route. For each randomized cartridge—Bloody Tears, Gradius Remix, Smooch, Superstar, and Wag the Dog—confirm:
+Use a compatible fresh v0.22 seed. Keep Vampire Killer on its physical vanilla route. The inserted-state repair remains a candidate until the full Superstar live acceptance test passes. For each randomized cartridge—Bloody Tears, Gradius Remix, Smooch, Superstar, and Wag the Dog—confirm:
 
 - the AP receipt appears in the native inventory;
 - the matching cartridge is available for normal insertion in Game Garage;
 - inserting it unlocks the matching song and removes the bag item normally;
 - leaving and re-entering Game Garage preserves the registered song;
-- save reload and AP reconnect preserve either the held or registered state;
+- save reload, AP reconnect, and switching local save slots on the same AP player slot preserve either the held or inserted state;
 - received-item history never restores an already registered cartridge to the bag;
 - no unreceived cartridge or song becomes available.
 
@@ -94,7 +94,13 @@ ROOTS BUCKET RANDOMIZATION ENABLED
 ROOTS BUCKET VANILLA GRANT SUPPRESSED
 ROOTS BUCKET SOURCE AP CHECK
 ROOTS BUCKET NATIVE GRANT APPLIED
+GAME GARAGE INSERTION SYNC pending|ready|failed
 GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED
+GAME GARAGE INSERTION CANDIDATE ARMED
+GAME GARAGE NATIVE CONSUMPTION OBSERVED
+GAME GARAGE SERVER INSERTION WRITE PENDING
+GAME GARAGE SERVER INSERTION CONFIRMED DURABLE
+GAME GARAGE ALREADY INSERTED NO REGRANT
 ```
 
 When testing later score or objective checks without Combo Bucket, report the exact level/song, native difficulty, AP performance tier, score, stars, medal or missed objective, player count, abilities, attempt count, best result, and whether `COMBO_BUCKET_ABILITY` was absent. Include a focused log excerpt and video when practical. A success proves feasibility under those conditions; a failed attempt alone does not prove impossibility and must not create a solver requirement by itself.

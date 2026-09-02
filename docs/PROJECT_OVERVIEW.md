@@ -301,7 +301,7 @@ Known source checks include:
 - `Cartridge Pickup - Vampire Killer` *(permanent ID retained, inactive in fresh v0.21 seeds)*
 - `Cartridge Pickup - Wag the Dog`
 
-AP receipt reconciles each randomized cartridge to its real native bag-item flag. The matching native registered flag is terminal: after the player inserts a cartridge, reconnecting or reloading does not put it back in the bag. Inside Game Garage, only AP-owned cartridges are released through the normal game insertion/use path. The current native-persistence repair has automated coverage and still requires gameplay acceptance across all five randomized cartridges.
+AP receipt reconciles each randomized cartridge to its real native bag-item flag. Each of the five randomized cartridges also has independent AP slot-scoped inserted state. Normal insertion permanently consumes the native bag representation for that AP player slot, so reconnecting, reloading, or switching local save slots does not restore an inserted cartridge. Physical cartridge sources remain AP checks, and Vampire Killer remains entirely on its vanilla physical route. Inside Game Garage, only AP-owned cartridges are released through the normal game insertion/use path. This persistence repair is a candidate, not a live-complete fix, until the full Superstar acceptance test passes.
 
 | AP cartridge | Native bag-item flag | Native registered flag |
 | --- | --- | --- |
