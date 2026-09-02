@@ -1560,13 +1560,24 @@ internal sealed class ArchipelagoClient
         {
             while (true)
             {
-                TimeSpan? delay = _reconnectPolicy.NextDelay();
-                if (delay == null)
+                ReconnectAttempt? attempt = _reconnectPolicy.NextAttempt();
+                if (attempt == null)
                     return;
                 Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] NET reconnect waiting seconds={delay.Value.TotalSeconds:0}.");
-                await Task.Delay(delay.Value, _shutdownToken.Token).ConfigureAwait(false);
-                if (TryConnectOnce())
+                    $"[SCRC-AP] NET reconnect waiting seconds={attempt.Value.Delay.TotalSeconds:0}.");
+                await Task.Delay(attempt.Value.Delay, _shutdownToken.Token).ConfigureAwait(false);
+                if (!ReconnectAttemptAdmission.TryExecute(
+                        _connectLock,
+                        _reconnectPolicy,
+                        attempt.Value,
+                        TryConnectOnce,
+                        out bool connected))
+                {
+                    Plugin.LoggerInstance?.LogInfo(
+                        "[SCRC-AP] NET stale reconnect attempt canceled before session creation.");
+                    return;
+                }
+                if (connected)
                 {
                     Plugin.LoggerInstance?.LogWarning("[SCRC-AP] NET reconnect succeeded.");
                     return;

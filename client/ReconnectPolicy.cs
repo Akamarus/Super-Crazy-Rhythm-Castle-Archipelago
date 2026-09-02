@@ -1,5 +1,7 @@
 namespace RhythmCastleAP;
 
+internal readonly record struct ReconnectAttempt(long IntentGeneration, TimeSpan Delay);
+
 internal sealed class ReconnectPolicy
 {
     private static readonly TimeSpan[] Delays =
@@ -15,6 +17,7 @@ internal sealed class ReconnectPolicy
     private int _attempt;
     private bool _reconnectRequested;
     private bool _shutdown;
+    private long _intentGeneration;
 
     internal bool ReconnectRequested
     {
@@ -33,6 +36,7 @@ internal sealed class ReconnectPolicy
                 return;
             _reconnectRequested = true;
             _attempt = 0;
+            _intentGeneration++;
         }
     }
 
@@ -43,6 +47,7 @@ internal sealed class ReconnectPolicy
             _shutdown = true;
             _reconnectRequested = false;
             _attempt = 0;
+            _intentGeneration++;
         }
     }
 
@@ -54,10 +59,16 @@ internal sealed class ReconnectPolicy
                 return;
             _reconnectRequested = false;
             _attempt = 0;
+            _intentGeneration++;
         }
     }
 
     internal TimeSpan? NextDelay()
+    {
+        return NextAttempt()?.Delay;
+    }
+
+    internal ReconnectAttempt? NextAttempt()
     {
         lock (_sync)
         {
@@ -65,7 +76,42 @@ internal sealed class ReconnectPolicy
                 return null;
             int index = Math.Min(_attempt, Delays.Length - 1);
             _attempt++;
-            return Delays[index];
+            return new ReconnectAttempt(_intentGeneration, Delays[index]);
+        }
+    }
+
+    internal bool IsCurrent(ReconnectAttempt attempt)
+    {
+        lock (_sync)
+        {
+            return !_shutdown &&
+                   _reconnectRequested &&
+                   attempt.IntentGeneration == _intentGeneration;
+        }
+    }
+}
+
+internal static class ReconnectAttemptAdmission
+{
+    internal static bool TryExecute(
+        object connectionLock,
+        ReconnectPolicy policy,
+        ReconnectAttempt attempt,
+        Func<bool> connect,
+        out bool connected)
+    {
+        ArgumentNullException.ThrowIfNull(connectionLock);
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(connect);
+        lock (connectionLock)
+        {
+            if (!policy.IsCurrent(attempt))
+            {
+                connected = false;
+                return false;
+            }
+            connected = connect();
+            return true;
         }
     }
 }
