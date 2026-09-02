@@ -41,7 +41,7 @@ internal static class GarageCartridgeInsertionPolicy
     {
         if (!compatible || !apOwned || usesPhysicalVanillaEntrance)
             return GarageNativeGrantDecision.None;
-        if (serverValue == GarageInsertionServerValue.Unknown)
+        if (serverValue != GarageInsertionServerValue.NotInserted && serverValue != GarageInsertionServerValue.Inserted)
             return GarageNativeGrantDecision.WaitForServer;
         if (!nativeBagReadable)
             return GarageNativeGrantDecision.WaitForNativeRead;
