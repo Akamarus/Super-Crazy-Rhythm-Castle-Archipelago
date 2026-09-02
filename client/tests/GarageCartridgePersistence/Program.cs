@@ -58,6 +58,9 @@ if (garageClassStart < 0)
 string garageSource = pluginSource[garageClassStart..];
 string configureMethod = MethodBody(garageSource, "public static void Configure()", "public static bool TryApplyItem(string itemName)");
 string itemCallback = MethodBody(garageSource, "public static bool TryApplyItem(string itemName)", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
+string observeNativeBagMethod = MethodBody(garageSource, "public static void ObserveNativeBag(", "public static void NoteGarageObjectReleased(");
+string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
+string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
@@ -142,6 +145,17 @@ False(nativeGrantMethod.Contains("HasGarageCartridgeBeenCollected", StringCompar
     "the failed native registration experiment is removed");
 False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal),
     "diagnostic cartridge enum metadata is not terminal insertion state");
+string garageApInsertionAndGrantMethods = string.Join("\n", observeNativeBagMethod, noteGarageObjectReleasedMethod, nativeGrantMethod);
+False(garageApInsertionAndGrantMethods.Contains("_COLLECTED", StringComparison.OrdinalIgnoreCase),
+    "Garage AP insertion and grant methods never submit a native collected-source flag");
+True(captureGarageProcessorMethod.Contains("ResetNativeBagObservations", StringComparison.Ordinal),
+    "PlayerSaveRequestProcessor replacement resets native bag evidence");
+True(pluginSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\"selected save slot mutation\")", StringComparison.Ordinal) &&
+     pluginSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\"player save state rebuilt\")", StringComparison.Ordinal) &&
+     pluginSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\"most recent save selection\")", StringComparison.Ordinal),
+    "save selection and rebuild boundaries reset native bag evidence");
+True(garageSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\n                $\"room transition", StringComparison.Ordinal),
+    "room transition resets visit-local native bag evidence before reconciliation");
 
 {
     var lifecycle = new GenerationLeaseGate();
@@ -298,6 +312,137 @@ foreach (var observation in cases) False(GarageCartridgeInsertionPolicy.ShouldRe
 
 var cartridgeKeys = GarageCartridgeNativePolicy.RandomizedCartridges.ToDictionary(x => x.Song, x => x.ServerInsertionKey);
 
+static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
+    IReadOnlyDictionary<string, string> keys,
+    string song = "Bloody Tears",
+    bool apOwned = true,
+    bool usesPhysicalVanillaEntrance = false)
+{
+    var harness = new GarageInsertionSequenceHarness(keys, song)
+    {
+        ApOwned = apOwned,
+        UsesPhysicalVanillaEntrance = usesPhysicalVanillaEntrance,
+    };
+    foreach (string key in harness.Store.ReadKeys)
+        harness.Store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
+    await Eventually(() => harness.Coordinator.InitialSyncReady, "sequence harness completes authoritative server synchronization");
+    return harness;
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: false, inGarage: false),
+        "AP ownership plus known-false server state and a missing bag outside Garage does not record insertion");
+    Equal(GarageNativeGrantDecision.ApplyBagItem, sequence.GrantDecision(readable: true, held: false),
+        "a missing bag outside Garage requests the native AP grant");
+    Equal(0, sequence.Store.WriteKeys.Count,
+        "a missing bag outside Garage never submits an insertion write");
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "a first missing observation in Garage has no held-to-absent evidence");
+    Equal(0, sequence.Store.WriteKeys.Count,
+        "a first missing Garage observation never submits an insertion write");
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: true, inGarage: false),
+        "holding a cartridge in Music Lab does not record insertion");
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "a bag that disappears in Garage before object release does not record insertion");
+    sequence.NoteGarageObjectReleased();
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "release after an already-observed absence cannot reuse stale held evidence");
+    Equal(0, sequence.Store.WriteKeys.Count,
+        "pre-release disappearance never submits an insertion write");
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: true, inGarage: true),
+        "held Garage bag observation arms history without recording insertion");
+    sequence.NoteGarageObjectReleased();
+    True(sequence.Observe(readable: true, held: false, inGarage: true),
+        "released Garage cartridge held-to-absent transition records insertion");
+    Equal(1, sequence.Store.WriteKeys.Count,
+        "real Garage insertion submits exactly one server write");
+    Equal(GarageNativeGrantDecision.AlreadyInserted, sequence.GrantDecision(readable: true, held: false),
+        "in-process insertion suppresses native resurrection before write completion");
+
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "repeated absent polls do not record insertion again");
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "object deactivation after release does not record insertion again");
+    False(sequence.Observe(readable: true, held: false, inGarage: false),
+        "room exit does not record insertion again");
+    Equal(1, sequence.Store.WriteKeys.Count,
+        "repeated absence, object deactivation, and room exit do not duplicate writes");
+
+    sequence.Store.CompleteNextWrite(cartridgeKeys[sequence.Song], GarageInsertionWriteResult.Succeeded);
+    await Eventually(() => sequence.DurableConfirmations == 1,
+        "server confirmation raises the durable transition once");
+    sequence.Store.DuplicateLastWriteCompletion(GarageInsertionWriteResult.Succeeded);
+    sequence.Coordinator.NoteInserted(sequence.Song);
+    await Task.Delay(20);
+    Equal(1, sequence.DurableConfirmations,
+        "duplicate server callbacks do not duplicate the durable transition");
+    Equal(1, sequence.Store.WriteKeys.Count,
+        "duplicate server callbacks do not submit another write");
+
+    sequence.ResetNativeBagObservations();
+    True(sequence.ApOwned,
+        "save observation reset retains AP ownership after insertion");
+    Equal(GarageInsertionServerValue.Inserted, sequence.Coordinator.GetServerValue(sequence.Song),
+        "save observation reset retains terminal server insertion state");
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: true, inGarage: true),
+        "pre-reset held observation records history only");
+    sequence.NoteGarageObjectReleased();
+    sequence.ResetNativeBagObservations();
+    True(sequence.ApOwned,
+        "save observation reset retains AP ownership before insertion");
+    Equal(GarageInsertionServerValue.NotInserted, sequence.Coordinator.GetServerValue(sequence.Song),
+        "save observation reset retains known-false server insertion state");
+    False(sequence.Observe(readable: true, held: false, inGarage: true),
+        "save observation reset removes held and released evidence");
+    Equal(0, sequence.Store.WriteKeys.Count,
+        "absence after save observation reset cannot submit an insertion write");
+}
+
+{
+    var tracker = new GarageCartridgeInsertionTracker();
+    False(tracker.Observe(
+            "Vampire Killer",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: true,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: true,
+            inGarage: true,
+            releasedThisVisit: false),
+        "physical Vampire Killer held observation never arms an insertion");
+    False(tracker.HasAuthoritativeHeldObservation("Vampire Killer"),
+        "physical Vampire Killer never retains armed held evidence");
+    False(tracker.Observe(
+            "Vampire Killer",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: true,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: false,
+            inGarage: true,
+            releasedThisVisit: true),
+        "physical Vampire Killer held-to-absent transition never records insertion");
+}
+
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
@@ -409,6 +554,7 @@ sealed class FakeGarageInsertionDataStore : IGarageInsertionDataStore
 
     public List<string> ReadKeys { get; } = new();
     public List<string> WriteKeys { get; } = new();
+    private TaskCompletionSource<GarageInsertionWriteResult>? _lastWriteCompletion;
 
     public Task<GarageInsertionReadResult> ReadAsync(string key, CancellationToken cancellationToken)
     {
@@ -419,11 +565,13 @@ sealed class FakeGarageInsertionDataStore : IGarageInsertionDataStore
     public Task<GarageInsertionWriteResult> WriteTrueAsync(string key, CancellationToken cancellationToken)
     {
         WriteKeys.Add(key);
-        return Enqueue(_writes, key).Task;
+        _lastWriteCompletion = Enqueue(_writes, key);
+        return _lastWriteCompletion.Task;
     }
 
     public void CompleteNextRead(string key, GarageInsertionReadResult result) => Dequeue(_reads, key).SetResult(result);
     public void CompleteNextWrite(string key, GarageInsertionWriteResult result) => Dequeue(_writes, key).SetResult(result);
+    public void DuplicateLastWriteCompletion(GarageInsertionWriteResult result) => _lastWriteCompletion?.TrySetResult(result);
 
     private static TaskCompletionSource<T> Enqueue<T>(Dictionary<string, Queue<TaskCompletionSource<T>>> pending, string key)
     {
@@ -439,5 +587,61 @@ sealed class FakeGarageInsertionDataStore : IGarageInsertionDataStore
         if (!pending.TryGetValue(key, out var queue) || queue.Count == 0)
             throw new InvalidOperationException($"No pending operation for {key}.");
         return queue.Dequeue();
+    }
+}
+
+sealed class GarageInsertionSequenceHarness
+{
+    private readonly GarageCartridgeInsertionTracker _tracker = new();
+
+    public GarageInsertionSequenceHarness(IReadOnlyDictionary<string, string> keys, string song)
+    {
+        Song = song;
+        Store = new FakeGarageInsertionDataStore();
+        Coordinator = new GarageCartridgeInsertionCoordinator(keys);
+        Coordinator.DurableInsertionConfirmed += _ => DurableConfirmations++;
+        Coordinator.BeginConnection(1, Store);
+    }
+
+    public string Song { get; }
+    public FakeGarageInsertionDataStore Store { get; }
+    public GarageCartridgeInsertionCoordinator Coordinator { get; }
+    public bool ApOwned { get; set; }
+    public bool UsesPhysicalVanillaEntrance { get; set; }
+    public bool ReleasedThisVisit { get; private set; }
+    public int DurableConfirmations { get; private set; }
+
+    public void NoteGarageObjectReleased() => ReleasedThisVisit = true;
+
+    public bool Observe(bool readable, bool held, bool inGarage)
+    {
+        bool recorded = _tracker.Observe(
+            Song,
+            compatible: true,
+            ApOwned,
+            UsesPhysicalVanillaEntrance,
+            Coordinator.GetServerValue(Song),
+            readable,
+            held,
+            inGarage,
+            ReleasedThisVisit);
+        if (recorded)
+            Coordinator.NoteInserted(Song);
+        return recorded;
+    }
+
+    public GarageNativeGrantDecision GrantDecision(bool readable, bool held) =>
+        GarageCartridgeInsertionPolicy.DecideGrant(
+            compatible: true,
+            ApOwned,
+            UsesPhysicalVanillaEntrance,
+            Coordinator.GetServerValue(Song),
+            readable,
+            held);
+
+    public void ResetNativeBagObservations()
+    {
+        _tracker.Reset();
+        ReleasedThisVisit = false;
     }
 }

@@ -64,3 +64,51 @@ internal static class GarageCartridgeInsertionPolicy
         observation.CurrentBagReadable &&
         !observation.CurrentBagHeld;
 }
+
+internal sealed class GarageCartridgeInsertionTracker
+{
+    private readonly Dictionary<string, GarageNativeBagObservation> _previous =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    internal bool Observe(
+        string song,
+        bool compatible,
+        bool apOwned,
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue,
+        bool readable,
+        bool held,
+        bool inGarage,
+        bool releasedThisVisit)
+    {
+        if (!compatible || !apOwned || usesPhysicalVanillaEntrance)
+        {
+            _previous.Remove(song);
+            return false;
+        }
+
+        _previous.TryGetValue(song, out GarageNativeBagObservation previous);
+        var observation = new GarageInsertionObservation(
+            compatible,
+            apOwned,
+            usesPhysicalVanillaEntrance,
+            serverValue,
+            inGarage,
+            releasedThisVisit,
+            previous.Readable,
+            previous.Held,
+            readable,
+            held);
+        _previous[song] = new GarageNativeBagObservation(readable, held);
+        return GarageCartridgeInsertionPolicy.ShouldRecordInsertion(observation);
+    }
+
+    internal bool HasAuthoritativeHeldObservation(string song) =>
+        _previous.TryGetValue(song, out GarageNativeBagObservation observation) &&
+        observation.Readable &&
+        observation.Held;
+
+    internal void Reset() => _previous.Clear();
+
+    private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
+}

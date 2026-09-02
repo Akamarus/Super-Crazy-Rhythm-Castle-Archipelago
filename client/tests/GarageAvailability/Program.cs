@@ -29,6 +29,11 @@ foreach (GarageObjectRole role in Enum.GetValues<GarageObjectRole>())
 Equal(true,
     GarageVanillaEntrancePolicy.IsEnabled("area-routing-test-vanilla-vampire-garage-0.21", "Vampire Killer"),
     "v0.21 enables the vanilla entrance cartridge");
+Equal(true,
+    GarageVanillaEntrancePolicy.IsEnabled(
+        "area-routing-test-vanilla-vampire-garage-0.21-full-cassettes-0.22",
+        "Vampire Killer"),
+    "v0.22-compatible slot data retains the vanilla entrance cartridge");
 Equal(false,
     GarageVanillaEntrancePolicy.IsEnabled("area-routing-test-difficulty-filtering-0.20", null),
     "v0.20 seeds preserve six-cartridge randomization");

@@ -11715,6 +11715,7 @@ internal static class CassetteSaveTransactionPatches
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod)
     {
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
+        GarageCartridgeAccess.ResetNativeBagObservations("selected save slot mutation");
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{__originalMethod?.Name ?? "<unknown>"}(Int32)";
         if (__args == null)
         {
@@ -11743,6 +11744,7 @@ internal static class CassetteSaveTransactionPatches
         MethodBase __originalMethod)
     {
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
+        GarageCartridgeAccess.ResetNativeBagObservations("player save state rebuilt");
         const string requestIdentity = "BuildPlayerSaveStateFromFileRequest";
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
         object? request = ReflectionUtil.FindArg(__args, "BuildPlayerSaveStateFromFileRequest");
@@ -11762,6 +11764,7 @@ internal static class CassetteSaveTransactionPatches
 
     public static void MostRecentSelectionPrefix(object? __instance)
     {
+        GarageCartridgeAccess.ResetNativeBagObservations("most recent save selection");
         CassetteReceiptRandomization.BeginMostRecentSelectionBoundary(__instance);
     }
 
@@ -20546,6 +20549,11 @@ internal static class GarageCartridgeAccess
     private static readonly HashSet<string> OwnedSongs = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, GarageNativeGrantDecision> LastNativeDecisions =
         new(StringComparer.OrdinalIgnoreCase);
+    private static readonly GarageCartridgeInsertionTracker InsertionTracker = new();
+    private static readonly HashSet<string> ReleasedThisVisit =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> InsertionCandidateArmedLogged =
+        new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> NativeGrantPendingLogged =
         new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> NativeGrantAppliedLogged =
@@ -20559,6 +20567,16 @@ internal static class GarageCartridgeAccess
     public static bool SourceRandomizationEnabled { get; private set; }
     public static bool VanillaEntranceEnabled { get; private set; }
     public static string ImplementationVersion { get; private set; } = string.Empty;
+
+    static GarageCartridgeAccess()
+    {
+        InsertionCoordinator.DurableInsertionConfirmed += song =>
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE server insertion state confirmed durable song='{song}'.");
+            RequestUnityReconciliation("Garage insertion state confirmed durable");
+        };
+    }
 
     public static void Configure()
     {
@@ -20643,13 +20661,127 @@ internal static class GarageCartridgeAccess
         UnityDispatcher.Drain(_ => TryFlushPendingNativeGrants());
     }
 
-    private static void ResetNativeBagObservations(string reason)
+    public static void ResetNativeBagObservations(string reason)
     {
         lock (Sync)
         {
+            InsertionTracker.Reset();
+            ReleasedThisVisit.Clear();
+            InsertionCandidateArmedLogged.Clear();
             LastNativeDecisions.Clear();
             NativeGrantPendingLogged.Clear();
             NativeGrantAppliedLogged.Clear();
+        }
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] GAME GARAGE CARTRIDGE native bag observations reset reason='{reason}'.");
+    }
+
+    public static void ObserveNativeBag(
+        string song,
+        bool readable,
+        bool held,
+        bool inGarage,
+        bool releasedThisVisit)
+    {
+        GarageCartridgeNativeDefinition cartridge = GarageCartridgeNativePolicy.RandomizedCartridges
+            .FirstOrDefault(candidate => string.Equals(candidate.Song, song, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(cartridge.Song) ||
+            !ServerSyncLifecycle.TryAcquireCurrent(out _, out LifecycleLease? serverSyncLease))
+            return;
+
+        using (serverSyncLease)
+        {
+            bool enabled;
+            bool apOwned;
+            bool releaseObserved;
+            lock (Sync)
+            {
+                enabled = Enabled;
+                apOwned = OwnedSongs.Contains(cartridge.Song);
+                releaseObserved = releasedThisVisit && ReleasedThisVisit.Contains(cartridge.Song);
+            }
+
+            GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
+                ? InsertionCoordinator.GetServerValue(cartridge.Song)
+                : GarageInsertionServerValue.Unknown;
+            bool recordInsertion;
+            bool logCandidateArmed;
+            lock (Sync)
+            {
+                recordInsertion = InsertionTracker.Observe(
+                    cartridge.Song,
+                    enabled,
+                    apOwned,
+                    cartridge.UsesPhysicalVanillaEntrance,
+                    serverValue,
+                    readable,
+                    held,
+                    inGarage,
+                    releaseObserved);
+                logCandidateArmed = enabled &&
+                    apOwned &&
+                    !cartridge.UsesPhysicalVanillaEntrance &&
+                    serverValue == GarageInsertionServerValue.NotInserted &&
+                    inGarage &&
+                    releaseObserved &&
+                    readable &&
+                    held &&
+                    InsertionCandidateArmedLogged.Add(cartridge.Song);
+                if (recordInsertion)
+                {
+                    LastNativeDecisions.Remove(cartridge.Song);
+                    NativeGrantPendingLogged.Remove(cartridge.Song);
+                }
+            }
+
+            if (logCandidateArmed)
+            {
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE insertion candidate armed song='{cartridge.Song}'.");
+            }
+            if (!recordInsertion)
+                return;
+
+            InsertionCoordinator.NoteInserted(cartridge.Song);
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE native consumption observed song='{cartridge.Song}'.");
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE server insertion write pending song='{cartridge.Song}'.");
+            RequestUnityReconciliation("Garage native cartridge consumption observed");
+        }
+    }
+
+    public static void NoteGarageObjectReleased(string song)
+    {
+        if (!Enabled ||
+            !string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_27", StringComparison.Ordinal) ||
+            !GarageCartridgeNativePolicy.RandomizedCartridges.Any(cartridge =>
+                string.Equals(cartridge.Song, song, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        GarageInsertionServerValue serverValue = GarageInsertionServerValue.Unknown;
+        if (ServerSyncLifecycle.TryAcquireCurrent(out _, out LifecycleLease? serverSyncLease))
+        {
+            using (serverSyncLease)
+            {
+                if (InsertionCoordinator.InitialSyncReady)
+                    serverValue = InsertionCoordinator.GetServerValue(song);
+            }
+        }
+
+        bool logCandidateArmed;
+        lock (Sync)
+        {
+            ReleasedThisVisit.Add(song);
+            logCandidateArmed = OwnedSongs.Contains(song) &&
+                serverValue == GarageInsertionServerValue.NotInserted &&
+                InsertionTracker.HasAuthoritativeHeldObservation(song) &&
+                InsertionCandidateArmedLogged.Add(song);
+        }
+        if (logCandidateArmed)
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE insertion candidate armed song='{song}'.");
         }
     }
 
@@ -20659,8 +20791,14 @@ internal static class GarageCartridgeAccess
             !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
             return;
 
+        bool processorReplaced;
         lock (Sync)
+        {
+            processorReplaced = !ReferenceEquals(_playerSaveRequestProcessor, instance);
             _playerSaveRequestProcessor = instance;
+        }
+        if (processorReplaced)
+            ResetNativeBagObservations("PlayerSaveRequestProcessor replacement");
     }
 
     public static void TryFlushPendingNativeGrants()
@@ -20684,23 +20822,31 @@ internal static class GarageCartridgeAccess
                 ownedSongs = new HashSet<string>(OwnedSongs, StringComparer.OrdinalIgnoreCase);
             }
 
-            if (!enabled || processor == null || ownedSongs.Count == 0)
+            if (!enabled)
                 return;
 
             bool initialSyncReady = InsertionCoordinator.InitialSyncReady;
-            foreach (GarageCartridgeNativeDefinition cartridge in Cartridges)
+            string room = DeveloperHarness.CurrentRoomId;
+            bool inGarage = string.Equals(room, "GameRoom_27", StringComparison.Ordinal);
+            foreach (GarageCartridgeNativeDefinition cartridge in GarageCartridgeNativePolicy.RandomizedCartridges)
             {
-                if (!ownedSongs.Contains(cartridge.Song) ||
-                    cartridge.UsesPhysicalVanillaEntrance)
-                    continue;
-
                 bool bagReadable = RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeBagFlag, out bool bagHeld);
+                bool releasedThisVisit;
+                lock (Sync)
+                    releasedThisVisit = ReleasedThisVisit.Contains(cartridge.Song);
+                ObserveNativeBag(
+                    cartridge.Song,
+                    bagReadable,
+                    bagHeld,
+                    inGarage,
+                    releasedThisVisit);
+
                 GarageInsertionServerValue serverValue = initialSyncReady
                     ? InsertionCoordinator.GetServerValue(cartridge.Song)
                     : GarageInsertionServerValue.Unknown;
                 GarageNativeGrantDecision decision = GarageCartridgeInsertionPolicy.DecideGrant(
                     compatible: enabled,
-                    apOwned: true,
+                    apOwned: ownedSongs.Contains(cartridge.Song),
                     usesPhysicalVanillaEntrance: cartridge.UsesPhysicalVanillaEntrance,
                     serverValue,
                     nativeBagReadable: bagReadable,
@@ -20719,7 +20865,7 @@ internal static class GarageCartridgeAccess
                         $"[SCRC-AP] GAME GARAGE CARTRIDGE native reconciliation generation={generation} song='{cartridge.Song}' result='{decision}' serverValue='{serverValue}' bagReadable={bagReadable} bagHeld={bagHeld}.");
                 }
 
-                if (decision != GarageNativeGrantDecision.ApplyBagItem)
+                if (decision != GarageNativeGrantDecision.ApplyBagItem || processor == null)
                     continue;
 
                 _applyingArchipelagoGrant++;
@@ -20926,6 +21072,16 @@ internal static class GarageCartridgeAccess
         lock (Sync)
             return OwnedSongs.Contains(song);
     }
+
+    public static bool IsCartridgeInserted(string song)
+    {
+        if (!Enabled ||
+            !GarageCartridgeNativePolicy.RandomizedCartridges.Any(cartridge =>
+                string.Equals(cartridge.Song, song, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        return InsertionCoordinator.GetServerValue(song) == GarageInsertionServerValue.Inserted;
+    }
 }
 
 internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
@@ -20951,22 +21107,24 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
 
     private void Update()
     {
-        GarageCartridgeAccess.OnUnityLifecycle();
-        if (Time.unscaledTime >= _nextNativeReconcile)
-        {
-            _nextNativeReconcile = Time.unscaledTime + 1f;
-            GarageCartridgeAccess.TryFlushPendingNativeGrants();
-        }
-
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal))
         {
+            GarageCartridgeAccess.ResetNativeBagObservations(
+                $"room transition '{_lastRoom}' -> '{room}'");
             _lastRoom = room;
             _objects.Clear();
             _releasedThisVisit.Clear();
             _lastOwned.Clear();
             _waitingLogged = false;
             _nextPoll = 0f;
+        }
+
+        GarageCartridgeAccess.OnUnityLifecycle();
+        if (Time.unscaledTime >= _nextNativeReconcile)
+        {
+            _nextNativeReconcile = Time.unscaledTime + 1f;
+            GarageCartridgeAccess.TryFlushPendingNativeGrants();
         }
 
         if (!GarageCartridgeAccess.Enabled || !string.Equals(room, GarageRoomId, StringComparison.Ordinal))
@@ -20985,6 +21143,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 continue;
 
             bool owned = GarageCartridgeAccess.HasCartridge(cartridge.Song);
+            bool inserted = GarageCartridgeAccess.IsCartridgeInserted(cartridge.Song);
             GarageObjectDecision decision = GarageAvailabilityPolicy.Decide(
                 enabled: true,
                 compatible: true,
@@ -20997,6 +21156,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 _releasedThisVisit.Remove(cartridge.Song);
             }
             else if (decision == GarageObjectDecision.Active &&
+                     !inserted &&
                      !_releasedThisVisit.Contains(cartridge.Song))
             {
                 // Release the real Garage cartridge exactly once per room visit.
@@ -21005,6 +21165,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 if (!obj.activeSelf)
                     obj.SetActive(true);
                 _releasedThisVisit.Add(cartridge.Song);
+                GarageCartridgeAccess.NoteGarageObjectReleased(cartridge.Song);
                 MusicLabDiscovery.NotifyRandomizedGarageCartridgeReleased(cartridge.Song);
             }
 
@@ -21012,7 +21173,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
             {
                 _lastOwned[cartridge.Song] = owned;
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} objectActive={obj.activeSelf} releasedThisVisit={_releasedThisVisit.Contains(cartridge.Song)}.");
+                    $"[SCRC-AP] GAME GARAGE CARTRIDGE STATE song='{cartridge.Song}' owned={owned} inserted={inserted} objectActive={obj.activeSelf} releasedThisVisit={_releasedThisVisit.Contains(cartridge.Song)}.");
             }
         }
     }
