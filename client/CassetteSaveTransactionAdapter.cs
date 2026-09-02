@@ -36,6 +36,14 @@ internal readonly record struct CassetteDiskCommitTargetSideState(
     IReadOnlyDictionary<string, string> EffectiveStatuses,
     IReadOnlyDictionary<string, string?> CanonicalStatuses);
 
+internal readonly record struct CassettePersistenceTargetActiveState(
+    long StatePointer,
+    bool HasUnstagedChanges,
+    bool HasChanges,
+    bool RequiresWriteToDisk,
+    bool DefaultBundlePresent,
+    int DefaultBundleChangeCount);
+
 internal readonly record struct CassetteDiskCommitTargetDiagnosticState(
     long PlayerProcessorPointer,
     long RegisteredPersistProcessorPointer,
@@ -937,10 +945,14 @@ internal static class CassetteSaveTransactionAdapter
             if (!TryUnwrapPublicDiagnosticNullable(
                     rawSelectedSlot, "target-save-data-selected-slot", out bool slotPresent, out object? slotValue, out stage))
                 return false;
-            if (!slotPresent || slotValue == null) { stage = "target-save-data-selected-slot-empty"; return false; }
-            stage = "target-save-data-selected-slot-convert";
-            int selectedSlot = Convert.ToInt32(slotValue);
-            state = state with { SelectedPlayerSaveSlot = selectedSlot, HasSelectedPlayerSaveSlot = true };
+            bool hasSelectedSlot = slotPresent && slotValue != null;
+            int selectedSlot = default;
+            if (hasSelectedSlot)
+            {
+                stage = "target-save-data-selected-slot-convert";
+                selectedSlot = Convert.ToInt32(slotValue);
+                state = state with { SelectedPlayerSaveSlot = selectedSlot, HasSelectedPlayerSaveSlot = true };
+            }
 
             if (!TryGetPublicReadableProperty(
                     saveDataStateType, "RegularPlayerSaves", PublicInstance,
@@ -949,16 +961,21 @@ internal static class CassetteSaveTransactionAdapter
             stage = "target-save-data-regular-saves-get";
             object? saves = savesProperty.GetValue(saveDataState);
             if (saves == null) { stage = "target-save-data-regular-saves-null"; return false; }
-            if (!TryReadPublicDictionaryValue(saves, selectedSlot, "target-selected-entry", out object? selectedState, out stage))
-                return false;
             if (!TryReadPublicDictionaryValue(saves, expectedSlot, "target-expected-entry", out object? expectedState, out stage))
+                return false;
+            if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
+                return false;
+            state = state with { ExpectedSlotEntryPointer = expectedSlotEntryPointer, HasExpectedSlotEntryPointer = true };
+            if (!hasSelectedSlot)
+            {
+                stage = "target-save-data-selected-slot-empty";
+                return false;
+            }
+            if (!TryReadPublicDictionaryValue(saves, selectedSlot, "target-selected-entry", out object? selectedState, out stage))
                 return false;
             if (!TryReadPublicPointer(selectedState!, "target-selected-entry", out long selectedEntryPointer, out stage))
                 return false;
             state = state with { SelectedEntryPointer = selectedEntryPointer, HasSelectedEntryPointer = true };
-            if (!TryReadPublicPointer(expectedState!, "target-expected-entry", out long expectedSlotEntryPointer, out stage))
-                return false;
-            state = state with { ExpectedSlotEntryPointer = expectedSlotEntryPointer, HasExpectedSlotEntryPointer = true };
             if (!TryReadDiskCommitTargetSide(
                     selectedState!, registeredPersistProcessor!.GetType().Assembly, nativeSongs, "target-selected",
                     out CassetteDiskCommitTargetSideState selected, out stage))
@@ -971,6 +988,97 @@ internal static class CassetteSaveTransactionAdapter
         }
         catch (Exception ex)
         {
+            stage = $"{stage}-invocation:{SummarizeException(ex)}";
+            return false;
+        }
+    }
+
+    internal static bool TryReadPersistenceTargetActiveState(
+        object? playerSaveProcessor,
+        long expectedPointer,
+        out CassettePersistenceTargetActiveState state,
+        out string stage)
+    {
+        state = default;
+        stage = "persistence-target-active-start";
+        try
+        {
+            if (!TryObtainPublicState(
+                    playerSaveProcessor, "persistence-target-active", out object? nativeState, out stage))
+                return false;
+            if (!TryReadPublicPointer(
+                    nativeState!, "persistence-target-active", out long statePointer, out stage))
+                return false;
+            if (statePointer != expectedPointer)
+            {
+                stage = $"persistence-target-active-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
+                return false;
+            }
+            if (!TryReadPublicBoolean(
+                    nativeState!, "HasUnstagedChanges", "persistence-target-active-has-unstaged", out bool hasUnstaged, out stage) ||
+                !TryReadPublicBoolean(
+                    nativeState!, "HasChanges", "persistence-target-active-has-changes", out bool hasChanges, out stage) ||
+                !TryReadPublicBoolean(
+                    nativeState!, "RequiresWriteToDisk", "persistence-target-active-requires-write", out bool requiresWrite, out stage))
+                return false;
+
+            Assembly? preferredAssembly = playerSaveProcessor?.GetType().Assembly;
+            Type? bundleType = FindType("ePlayerSaveChangeBundleKey", preferredAssembly);
+            if (bundleType?.IsEnum != true)
+            {
+                stage = "persistence-target-active-bundle-type-missing";
+                return false;
+            }
+            stage = "persistence-target-active-default-bundle-parse";
+            object defaultBundle = Enum.Parse(bundleType, "DEFAULT", ignoreCase: false);
+            if (!TryGetPublicReadableProperty(
+                    nativeState!.GetType(), "saveChangeBundles", PublicInstance,
+                    "persistence-target-active-bundles", out PropertyInfo bundlesProperty, out stage))
+                return false;
+            stage = "persistence-target-active-bundles-get";
+            object? bundles = bundlesProperty.GetValue(nativeState);
+            if (bundles == null)
+            {
+                stage = "persistence-target-active-bundles-null";
+                return false;
+            }
+            if (!TryReadPublicDictionaryPresenceAndValue(
+                    bundles, defaultBundle, "persistence-target-active-default-bundle",
+                    out bool bundlePresent, out object? bundle, out stage))
+                return false;
+            int bundleChangeCount = 0;
+            if (bundlePresent)
+            {
+                if (!TryGetPublicReadableProperty(
+                        bundle!.GetType(), "Changes", PublicInstance,
+                        "persistence-target-active-default-bundle-changes",
+                        out PropertyInfo changesProperty, out stage))
+                    return false;
+                stage = "persistence-target-active-default-bundle-changes-get";
+                object? changes = changesProperty.GetValue(bundle);
+                if (changes == null)
+                {
+                    stage = "persistence-target-active-default-bundle-changes-null";
+                    return false;
+                }
+                if (!TryGetPublicReadableProperty(
+                        changes.GetType(), "Count", PublicInstance,
+                        "persistence-target-active-default-bundle-change-count",
+                        out PropertyInfo countProperty, out stage))
+                    return false;
+                stage = "persistence-target-active-default-bundle-change-count-get";
+                bundleChangeCount = Convert.ToInt32(countProperty.GetValue(changes));
+            }
+
+            state = new(
+                statePointer, hasUnstaged, hasChanges, requiresWrite,
+                bundlePresent, bundleChangeCount);
+            stage = "success";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            state = default;
             stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
         }
@@ -1558,7 +1666,6 @@ internal static class CassetteSaveTransactionAdapter
         if (progression == null) { stage = $"{label}-game-progression-null"; return false; }
         MethodInfo? canonicalMethod = progression.GetType().GetMethod(
             "GetSongCassetteStatus", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
-        if (canonicalMethod == null) { stage = $"{label}-canonical-status-method-missing"; return false; }
         var effectiveStatuses = new Dictionary<string, string>(StringComparer.Ordinal);
         var canonicalStatuses = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal))
@@ -1568,12 +1675,17 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"{label}-status-{nativeSong}-effective-invoke";
             string? effective = effectiveMethod.Invoke(nativeState, new[] { song })?.ToString();
             if (string.IsNullOrWhiteSpace(effective)) { stage = $"{label}-status-{nativeSong}-effective-empty"; return false; }
+            effectiveStatuses[nativeSong] = effective;
+            if (canonicalMethod == null)
+            {
+                canonicalStatuses[nativeSong] = null;
+                continue;
+            }
             stage = $"{label}-status-{nativeSong}-canonical-invoke";
             object? rawCanonical = ReadPublicNullableMethod(canonicalMethod, progression, new[] { song });
             if (!TryUnwrapPublicDiagnosticNullable(
                     rawCanonical, $"{label}-status-{nativeSong}-canonical", out bool canonicalPresent, out object? canonical, out stage))
                 return false;
-            effectiveStatuses[nativeSong] = effective;
             canonicalStatuses[nativeSong] = canonicalPresent ? canonical?.ToString() : null;
         }
         state = new(

@@ -18464,6 +18464,101 @@ internal static class CassetteReceiptRandomization
             ready = _runtime.Tick(elapsed).ToArray();
         }
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
+        IReadOnlyList<string> newlyVerifiedGrantWave;
+        lock (Sync) newlyVerifiedGrantWave = _runtime.ConsumeNewlyVerifiedGrantDiagnosticWave();
+        if (newlyVerifiedGrantWave.Count > 0)
+            LogPersistenceTargetOwnershipDiagnostic(newlyVerifiedGrantWave);
+    }
+
+    private static void LogPersistenceTargetOwnershipDiagnostic(IReadOnlyList<string> newlyVerifiedSongs)
+    {
+        object? playerProcessor;
+        object? retainedSaveDataProcessor;
+        long generation;
+        long epoch;
+        int slot;
+        long pointer;
+        string[] ownedSongs;
+        lock (Sync)
+        {
+            if (_saveIdentity.Pending || !_runtime.HasActiveSave || newlyVerifiedSongs.Count == 0) return;
+            playerProcessor = _playerSaveRequestProcessor;
+            retainedSaveDataProcessor = _joinedSaveDataRequestProcessor;
+            generation = _activeSaveGeneration;
+            epoch = _runtime.Epoch;
+            slot = _runtime.ActiveSlot!.Value;
+            pointer = _activeSavePointer;
+            ownedSongs = _runtime.OwnedSongs.ToArray();
+        }
+
+        int frame = Time.frameCount;
+        int thread = Environment.CurrentManagedThreadId;
+        CassettePostLoadDiagnosticState selectedEvidence =
+            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(playerProcessor, ownedSongs);
+        bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+            playerProcessor,
+            retainedSaveDataProcessor,
+            slot,
+            pointer,
+            ownedSongs,
+            out CassetteDiskCommitTargetDiagnosticState target,
+            out int registryCount,
+            out string targetStage);
+        bool activeStateReadable = CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
+            playerProcessor,
+            pointer,
+            out CassettePersistenceTargetActiveState activeState,
+            out string activeStateStage);
+        bool writeStateReadable = CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(
+            playerProcessor,
+            pointer,
+            ownedSongs,
+            out CassettePublicWriteDiagnosticState writeState,
+            out string writeStateStage);
+
+        bool identityStillCurrent;
+        lock (Sync)
+        {
+            identityStillCurrent = !_saveIdentity.Pending && _runtime.HasActiveSave &&
+                _activeSaveGeneration == generation && _runtime.Epoch == epoch &&
+                _runtime.ActiveSlot == slot && _activeSavePointer == pointer;
+        }
+
+        static string Pointer(bool readable, long value) => readable ? $"0x{value:X}" : "<unavailable>";
+        static string Value<T>(bool readable, T value) => readable ? value?.ToString() ?? "<null>" : "<unavailable>";
+        bool expectedEntryMatches = target.HasExpectedSlotEntryPointer && target.ExpectedSlotEntryPointer == pointer;
+        bool selectedEntryMatches = target.HasSelectedEntryPointer && target.SelectedEntryPointer == pointer;
+        string decision = CassettePersistenceTargetDiagnosticDecision.Classify(
+            identityStillCurrent, expectedEntryMatches, selectedEntryMatches);
+        string activeText = activeStateReadable
+            ? $"statePointer=0x{activeState.StatePointer:X} hasUnstaged={activeState.HasUnstagedChanges} " +
+              $"hasChanges={activeState.HasChanges} requiresWrite={activeState.RequiresWriteToDisk} " +
+              $"defaultBundlePresent={activeState.DefaultBundlePresent} defaultBundleChangeCount={activeState.DefaultBundleChangeCount}"
+            : $"statePointer=<unavailable> hasUnstaged=<unavailable> hasChanges=<unavailable> " +
+              $"requiresWrite=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable> " +
+              $"activeStage='{activeStateStage}'";
+        string writeText = writeStateReadable
+            ? $"redundancyIndex={writeState.RedundancyBundleIndex} redundancyRevision={writeState.RedundancyBundleRevision} " +
+              $"lastSuccess={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.WriteState.LastSuccessTime)} " +
+              $"lastFailure={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.WriteState.LastFailureTime)} " +
+              $"failureReason='{writeState.WriteState.FailureReason ?? "<null>"}' " +
+              $"currentGameTime={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.CurrentGameTime)}"
+            : $"redundancyIndex=<unavailable> redundancyRevision=<unavailable> lastSuccess=<unavailable> " +
+              $"lastFailure=<unavailable> failureReason=<unavailable> currentGameTime=<unavailable> writeStage='{writeStateStage}'";
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] CASSETTE PERSISTENCE TARGET SNAPSHOT generation={generation} epoch={epoch} slot={slot} " +
+            $"expectedPointer=0x{pointer:X} frame={frame} thread={thread} identityCurrent={identityStillCurrent} " +
+            $"newlyVerified=[{string.Join(",", newlyVerifiedSongs)}] ownedSongs=[{string.Join(",", ownedSongs)}] " +
+            $"playerProcessorPointer={Pointer(target.HasPlayerProcessorPointer, target.PlayerProcessorPointer)} " +
+            $"registeredPersistProcessorPointer={Pointer(target.HasRegisteredPersistProcessorPointer, target.RegisteredPersistProcessorPointer)} " +
+            $"retainedSaveDataProcessorPointer={Pointer(target.HasRetainedSaveDataProcessorPointer, target.RetainedSaveDataProcessorPointer)} " +
+            $"saveDataStatePointer={Pointer(target.HasSaveDataStatePointer, target.SaveDataStatePointer)} registryCount={registryCount} " +
+            $"numericSelectedSlot={Value(target.HasSelectedPlayerSaveSlot, target.SelectedPlayerSaveSlot)} " +
+            $"expectedEntryPointer={Pointer(target.HasExpectedSlotEntryPointer, target.ExpectedSlotEntryPointer)} " +
+            $"selectedEntryPointer={Pointer(target.HasSelectedEntryPointer, target.SelectedEntryPointer)} " +
+            $"targetReadable={targetReadable} targetStage='{targetStage}' decision='{decision}' {activeText} {writeText} " +
+            CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(selectedEvidence));
     }
 
     private static void LogIdentityDiagnosticOnChange(string diagnostic)

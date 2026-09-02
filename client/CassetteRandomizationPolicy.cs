@@ -1186,6 +1186,7 @@ internal sealed class CassetteSaveEpochRuntime
     };
     private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
     private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _newlyVerifiedGrantDiagnosticWave = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _attemptsThisEpoch = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TimeSpan> _verificationElapsed = new(StringComparer.Ordinal);
 
@@ -1198,6 +1199,7 @@ internal sealed class CassetteSaveEpochRuntime
         Epoch++;
         ActiveSlot = slot;
         _satisfiedThisEpoch.Clear();
+        _newlyVerifiedGrantDiagnosticWave.Clear();
         _attemptsThisEpoch.Clear();
         _verificationElapsed.Clear();
     }
@@ -1206,6 +1208,7 @@ internal sealed class CassetteSaveEpochRuntime
     {
         ActiveSlot = null;
         _satisfiedThisEpoch.Clear();
+        _newlyVerifiedGrantDiagnosticWave.Clear();
         _attemptsThisEpoch.Clear();
         _verificationElapsed.Clear();
     }
@@ -1221,6 +1224,17 @@ internal sealed class CassetteSaveEpochRuntime
     internal IReadOnlyList<string> PendingSongs => HasActiveSave
         ? _owned.Where(IsPending).OrderBy(song => song, StringComparer.Ordinal).ToArray()
         : Array.Empty<string>();
+
+    internal IReadOnlyList<string> OwnedSongs => _owned
+        .OrderBy(song => song, StringComparer.Ordinal).ToArray();
+
+    internal IReadOnlyList<string> ConsumeNewlyVerifiedGrantDiagnosticWave()
+    {
+        string[] songs = _newlyVerifiedGrantDiagnosticWave
+            .OrderBy(song => song, StringComparer.Ordinal).ToArray();
+        _newlyVerifiedGrantDiagnosticWave.Clear();
+        return songs;
+    }
 
     internal bool CanSubmit(string nativeSong, string? nativeStatus, bool processorAvailable) =>
         IsPending(nativeSong) &&
@@ -1272,12 +1286,30 @@ internal sealed class CassetteSaveEpochRuntime
         if (!IsPending(nativeSong)) return false;
         _verificationElapsed.Remove(nativeSong);
         Observe(nativeSong, nativeStatus);
-        return string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase);
+        bool newlyVerifiedGrant = string.Equals(
+            nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase);
+        if (newlyVerifiedGrant) _newlyVerifiedGrantDiagnosticWave.Add(nativeSong);
+        return newlyVerifiedGrant;
     }
 
     private static bool IsSatisfiedNativeStatus(string? status) =>
         string.Equals(status, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, CassetteRandomizationPolicy.HaveDeposited, StringComparison.OrdinalIgnoreCase);
+}
+
+internal static class CassettePersistenceTargetDiagnosticDecision
+{
+    internal static string Classify(
+        bool identityCurrent,
+        bool expectedEntryMatches,
+        bool selectedEntryMatches) =>
+        !identityCurrent
+            ? "identity-changed-no-candidate"
+            : selectedEntryMatches
+                ? "guarded-request-candidate"
+                : expectedEntryMatches
+                    ? "pointer-bound-public-state-candidate"
+                    : "no-write-candidate";
 }
 
 internal static class CassetteAuthoritativeStateReader

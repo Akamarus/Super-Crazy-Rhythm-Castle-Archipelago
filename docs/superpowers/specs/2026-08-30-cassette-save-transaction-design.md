@@ -80,9 +80,19 @@ After a loaded-save epoch is confirmed, reconciliation runs only on the Unity th
 7. Treats a successful invocation as `verification-pending`, never as persisted or satisfied.
 8. Re-reads once after a bounded delay. Only authoritative `HAVE_IN_BAG` or `HAVE_DEPOSITED` satisfies the current epoch. A cassette receives at most one semantic grant attempt per epoch; another lifecycle observation cannot duplicate it.
 
-This mirrors the durable Plant Pipes lifecycle. The native record request participates in the game's own save/change-bundle and ordinary save-write lifecycle. Cassette reconciliation does not construct or submit `PersistSaveChangeBundleRequest`, `PersistAllSaveChangeBundlesRequest`, `TriggerUrgentSaveWriteIfAnyChangesRequest`, or `RequestWriteForPlayerSave`; it does not subscribe to `PlayerSaveWriteCompletedEvent`; and it runs no synthetic disk-write timer or success/failure transaction. The client never calls a private save manager or flush method.
+Live close-and-relaunch testing disproved the earlier ordinary-lifecycle assumption. After the gameplay-ready gate opened, all four mod grants verified as `HAVE_IN_BAG` on the exact selected/player pointer and appeared in the UI bag, while the public state still reported `HasUnstagedChanges=true`. A normal close did not persist those changes; the next launch loaded all four as unearned and reconciliation granted them again. The semantic request therefore proves an in-memory `DEFAULT` bundle change only, not disk durability.
 
-The exact cassette request mechanism has live evidence: the parameterless request with explicit `Song`/`CassetteStatus` and absent `Bundle` reaches the native RecordSong processor as effective `DEFAULT`, while reflected nullable bundle construction produced invalid payloads. The remaining responsibility is safe loaded-save timing and epoch-scoped verification, not a new persistence API.
+Cassette reconciliation still does not construct or submit `PersistSaveChangeBundleRequest`, `PersistAllSaveChangeBundlesRequest`, `TriggerUrgentSaveWriteIfAnyChangesRequest`, or `RequestWriteForPlayerSave`; it does not subscribe to `PlayerSaveWriteCompletedEvent`; and it runs no synthetic disk-write timer or success/failure transaction. The client never calls a private save manager or flush method. A bounded, behavior-neutral ownership snapshot now runs once after a delayed verification wave newly verifies one or more mod-granted `HAVE_IN_BAG` songs. It records the authoritative selected/player identity, registered and retained SaveData processor identities, the active-slot and numeric-selected dictionary entries, public state/bundle/write metadata, and cassette/UI evidence without submitting a request or mutating save state.
+
+The diagnostic decision rule is observational only:
+
+- If `RegularPlayerSaves[SelectedPlayerSaveSlot]` exists and its pointer matches the active epoch pointer, the narrow guarded request route is a candidate for a separately approved implementation.
+- If only `RegularPlayerSaves[activeEpochSlot]` matches the active pointer, a pointer-bound public-state route is the candidate for separate review.
+- If neither entry matches, no write route is considered safe.
+
+The active epoch entry is looked up before the numeric selected-slot entry so a missing or empty global selection cannot hide positive manager ownership evidence. None of these diagnostic outcomes authorizes a write by itself.
+
+The exact cassette request mechanism has live evidence: the parameterless request with explicit `Song`/`CassetteStatus` and absent `Bundle` reaches the native RecordSong processor as effective `DEFAULT`, while reflected nullable bundle construction produced invalid payloads. Safe loaded-save timing and epoch-scoped verification are now established; durable promotion of that verified unstaged bundle remains an unresolved, separately gated persistence boundary.
 
 ### Load and switch behavior
 

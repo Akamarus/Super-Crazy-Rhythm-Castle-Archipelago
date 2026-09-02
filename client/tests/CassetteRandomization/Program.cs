@@ -242,6 +242,14 @@ Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationRea
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
 Equal(false, pluginSource.Contains("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal), "no write-completed event subscription remains");
 Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
+Equal(true, unityTick.Contains("ConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal), "Unity update consumes one diagnostic only after delayed verification produced a newly verified mod grant");
+Equal(true, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves schedule the bounded ownership snapshot immediately afterward");
+string persistenceTargetLogger = ExtractMethods(receiptRandomizationSource, "private static void LogPersistenceTargetOwnershipDiagnostic(").Single();
+foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryReadDiskCommitTargetDiagnostic", "TryReadPersistenceTargetActiveState", "TryReadPublicWriteDiagnosticState" })
+    Equal(true, persistenceTargetLogger.Contains(requiredRead, StringComparison.Ordinal), $"persistence target snapshot uses existing public diagnostic boundary {requiredRead}");
+foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitRequest", "ProcessRequest", "PersistAllChangesInBundle", "RequestUrgentWriteToDisk", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
+    Equal(false, persistenceTargetLogger.Contains(prohibitedMutation, StringComparison.Ordinal), $"persistence target snapshot contains no mutation path {prohibitedMutation}");
+Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
@@ -640,6 +648,35 @@ SequenceEqual(new[] { "BADASS" }, semantic.Tick(TimeSpan.FromMilliseconds(1)), "
 semantic.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, semantic.IsPending("BADASS"), "later authoritative bag read satisfies this epoch");
 Console.WriteLine("PASS: post_epoch_semantic_request_requires_delayed_verification");
+
+var persistenceDiagnosticWave = new CassetteSaveEpochRuntime();
+persistenceDiagnosticWave.Receive("BADASS");
+persistenceDiagnosticWave.Receive("HEAVY_METAL");
+persistenceDiagnosticWave.ActivateSave(4);
+persistenceDiagnosticWave.RecordSubmission("BADASS");
+persistenceDiagnosticWave.RecordSubmission("HEAVY_METAL");
+Equal(true, persistenceDiagnosticWave.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag), "a newly verified mod grant enters the diagnostic wave");
+Equal(true, persistenceDiagnosticWave.RecordVerification("HEAVY_METAL", CassetteRandomizationPolicy.HaveInBag), "same-update newly verified grants coalesce into the diagnostic wave");
+SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave(), "one diagnostic wave contains every newly verified grant in stable order");
+Equal(0, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave().Count, "a verified wave is consumed at most once");
+SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.OwnedSongs, "the snapshot retains all AP-owned cassette evidence, not only the last verified song");
+persistenceDiagnosticWave.ActivateSave(4);
+Equal(0, persistenceDiagnosticWave.ConsumeNewlyVerifiedGrantDiagnosticWave().Count, "a new save epoch invalidates a stale queued diagnostic wave");
+Console.WriteLine("PASS: newly_verified_mod_grants_queue_one_identity_scoped_persistence_target_snapshot");
+
+Equal("identity-changed-no-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
+    identityCurrent: false, expectedEntryMatches: true, selectedEntryMatches: true),
+    "a snapshot that raced a save-identity change cannot advertise a stale write-route candidate");
+Equal("guarded-request-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
+    identityCurrent: true, expectedEntryMatches: true, selectedEntryMatches: true),
+    "a current selected-entry pointer match identifies the guarded request candidate");
+Equal("pointer-bound-public-state-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
+    identityCurrent: true, expectedEntryMatches: true, selectedEntryMatches: false),
+    "a current expected-slot-only match identifies the pointer-bound candidate");
+Equal("no-write-candidate", CassettePersistenceTargetDiagnosticDecision.Classify(
+    identityCurrent: true, expectedEntryMatches: false, selectedEntryMatches: false),
+    "a current snapshot without an entry match remains closed");
+Console.WriteLine("PASS: persistence_target_decision_fails_closed_on_identity_race");
 
 var boundedSchedule = new CassetteSaveEpochRuntime();
 boundedSchedule.Receive("BADASS");
@@ -1183,8 +1220,35 @@ Equal(3, missingSelectedDiagnostic.SelectedPlayerSaveSlot, "missing selected ent
 Equal(0x700L, missingSelectedDiagnostic.Player.StatePointer, "missing selected entry preserves the coherent player-side snapshot");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), missingSelectedDiagnostic.Player.EffectiveStatuses[nameof(ePlayableSong.QUIERES_BAILAR)], "missing selected entry preserves player-side statuses");
 Equal(0L, missingSelectedDiagnostic.SelectedEntryPointer, "missing selected entry cannot invent a selected-entry pointer");
-Equal(0L, missingSelectedDiagnostic.ExpectedSlotEntryPointer, "unreached expected-entry lookup cannot invent an expected-entry pointer");
+Equal(true, missingSelectedDiagnostic.HasExpectedSlotEntryPointer, "missing selected entry still proves the independently resolved active epoch entry");
+Equal(0x700L, missingSelectedDiagnostic.ExpectedSlotEntryPointer, "active epoch entry is read before the unrelated selected-entry lookup fails");
 Equal(0, RequestSystem.SubmitCount, "partial target diagnostics never submit a save request");
+
+var emptySelectedTargetSaveDataState = new DiskCommitTargetSaveDataStateFixture(
+    new IntPtr(0x333), new(false, default), new() { [4] = expectedTargetState });
+var emptySelectedRegisteredProcessor = new SaveDataRequestProcessor(new IntPtr(0x444), emptySelectedTargetSaveDataState);
+var emptySelectedRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), emptySelectedRegisteredProcessor);
+RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(emptySelectedRegisteredWrapper));
+Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
+    out CassetteDiskCommitTargetDiagnosticState emptySelectedDiagnostic,
+    out _,
+    out string emptySelectedStage),
+    "an empty numeric selected slot remains unavailable without hiding the active epoch entry");
+Equal("target-save-data-selected-slot-empty", emptySelectedStage, "empty numeric selected slot retains its exact stage after the independent active lookup");
+Equal(false, emptySelectedDiagnostic.HasSelectedPlayerSaveSlot, "empty numeric selected slot cannot invent a value");
+Equal(true, emptySelectedDiagnostic.HasExpectedSlotEntryPointer, "active epoch entry is independently available when numeric selected slot is empty");
+Equal(0x700L, emptySelectedDiagnostic.ExpectedSlotEntryPointer, "active epoch pointer survives empty numeric selected-slot evidence");
+
+Equal(true, CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
+    targetPlayerProcessor, expectedPointer: 0x700,
+    out CassettePersistenceTargetActiveState activeTargetState,
+    out string activeTargetStage),
+    "active persistence state reads only pointer, flags, and DEFAULT bundle evidence");
+Equal("success", activeTargetStage, "active persistence state reports success");
+Equal(new CassettePersistenceTargetActiveState(0x700, true, true, true, true, 2), activeTargetState, "active persistence state preserves the exact public target fields");
+Equal(0, RequestSystem.SubmitCount, "active persistence-state diagnostics never submit a request");
 
 var synchronizationDiagnosticGlobalState = new DiskCommitTargetSaveDataStateFixture(
     new IntPtr(0x333), new(true, 0), new());
