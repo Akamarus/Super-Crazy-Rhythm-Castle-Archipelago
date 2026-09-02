@@ -10,5 +10,6 @@
     <Compile Include="..\..\PreviewAbilityReconcilePolicy.cs" Link="PreviewAbilityReconcilePolicy.cs" />
     <Compile Include="..\..\HypnoPanReconciler.cs" Link="HypnoPanReconciler.cs" />
     <Compile Include="..\..\ViolanceReconciler.cs" Link="ViolanceReconciler.cs" />
+    <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
   </ItemGroup>
 </Project>

@@ -14,8 +14,8 @@ Client v0.68.0 / APWorld v0.22.0 provides an experimental test implementation fo
 Use matching source builds and record the versions you actually use:
 
 - Client: `0.68.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.68.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.21.0`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21`.
+- APWorld: `0.22.0`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
 - Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 92/129/166/202 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.

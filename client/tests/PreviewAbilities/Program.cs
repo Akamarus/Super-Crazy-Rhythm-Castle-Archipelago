@@ -29,8 +29,26 @@ VerifyNetworkRequestsWaitForUnityDrain();
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData)", StringComparison.Ordinal),
     "login configures preview compatibility");
-Equal(true, pluginSource.Contains("PreviewAbilityRandomization.TryApplyItem(item.ItemName)", StringComparison.Ordinal),
-    "received item history reaches preview reconcilers");
+bool previewHandlerCalled = false;
+bool previewFallbackCalled = false;
+Equal(true, ReceivedItemDispatch.TryApply(
+    "Hypno Pan",
+    applyReceivedProgression: false,
+    areaAccessHandler: _ => false,
+    garageCartridgeHandler: _ => false,
+    weedKillerHandler: _ => false,
+    plantPipesHandler: _ => false,
+    previewAbilityHandler: itemName =>
+    {
+        previewHandlerCalled = itemName == "Hypno Pan";
+        return true;
+    },
+    rootsBucketHandler: _ => false,
+    cassetteHandler: _ => false,
+    experimentalFallback: _ => previewFallbackCalled = true),
+    "received item dispatch handles preview abilities without experimental progression");
+Equal(true, previewHandlerCalled, "received item dispatch invokes the preview reconciler");
+Equal(false, previewFallbackCalled, "handled preview ability bypasses experimental fallback");
 Equal(true, pluginSource.Contains("AddComponent<PreviewAbilityReconciliationKeeper>()", StringComparison.Ordinal),
     "Unity-thread lifecycle keeper is installed");
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance)", StringComparison.Ordinal),
