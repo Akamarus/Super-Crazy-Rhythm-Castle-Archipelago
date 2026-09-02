@@ -1,9 +1,11 @@
 # Changelog
 
-## APWorld v0.22.0 / Client v0.68.0 — Full Music Lab cassette testing
+## APWorld v0.22.0 / Client v0.68.0 — Experimental full Music Lab cassette testing
 
-- Activated 30 Music Lab cassette items and 30 idempotent sources. Five point-chest songs reuse their existing 32/64/89/111/140-point chest locations.
+- Added an experimental test implementation for 30 Music Lab cassette items and 30 idempotent sources. Five point-chest songs reuse their existing 32/64/89/111/140-point chest locations; broader source-route acceptance remains pending.
 - Added exact schema/count/item/source/reused-location compatibility. Any mismatch logs the differing key and leaves native cassette behavior enabled.
+- Fixed default receipt dispatch so compatible cassette items are applied even when broad experimental progression grants are disabled.
+- Fixed Epical, Hollywood Trailer, and False Data logic so their Cell Tower-return sources require both Lobby Access and Hypno Pan.
 - AP receipts persist `HAVE_IN_BAG`; `HAVE_DEPOSITED` remains terminal, so insertion stays a normal player action.
 - Added automatic native save persistence for newly received AP cassettes. Live testing verified two sequential cassette writes in one save session and a clean restart with both cassettes restored, no duplicate grants, and no extra save attempt.
 - Requires a fresh v0.22 seed. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending; no individual live verification is claimed without evidence.

@@ -361,7 +361,7 @@ The client evaluates the real result-time clean-medal tier and sends cumulative 
 
 ### Level 2 Money Cassette pilot
 
-APWorld v0.22 randomizes all 30 cassette songs. Twenty-five are level-earned sources and five reuse the native 32/64/89/111/140-point chest checks. Repeated native award routes are aliases of one AP source. `I_GOT_MONEY` retains the live-verified Level 2 Money identity; `MONEY_DUB` remains the distinct Music Lab song named Money.
+APWorld v0.22 provides experimental randomizer routing for all 30 cassette songs. Twenty-five are level-earned sources and five reuse the native 32/64/89/111/140-point chest checks. Repeated native award routes are aliases of one AP source. `I_GOT_MONEY` retains the live-verified Level 2 Money identity; `MONEY_DUB` remains the distinct Music Lab song named Money. Many individual source routes remain manual verification pending.
 
 When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG`, never `HAVE_DEPOSITED`; normal Music Lab insertion remains player-driven. Only the four **I Got Money** medal locations require this item. Replays and the Level 2 Bee Mode variant do not send the source check, and **Level 2 - Completion** remains an independent check.
 
@@ -552,7 +552,7 @@ The client follows several implementation rules developed through testing:
 | Garage cartridges | Implemented | 5 AP items; Vampire Killer remains a physical vanilla pickup required for Garage entry. |
 | Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers. The four I Got Money medals require Money Cassette. |
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | `Level_06 -> 110 -> I_GOT_MONEY` is randomized through `Level 2 - Money Cassette`; fresh-save and save-switch IL2CPP acceptance remain pending. |
-| Music Lab cassette-item randomization | Implemented / manual verification pending | All 30 mappings are active in v0.22. The 24 newly mapped songs and I Got Money Bee alias require individual gameplay evidence. |
+| Music Lab cassette-item randomization | Experimental test candidate / manual verification pending | All 30 mappings are present in v0.22. The 24 newly mapped songs and I Got Money Bee alias require individual gameplay evidence. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
 | Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing performance locations at 92/129/166/202 addressed locations; native REG/PRO remains player-controlled. |

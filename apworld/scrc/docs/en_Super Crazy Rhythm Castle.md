@@ -1,6 +1,6 @@
 # Super Crazy Rhythm Castle
 
-v0.22.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. All 30 Music Lab cassettes are randomized. Their source check sends once; the received cassette enters the native bag and must still be inserted normally. Five cassette rewards reuse the 32/64/89/111/140-point chest locations. A fresh v0.22 seed and Client v0.68.0 are required.
+v0.22.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. It provides experimental randomizer routing for all 30 Music Lab cassettes, with many individual routes still awaiting manual verification. Their source check sends once; the received cassette enters the native bag and must still be inserted normally. Five cassette rewards reuse the 32/64/89/111/140-point chest locations. A fresh v0.22 seed and Client v0.68.0 are required.
 
 Five Game Garage cartridges remain randomized items and require their matching AP item. Vampire Killer is native and its Bronze/Silver/Gold/Platinum checks have no AP-item gate.
 

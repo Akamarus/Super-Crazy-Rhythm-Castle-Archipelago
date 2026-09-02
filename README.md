@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.22.0 and Client v0.68.0 activate all 30 Music Lab cassette items and sources. Generate a new v0.22 seed and use a fresh in-game save. Client v0.68 rejects older cassette schemas and preserves native cassette behavior; a historical v0.21 seed paired with its historical Client v0.67.95 retains the Money-only pilot.
+- Current development build: APWorld v0.22.0 and Client v0.68.0 provide an experimental test implementation for all 30 Music Lab cassette items and sources. Generate a new v0.22 seed and use a fresh in-game save. Many individual routes still require manual verification. Client v0.68 rejects older cassette schemas and preserves native cassette behavior; a historical v0.21 seed paired with its historical Client v0.67.95 retains the Money-only pilot.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -115,6 +115,6 @@ The default remains `jacks-assistant`; the ignored `tools/local-ai/config.local.
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. All 30 Music Lab cassettes are randomized: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. APWorld v0.22.0 requires a fresh seed.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. The v0.22 test candidate routes all 30 Music Lab cassettes: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Broader manual source-route verification remains pending. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. APWorld v0.22.0 requires a fresh seed.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

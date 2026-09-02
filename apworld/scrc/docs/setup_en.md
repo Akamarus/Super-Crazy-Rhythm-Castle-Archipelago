@@ -23,4 +23,4 @@ Set `difficulty` in the YAML to one of `normal`, `hard`, `expert`, or `perfectio
 
 Inactive checks are absent from the seed, not filler. v0.22 retains performance filtering and adds the full cassette source set. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
 
-v0.22.0 activates all 30 Music Lab cassette items and sources. Rebuild/replace the APWorld, restart Archipelago, and generate a fresh seed. Client v0.68.0 enables cassette routing only when schema, count, item mappings, source mappings, and reused chest mappings match exactly; otherwise it logs the mismatch and leaves native cassette behavior enabled.
+v0.22.0 provides an experimental test implementation for all 30 Music Lab cassette items and sources; many individual routes remain manual verification pending. Rebuild/replace the APWorld, restart Archipelago, and generate a fresh seed. Client v0.68.0 enables cassette routing only when schema, count, item mappings, source mappings, and reused chest mappings match exactly; otherwise it logs the mismatch and leaves native cassette behavior enabled.

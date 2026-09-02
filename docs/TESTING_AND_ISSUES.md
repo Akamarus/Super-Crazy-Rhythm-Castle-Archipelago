@@ -7,7 +7,7 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-Client v0.68.0 / APWorld v0.22.0 activates all 30 Music Lab cassette items and sources while preserving the physical vanilla Vampire Killer pickup and normal Game Garage entrance. Use a fresh v0.22 seed.
+Client v0.68.0 / APWorld v0.22.0 provides an experimental test implementation for all 30 Music Lab cassette items and sources while preserving the physical vanilla Vampire Killer pickup and normal Game Garage entrance. Many individual routes remain manual verification pending. Use a fresh v0.22 seed.
 
 ## Before starting a smoke test
 

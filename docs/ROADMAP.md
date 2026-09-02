@@ -40,7 +40,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Remaining major-area routes and starter safety | Discovery required | Each phone arrival, return route, blocker, and clean-save opening needs validation. |
 | Hip Glasses, Bucket Minion trade, and Chicken Bucket lifecycle | Implemented / needs gameplay acceptance | Source, held-item, trade, consumption, conversion, blockade, King-chat, and Lobby-arrival mappings are implemented. Fresh-save reload/reconnect acceptance remains required. |
 | Remaining meaningful quest items and source checks | Discovery required | Native source, ownership, consumption, reload, and reconnection behavior must be proven before randomization. |
-| Full Music Lab cassette randomization | Implemented / broad manual verification pending | All 30 items and sources are active. Five point-chest songs reuse their chest checks; 25 level-earned songs use evidence-backed trigger mappings. I Got Money's default route is live verified, its Bee alias and 24 newly mapped songs remain manual verification pending. |
+| Full Music Lab cassette randomization | Experimental test candidate / broad manual verification pending | All 30 items and sources are implemented for v0.22 testing. Five point-chest songs reuse their chest checks; 25 level-earned songs use evidence-backed trigger mappings. I Got Money's default route is live verified, its Bee alias and 24 newly mapped songs remain manual verification pending. |
 | Character, versus, special-mode, and multiplayer behavior | Discovery required | Their eligibility, shared-result behavior, and safe native mappings are not yet confirmed. |
 
 ## Generation gate
