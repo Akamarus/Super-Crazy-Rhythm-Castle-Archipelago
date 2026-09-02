@@ -786,6 +786,181 @@ Equal("no-write-candidate", CassettePersistenceTargetDiagnosticDecision.Classify
     "a current snapshot without an entry match remains closed");
 Console.WriteLine("PASS: persistence_target_decision_fails_closed_on_identity_race");
 
+var persistenceWaveQueue = new CassettePersistenceWaveQueue();
+var persistenceQueueIdentity = new CassettePersistenceAcceptanceIdentity(2, 1, 4, 0x4400);
+persistenceWaveQueue.BeginEpoch(persistenceQueueIdentity);
+Equal(true, persistenceWaveQueue.TryEnqueue(
+    persistenceQueueIdentity, new[] { "ON_THE_WAY", "BADASS", "BADASS" }),
+    "a current non-empty verified wave is accepted");
+Equal(true, persistenceWaveQueue.TryPeek(
+    persistenceQueueIdentity, out CassettePersistenceQueuedWave firstQueuedWave),
+    "the accepted wave remains available until verified completion");
+SequenceEqual(new[] { "BADASS", "ON_THE_WAY" }, firstQueuedWave.Songs,
+    "queued songs are ordinal-deduplicated and sorted");
+Equal(false, persistenceWaveQueue.TryEnqueue(
+    persistenceQueueIdentity with { Epoch = 2 }, new[] { "HEAVY_METAL" }),
+    "a stale save identity cannot enqueue work into the active epoch");
+Equal(false, persistenceWaveQueue.TryEnqueue(persistenceQueueIdentity, Array.Empty<string>()),
+    "an empty verified wave is rejected");
+Equal(true, persistenceWaveQueue.TryEnqueue(
+    persistenceQueueIdentity, new[] { "HEAVY_METAL" }),
+    "a later wave remains queued while the first wave is still active");
+Equal(true, persistenceWaveQueue.TryPeek(
+    persistenceQueueIdentity, out CassettePersistenceQueuedWave stillFirstQueuedWave),
+    "peeking an active wave never removes it");
+Equal(firstQueuedWave.WaveId, stillFirstQueuedWave.WaveId,
+    "a later arrival cannot replace the active queued wave");
+persistenceWaveQueue.Complete(firstQueuedWave);
+Equal(true, persistenceWaveQueue.TryPeek(
+    persistenceQueueIdentity, out CassettePersistenceQueuedWave secondQueuedWave),
+    "verified completion exposes the next queued batch");
+SequenceEqual(new[] { "HEAVY_METAL" }, secondQueuedWave.Songs,
+    "the later verified batch is preserved independently");
+
+var replacementQueueIdentity = persistenceQueueIdentity with { Generation = 3, Epoch = 2, Pointer = 0x5500 };
+persistenceWaveQueue.BeginEpoch(replacementQueueIdentity);
+Equal(false, persistenceWaveQueue.TryPeek(persistenceQueueIdentity, out _),
+    "a save-boundary identity replacement clears stale queued work");
+Equal(false, persistenceWaveQueue.TryPeek(replacementQueueIdentity, out _),
+    "the replacement epoch starts without inherited waves");
+Equal(true, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "KEEP_ON_HUSTLIN" }),
+    "the replacement identity accepts its own verified batch");
+persistenceWaveQueue.TombstoneEpoch(replacementQueueIdentity);
+Equal(false, persistenceWaveQueue.TryPeek(replacementQueueIdentity, out _),
+    "tombstoning clears every queued wave in the exact epoch");
+Equal(false, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "ON_THE_WAY" }),
+    "a tombstoned epoch rejects all later verified waves");
+persistenceWaveQueue.BeginEpoch(replacementQueueIdentity);
+Equal(false, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "ON_THE_WAY" }),
+    "repeating the same identity cannot clear its tombstone");
+var afterTombstoneIdentity = replacementQueueIdentity with { Generation = 4, Epoch = 3, Pointer = 0x6600 };
+persistenceWaveQueue.BeginEpoch(afterTombstoneIdentity);
+Equal(true, persistenceWaveQueue.TryEnqueue(afterTombstoneIdentity, new[] { "ON_THE_WAY" }),
+    "only a genuinely new epoch clears the prior tombstone");
+persistenceWaveQueue.CancelEpoch(afterTombstoneIdentity);
+Equal(false, persistenceWaveQueue.TryPeek(afterTombstoneIdentity, out _),
+    "boundary cancellation clears queued work");
+Equal(false, persistenceWaveQueue.TryEnqueue(afterTombstoneIdentity, new[] { "BADASS" }),
+    "a cancelled identity remains inactive until a boundary begins another epoch");
+Console.WriteLine("PASS: persistence_wave_queue_is_identity_bound_sorted_and_tombstoned");
+
+var sequentialIdentity = new CassettePersistenceAcceptanceIdentity(60, 12, 4, 0x8800);
+var firstSequentialBaseline = new CassettePersistenceAcceptanceBaseline(
+    new CassettePublicWriteState(true, false, 20, 7, "IO_ERROR"),
+    RedundancyBundleIndex: 0,
+    RedundancyBundleRevision: 16,
+    new[] { "BADASS" });
+var firstSequentialVerifiedState = new CassettePublicWriteDiagnosticState(
+    new CassettePublicWriteState(false, false, 21, 7, "IO_ERROR"),
+    CurrentGameTime: 21,
+    HasUnstagedChanges: false,
+    RedundancyBundleIndex: 1,
+    RedundancyBundleRevision: 17,
+    StatePointer: 0x8800,
+    Statuses: new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag });
+var sequentialRuntime = new CassettePointerBoundPersistenceRuntime(
+    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+sequentialRuntime.BeginEpoch(sequentialIdentity);
+Equal(true, sequentialRuntime.TryPrepare(
+    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt firstSequentialAttempt),
+    "sequential mode prepares the first exact batch");
+Equal(false, sequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "an active sequential attempt prevents overlapping preparation");
+Equal(true, sequentialRuntime.MarkInvoked(firstSequentialAttempt),
+    "the first sequential batch enters polling");
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    sequentialRuntime.Observe(
+        firstSequentialAttempt, sequentialIdentity, firstSequentialVerifiedState,
+        statusesRetained: true, stateReadable: true, TimeSpan.FromMilliseconds(16), out _),
+    "the unchanged success predicate verifies the first sequential batch");
+var secondSequentialBaseline = firstSequentialBaseline with
+{
+    WriteState = firstSequentialVerifiedState.WriteState with { HasChanges = true },
+    RedundancyBundleIndex = 1,
+    RedundancyBundleRevision = 17,
+    Songs = new[] { "HEAVY_METAL" },
+};
+Equal(true, sequentialRuntime.TryPrepare(
+    sequentialIdentity, secondSequentialBaseline, out CassettePersistenceAcceptanceAttempt secondSequentialAttempt),
+    "verified sequential mode admits a later batch in the same exact epoch");
+Equal(true, secondSequentialAttempt.Id > firstSequentialAttempt.Id,
+    "sequential attempt identifiers increase monotonically");
+
+var indeterminateSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
+    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+indeterminateSequentialRuntime.BeginEpoch(sequentialIdentity);
+indeterminateSequentialRuntime.TryPrepare(
+    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt indeterminateSequentialAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Failed,
+    indeterminateSequentialRuntime.MarkIndeterminate(indeterminateSequentialAttempt, "urgency-invocation"),
+    "a possibly mutating invocation ambiguity fails the active batch");
+Equal(false, indeterminateSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "an indeterminate batch tombstones sequential persistence for the epoch");
+
+var failedSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
+    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+failedSequentialRuntime.BeginEpoch(sequentialIdentity);
+failedSequentialRuntime.TryPrepare(
+    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt failedSequentialAttempt);
+failedSequentialRuntime.MarkInvoked(failedSequentialAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Failed,
+    failedSequentialRuntime.Observe(
+        failedSequentialAttempt, sequentialIdentity, firstSequentialVerifiedState,
+        statusesRetained: false, stateReadable: true, TimeSpan.Zero, out _),
+    "a polling status regression fails closed in sequential mode");
+Equal(false, failedSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "a polling failure tombstones sequential persistence for the epoch");
+
+var timedOutSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
+    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+timedOutSequentialRuntime.BeginEpoch(sequentialIdentity);
+timedOutSequentialRuntime.TryPrepare(
+    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt timedOutSequentialAttempt);
+timedOutSequentialRuntime.MarkInvoked(timedOutSequentialAttempt);
+var unchangedSequentialState = firstSequentialVerifiedState with
+{
+    WriteState = firstSequentialBaseline.WriteState,
+    CurrentGameTime = 20,
+    HasUnstagedChanges = true,
+    RedundancyBundleIndex = 0,
+    RedundancyBundleRevision = 16,
+};
+for (int second = 0; second < 129; second++)
+    Equal(CassettePersistenceAcceptanceOutcome.Pending,
+        timedOutSequentialRuntime.Observe(
+            timedOutSequentialAttempt, sequentialIdentity, unchangedSequentialState,
+            statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
+        $"sequential batch remains pending through active-update second {second + 1}");
+Equal(CassettePersistenceAcceptanceOutcome.Timeout,
+    timedOutSequentialRuntime.Observe(
+        timedOutSequentialAttempt, sequentialIdentity, unchangedSequentialState,
+        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
+    "sequential mode preserves the 130-second hard timeout");
+Equal(false, timedOutSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "a timed-out batch tombstones sequential persistence for the epoch");
+
+var oneShotCompatibilityRuntime = new CassettePointerBoundPersistenceRuntime(
+    CassettePersistenceAttemptPolicy.OneShotPerEpoch);
+oneShotCompatibilityRuntime.BeginEpoch(sequentialIdentity);
+oneShotCompatibilityRuntime.TryPrepare(
+    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt oneShotCompatibilityAttempt);
+oneShotCompatibilityRuntime.MarkInvoked(oneShotCompatibilityAttempt);
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    oneShotCompatibilityRuntime.Observe(
+        oneShotCompatibilityAttempt, sequentialIdentity, firstSequentialVerifiedState,
+        statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+    "one-shot mode preserves the acceptance success predicate");
+Equal(false, oneShotCompatibilityRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "one-shot compatibility still rejects a second verified batch in the epoch");
+oneShotCompatibilityRuntime.BeginEpoch(sequentialIdentity with { Generation = 61, Epoch = 13, Pointer = 0x9900 });
+Equal(true, oneShotCompatibilityRuntime.TryPrepare(
+    sequentialIdentity with { Generation = 61, Epoch = 13, Pointer = 0x9900 },
+    firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt nextEpochCompatibilityAttempt),
+    "a new one-shot epoch may prepare again");
+Equal(true, nextEpochCompatibilityAttempt.Id > oneShotCompatibilityAttempt.Id,
+    "attempt identifiers remain monotonic across epoch boundaries");
+Console.WriteLine("PASS: pointer_bound_persistence_runtime_supports_sequential_verified_batches");
+
 var acceptanceRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
 var acceptanceIdentity = new CassettePersistenceAcceptanceIdentity(41, 7, 4, 0x700);
 var acceptanceBaseline = new CassettePersistenceAcceptanceBaseline(

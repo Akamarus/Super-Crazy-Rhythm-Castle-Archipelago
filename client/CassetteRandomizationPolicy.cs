@@ -1368,6 +1368,81 @@ internal readonly record struct CassettePersistenceAcceptanceAttempt(
         new(Generation, Epoch, Slot, Pointer);
 }
 
+internal readonly record struct CassettePersistenceQueuedWave(
+    CassettePersistenceAcceptanceIdentity Identity,
+    IReadOnlyList<string> Songs,
+    long WaveId);
+
+internal sealed class CassettePersistenceWaveQueue
+{
+    private readonly Queue<CassettePersistenceQueuedWave> _waves = new();
+    private CassettePersistenceAcceptanceIdentity _identity;
+    private bool _hasEpoch;
+    private bool _epochTombstoned;
+    private long _waveCounter;
+
+    internal void BeginEpoch(CassettePersistenceAcceptanceIdentity identity)
+    {
+        if (_hasEpoch && identity == _identity) return;
+        _waves.Clear();
+        _identity = identity;
+        _hasEpoch = identity.Pointer != 0;
+        _epochTombstoned = false;
+    }
+
+    internal bool TryEnqueue(
+        CassettePersistenceAcceptanceIdentity identity,
+        IEnumerable<string> songs)
+    {
+        if (!_hasEpoch || _epochTombstoned || identity != _identity || identity.Pointer == 0)
+            return false;
+        string[] normalized = songs
+            .Where(song => !string.IsNullOrWhiteSpace(song))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(song => song, StringComparer.Ordinal)
+            .ToArray();
+        if (normalized.Length == 0) return false;
+        _waves.Enqueue(new(identity, normalized, ++_waveCounter));
+        return true;
+    }
+
+    internal bool TryPeek(
+        CassettePersistenceAcceptanceIdentity identity,
+        out CassettePersistenceQueuedWave wave)
+    {
+        wave = default;
+        if (!_hasEpoch || _epochTombstoned || identity != _identity || _waves.Count == 0)
+            return false;
+        wave = _waves.Peek();
+        return true;
+    }
+
+    internal void Complete(CassettePersistenceQueuedWave wave)
+    {
+        if (!_hasEpoch || _waves.Count == 0) return;
+        CassettePersistenceQueuedWave current = _waves.Peek();
+        if (wave.Identity != _identity || current.Identity != wave.Identity ||
+            current.WaveId != wave.WaveId)
+            return;
+        _waves.Dequeue();
+    }
+
+    internal void TombstoneEpoch(CassettePersistenceAcceptanceIdentity identity)
+    {
+        if (!_hasEpoch || identity != _identity) return;
+        _waves.Clear();
+        _epochTombstoned = true;
+    }
+
+    internal void CancelEpoch(CassettePersistenceAcceptanceIdentity identity)
+    {
+        if (!_hasEpoch || identity != _identity) return;
+        _waves.Clear();
+        _hasEpoch = false;
+        _identity = default;
+    }
+}
+
 internal enum CassettePersistenceAcceptanceOutcome
 {
     None,
@@ -1459,13 +1534,21 @@ internal static class CassettePersistenceAcceptanceOwnershipProof
         hasSelectedSlot && !hasSelectedEntryPointer && !hasSelectedSide;
 }
 
-internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
+internal enum CassettePersistenceAttemptPolicy
+{
+    OneShotPerEpoch,
+    SequentialVerifiedBatches,
+}
+
+internal class CassettePointerBoundPersistenceRuntime
 {
     private static readonly TimeSpan HardTimeout = TimeSpan.FromSeconds(130);
     private static readonly TimeSpan MaximumUpdateElapsed = TimeSpan.FromSeconds(1);
+    private readonly CassettePersistenceAttemptPolicy _policy;
     private CassettePersistenceAcceptanceIdentity _epochIdentity;
     private bool _hasEpoch;
-    private bool _attemptedThisEpoch;
+    private bool _epochTombstoned;
+    private int _completedAttemptCount;
     private bool _active;
     private bool _invoked;
     private bool _eventObserved;
@@ -1481,13 +1564,17 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     internal CassettePersistenceAcceptanceOutcome LastOutcome { get; private set; }
     internal string LastFailure { get; private set; } = string.Empty;
 
+    internal CassettePointerBoundPersistenceRuntime(CassettePersistenceAttemptPolicy policy) =>
+        _policy = policy;
+
     internal void BeginEpoch(CassettePersistenceAcceptanceIdentity identity)
     {
         if (_hasEpoch && _epochIdentity == identity) return;
         if (_active) Finish(CassettePersistenceAcceptanceOutcome.Cancelled, "new-save-epoch");
         _epochIdentity = identity;
         _hasEpoch = true;
-        _attemptedThisEpoch = false;
+        _epochTombstoned = false;
+        _completedAttemptCount = 0;
         _active = false;
         _invoked = false;
         _eventObserved = false;
@@ -1505,7 +1592,8 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     {
         attempt = default;
         if (!_hasEpoch || identity != _epochIdentity || identity.Pointer == 0 ||
-            baseline.Songs.Count == 0 || _active || _attemptedThisEpoch)
+            baseline.Songs.Count == 0 || _active || _epochTombstoned ||
+            _policy == CassettePersistenceAttemptPolicy.OneShotPerEpoch && _completedAttemptCount > 0)
             return false;
         _attempt = new(++_attemptCounter, identity.Generation, identity.Epoch, identity.Slot, identity.Pointer);
         _baseline = baseline with
@@ -1526,7 +1614,6 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     internal bool MarkInvoked(CassettePersistenceAcceptanceAttempt attempt)
     {
         if (!_active || attempt != _attempt) return false;
-        _attemptedThisEpoch = true;
         _invoked = true;
         return true;
     }
@@ -1536,7 +1623,8 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         string stage)
     {
         if (!_active || attempt != _attempt) return CassettePersistenceAcceptanceOutcome.None;
-        _attemptedThisEpoch = true;
+        _epochTombstoned = true;
+        _completedAttemptCount++;
         return Finish(CassettePersistenceAcceptanceOutcome.Failed, $"indeterminate:{stage}");
     }
 
@@ -1568,11 +1656,11 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
             return CassettePersistenceAcceptanceOutcome.None;
         if (currentIdentity != _epochIdentity || currentIdentity != attempt.Identity ||
             stateReadable && state.StatePointer != attempt.Pointer)
-            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "identity-or-pointer-changed");
+            return FinishTombstoned("identity-or-pointer-changed");
         if (!statusesRetained)
-            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "cassette-status-regression");
+            return FinishTombstoned("cassette-status-regression");
         if (!stateReadable)
-            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "public-state-unreadable");
+            return FinishTombstoned("public-state-unreadable");
 
         CassettePublicWriteState baselineWrite = _baseline.WriteState;
         CassettePublicWriteState currentWrite = state.WriteState;
@@ -1580,10 +1668,10 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
             (!baselineWrite.LastFailureTime.HasValue ||
              currentWrite.LastFailureTime.Value > baselineWrite.LastFailureTime.Value);
         if (failureAdvanced)
-            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "failure-time-advanced");
+            return FinishTombstoned("failure-time-advanced");
         if (!string.IsNullOrWhiteSpace(currentWrite.FailureReason) &&
             !string.Equals(currentWrite.FailureReason, baselineWrite.FailureReason, StringComparison.Ordinal))
-            return Finish(CassettePersistenceAcceptanceOutcome.Failed, "failure-reason-changed");
+            return FinishTombstoned("failure-reason-changed");
 
         bool successAdvanced = currentWrite.LastSuccessTime.HasValue &&
             (!baselineWrite.LastSuccessTime.HasValue ||
@@ -1593,7 +1681,7 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         if (!state.HasUnstagedChanges && !currentWrite.HasChanges && !currentWrite.RequiresWriteToDisk &&
             (successAdvanced || redundancyAdvanced))
         {
-            _attemptedThisEpoch = true;
+            _completedAttemptCount++;
             return Finish(CassettePersistenceAcceptanceOutcome.Verified, string.Empty);
         }
 
@@ -1603,7 +1691,8 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         _elapsed += boundedElapsed;
         if (_elapsed >= HardTimeout)
         {
-            _attemptedThisEpoch = true;
+            _epochTombstoned = true;
+            _completedAttemptCount++;
             return Finish(CassettePersistenceAcceptanceOutcome.Timeout, "hard-timeout-130s");
         }
         return CassettePersistenceAcceptanceOutcome.Pending;
@@ -1612,8 +1701,15 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
     internal CassettePersistenceAcceptanceOutcome Cancel(string reason)
     {
         if (!_active) return CassettePersistenceAcceptanceOutcome.None;
-        _attemptedThisEpoch = true;
+        _completedAttemptCount++;
         return Finish(CassettePersistenceAcceptanceOutcome.Cancelled, reason);
+    }
+
+    private CassettePersistenceAcceptanceOutcome FinishTombstoned(string failure)
+    {
+        _epochTombstoned = true;
+        _completedAttemptCount++;
+        return Finish(CassettePersistenceAcceptanceOutcome.Failed, failure);
     }
 
     private CassettePersistenceAcceptanceOutcome Finish(
@@ -1625,6 +1721,15 @@ internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
         LastOutcome = outcome;
         LastFailure = failure;
         return outcome;
+    }
+}
+
+internal sealed class CassettePointerBoundPersistenceAcceptanceRuntime
+    : CassettePointerBoundPersistenceRuntime
+{
+    internal CassettePointerBoundPersistenceAcceptanceRuntime()
+        : base(CassettePersistenceAttemptPolicy.OneShotPerEpoch)
+    {
     }
 }
 
