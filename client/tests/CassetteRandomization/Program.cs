@@ -1243,6 +1243,140 @@ SequenceEqual(new[] { "1", "1", "1", "2", "2" },
     "boundary marker ordering never relabels the old attempt as the fresh epoch");
 Console.WriteLine("PASS: production_persistence_coordinator_executes_queue_gate_terminal_and_boundary_behavior");
 
+var staleCancelIdentityA = new CassettePersistenceAcceptanceIdentity(80, 30, 4, 0xB400);
+var staleCancelIdentityB = new CassettePersistenceAcceptanceIdentity(81, 31, 4, 0xB500);
+var repeatedBeginCoordinator = new CassetteProductionPersistenceCoordinator(() => { });
+repeatedBeginCoordinator.BeginEpoch(staleCancelIdentityB);
+repeatedBeginCoordinator.TryEnqueue(staleCancelIdentityB, new[] { "BADASS" });
+repeatedBeginCoordinator.TryPeek(
+    staleCancelIdentityB, out CassettePersistenceQueuedWave repeatedBeginWave);
+repeatedBeginCoordinator.TryInvoke(
+    staleCancelIdentityB,
+    repeatedBeginWave.WaveId,
+    eligible: true,
+    firstSequentialBaseline with { Songs = new[] { "BADASS" } },
+    preDetail: "b-ready",
+    onPrepared: () => { },
+    invokeAdapter: () => new(true, "success", "Invoked"));
+repeatedBeginCoordinator.BeginEpoch(staleCancelIdentityB);
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    repeatedBeginCoordinator.Observe(
+        repeatedBeginCoordinator.Attempt,
+        staleCancelIdentityB,
+        firstSequentialVerifiedState with { StatePointer = staleCancelIdentityB.Pointer },
+        statusesRetained: true,
+        stateReadable: true,
+        TimeSpan.Zero,
+        phase: "UPDATE",
+        targetStage: "target-selected-entry-missing",
+        writeStage: "success",
+        stateDetail: "b-verified"),
+    "re-observing an exact current epoch leaves its active attempt verifiable");
+Equal(false, repeatedBeginCoordinator.TryPeek(staleCancelIdentityB, out _),
+    "re-observing an exact current epoch preserves active-wave completion ownership");
+
+int staleCancelAdapterAdmissions = 0;
+int staleCancelReconciliations = 0;
+var staleCancelCoordinator = new CassetteProductionPersistenceCoordinator(
+    () => staleCancelReconciliations++);
+staleCancelCoordinator.BeginEpoch(staleCancelIdentityA);
+Equal(CassettePersistenceAcceptanceOutcome.None,
+    staleCancelCoordinator.CancelEpoch(staleCancelIdentityA, "retire-a"),
+    "retiring an inactive epoch A leaves no active attempt");
+staleCancelCoordinator.BeginEpoch(staleCancelIdentityB);
+Equal(true, staleCancelCoordinator.TryEnqueue(staleCancelIdentityB, new[] { "BADASS" }),
+    "epoch B queues its exact verified wave");
+staleCancelCoordinator.TryPeek(
+    staleCancelIdentityB, out CassettePersistenceQueuedWave staleCancelWaveB);
+Equal(CassetteProductionPersistenceStartOutcome.Invoked,
+    staleCancelCoordinator.TryInvoke(
+        staleCancelIdentityB,
+        staleCancelWaveB.WaveId,
+        eligible: true,
+        firstSequentialBaseline with { Songs = new[] { "BADASS" } },
+        preDetail: "b-ready",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            staleCancelAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "epoch B starts one exact pointer-bound attempt");
+Equal(1, staleCancelAdapterAdmissions,
+    "epoch B invokes the adapter exactly once before the stale callback");
+staleCancelCoordinator.BeginEpoch(staleCancelIdentityB);
+Equal(true, staleCancelCoordinator.Active,
+    "re-observing the exact current epoch is a no-op for its active attempt");
+Equal(true, staleCancelCoordinator.Invoked,
+    "re-observing the exact current epoch preserves its invoked phase");
+Equal(CassettePersistenceAcceptanceOutcome.None,
+    staleCancelCoordinator.CancelEpoch(staleCancelIdentityA, "late-a"),
+    "a stale epoch A cancel cannot cancel current epoch B");
+Equal(true, staleCancelCoordinator.Active,
+    "epoch B remains active after stale epoch A cancellation");
+Equal(true, staleCancelCoordinator.Invoked,
+    "epoch B remains invoked after stale epoch A cancellation");
+var staleCancelMarkers = new List<CassettePersistenceAcceptanceMarkerRecord>();
+while (staleCancelCoordinator.TryDequeueMarker(out CassettePersistenceAcceptanceMarkerRecord staleCancelMarker))
+    staleCancelMarkers.Add(staleCancelMarker);
+SequenceEqual(new[] { "PRE", "INVOKED" },
+    staleCancelMarkers.Select(marker => marker.Marker),
+    "stale epoch A cancellation emits no CANCELLED marker for epoch B");
+Equal(true, staleCancelMarkers.All(marker => marker.Attempt.Identity == staleCancelIdentityB),
+    "every admitted marker remains bound to epoch B");
+Equal(CassetteProductionPersistenceStartOutcome.Stale,
+    staleCancelCoordinator.TryInvoke(
+        staleCancelIdentityB,
+        staleCancelWaveB.WaveId,
+        eligible: true,
+        firstSequentialBaseline with { Songs = new[] { "BADASS" } },
+        preDetail: "repeat-frame",
+        onPrepared: () => { },
+        invokeAdapter: () =>
+        {
+            staleCancelAdapterAdmissions++;
+            return new(true, "success", "Invoked");
+        }),
+    "the active B wave is retained as active rather than duplicated in the queue");
+Equal(1, staleCancelAdapterAdmissions,
+    "the frame after stale cancellation cannot invoke B a second time");
+Equal(CassettePersistenceAcceptanceOutcome.Verified,
+    staleCancelCoordinator.Observe(
+        staleCancelCoordinator.Attempt,
+        staleCancelIdentityB,
+        firstSequentialVerifiedState with { StatePointer = staleCancelIdentityB.Pointer },
+        statusesRetained: true,
+        stateReadable: true,
+        TimeSpan.Zero,
+        phase: "UPDATE",
+        targetStage: "target-selected-entry-missing",
+        writeStage: "success",
+        stateDetail: "b-verified"),
+    "epoch B can still reach VERIFIED after the stale epoch A cancellation");
+Equal(1, staleCancelReconciliations,
+    "verified epoch B requests reconciliation once");
+Equal(false, staleCancelCoordinator.TryPeek(staleCancelIdentityB, out _),
+    "verification completes the exact retained B wave");
+
+var queuedStaleCancelCoordinator = new CassetteProductionPersistenceCoordinator(() => { });
+queuedStaleCancelCoordinator.BeginEpoch(staleCancelIdentityA);
+queuedStaleCancelCoordinator.CancelEpoch(staleCancelIdentityA, "retire-a");
+queuedStaleCancelCoordinator.BeginEpoch(staleCancelIdentityB);
+Equal(true, queuedStaleCancelCoordinator.TryEnqueue(
+    staleCancelIdentityB, new[] { "ON_THE_WAY" }),
+    "epoch B may queue before invocation");
+queuedStaleCancelCoordinator.TryPeek(
+    staleCancelIdentityB, out CassettePersistenceQueuedWave queuedStaleCancelWaveB);
+Equal(CassettePersistenceAcceptanceOutcome.None,
+    queuedStaleCancelCoordinator.CancelEpoch(staleCancelIdentityA, "late-a-before-start"),
+    "stale epoch A cancellation cannot retire queued current epoch B");
+Equal(true, queuedStaleCancelCoordinator.TryPeek(
+    staleCancelIdentityB, out CassettePersistenceQueuedWave retainedQueuedWaveB),
+    "queued epoch B remains available after stale epoch A cancellation");
+Equal(queuedStaleCancelWaveB.WaveId, retainedQueuedWaveB.WaveId,
+    "stale cancellation preserves the exact immutable queued B wave");
+Console.WriteLine("PASS: production_persistence_coordinator_rejects_stale_epoch_cancellation");
+
 var acceptanceRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
 var acceptanceIdentity = new CassettePersistenceAcceptanceIdentity(41, 7, 4, 0x700);
 var acceptanceBaseline = new CassettePersistenceAcceptanceBaseline(

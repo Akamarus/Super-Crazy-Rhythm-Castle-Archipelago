@@ -1840,6 +1840,8 @@ internal sealed class CassetteProductionPersistenceCoordinator
         new(CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
     private readonly CassettePersistenceWaveQueue _waves = new();
     private readonly CassettePersistenceAcceptanceMarkerJournal _markers = new();
+    private CassettePersistenceAcceptanceIdentity _identity;
+    private bool _hasEpoch;
     private CassettePersistenceQueuedWave _activeWave;
     private bool _hasActiveWave;
     private long _deferredLoggedWaveId;
@@ -1876,8 +1878,11 @@ internal sealed class CassetteProductionPersistenceCoordinator
     {
         lock (_sync)
         {
+            if (_hasEpoch && identity == _identity) return;
             _runtime.BeginEpoch(identity);
             _waves.BeginEpoch(identity);
+            _identity = identity;
+            _hasEpoch = identity.Pointer != 0;
             _activeWave = default;
             _hasActiveWave = false;
             _deferredLoggedWaveId = 0;
@@ -1929,7 +1934,8 @@ internal sealed class CassetteProductionPersistenceCoordinator
         CassettePersistenceAcceptanceAttempt attempt;
         lock (_sync)
         {
-            if (!_waves.TryPeek(identity, out CassettePersistenceQueuedWave wave) ||
+            if (!_hasEpoch || identity != _identity ||
+                !_waves.TryPeek(identity, out CassettePersistenceQueuedWave wave) ||
                 wave.WaveId != waveId || !_runtime.TryPrepare(identity, baseline, out attempt))
                 return CassetteProductionPersistenceStartOutcome.Stale;
             if (!_markers.TryBeginAttempt(attempt, preDetail))
@@ -2067,6 +2073,8 @@ internal sealed class CassetteProductionPersistenceCoordinator
     {
         lock (_sync)
         {
+            if (!_hasEpoch || identity != _identity)
+                return CassettePersistenceAcceptanceOutcome.None;
             CassettePersistenceAcceptanceAttempt attempt = _runtime.Attempt;
             CassettePersistenceAcceptanceOutcome outcome = _runtime.Cancel(reason);
             if (outcome == CassettePersistenceAcceptanceOutcome.Cancelled)
@@ -2074,6 +2082,8 @@ internal sealed class CassetteProductionPersistenceCoordinator
                     attempt, "CANCELLED", $"reason='{reason}'", terminal: true);
             _waves.CancelEpoch(identity);
             _markers.RetireAttempt(attempt);
+            _identity = default;
+            _hasEpoch = false;
             _activeWave = default;
             _hasActiveWave = false;
             _deferredLoggedWaveId = 0;
