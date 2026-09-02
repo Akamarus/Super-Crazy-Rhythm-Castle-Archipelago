@@ -91,8 +91,6 @@ This table lists the item names currently known to the APWorld. Permanent networ
 | **Wag the Dog Cartridge** | Progression/useful | Required to use the Wag the Dog song in Game Garage. |
 | **Weed Killer** | Progression | Native consumable quest item from Gecko. AP delivery grants `WEED_KILLER_BAG_ITEM`; vanilla later consumes it to reveal/access Level 3. |
 | **Plant Pipes** | Progression | Permanent usable ability obtained from Frog and Hippo in Level 3. AP delivery grants `WEED_KILLER_ABILITY`. Required to complete Level 3. |
-| **Hip Glasses** | Progression | Level 4 source is an AP check. AP delivery grants `HIP_GLASSES_BAG_ITEM`; the normal Bucket Minion trade consumes it. |
-| **Chicken Bucket** | Progression | Bucket Minion trade is an AP check. AP delivery grants `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into native Combo Bucket. |
 | **30 Music Lab Cassettes** | Progression | v0.22 maps every recognized cassette to one item and one idempotent source. AP delivery grants native `HAVE_IN_BAG`; the player still inserts it in Music Lab normally. |
 
 ### Historical item IDs retained for compatibility
@@ -108,6 +106,8 @@ These names are design targets, not yet committed AP items unless listed above:
 
 | Planned item | Source / role | Status |
 | --- | --- | --- |
+| **Hip Glasses** | Picked up near the end of Level 4; `LEVEL_08_GLASSES_COLLECTED` is the source and `HIP_GLASSES_BAG_ITEM` is the held item consumed by the Bucket Minion. | Native mapping verified / not implemented. Reload and AP-history reconciliation remain implementation requirements. |
+| **Chicken Bucket** | `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES` is the trade source; `CHICKEN_BUCKET_BAG_ITEM` is later consumed into `COMBO_BUCKET_ABILITY` during Lift Quest. | Native mapping verified / not implemented. The normal trade and use remain player-driven; Combo Bucket is the vanilla consequence. |
 | Additional vanilla quest items / abilities | Converted individually when they materially gate traversal or completion. | Future work. |
 
 ---
@@ -553,11 +553,11 @@ The client follows several implementation rules developed through testing:
 | Gecko / Weed Killer | Implemented and tested | Source check + randomized consumable delivery + native consumption work. |
 | Frog/Hippo / Plant Pipes | Implemented and tested | Source check is reachable without Plant Pipes; ability is randomized. |
 | Level 3 partial completion model | Implemented and tested | Player can menu-exit when Plant Pipes is elsewhere. |
-| Level 4 Hip Glasses | Implemented / needs gameplay acceptance | Source `LEVEL_08_GLASSES_COLLECTED`; held item `HIP_GLASSES_BAG_ITEM`. The source is an AP check and the native item grant is suppressed. |
-| Bucket Minion glasses trade | Implemented / needs gameplay acceptance | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, preserves the blockade/King story consequences, and sends the Chicken Bucket source check. |
-| Chicken Bucket | Implemented / needs gameplay acceptance | AP receipt grants `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
+| Level 4 Hip Glasses | Native mapping verified / not implemented | Source `LEVEL_08_GLASSES_COLLECTED`; held item `HIP_GLASSES_BAG_ITEM`. The source becomes an AP check and the native item grant will be suppressed. |
+| Bucket Minion glasses trade | Native mapping verified / not implemented | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, grants Chicken Bucket, removes the blockade, and unlocks the King conversation. |
+| Chicken Bucket | Native mapping verified / not implemented | Held item `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
-| Garage cartridges | Implemented / needs gameplay acceptance | Five AP items reconcile to native bag/registered state; Vampire Killer remains a physical vanilla pickup required for Garage entry. Test all five across receipt, insertion, reload, and reconnect. |
+| Garage cartridges | Implemented / needs gameplay acceptance | Five AP items reconcile to native bag state plus AP slot-scoped inserted state; Vampire Killer remains a physical vanilla pickup required for Garage entry. Test all five across receipt, insertion, reload, and reconnect. |
 | Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers. The four I Got Money medals require Money Cassette. |
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | `Level_06 -> 110 -> I_GOT_MONEY` is randomized through `Level 2 - Money Cassette`; fresh-save and save-switch IL2CPP acceptance remain pending. |
 | Music Lab cassette-item randomization | Experimental test candidate / manual verification pending | All 30 mappings are present in v0.22. The 24 newly mapped songs and I Got Money Bee alias require individual gameplay evidence. |
@@ -576,16 +576,16 @@ flowchart TD
     DONE1[Roots basic traversal\nDONE]
     DONE2[Weed Killer randomization\nDONE]
     DONE3[Plant Pipes randomization\nDONE]
-    DONE4[Hip Glasses + Chicken Bucket\nIMPLEMENTED]
-    DONE5[Full cassette catalog\nIMPLEMENTED]
-    GARAGE[Garage cartridge persistence\nCURRENT]
-    ROOTSREST[Expand campaign checks + meaningful items]
+    L4[Discover Level 4 glasses\nNEXT]
+    TRADE[Discover Minim glasses trade]
+    BUCKET[Randomize Chicken Bucket]
+    ROOTSREST[Continue Roots meaningful-item chain]
     OTHER[Audit other major areas]
     STARS[Add generated AP Star requirements]
     DIFF[Finalize difficulty/check tables]
     STARTERS[Restore randomized starter areas]
 
-    DONE1 --> DONE2 --> DONE3 --> DONE4 --> DONE5 --> GARAGE --> ROOTSREST
+    DONE1 --> DONE2 --> DONE3 --> L4 --> TRADE --> BUCKET --> ROOTSREST
     ROOTSREST --> OTHER --> STARS --> DIFF --> STARTERS
 ```
 
@@ -599,7 +599,7 @@ Level 4 sets HIP_GLASSES_BAG_ITEM + LEVEL_08_GLASSES_COLLECTED
 → LEVEL_09_COMBO_ABILITY_EARNED records the conversion
 ```
 
-The Area Access source/item/trade design and native mappings are confirmed, and the Roots Hip Glasses/Chicken Bucket chain is implemented pending broader gameplay acceptance. The immediate repair target is durable AP-received Game Garage cartridge inventory. After that acceptance, development can expand campaign checks and meaningful-item logic to create enough safe location capacity for live individual Stars and the Level 22 victory condition.
+The Area Access source/item/trade design and native mappings are now confirmed. The next step is an implementation design covering source suppression, AP delivery, native consumption precedence, reload, reconnect, and received-item-history reconciliation. Permanent IDs remain unallocated until that design is approved and implementation is ready.
 
 ---
 

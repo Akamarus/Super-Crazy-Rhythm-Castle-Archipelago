@@ -1,4 +1,5 @@
 using RhythmCastleAP;
+using Newtonsoft.Json.Linq;
 
 static void Equal<T>(T expected, T actual, string scenario)
 {
@@ -27,6 +28,15 @@ static async Task Eventually(Func<bool> condition, string scenario)
     throw new InvalidOperationException($"{scenario}: condition was not met");
 }
 
+static (string Song, string Kind)? ClassifyProgressionFlag(string flag)
+{
+    GarageCartridgeProgressionFlag? classification =
+        GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
+    if (classification is not { } classified)
+        return null;
+    return (classified.Cartridge.Song, classified.Kind.ToString());
+}
+
 string[] expectedKeys =
 {
     "Bloody Tears|scrc:garage_inserted:v1:bloody_tears",
@@ -37,6 +47,43 @@ string[] expectedKeys =
 };
 Equal(string.Join("\n", expectedKeys), string.Join("\n", GarageCartridgeNativePolicy.RandomizedCartridges.Select(x => $"{x.Song}|{x.ServerInsertionKey}")), "the five versioned slot keys are exact and deterministic");
 False(GarageCartridgeNativePolicy.AllCartridges.Any(x => x.Song == "Vampire Killer" && x.ServerInsertionKey != ""), "Vampire Killer has no server key");
+False(GarageCartridgeNativePolicy.RandomizedCartridges.Any(x => x.Song == "Vampire Killer"),
+    "the focused persistence catalog excludes physical Vampire Killer from randomized cartridges");
+
+string[] exactSourceAliases =
+{
+    "Bloody Tears|LEVEL_27_CARTRIDGE_BLOODYTEARS_BAG_ITEM|LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED",
+    "Gradius Remix|LEVEL_27_CARTRIDGE_GRADIUS_BAG_ITEM|LEVEL_27_CARTRIDGE_GRADIUS_COLLECTED",
+    "Smooch|LEVEL_27_CARTRIDGE_SMOOCH_BAG_ITEM|LEVEL_27_CARTRIDGE_SMOOCH_COLLECTED",
+    "Superstar|LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM|LEVEL_27_CARTRIDGE_STAR_EATER_COLLECTED",
+    "Wag the Dog|LEVEL_27_CARTRIDGE_SUPER_CRAZY_RHYTHM_CASTLE_BAG_ITEM|LEVEL_27_CARTRIDGE_SUPER_CRAZY_RHYTHM_CASTLE_COLLECTED",
+};
+foreach (string expectedAlias in exactSourceAliases)
+{
+    string[] fields = expectedAlias.Split('|');
+    Equal((fields[0], "BagItem"), ClassifyProgressionFlag(fields[1]),
+        $"{fields[0]} exact bag alias is classified for native grant suppression");
+    Equal((fields[0], "Collected"), ClassifyProgressionFlag(fields[2]),
+        $"{fields[0]} exact collected alias is classified for its AP source check");
+    True(GarageCartridgeNativePolicy.ShouldSuppressVanillaSourceGrant(fields[1], true),
+        $"{fields[0]} exact bag alias is behaviorally suppressed for a Vampire-vanilla seed");
+    False(GarageCartridgeNativePolicy.ShouldSuppressVanillaSourceGrant(fields[2], true),
+        $"{fields[0]} collected source marker is retained while only its bag grant is suppressed");
+}
+
+Equal(("Vampire Killer", "BagItem"),
+    ClassifyProgressionFlag("LEVEL_27_CARTRIDGE_VAMPIREKILLER_BAG_ITEM"),
+    "the exact physical Vampire Killer bag alias remains cataloged");
+Equal(("Vampire Killer", "Collected"),
+    ClassifyProgressionFlag("LEVEL_27_CARTRIDGE_VAMPIREKILLER_COLLECTED"),
+    "the exact physical Vampire Killer collected alias remains cataloged");
+False(GarageCartridgeNativePolicy.ShouldSuppressVanillaSourceGrant(
+        "LEVEL_27_CARTRIDGE_VAMPIREKILLER_BAG_ITEM",
+        true),
+    "physical Vampire Killer remains vanilla and is never suppressed for a Vampire-vanilla seed");
+Equal<(string Song, string Kind)?>(null,
+    ClassifyProgressionFlag("LEVEL_27_CARTRIDGE_SUPERSTAR_BAG_ITEM"),
+    "a heuristic Superstar lookalike is not accepted as a native source alias");
 Equal(GarageNativeGrantDecision.WaitForServer, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, GarageInsertionServerValue.Unknown, true, false), "unknown server state fails closed");
 Equal(GarageNativeGrantDecision.ApplyBagItem, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, GarageInsertionServerValue.NotInserted, true, false), "known not-inserted missing bag grants once");
 Equal(GarageNativeGrantDecision.AlreadyInserted, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, GarageInsertionServerValue.Inserted, true, false), "inserted state is terminal");
@@ -235,6 +282,7 @@ True(garageSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal) &&
 static bool TryManagedReleasePoll(
     GarageCartridgeReconciliationAccess access,
     GarageInsertionServerValue serverValue,
+    bool currentVisitNativeBagObserved,
     bool releasedThisVisit,
     Action releaseAction)
 {
@@ -243,11 +291,124 @@ static bool TryManagedReleasePoll(
     {
         accepted = GarageCartridgeInsertionPolicy.ShouldReleaseObject(
             usesPhysicalVanillaEntrance: false,
-            serverValue);
+            serverValue,
+            currentVisitNativeBagObserved);
         if (accepted && !releasedThisVisit)
             current.Release(releaseAction);
     });
     return accepted;
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
+    var nativeObservations = new GarageCartridgeInsertionTracker();
+    var releaseActionCount = 0;
+    True(access.TryBegin(439, () => { }), "Garage-entry ordering generation begins");
+    keeperVisit.SynchronizeResetEpoch(1);
+
+    False(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "Garage entry cannot release while the periodic native timer is not due and no current-visit sample exists");
+    Equal(0, releaseActionCount,
+        "the object remains closed before the first authoritative current-visit bag sample");
+
+    False(nativeObservations.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: true,
+            inGarage: true,
+            releasedThisVisit: false),
+        "the first current-visit held sample records observation without insertion");
+    True(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "release becomes eligible only after the authoritative current-visit bag sample");
+    Equal(1, releaseActionCount, "post-sample release performs one real Unity action");
+    True(access.End(439, () => { }), "Garage-entry ordering generation ends");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
+    var nativeObservations = new GarageCartridgeInsertionTracker();
+    var releaseActionCount = 0;
+    True(access.TryBegin(440, () => { }), "save-reset release generation begins");
+    keeperVisit.SynchronizeResetEpoch(1);
+    False(nativeObservations.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: true,
+            inGarage: true,
+            releasedThisVisit: false),
+        "the pre-release native sample records held state without insertion");
+    True(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "a current-visit authoritative sample permits the first real release");
+    Equal(1, releaseActionCount, "the first release performs its real Unity action once");
+
+    // A save/processor reset clears access-side evidence. The keeper-local marker
+    // must consume the same reset epoch before another poll can claim release.
+    nativeObservations.Reset();
+    keeperVisit.SynchronizeResetEpoch(2);
+    False(nativeObservations.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: true,
+            inGarage: true,
+            releasedThisVisit: false),
+        "the post-reset native sample is authoritative but is not release evidence");
+    True(keeperVisit.Poll(
+            "Bloody Tears",
+            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
+                access,
+                GarageInsertionServerValue.NotInserted,
+                nativeObservations.HasAuthoritativeObservation("Bloody Tears"),
+                releasedThisVisit,
+                releaseAction),
+            () => releaseActionCount++,
+            () => { }),
+        "save or processor reset requires and permits a new real release after a fresh sample");
+    True(keeperVisit.WasReleased("Bloody Tears"),
+        "only the new real release rearms current-epoch release evidence");
+    Equal(2, releaseActionCount,
+        "post-reset polling cannot rearm release evidence without another real Unity action");
+    True(access.End(440, () => { }), "save-reset release generation ends");
 }
 
 {
@@ -264,6 +425,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 serverValue,
+                true,
                 releasedThisVisit,
                 releaseAction),
             () =>
@@ -285,6 +447,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 serverValue,
+                true,
                 releasedThisVisit,
                 releaseAction),
             () => releaseNotifications++,
@@ -298,6 +461,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 serverValue,
+                true,
                 releasedThisVisit,
                 releaseAction),
             () => releaseNotifications++,
@@ -326,6 +490,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
+                true,
                 releasedThisVisit,
                 releaseAction),
             () =>
@@ -342,6 +507,7 @@ static bool TryManagedReleasePoll(
             (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
                 access,
                 GarageInsertionServerValue.NotInserted,
+                true,
                 releasedThisVisit,
                 releaseAction),
             () => releaseNotifications++,
@@ -507,18 +673,223 @@ static bool TryManagedReleasePoll(
 
 var inserted = new GarageInsertionObservation(true, true, false, GarageInsertionServerValue.NotInserted, true, true, true, true, true, false);
 True(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted), "released AP cartridge held-to-absent transition records insertion");
+False(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted with
+    {
+        CurrentBagReadable = false,
+        CurrentBagHeld = true,
+    }),
+    "an unreadable current bag sample that carries a stale held value never records insertion");
 var cases = new[] { inserted with { InGarage = false }, inserted with { PreviousBagReadable = false }, inserted with { PreviousBagHeld = false }, inserted with { ReleasedThisVisit = false }, inserted with { ApOwned = false }, inserted with { ServerValue = GarageInsertionServerValue.Unknown }, inserted with { ServerValue = GarageInsertionServerValue.Inserted }, inserted with { Compatible = false }, inserted with { UsesPhysicalVanillaEntrance = true } };
 foreach (var observation in cases) False(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(observation), "insertion evidence gate");
-False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Unknown),
+False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Unknown, true),
     "randomized Garage cartridge stays unavailable while server insertion state is unknown");
-True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted),
+False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted, false),
+    "randomized Garage cartridge stays unavailable before a current-visit native bag sample");
+True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted, true),
     "randomized Garage cartridge releases only from authoritative not-inserted state");
-False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Inserted),
+False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Inserted, true),
     "inserted randomized Garage cartridge is never released");
-True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(true, GarageInsertionServerValue.Unknown),
+True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(true, GarageInsertionServerValue.Unknown, false),
     "physical vanilla Garage entrance remains independent of AP server insertion state");
 
 var cartridgeKeys = GarageCartridgeNativePolicy.RandomizedCartridges.ToDictionary(x => x.Song, x => x.ServerInsertionKey);
+
+{
+    var transport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        ReadBehavior = (_, _, _) => Task.FromResult<JToken>(JToken.FromObject(false)),
+    };
+    var adapter = new ArchipelagoGarageInsertionDataStore(transport);
+    Equal(GarageInsertionReadResult.KnownFalse,
+        await adapter.ReadAsync("scrc:garage_inserted:v1:bloody_tears", CancellationToken.None),
+        "an absent slot key initializes and reads back as known false");
+    Equal(1, transport.ReadInitialValues.Count,
+        "the production adapter initializes an absent key exactly once");
+    Equal(JTokenType.Boolean, transport.ReadInitialValues[0].Type,
+        "the absent-key initializer is a boolean token");
+    False(transport.ReadInitialValues[0].Value<bool>(),
+        "the absent-key initializer is the monotonic-safe false default");
+}
+
+{
+    var transport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        ReadBehavior = (_, _, _) => Task.FromResult<JToken>(JToken.FromObject("not-a-boolean")),
+    };
+    var adapter = new ArchipelagoGarageInsertionDataStore(transport);
+    GarageInsertionReadResult result = await adapter.ReadAsync(
+        "scrc:garage_inserted:v1:superstar",
+        CancellationToken.None);
+    Equal(GarageInsertionReadStatus.Malformed, result.Status,
+        "a non-boolean server token remains malformed and fails closed");
+    Equal("key='scrc:garage_inserted:v1:superstar' valueType='String'", result.Detail,
+        "malformed diagnostics name only the safe slot key and token type");
+    False(result.Detail.Contains("not-a-boolean", StringComparison.Ordinal),
+        "malformed diagnostics never expose the server value");
+}
+
+{
+    var exceptionTransport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        ReadBehavior = (_, _, _) => Task.FromException<JToken>(new InvalidOperationException("read failed")),
+    };
+    var canceledTransport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        ReadBehavior = (_, _, _) => Task.FromCanceled<JToken>(new CancellationToken(canceled: true)),
+    };
+    GarageInsertionReadResult exceptionResult = await new ArchipelagoGarageInsertionDataStore(exceptionTransport)
+        .ReadAsync("scrc:garage_inserted:v1:smooch", CancellationToken.None);
+    Equal(GarageInsertionReadStatus.Failed, exceptionResult.Status,
+        "a production adapter read exception fails closed");
+    Equal("key='scrc:garage_inserted:v1:smooch' failureType='InvalidOperationException'", exceptionResult.Detail,
+        "read exception diagnostics expose only the safe exception type");
+    GarageInsertionReadResult canceledResult = await new ArchipelagoGarageInsertionDataStore(canceledTransport)
+        .ReadAsync("scrc:garage_inserted:v1:smooch", CancellationToken.None);
+    Equal(GarageInsertionReadStatus.Failed, canceledResult.Status,
+        "a production adapter read cancellation fails closed");
+    Equal("key='scrc:garage_inserted:v1:smooch' failureType='canceled'", canceledResult.Detail,
+        "read cancellation diagnostics remain explicit and safe");
+}
+
+{
+    static ArchipelagoGarageInsertionDataStore AdapterFor(bool callbackConfirmed, bool rereadValue) =>
+        new(new FakeArchipelagoGarageInsertionStorageTransport
+        {
+            WriteBehavior = (_, _) => Task.FromResult(new GarageInsertionWriteConfirmation(
+                callbackConfirmed,
+                JToken.FromObject(rereadValue))),
+        });
+
+    Equal(GarageInsertionWriteResult.Failed,
+        await AdapterFor(callbackConfirmed: false, rereadValue: true)
+            .WriteTrueAsync("scrc:garage_inserted:v1:bloody_tears", CancellationToken.None),
+        "a false server callback cannot claim a durable write");
+    Equal(GarageInsertionWriteResult.Failed,
+        await AdapterFor(callbackConfirmed: true, rereadValue: false)
+            .WriteTrueAsync("scrc:garage_inserted:v1:bloody_tears", CancellationToken.None),
+        "a false authoritative reread cannot claim a durable write");
+    Equal(GarageInsertionWriteResult.Succeeded,
+        await AdapterFor(callbackConfirmed: true, rereadValue: true)
+            .WriteTrueAsync("scrc:garage_inserted:v1:bloody_tears", CancellationToken.None),
+        "only callback true plus reread true confirms a durable write");
+}
+
+{
+    var exceptionTransport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        WriteBehavior = (_, _) => Task.FromException<GarageInsertionWriteConfirmation>(
+            new InvalidOperationException("write failed")),
+    };
+    var canceledTransport = new FakeArchipelagoGarageInsertionStorageTransport
+    {
+        WriteBehavior = (_, _) => Task.FromCanceled<GarageInsertionWriteConfirmation>(
+            new CancellationToken(canceled: true)),
+    };
+    Equal(GarageInsertionWriteResult.Failed,
+        await new ArchipelagoGarageInsertionDataStore(exceptionTransport)
+            .WriteTrueAsync("scrc:garage_inserted:v1:wag_the_dog", CancellationToken.None),
+        "a production adapter write exception remains pending rather than durable");
+    Equal(GarageInsertionWriteResult.Failed,
+        await new ArchipelagoGarageInsertionDataStore(canceledTransport)
+            .WriteTrueAsync("scrc:garage_inserted:v1:wag_the_dog", CancellationToken.None),
+        "a production adapter write cancellation remains pending rather than durable");
+}
+
+Equal(
+    string.Join("\n", new[]
+    {
+        "GAME GARAGE INSERTION SYNC pending",
+        "GAME GARAGE INSERTION SYNC ready",
+        "GAME GARAGE INSERTION SYNC failed",
+        "GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED",
+        "GAME GARAGE INSERTION CANDIDATE ARMED",
+        "GAME GARAGE NATIVE CONSUMPTION OBSERVED",
+        "GAME GARAGE SERVER INSERTION WRITE PENDING",
+        "GAME GARAGE SERVER INSERTION CONFIRMED DURABLE",
+        "GAME GARAGE ALREADY INSERTED NO REGRANT",
+    }),
+    string.Join("\n", new[]
+    {
+        GarageCartridgeDiagnostics.SyncPendingMarker,
+        GarageCartridgeDiagnostics.SyncReadyMarker,
+        GarageCartridgeDiagnostics.SyncFailedMarker,
+        GarageCartridgeDiagnostics.NativeGrantAppliedMarker,
+        GarageCartridgeDiagnostics.CandidateArmedMarker,
+        GarageCartridgeDiagnostics.NativeConsumptionObservedMarker,
+        GarageCartridgeDiagnostics.ServerWritePendingMarker,
+        GarageCartridgeDiagnostics.ServerConfirmedDurableMarker,
+        GarageCartridgeDiagnostics.AlreadyInsertedNoRegrantMarker,
+    }),
+    "the production diagnostic contract retains every documented exact marker");
+
+{
+    var store = new FakeGarageInsertionDataStore();
+    var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
+    var diagnostics = new List<GarageCartridgeDiagnostic>();
+    coordinator.DiagnosticEmitted += diagnostics.Add;
+    coordinator.BeginConnection(70, store);
+    Equal("[SCRC-AP] GAME GARAGE INSERTION SYNC pending generation=70.", diagnostics.Single().Message,
+        "beginning synchronization emits the exact pending transition");
+    foreach (string key in store.ReadKeys)
+        store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
+    await Eventually(() => diagnostics.Count == 2, "ready synchronization emits its completion transition");
+    Equal("[SCRC-AP] GAME GARAGE INSERTION SYNC ready generation=70.", diagnostics[1].Message,
+        "five authoritative boolean reads emit the exact ready transition");
+    Equal(GarageCartridgeDiagnosticLevel.Info, diagnostics[1].Level,
+        "ready synchronization is informational");
+}
+
+{
+    var store = new FakeGarageInsertionDataStore();
+    var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
+    var diagnostics = new List<GarageCartridgeDiagnostic>();
+    coordinator.DiagnosticEmitted += diagnostics.Add;
+    coordinator.BeginConnection(71, store);
+    foreach (string key in store.ReadKeys)
+    {
+        store.CompleteNextRead(
+            key,
+            key == cartridgeKeys["Superstar"]
+                ? GarageInsertionReadResult.MalformedValue(key, JTokenType.String)
+                : GarageInsertionReadResult.KnownFalse);
+    }
+    await Eventually(() => diagnostics.Count == 2, "failed synchronization emits its completion transition");
+    True(diagnostics[1].Message.StartsWith(
+            "[SCRC-AP] GAME GARAGE INSERTION SYNC failed generation=71.",
+            StringComparison.Ordinal),
+        "a malformed value emits the exact failed transition");
+    True(diagnostics[1].Message.Contains(
+            "key='scrc:garage_inserted:v1:superstar' valueType='String'",
+            StringComparison.Ordinal),
+        "failed synchronization includes safe malformed key and value-type detail");
+    False(diagnostics[1].Message.Contains("not-a-boolean", StringComparison.Ordinal),
+        "failed synchronization cannot include a malformed raw value");
+    Equal(GarageCartridgeDiagnosticLevel.Warning, diagnostics[1].Level,
+        "failed synchronization is a warning");
+}
+
+Equal("[SCRC-AP] GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED generation=72 song='Superstar' flag='LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM'. The normal Garage insertion path remains player-controlled. submitted",
+    GarageCartridgeDiagnostics.NativeGrantApplied(
+        72,
+        "Superstar",
+        "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+        "submitted").Message,
+    "native grant submission emits the exact documented marker");
+Equal("[SCRC-AP] GAME GARAGE INSERTION CANDIDATE ARMED song='Superstar'.",
+    GarageCartridgeDiagnostics.CandidateArmed("Superstar").Message,
+    "a released held cartridge emits the exact candidate marker");
+Equal("[SCRC-AP] GAME GARAGE NATIVE CONSUMPTION OBSERVED song='Superstar'.",
+    GarageCartridgeDiagnostics.NativeConsumptionObserved("Superstar").Message,
+    "held-to-absent insertion emits the exact consumption marker");
+Equal("[SCRC-AP] GAME GARAGE SERVER INSERTION WRITE PENDING song='Superstar'.",
+    GarageCartridgeDiagnostics.ServerWritePending("Superstar").Message,
+    "in-memory insertion emits the exact write-pending marker");
+Equal("[SCRC-AP] GAME GARAGE SERVER INSERTION CONFIRMED DURABLE song='Superstar'.",
+    GarageCartridgeDiagnostics.ServerConfirmedDurable("Superstar").Message,
+    "confirmed callback plus reread emits the exact durable marker");
+Equal("[SCRC-AP] GAME GARAGE ALREADY INSERTED NO REGRANT generation=72 song='Superstar'.",
+    GarageCartridgeDiagnostics.AlreadyInsertedNoRegrant(72, "Superstar").Message,
+    "terminal insertion reconciliation emits the exact no-regrant marker");
 
 static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     IReadOnlyDictionary<string, string> keys,
@@ -703,7 +1074,8 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     coordinator.BeginConnection(1, store);
     False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
             false,
-            coordinator.GetServerValue("Bloody Tears")),
+            coordinator.GetServerValue("Bloody Tears"),
+            true),
         "keeper release policy rejects the coordinator's initial unknown state");
     store.CompleteNextRead(cartridgeKeys["Bloody Tears"], GarageInsertionReadResult.KnownTrue);
     await Eventually(
@@ -711,7 +1083,8 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         "coordinator transitions unknown insertion state to inserted");
     False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
             false,
-            coordinator.GetServerValue("Bloody Tears")),
+            coordinator.GetServerValue("Bloody Tears"),
+            true),
         "keeper release policy remains closed across unknown-to-inserted transition");
 }
 
@@ -853,6 +1226,26 @@ sealed class FakeGarageInsertionDataStore : IGarageInsertionDataStore
             throw new InvalidOperationException($"No pending operation for {key}.");
         return queue.Dequeue();
     }
+}
+
+sealed class FakeArchipelagoGarageInsertionStorageTransport : IArchipelagoGarageInsertionStorageTransport
+{
+    public Func<string, JToken, CancellationToken, Task<JToken>> ReadBehavior { get; set; } =
+        (_, _, _) => Task.FromResult<JToken>(JToken.FromObject(false));
+    public Func<string, CancellationToken, Task<GarageInsertionWriteConfirmation>> WriteBehavior { get; set; } =
+        (_, _) => Task.FromResult(new GarageInsertionWriteConfirmation(true, JToken.FromObject(true)));
+    public List<JToken> ReadInitialValues { get; } = new();
+
+    public Task<JToken> ReadAsync(string key, JToken initialValue, CancellationToken cancellationToken)
+    {
+        ReadInitialValues.Add(initialValue.DeepClone());
+        return ReadBehavior(key, initialValue, cancellationToken);
+    }
+
+    public Task<GarageInsertionWriteConfirmation> WriteTrueAndReadBackAsync(
+        string key,
+        CancellationToken cancellationToken) =>
+        WriteBehavior(key, cancellationToken);
 }
 
 sealed class GarageInsertionSequenceHarness

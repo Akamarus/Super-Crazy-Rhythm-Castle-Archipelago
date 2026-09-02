@@ -6,12 +6,45 @@ using Newtonsoft.Json.Linq;
 
 namespace RhythmCastleAP;
 
-internal enum GarageInsertionReadResult
+internal enum GarageInsertionReadStatus
 {
     KnownFalse,
     KnownTrue,
     Malformed,
     Failed,
+}
+
+internal readonly record struct GarageInsertionReadResult(
+    GarageInsertionReadStatus Status,
+    string Detail)
+{
+    internal static readonly GarageInsertionReadResult KnownFalse =
+        new(GarageInsertionReadStatus.KnownFalse, string.Empty);
+    internal static readonly GarageInsertionReadResult KnownTrue =
+        new(GarageInsertionReadStatus.KnownTrue, string.Empty);
+    internal static readonly GarageInsertionReadResult Malformed =
+        new(GarageInsertionReadStatus.Malformed, "valueType='unknown'");
+    internal static readonly GarageInsertionReadResult Failed =
+        new(GarageInsertionReadStatus.Failed, "failureType='unknown'");
+
+    internal static GarageInsertionReadResult MalformedValue(string key, JTokenType valueType) =>
+        new(
+            GarageInsertionReadStatus.Malformed,
+            $"key='{SafeField(key)}' valueType='{valueType}'");
+
+    internal static GarageInsertionReadResult ReadFailure(string key, string failureType) =>
+        new(
+            GarageInsertionReadStatus.Failed,
+            $"key='{SafeField(key)}' failureType='{SafeField(failureType)}'");
+
+    internal bool IsKnown =>
+        Status is GarageInsertionReadStatus.KnownFalse or GarageInsertionReadStatus.KnownTrue;
+
+    private static string SafeField(string value) =>
+        (value ?? string.Empty)
+            .Replace("'", "_", StringComparison.Ordinal)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Replace("\n", string.Empty, StringComparison.Ordinal);
 }
 
 internal enum GarageInsertionWriteResult
@@ -38,9 +71,12 @@ internal sealed class GarageCartridgeInsertionCoordinator
     private readonly object _gate = new();
     private readonly IReadOnlyDictionary<string, string> _keys;
     private readonly Dictionary<string, GarageInsertionEntryState> _entries;
+    private readonly HashSet<string> _initialReadAttempts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _initialReadFailures = new(StringComparer.Ordinal);
     private long _generation = long.MinValue;
     private IGarageInsertionDataStore? _store;
     private CancellationTokenSource? _connectionCancellation;
+    private bool _initialSyncDiagnosticEmitted;
 
     internal GarageCartridgeInsertionCoordinator(IEnumerable<KeyValuePair<string, string>> keys)
     {
@@ -61,6 +97,7 @@ internal sealed class GarageCartridgeInsertionCoordinator
     }
 
     internal event Action<string>? DurableInsertionConfirmed;
+    internal event Action<GarageCartridgeDiagnostic>? DiagnosticEmitted;
 
     internal bool InitialSyncReady
     {
@@ -90,6 +127,9 @@ internal sealed class GarageCartridgeInsertionCoordinator
             _store = store;
             _connectionCancellation = new CancellationTokenSource();
             cancellationToken = _connectionCancellation.Token;
+            _initialReadAttempts.Clear();
+            _initialReadFailures.Clear();
+            _initialSyncDiagnosticEmitted = false;
 
             foreach (var song in _keys.Keys)
             {
@@ -106,6 +146,7 @@ internal sealed class GarageCartridgeInsertionCoordinator
         }
 
         CancelAndDispose(previousCancellation);
+        DiagnosticEmitted?.Invoke(GarageCartridgeDiagnostics.SyncPending(generation));
         foreach (var pair in _keys)
             _ = ReadInitialValueAsync(generation, store, pair.Key, pair.Value, cancellationToken);
         RetryPendingWrites();
@@ -114,6 +155,7 @@ internal sealed class GarageCartridgeInsertionCoordinator
     internal void EndConnection(long generation)
     {
         CancellationTokenSource? cancellation;
+        GarageCartridgeDiagnostic? diagnostic = null;
         lock (_gate)
         {
             if (generation != _generation || _store is null)
@@ -122,6 +164,13 @@ internal sealed class GarageCartridgeInsertionCoordinator
             cancellation = _connectionCancellation;
             _connectionCancellation = null;
             _store = null;
+            if (!_initialSyncDiagnosticEmitted)
+            {
+                _initialSyncDiagnosticEmitted = true;
+                diagnostic = GarageCartridgeDiagnostics.SyncFailed(
+                    generation,
+                    "reason='connection ended before initial reads completed'.");
+            }
             foreach (var song in _keys.Keys)
             {
                 var entry = _entries[song];
@@ -130,6 +179,8 @@ internal sealed class GarageCartridgeInsertionCoordinator
         }
 
         CancelAndDispose(cancellation);
+        if (diagnostic is { } emitted)
+            DiagnosticEmitted?.Invoke(emitted);
     }
 
     internal void NoteInserted(string song)
@@ -191,25 +242,26 @@ internal sealed class GarageCartridgeInsertionCoordinator
         }
         catch (Exception)
         {
-            result = GarageInsertionReadResult.Failed;
+            result = GarageInsertionReadResult.ReadFailure(key, "data-store exception");
         }
 
+        GarageCartridgeDiagnostic? diagnostic = null;
         lock (_gate)
         {
             if (!IsCurrentConnection(generation, store))
                 return;
 
             var entry = _entries[song];
-            _entries[song] = result switch
+            _entries[song] = result.Status switch
             {
-                GarageInsertionReadResult.KnownTrue => entry with
+                GarageInsertionReadStatus.KnownTrue => entry with
                 {
                     ServerValue = GarageInsertionServerValue.Inserted,
                     InitialReadComplete = true,
                     WritePending = false,
                     WriteInFlight = false,
                 },
-                GarageInsertionReadResult.KnownFalse => entry with
+                GarageInsertionReadStatus.KnownFalse => entry with
                 {
                     ServerValue = entry.ServerValue == GarageInsertionServerValue.Inserted
                         ? GarageInsertionServerValue.Inserted
@@ -224,7 +276,45 @@ internal sealed class GarageCartridgeInsertionCoordinator
                     InitialReadComplete = false,
                 },
             };
+
+            _initialReadAttempts.Add(song);
+            if (result.IsKnown)
+            {
+                _initialReadFailures.Remove(song);
+            }
+            else
+            {
+                string detail = string.IsNullOrWhiteSpace(result.Detail)
+                    ? $"key='{key}' result='{result.Status}'"
+                    : result.Detail;
+                if (!detail.Contains("key='", StringComparison.Ordinal))
+                    detail = $"key='{key}' {detail}";
+                _initialReadFailures[song] = detail;
+            }
+
+            if (!_initialSyncDiagnosticEmitted && _initialReadAttempts.Count == _keys.Count)
+            {
+                _initialSyncDiagnosticEmitted = true;
+                if (_initialReadFailures.Count == 0)
+                {
+                    diagnostic = GarageCartridgeDiagnostics.SyncReady(generation);
+                }
+                else
+                {
+                    string failureDetail = string.Join(
+                        "; ",
+                        _keys.Keys
+                            .Where(_initialReadFailures.ContainsKey)
+                            .Select(failedSong => _initialReadFailures[failedSong]));
+                    diagnostic = GarageCartridgeDiagnostics.SyncFailed(
+                        generation,
+                        $"reads=[{failureDetail}].");
+                }
+            }
         }
+
+        if (diagnostic is { } emitted)
+            DiagnosticEmitted?.Invoke(emitted);
     }
 
     private void StartWriteIfRequired(string song)
@@ -312,36 +402,53 @@ internal sealed class GarageCartridgeInsertionCoordinator
     }
 }
 
+internal readonly record struct GarageInsertionWriteConfirmation(
+    bool CallbackConfirmed,
+    JToken RereadValue);
+
+internal interface IArchipelagoGarageInsertionStorageTransport
+{
+    Task<JToken> ReadAsync(string key, JToken initialValue, CancellationToken cancellationToken);
+    Task<GarageInsertionWriteConfirmation> WriteTrueAndReadBackAsync(
+        string key,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class ArchipelagoGarageInsertionDataStore : IGarageInsertionDataStore
 {
-    private readonly ArchipelagoSession _session;
+    private readonly IArchipelagoGarageInsertionStorageTransport _transport;
 
     internal ArchipelagoGarageInsertionDataStore(ArchipelagoSession session)
+        : this(new ArchipelagoGarageInsertionStorageTransport(session))
     {
-        _session = session ?? throw new ArgumentNullException(nameof(session));
+    }
+
+    internal ArchipelagoGarageInsertionDataStore(IArchipelagoGarageInsertionStorageTransport transport)
+    {
+        _transport = transport ?? throw new ArgumentNullException(nameof(transport));
     }
 
     public async Task<GarageInsertionReadResult> ReadAsync(string key, CancellationToken cancellationToken)
     {
         try
         {
-            DataStorageElement element = _session.DataStorage[Scope.Slot, key];
-            element.Initialize(JToken.FromObject(false));
-            JToken value = await element.GetAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+            JToken value = await _transport
+                .ReadAsync(key, JToken.FromObject(false), cancellationToken)
+                .ConfigureAwait(false);
             return value.Type switch
             {
                 JTokenType.Boolean when value.Value<bool>() => GarageInsertionReadResult.KnownTrue,
                 JTokenType.Boolean => GarageInsertionReadResult.KnownFalse,
-                _ => GarageInsertionReadResult.Malformed,
+                _ => GarageInsertionReadResult.MalformedValue(key, value.Type),
             };
         }
         catch (OperationCanceledException)
         {
-            return GarageInsertionReadResult.Failed;
+            return GarageInsertionReadResult.ReadFailure(key, "canceled");
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            return GarageInsertionReadResult.Failed;
+            return GarageInsertionReadResult.ReadFailure(key, exception.GetType().Name);
         }
     }
 
@@ -349,15 +456,12 @@ internal sealed class ArchipelagoGarageInsertionDataStore : IGarageInsertionData
     {
         try
         {
-            var callbackCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            DataStorageElement write = true;
-            _session.DataStorage[Scope.Slot, key] = write + Callback.Add(
-                (original, current, context) =>
-                    callbackCompletion.TrySetResult(current.Type == JTokenType.Boolean && current.Value<bool>()));
-
-            var callbackTrue = await callbackCompletion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-            JToken confirmed = await _session.DataStorage[Scope.Slot, key].GetAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
-            return callbackTrue && confirmed.Type == JTokenType.Boolean && confirmed.Value<bool>()
+            GarageInsertionWriteConfirmation confirmation = await _transport
+                .WriteTrueAndReadBackAsync(key, cancellationToken)
+                .ConfigureAwait(false);
+            return confirmation.CallbackConfirmed &&
+                   confirmation.RereadValue.Type == JTokenType.Boolean &&
+                   confirmation.RereadValue.Value<bool>()
                 ? GarageInsertionWriteResult.Succeeded
                 : GarageInsertionWriteResult.Failed;
         }
@@ -369,5 +473,46 @@ internal sealed class ArchipelagoGarageInsertionDataStore : IGarageInsertionData
         {
             return GarageInsertionWriteResult.Failed;
         }
+    }
+}
+
+internal sealed class ArchipelagoGarageInsertionStorageTransport : IArchipelagoGarageInsertionStorageTransport
+{
+    private readonly ArchipelagoSession _session;
+
+    internal ArchipelagoGarageInsertionStorageTransport(ArchipelagoSession session)
+    {
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+    }
+
+    public async Task<JToken> ReadAsync(
+        string key,
+        JToken initialValue,
+        CancellationToken cancellationToken)
+    {
+        DataStorageElement element = _session.DataStorage[Scope.Slot, key];
+        element.Initialize(initialValue);
+        return await element.GetAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<GarageInsertionWriteConfirmation> WriteTrueAndReadBackAsync(
+        string key,
+        CancellationToken cancellationToken)
+    {
+        var callbackCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        DataStorageElement write = true;
+        _session.DataStorage[Scope.Slot, key] = write + Callback.Add(
+            (original, current, context) =>
+                callbackCompletion.TrySetResult(
+                    current.Type == JTokenType.Boolean && current.Value<bool>()));
+
+        bool callbackConfirmed = await callbackCompletion.Task
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        JToken rereadValue = await _session.DataStorage[Scope.Slot, key]
+            .GetAsync()
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return new GarageInsertionWriteConfirmation(callbackConfirmed, rereadValue);
     }
 }

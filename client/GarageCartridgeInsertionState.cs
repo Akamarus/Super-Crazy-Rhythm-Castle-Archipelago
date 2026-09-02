@@ -66,8 +66,10 @@ internal static class GarageCartridgeInsertionPolicy
 
     internal static bool ShouldReleaseObject(
         bool usesPhysicalVanillaEntrance,
-        GarageInsertionServerValue serverValue) =>
-        usesPhysicalVanillaEntrance || serverValue == GarageInsertionServerValue.NotInserted;
+        GarageInsertionServerValue serverValue,
+        bool currentVisitNativeBagObserved) =>
+        usesPhysicalVanillaEntrance ||
+        (currentVisitNativeBagObserved && serverValue == GarageInsertionServerValue.NotInserted);
 }
 
 internal sealed class GarageCartridgeInsertionTracker
@@ -113,6 +115,10 @@ internal sealed class GarageCartridgeInsertionTracker
         _previous.TryGetValue(song, out GarageNativeBagObservation observation) &&
         observation.Readable &&
         observation.Held;
+
+    internal bool HasAuthoritativeObservation(string song) =>
+        _previous.TryGetValue(song, out GarageNativeBagObservation observation) &&
+        observation.Readable;
 
     internal void Reset() => _previous.Clear();
 
@@ -189,6 +195,16 @@ internal sealed class GarageCartridgeReconciliationLease
 internal sealed class GarageCartridgeReleaseVisitCoordinator
 {
     private readonly HashSet<string> _released = new(StringComparer.OrdinalIgnoreCase);
+    private long _resetEpoch = long.MinValue;
+
+    internal void SynchronizeResetEpoch(long resetEpoch)
+    {
+        if (_resetEpoch == resetEpoch)
+            return;
+
+        _released.Clear();
+        _resetEpoch = resetEpoch;
+    }
 
     internal bool Poll(
         string song,
