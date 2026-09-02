@@ -53,56 +53,20 @@ Equal(false,
 
 string[] expectedNativeMappings =
 {
-    "Bloody Tears|Bloody Tears Cartridge|LEVEL_27_CARTRIDGE_BLOODYTEARS_BAG_ITEM|LEVEL_27_CARTRIDGE_BLOODYTEARS",
-    "Gradius Remix|Gradius Remix Cartridge|LEVEL_27_CARTRIDGE_GRADIUS_BAG_ITEM|LEVEL_27_CARTRIDGE_GRADIUS",
-    "Smooch|Smooch Cartridge|LEVEL_27_CARTRIDGE_SMOOCH_BAG_ITEM|LEVEL_27_CARTRIDGE_SMOOCH",
-    "Superstar|Superstar Cartridge|LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM|LEVEL_27_CARTRIDGE_STAR_EATER",
-    "Wag the Dog|Wag the Dog Cartridge|LEVEL_27_CARTRIDGE_SUPER_CRAZY_RHYTHM_CASTLE_BAG_ITEM|LEVEL_27_CARTRIDGE_SUPER_CRAZY_RHYTHM_CASTLE",
+    "Bloody Tears|Bloody Tears Cartridge|LEVEL_27_CARTRIDGE_BLOODYTEARS_BAG_ITEM|BLOODY_TEARS|scrc:garage_inserted:v1:bloody_tears",
+    "Gradius Remix|Gradius Remix Cartridge|LEVEL_27_CARTRIDGE_GRADIUS_BAG_ITEM|GRADIUS_REMIX|scrc:garage_inserted:v1:gradius_remix",
+    "Smooch|Smooch Cartridge|LEVEL_27_CARTRIDGE_SMOOCH_BAG_ITEM|SMOOCH|scrc:garage_inserted:v1:smooch",
+    "Superstar|Superstar Cartridge|LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM|SUPERSTAR|scrc:garage_inserted:v1:superstar",
+    "Wag the Dog|Wag the Dog Cartridge|LEVEL_27_CARTRIDGE_SUPER_CRAZY_RHYTHM_CASTLE_BAG_ITEM|WAG_THE_DOG|scrc:garage_inserted:v1:wag_the_dog",
 };
 Equal(
     string.Join("\n", expectedNativeMappings),
     string.Join("\n", GarageCartridgeNativePolicy.RandomizedCartridges.Select(cartridge =>
-        $"{cartridge.Song}|{cartridge.ItemName}|{cartridge.NativeBagFlag}|{cartridge.NativeRegisteredFlag}")),
+        $"{cartridge.Song}|{cartridge.ItemName}|{cartridge.NativeBagFlag}|{cartridge.NativeCartridgeType}|{cartridge.ServerInsertionKey}")),
     "all five randomized cartridges use exact verified native mappings");
 Equal(false,
     GarageCartridgeNativePolicy.RandomizedCartridges.Any(cartridge =>
         string.Equals(cartridge.Song, "Vampire Killer", StringComparison.Ordinal)),
     "physical Vampire Killer is excluded from native AP reconciliation");
-
-Equal(GarageCartridgeNativeDecision.ApplyBagItem,
-    GarageCartridgeNativePolicy.Decide(
-        enabled: true,
-        receivedCount: 1,
-        nativeBagItemHeld: false,
-        nativeCartridgeRegistered: false),
-    "received AP cartridge restores a missing native bag item");
-Equal(GarageCartridgeNativeDecision.AlreadyHeld,
-    GarageCartridgeNativePolicy.Decide(
-        enabled: true,
-        receivedCount: 1,
-        nativeBagItemHeld: true,
-        nativeCartridgeRegistered: false),
-    "existing native bag item is idempotent");
-Equal(GarageCartridgeNativeDecision.AlreadyRegistered,
-    GarageCartridgeNativePolicy.Decide(
-        enabled: true,
-        receivedCount: 1,
-        nativeBagItemHeld: false,
-        nativeCartridgeRegistered: true),
-    "inserted cartridge is terminal and is not resurrected into the bag");
-Equal(GarageCartridgeNativeDecision.None,
-    GarageCartridgeNativePolicy.Decide(
-        enabled: false,
-        receivedCount: 1,
-        nativeBagItemHeld: false,
-        nativeCartridgeRegistered: false),
-    "incompatible seed preserves native behavior");
-Equal(GarageCartridgeNativeDecision.None,
-    GarageCartridgeNativePolicy.Decide(
-        enabled: true,
-        receivedCount: 0,
-        nativeBagItemHeld: false,
-        nativeCartridgeRegistered: false),
-    "unreceived cartridge is not granted");
 
 Console.WriteLine("Game Garage availability policy tests passed.");
