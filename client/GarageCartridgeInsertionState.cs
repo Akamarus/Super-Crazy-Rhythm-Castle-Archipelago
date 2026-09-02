@@ -63,6 +63,11 @@ internal static class GarageCartridgeInsertionPolicy
         observation.PreviousBagHeld &&
         observation.CurrentBagReadable &&
         !observation.CurrentBagHeld;
+
+    internal static bool ShouldReleaseObject(
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue) =>
+        usesPhysicalVanillaEntrance || serverValue == GarageInsertionServerValue.NotInserted;
 }
 
 internal sealed class GarageCartridgeInsertionTracker
@@ -99,7 +104,8 @@ internal sealed class GarageCartridgeInsertionTracker
             previous.Held,
             readable,
             held);
-        _previous[song] = new GarageNativeBagObservation(readable, held);
+        if (readable)
+            _previous[song] = new GarageNativeBagObservation(true, held);
         return GarageCartridgeInsertionPolicy.ShouldRecordInsertion(observation);
     }
 
@@ -111,4 +117,61 @@ internal sealed class GarageCartridgeInsertionTracker
     internal void Reset() => _previous.Clear();
 
     private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
+}
+
+internal sealed class GarageCartridgeReconciliationAccess
+{
+    private readonly GenerationLeaseGate _lifecycle = new();
+
+    internal bool TryBegin(long generation, Action begin) =>
+        _lifecycle.TryBegin(generation, begin);
+
+    internal bool End(long generation, Action end) =>
+        _lifecycle.End(generation, end);
+
+    internal bool EndActive(Action<long> end) =>
+        _lifecycle.EndActive(end);
+
+    internal bool TryRunCurrent(Action<GarageCartridgeReconciliationLease> reconcile)
+    {
+        ArgumentNullException.ThrowIfNull(reconcile);
+        if (!_lifecycle.TryAcquireCurrent(out long generation, out LifecycleLease? lifecycleLease))
+            return false;
+
+        using (lifecycleLease)
+        {
+            var reconciliationLease = new GarageCartridgeReconciliationLease(generation);
+            try
+            {
+                reconcile(reconciliationLease);
+                return true;
+            }
+            finally
+            {
+                reconciliationLease.Invalidate();
+            }
+        }
+    }
+}
+
+internal sealed class GarageCartridgeReconciliationLease
+{
+    private bool _active = true;
+
+    internal GarageCartridgeReconciliationLease(long generation)
+    {
+        Generation = generation;
+    }
+
+    internal long Generation { get; }
+
+    internal void Observe(Action observation)
+    {
+        ArgumentNullException.ThrowIfNull(observation);
+        if (!_active)
+            throw new ObjectDisposedException(nameof(GarageCartridgeReconciliationLease));
+        observation();
+    }
+
+    internal void Invalidate() => _active = false;
 }

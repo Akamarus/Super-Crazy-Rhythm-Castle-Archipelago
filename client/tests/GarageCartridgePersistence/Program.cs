@@ -62,6 +62,7 @@ string observeNativeBagMethod = MethodBody(garageSource, "public static void Obs
 string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
+string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool ShouldReleaseCartridgeObject(string song)", "internal sealed class GarageCartridgeAccessKeeper");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
@@ -131,14 +132,17 @@ True(nativeGrantMethod.Contains("GarageCartridgeInsertionPolicy.DecideGrant", St
     "native grants are gated by server insertion state");
 True(nativeGrantMethod.Contains("InsertionCoordinator.GetServerValue", StringComparison.Ordinal),
     "native grants read terminal insertion state from the coordinator");
-True(garageSource.Contains("private static readonly GenerationLeaseGate ServerSyncLifecycle = new();", StringComparison.Ordinal),
-    "Garage server synchronization uses a generation lease gate");
+True(garageSource.Contains("private static readonly GarageCartridgeReconciliationAccess ServerSyncLifecycle = new();", StringComparison.Ordinal),
+    "Garage server synchronization uses the non-recursive reconciliation access seam");
 True(garageSource.Contains("ServerSyncLifecycle.TryBegin(generation", StringComparison.Ordinal),
     "Garage begin is atomic with respect to an earlier close tombstone");
 True(garageSource.Contains("ServerSyncLifecycle.End(generation", StringComparison.Ordinal),
     "Garage end atomically invalidates its active generation");
-True(nativeGrantMethod.Contains("ServerSyncLifecycle.TryAcquireCurrent", StringComparison.Ordinal),
-    "native eligibility and mutation hold an active-generation lease through the grant");
+True(nativeGrantMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
+     nativeGrantMethod.Contains("current.Observe(() => ObserveNativeBagWithinLease", StringComparison.Ordinal),
+    "native observation, eligibility, and mutation share one active-generation lease through the grant");
+False(nativeGrantMethod.Contains("ObserveNativeBag(\n", StringComparison.Ordinal),
+    "native reconciliation does not recursively enter the public lease-acquiring observer");
 False(nativeGrantMethod.Contains("TryReadCartridgeCollected", StringComparison.Ordinal),
     "native cartridge-collected enquiries are not insertion state");
 False(nativeGrantMethod.Contains("HasGarageCartridgeBeenCollected", StringComparison.Ordinal),
@@ -156,6 +160,29 @@ True(pluginSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\"s
     "save selection and rebuild boundaries reset native bag evidence");
 True(garageSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\n                $\"room transition", StringComparison.Ordinal),
     "room transition resets visit-local native bag evidence before reconciliation");
+True(releaseGarageObjectMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
+     releaseGarageObjectMethod.Contains("InsertionCoordinator.InitialSyncReady", StringComparison.Ordinal) &&
+     releaseGarageObjectMethod.Contains("GarageCartridgeInsertionPolicy.ShouldReleaseObject", StringComparison.Ordinal),
+    "keeper release eligibility holds the current generation and requires authoritative insertion state");
+True(garageSource.Contains("bool releaseAllowed = GarageCartridgeAccess.ShouldReleaseCartridgeObject(cartridge.Song);", StringComparison.Ordinal) &&
+     garageSource.Contains("if (decision == GarageObjectDecision.Inactive || !releaseAllowed)", StringComparison.Ordinal),
+    "keeper deactivates randomized objects until authoritative not-inserted release eligibility exists");
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    True(access.TryBegin(41, () => { }), "production Garage reconciliation access begins a generation");
+    var observations = 0;
+    var decisions = 0;
+    True(access.TryRunCurrent(current =>
+    {
+        Equal(41L, current.Generation, "reconciliation access exposes the leased generation");
+        current.Observe(() => observations++);
+        decisions++;
+    }), "one production reconciliation access call owns observation and decision without recursive gate acquisition");
+    Equal(1, observations, "the leased observation executes exactly once");
+    Equal(1, decisions, "decision work executes under the same lease after observation");
+    True(access.End(41, () => { }), "production Garage reconciliation access ends the generation");
+}
 
 {
     var lifecycle = new GenerationLeaseGate();
@@ -309,6 +336,14 @@ var inserted = new GarageInsertionObservation(true, true, false, GarageInsertion
 True(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted), "released AP cartridge held-to-absent transition records insertion");
 var cases = new[] { inserted with { InGarage = false }, inserted with { PreviousBagReadable = false }, inserted with { PreviousBagHeld = false }, inserted with { ReleasedThisVisit = false }, inserted with { ApOwned = false }, inserted with { ServerValue = GarageInsertionServerValue.Unknown }, inserted with { ServerValue = GarageInsertionServerValue.Inserted }, inserted with { Compatible = false }, inserted with { UsesPhysicalVanillaEntrance = true } };
 foreach (var observation in cases) False(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(observation), "insertion evidence gate");
+False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Unknown),
+    "randomized Garage cartridge stays unavailable while server insertion state is unknown");
+True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted),
+    "randomized Garage cartridge releases only from authoritative not-inserted state");
+False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Inserted),
+    "inserted randomized Garage cartridge is never released");
+True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(true, GarageInsertionServerValue.Unknown),
+    "physical vanilla Garage entrance remains independent of AP server insertion state");
 
 var cartridgeKeys = GarageCartridgeNativePolicy.RandomizedCartridges.ToDictionary(x => x.Song, x => x.ServerInsertionKey);
 
@@ -337,6 +372,45 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         "a missing bag outside Garage requests the native AP grant");
     Equal(0, sequence.Store.WriteKeys.Count,
         "a missing bag outside Garage never submits an insertion write");
+}
+
+{
+    var sequence = await CreateSequenceHarness(cartridgeKeys);
+    False(sequence.Observe(readable: true, held: true, inGarage: true),
+        "authoritative held sample arms the real Garage sequence");
+    sequence.NoteGarageObjectReleased();
+    False(sequence.Observe(readable: false, held: false, inGarage: true),
+        "an unreadable poll never implies cartridge absence");
+    True(sequence.Observe(readable: true, held: false, inGarage: true),
+        "held and readable through release, unreadable, then absent and readable records insertion");
+    Equal(1, sequence.Store.WriteKeys.Count,
+        "unreadable interstitial poll preserves the last authoritative held sample for one insertion write");
+}
+
+{
+    var tracker = new GarageCartridgeInsertionTracker();
+    False(tracker.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: false,
+            held: false,
+            inGarage: true,
+            releasedThisVisit: true),
+        "an unreadable sample with no authoritative history never records absence");
+    False(tracker.Observe(
+            "Bloody Tears",
+            compatible: true,
+            apOwned: true,
+            usesPhysicalVanillaEntrance: false,
+            GarageInsertionServerValue.NotInserted,
+            readable: true,
+            held: false,
+            inGarage: true,
+            releasedThisVisit: true),
+        "a later first readable absence still has no invented held evidence");
 }
 
 {
@@ -448,6 +522,24 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     coordinator.BeginConnection(1, store);
     Equal(string.Join("\n", expectedKeys.Select(x => x[(x.IndexOf('|') + 1)..])), string.Join("\n", store.ReadKeys), "beginning a connection reads every exact slot key once");
+}
+
+{
+    var store = new FakeGarageInsertionDataStore();
+    var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
+    coordinator.BeginConnection(1, store);
+    False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+            false,
+            coordinator.GetServerValue("Bloody Tears")),
+        "keeper release policy rejects the coordinator's initial unknown state");
+    store.CompleteNextRead(cartridgeKeys["Bloody Tears"], GarageInsertionReadResult.KnownTrue);
+    await Eventually(
+        () => coordinator.GetServerValue("Bloody Tears") == GarageInsertionServerValue.Inserted,
+        "coordinator transitions unknown insertion state to inserted");
+    False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+            false,
+            coordinator.GetServerValue("Bloody Tears")),
+        "keeper release policy remains closed across unknown-to-inserted transition");
 }
 
 {
