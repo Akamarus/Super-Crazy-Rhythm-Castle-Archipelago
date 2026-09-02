@@ -8,5 +8,7 @@
   <ItemGroup>
     <Compile Include="..\..\GarageCartridgeNativePolicy.cs" Link="GarageCartridgeNativePolicy.cs" />
     <Compile Include="..\..\GarageCartridgeInsertionState.cs" Link="GarageCartridgeInsertionState.cs" />
+    <Compile Include="..\..\GarageCartridgeInsertionStorage.cs" Link="GarageCartridgeInsertionStorage.cs" />
+    <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
   </ItemGroup>
 </Project>
