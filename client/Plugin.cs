@@ -1265,9 +1265,8 @@ internal sealed class ArchipelagoClient
     private readonly ReconnectPolicy _reconnectPolicy = new();
     private readonly CancellationTokenSource _shutdownToken = new();
 
-    private ArchipelagoSession? _session;
+    private readonly SessionGenerationLeaseGate<ArchipelagoSession> ConnectionLifecycle = new();
     private long _connectionGeneration;
-    private long _currentConnectionGeneration = long.MinValue;
     private volatile bool _connected;
     private int _reconnectWorkerActive;
     private readonly HashSet<int> _processedReceivedItemIndexes = new();
@@ -1308,100 +1307,102 @@ internal sealed class ArchipelagoClient
 
             session.Socket.SocketOpened += () =>
             {
-                if (!IsCurrentSession(session, generation))
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease))
                     return;
-                Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET socket-opened");
+                using (callbackLease)
+                    Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET socket-opened");
             };
 
             session.Socket.SocketClosed += reason =>
             {
-                if (!IsCurrentSession(session, generation))
+                if (!ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
                     return;
                 GarageCartridgeAccess.EndServerSync(generation);
-                _connected = false;
                 Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{reason}'");
                 RequestReconnect($"socket closed: {reason}");
             };
 
             session.Socket.ErrorReceived += (exception, message) =>
             {
-                if (!IsCurrentSession(session, generation))
-                    return;
-                Plugin.LoggerInstance?.LogError(
-                    $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
                 if (!session.Socket.Connected)
                 {
+                    if (!ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
+                        return;
                     GarageCartridgeAccess.EndServerSync(generation);
-                    _connected = false;
+                    Plugin.LoggerInstance?.LogError(
+                        $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
                     RequestReconnect($"terminal socket error: {message}");
+                    return;
                 }
+
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease))
+                    return;
+                using (callbackLease)
+                    Plugin.LoggerInstance?.LogError(
+                        $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
             };
 
             session.Items.ItemReceived += helper =>
             {
-                if (!IsCurrentSession(session, generation))
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease))
                     return;
-                try
+                using (callbackLease)
                 {
-                    while (helper.Any())
+                    try
                     {
-                        if (!IsCurrentSession(session, generation))
-                            return;
-                        int itemIndex = helper.Index;
-                        var item = helper.DequeueItem();
-                        bool firstProcessing;
-                        lock (_lock)
-                            firstProcessing = _processedReceivedItemIndexes.Add(itemIndex);
-                        if (!firstProcessing)
+                        while (helper.Any())
                         {
-                            Plugin.LoggerInstance?.LogInfo(
-                                $"[SCRC-AP] ITEM HISTORY REPLAY SKIPPED index={itemIndex} name='{item.ItemName}'.");
-                            continue;
-                        }
-                        Plugin.LoggerInstance?.LogInfo(
-                            $"[SCRC-AP] ITEM RECEIVED id={item.ItemId} name='{item.ItemName}' from='{item.Player?.Name ?? "unknown"}'");
-
-                        try
-                        {
-                            // Area Access is core routing state in APWorld v0.13+, not an
-                            // experimental native-save mutation. Always consume these six
-                            // item names when Area Access routing is enabled.
-                            ReceivedItemDispatch.TryApply(
-                                item.ItemName,
-                                _applyReceivedProgression,
-                                AreaAccessPrototype.TryApplyItem,
-                                GarageCartridgeAccess.TryApplyItem,
-                                WeedKillerRandomization.TryApplyItem,
-                                PlantPipesRandomization.TryApplyItem,
-                                PreviewAbilityRandomization.TryApplyItem,
-                                RootsBucketRandomization.TryApplyItem,
-                                CassetteReceiptRandomization.TryApplyItem,
-                                NativeProgression.ApplyArchipelagoItem);
-                        }
-                        catch (Exception ex)
-                        {
+                            int itemIndex = helper.Index;
+                            var item = helper.DequeueItem();
+                            bool firstProcessing;
                             lock (_lock)
-                                _processedReceivedItemIndexes.Remove(itemIndex);
-                            Plugin.LoggerInstance?.LogError(
-                                $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
+                                firstProcessing = _processedReceivedItemIndexes.Add(itemIndex);
+                            if (!firstProcessing)
+                            {
+                                Plugin.LoggerInstance?.LogInfo(
+                                    $"[SCRC-AP] ITEM HISTORY REPLAY SKIPPED index={itemIndex} name='{item.ItemName}'.");
+                                continue;
+                            }
+                            Plugin.LoggerInstance?.LogInfo(
+                                $"[SCRC-AP] ITEM RECEIVED id={item.ItemId} name='{item.ItemName}' from='{item.Player?.Name ?? "unknown"}'");
+
+                            try
+                            {
+                                // Area Access is core routing state in APWorld v0.13+, not an
+                                // experimental native-save mutation. Always consume these six
+                                // item names when Area Access routing is enabled.
+                                ReceivedItemDispatch.TryApply(
+                                    item.ItemName,
+                                    _applyReceivedProgression,
+                                    AreaAccessPrototype.TryApplyItem,
+                                    GarageCartridgeAccess.TryApplyItem,
+                                    WeedKillerRandomization.TryApplyItem,
+                                    PlantPipesRandomization.TryApplyItem,
+                                    PreviewAbilityRandomization.TryApplyItem,
+                                    RootsBucketRandomization.TryApplyItem,
+                                    CassetteReceiptRandomization.TryApplyItem,
+                                    NativeProgression.ApplyArchipelagoItem);
+                            }
+                            catch (Exception ex)
+                            {
+                                lock (_lock)
+                                    _processedReceivedItemIndexes.Remove(itemIndex);
+                                Plugin.LoggerInstance?.LogError(
+                                    $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Plugin.LoggerInstance?.LogError($"[SCRC-AP] Error while reading received item: {ex}");
+                    catch (Exception ex)
+                    {
+                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Error while reading received item: {ex}");
+                    }
                 }
             };
 
-            ArchipelagoSession? previous;
-            long previousGeneration;
-            lock (_lock)
-            {
-                previous = _session;
-                previousGeneration = _currentConnectionGeneration;
-                _session = session;
-                _currentConnectionGeneration = generation;
-            }
+            GenerationSession<ArchipelagoSession> replaced =
+                ConnectionLifecycle.Replace(session, generation, () => _connected = false);
+            ArchipelagoSession? previous = replaced.Session;
+            long previousGeneration = replaced.Generation;
             if (previous != null && !ReferenceEquals(previous, session))
             {
                 GarageCartridgeAccess.EndServerSync(previousGeneration);
@@ -1424,8 +1425,8 @@ internal sealed class ArchipelagoClient
 
             if (!result.Successful)
             {
-                GarageCartridgeAccess.EndServerSync(generation);
                 ClearCurrentSession(session, generation);
+                GarageCartridgeAccess.EndServerSync(generation);
                 _ = session.Socket.DisconnectAsync();
                 if (result is LoginFailure failure)
                     Plugin.LoggerInstance?.LogError(
@@ -1437,21 +1438,32 @@ internal sealed class ArchipelagoClient
 
             if (result is LoginSuccessful loginSuccess)
             {
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? loginLease))
+                    return false;
                 try
                 {
-                    AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
-                    IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
-                    RootsStartupBootstrap.ApplySlotData(loginSuccess.SlotData);
-                    GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
-                    WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
-                    PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
-                    CassetteReceiptRandomization.ApplySlotData(loginSuccess.SlotData);
-                    CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
-                    PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
-                    BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
-                    RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
-                    if (GarageCartridgeAccess.Enabled)
-                        GarageCartridgeAccess.BeginServerSync(session, generation);
+                    using (loginLease)
+                    {
+                        AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
+                        IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
+                        RootsStartupBootstrap.ApplySlotData(loginSuccess.SlotData);
+                        GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
+                        WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
+                        PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
+                        CassetteReceiptRandomization.ApplySlotData(loginSuccess.SlotData);
+                        CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
+                        PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
+                        BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
+                        RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
+                        if (GarageCartridgeAccess.Enabled &&
+                            !GarageCartridgeAccess.BeginServerSync(session, generation))
+                            throw new InvalidOperationException(
+                                $"Garage inserted-state synchronization generation {generation} was already ended.");
+                        _connected = true;
+                        _reconnectPolicy.OnConnected();
+                        Plugin.LoggerInstance?.LogInfo(
+                            $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1463,11 +1475,11 @@ internal sealed class ArchipelagoClient
                     return false;
                 }
             }
-
-            _connected = true;
-            _reconnectPolicy.OnConnected();
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Successful login returned unexpected result type '{result.GetType().FullName}'.");
+            }
 
             FlushPendingChecks();
             GarageCartridgeAccess.RequestUnityReconciliation("Archipelago connected");
@@ -1492,38 +1504,20 @@ internal sealed class ArchipelagoClient
 
     public void Shutdown()
     {
-        _connected = false;
         _reconnectPolicy.OnDeliberateShutdown();
         _shutdownToken.Cancel();
-        ArchipelagoSession? session;
-        long generation;
-        lock (_lock)
-        {
-            session = _session;
-            generation = _currentConnectionGeneration;
-            _session = null;
-            _currentConnectionGeneration = long.MinValue;
-        }
+        GenerationSession<ArchipelagoSession> current =
+            ConnectionLifecycle.EndCurrent(() => _connected = false);
+        ArchipelagoSession? session = current.Session;
+        long generation = current.Generation;
         GarageCartridgeAccess.EndServerSync(generation);
         if (session != null)
             _ = session.Socket.DisconnectAsync();
     }
 
-    private bool IsCurrentSession(ArchipelagoSession session, long generation)
-    {
-        lock (_lock)
-            return ReferenceEquals(_session, session) && _currentConnectionGeneration == generation;
-    }
-
     private void ClearCurrentSession(ArchipelagoSession session, long generation)
     {
-        lock (_lock)
-        {
-            if (!ReferenceEquals(_session, session) || _currentConnectionGeneration != generation)
-                return;
-            _session = null;
-            _currentConnectionGeneration = long.MinValue;
-        }
+        ConnectionLifecycle.TryEnd(session, generation, () => _connected = false);
     }
 
     private void RequestReconnect(string reason)
@@ -1588,42 +1582,46 @@ internal sealed class ArchipelagoClient
 
     private void FlushPendingChecks()
     {
-        ArchipelagoSession? session;
-        long generation;
-        lock (_lock)
-        {
-            session = _session;
-            generation = _currentConnectionGeneration;
-        }
-        if (!_connected || session == null)
+        if (!_connected ||
+            !ConnectionLifecycle.TryAcquireCurrent(
+                out ArchipelagoSession? session,
+                out long generation,
+                out LifecycleLease? sessionLease) ||
+            session == null)
             return;
 
-        while (_pendingChecks.TryDequeue(out string? locationName))
+        bool sendFailed = false;
+        using (sessionLease)
         {
-            try
+            while (_pendingChecks.TryDequeue(out string? locationName))
             {
-                long id = session.Locations.GetLocationIdFromName(Plugin.GameName, locationName);
-                if (id < 0)
+                try
                 {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] Location '{locationName}' is not in the connected datapackage; keeping it local only.");
-                    continue;
-                }
+                    long id = session.Locations.GetLocationIdFromName(Plugin.GameName, locationName);
+                    if (id < 0)
+                    {
+                        Plugin.LoggerInstance?.LogWarning(
+                            $"[SCRC-AP] Location '{locationName}' is not in the connected datapackage; keeping it local only.");
+                        continue;
+                    }
 
-                session.Locations.CompleteLocationChecks(id);
-                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SENT CHECK '{locationName}' ({id}).");
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogError($"[SCRC-AP] Failed to send '{locationName}': {ex.GetBaseException().Message}");
-                _pendingChecks.Enqueue(locationName);
-                if (IsCurrentSession(session, generation))
-                {
-                    _connected = false;
-                    RequestReconnect("location check send failed");
+                    session.Locations.CompleteLocationChecks(id);
+                    Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SENT CHECK '{locationName}' ({id}).");
                 }
-                break;
+                catch (Exception ex)
+                {
+                    Plugin.LoggerInstance?.LogError($"[SCRC-AP] Failed to send '{locationName}': {ex.GetBaseException().Message}");
+                    _pendingChecks.Enqueue(locationName);
+                    sendFailed = true;
+                    break;
+                }
             }
+        }
+
+        if (sendFailed && ConnectionLifecycle.TryEnd(session, generation, () => _connected = false))
+        {
+            GarageCartridgeAccess.EndServerSync(generation);
+            RequestReconnect("location check send failed");
         }
     }
 }
@@ -20507,6 +20505,7 @@ internal static class GarageCartridgeAccess
     private static readonly GarageCartridgeInsertionCoordinator InsertionCoordinator = new(
         GarageCartridgeNativePolicy.RandomizedCartridges.Select(cartridge =>
             new KeyValuePair<string, string>(cartridge.Song, cartridge.ServerInsertionKey)));
+    private static readonly GenerationLeaseGate ServerSyncLifecycle = new();
     private static readonly PreviewAbilityReconcileDispatcher UnityDispatcher = new();
     private static readonly HashSet<string> OwnedSongs = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, GarageNativeGrantDecision> LastNativeDecisions =
@@ -20516,7 +20515,6 @@ internal static class GarageCartridgeAccess
     private static readonly HashSet<string> NativeGrantAppliedLogged =
         new(StringComparer.OrdinalIgnoreCase);
     private static object? _playerSaveRequestProcessor;
-    private static long _serverSyncGeneration = long.MinValue;
 
     [ThreadStatic]
     private static int _applyingArchipelagoGrant;
@@ -20528,11 +20526,8 @@ internal static class GarageCartridgeAccess
 
     public static void Configure()
     {
-        long generation;
-        lock (Sync)
-            generation = _serverSyncGeneration;
-        if (generation != long.MinValue)
-            EndServerSync(generation);
+        ServerSyncLifecycle.EndActive(generation =>
+            InsertionCoordinator.EndConnection(generation));
 
         Enabled = false;
         SourceRandomizationEnabled = false;
@@ -20569,35 +20564,31 @@ internal static class GarageCartridgeAccess
         return false;
     }
 
-    public static void BeginServerSync(ArchipelagoSession session, long generation)
+    public static bool BeginServerSync(ArchipelagoSession session, long generation)
     {
         if (!Enabled)
-            return;
+            return false;
 
-        lock (Sync)
-            _serverSyncGeneration = generation;
-        InsertionCoordinator.BeginConnection(
-            generation,
-            new ArchipelagoGarageInsertionDataStore(session));
+        bool began = ServerSyncLifecycle.TryBegin(generation, () =>
+            InsertionCoordinator.BeginConnection(
+                generation,
+                new ArchipelagoGarageInsertionDataStore(session)));
+        if (!began)
+            return false;
         ResetNativeBagObservations("server synchronization started");
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] GAME GARAGE CARTRIDGE inserted-state synchronization pending generation={generation}.");
         RequestUnityReconciliation("Garage inserted-state synchronization started");
+        return true;
     }
 
     public static void EndServerSync(long generation)
     {
-        bool ended;
-        lock (Sync)
-        {
-            ended = _serverSyncGeneration == generation;
-            if (ended)
-                _serverSyncGeneration = long.MinValue;
-        }
+        bool ended = ServerSyncLifecycle.End(generation, () =>
+            InsertionCoordinator.EndConnection(generation));
         if (!ended)
             return;
 
-        InsertionCoordinator.EndConnection(generation);
         ResetNativeBagObservations("server synchronization ended");
         UnityDispatcher.Clear();
         Plugin.LoggerInstance?.LogInfo(
@@ -20640,94 +20631,101 @@ internal static class GarageCartridgeAccess
     {
         if (_applyingArchipelagoGrant != 0)
             return;
-
-        object? processor;
-        bool enabled;
-        HashSet<string> ownedSongs;
-        lock (Sync)
-        {
-            processor = _playerSaveRequestProcessor;
-            enabled = Enabled;
-            ownedSongs = new HashSet<string>(OwnedSongs, StringComparer.OrdinalIgnoreCase);
-        }
-
-        if (!enabled || processor == null || ownedSongs.Count == 0)
+        if (!ServerSyncLifecycle.TryAcquireCurrent(
+                out long generation,
+                out LifecycleLease? serverSyncLease))
             return;
 
-        bool initialSyncReady = InsertionCoordinator.InitialSyncReady;
-        foreach (GarageCartridgeNativeDefinition cartridge in Cartridges)
+        using (serverSyncLease)
         {
-            if (!ownedSongs.Contains(cartridge.Song) ||
-                cartridge.UsesPhysicalVanillaEntrance)
-                continue;
-
-            bool bagReadable = RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeBagFlag, out bool bagHeld);
-            GarageInsertionServerValue serverValue = initialSyncReady
-                ? InsertionCoordinator.GetServerValue(cartridge.Song)
-                : GarageInsertionServerValue.Unknown;
-            GarageNativeGrantDecision decision = GarageCartridgeInsertionPolicy.DecideGrant(
-                compatible: enabled,
-                apOwned: true,
-                usesPhysicalVanillaEntrance: cartridge.UsesPhysicalVanillaEntrance,
-                serverValue,
-                nativeBagReadable: bagReadable,
-                nativeBagHeld: bagHeld);
-
-            bool decisionChanged;
+            object? processor;
+            bool enabled;
+            HashSet<string> ownedSongs;
             lock (Sync)
             {
-                decisionChanged = !LastNativeDecisions.TryGetValue(cartridge.Song, out GarageNativeGrantDecision previous) ||
-                                  previous != decision;
-                LastNativeDecisions[cartridge.Song] = decision;
-            }
-            if (decisionChanged && decision != GarageNativeGrantDecision.ApplyBagItem)
-            {
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] GAME GARAGE CARTRIDGE native reconciliation song='{cartridge.Song}' result='{decision}' serverValue='{serverValue}' bagReadable={bagReadable} bagHeld={bagHeld}.");
+                processor = _playerSaveRequestProcessor;
+                enabled = Enabled;
+                ownedSongs = new HashSet<string>(OwnedSongs, StringComparer.OrdinalIgnoreCase);
             }
 
-            if (decision != GarageNativeGrantDecision.ApplyBagItem)
-                continue;
+            if (!enabled || processor == null || ownedSongs.Count == 0)
+                return;
 
-            _applyingArchipelagoGrant++;
-            bool submitted;
-            string detail;
-            try
+            bool initialSyncReady = InsertionCoordinator.InitialSyncReady;
+            foreach (GarageCartridgeNativeDefinition cartridge in Cartridges)
             {
-                submitted = WeedKillerRandomization.TrySubmitProgressionFlag(
-                    processor,
-                    cartridge.NativeBagFlag,
-                    true,
-                    out detail);
-            }
-            finally
-            {
-                _applyingArchipelagoGrant--;
-            }
+                if (!ownedSongs.Contains(cartridge.Song) ||
+                    cartridge.UsesPhysicalVanillaEntrance)
+                    continue;
 
-            if (!submitted)
-            {
-                bool log;
+                bool bagReadable = RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeBagFlag, out bool bagHeld);
+                GarageInsertionServerValue serverValue = initialSyncReady
+                    ? InsertionCoordinator.GetServerValue(cartridge.Song)
+                    : GarageInsertionServerValue.Unknown;
+                GarageNativeGrantDecision decision = GarageCartridgeInsertionPolicy.DecideGrant(
+                    compatible: enabled,
+                    apOwned: true,
+                    usesPhysicalVanillaEntrance: cartridge.UsesPhysicalVanillaEntrance,
+                    serverValue,
+                    nativeBagReadable: bagReadable,
+                    nativeBagHeld: bagHeld);
+
+                bool decisionChanged;
                 lock (Sync)
-                    log = NativeGrantPendingLogged.Add(cartridge.Song);
-                if (log)
+                {
+                    decisionChanged = !LastNativeDecisions.TryGetValue(cartridge.Song, out GarageNativeGrantDecision previous) ||
+                                      previous != decision;
+                    LastNativeDecisions[cartridge.Song] = decision;
+                }
+                if (decisionChanged && decision != GarageNativeGrantDecision.ApplyBagItem)
+                {
+                    Plugin.LoggerInstance?.LogInfo(
+                        $"[SCRC-AP] GAME GARAGE CARTRIDGE native reconciliation generation={generation} song='{cartridge.Song}' result='{decision}' serverValue='{serverValue}' bagReadable={bagReadable} bagHeld={bagHeld}.");
+                }
+
+                if (decision != GarageNativeGrantDecision.ApplyBagItem)
+                    continue;
+
+                _applyingArchipelagoGrant++;
+                bool submitted;
+                string detail;
+                try
+                {
+                    submitted = WeedKillerRandomization.TrySubmitProgressionFlag(
+                        processor,
+                        cartridge.NativeBagFlag,
+                        true,
+                        out detail);
+                }
+                finally
+                {
+                    _applyingArchipelagoGrant--;
+                }
+
+                if (!submitted)
+                {
+                    bool log;
+                    lock (Sync)
+                        log = NativeGrantPendingLogged.Add(cartridge.Song);
+                    if (log)
+                    {
+                        Plugin.LoggerInstance?.LogWarning(
+                            $"[SCRC-AP] GAME GARAGE CARTRIDGE native grant pending generation={generation} song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. {detail}");
+                    }
+                    continue;
+                }
+
+                bool appliedLog;
+                lock (Sync)
+                {
+                    NativeGrantPendingLogged.Remove(cartridge.Song);
+                    appliedLog = NativeGrantAppliedLogged.Add(cartridge.Song);
+                }
+                if (appliedLog)
                 {
                     Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] GAME GARAGE CARTRIDGE native grant pending song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. {detail}");
+                        $"[SCRC-AP] GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED generation={generation} song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. The normal Garage insertion path remains player-controlled. {detail}");
                 }
-                continue;
-            }
-
-            bool appliedLog;
-            lock (Sync)
-            {
-                NativeGrantPendingLogged.Remove(cartridge.Song);
-                appliedLog = NativeGrantAppliedLogged.Add(cartridge.Song);
-            }
-            if (appliedLog)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GAME GARAGE CARTRIDGE NATIVE GRANT APPLIED song='{cartridge.Song}' flag='{cartridge.NativeBagFlag}'. The normal Garage insertion path remains player-controlled. {detail}");
             }
         }
     }

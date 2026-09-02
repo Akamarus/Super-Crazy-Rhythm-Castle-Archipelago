@@ -50,7 +50,7 @@ Equal(GarageNativeGrantDecision.WaitForServer, GarageCartridgeInsertionPolicy.De
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 string storageSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "GarageCartridgeInsertionStorage.cs"));
 string connectMethod = MethodBody(pluginSource, "private bool TryConnectOnce()", "public void Shutdown()");
-string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private bool IsCurrentSession(");
+string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private void ClearCurrentSession(");
 int garageClassStart = pluginSource.IndexOf("internal static class GarageCartridgeAccess", StringComparison.Ordinal);
 if (garageClassStart < 0)
     throw new InvalidOperationException("Could not locate GarageCartridgeAccess.");
@@ -63,19 +63,26 @@ int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.I
 int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(_server)", StringComparison.Ordinal);
 True(pluginSource.Contains("private long _connectionGeneration;", StringComparison.Ordinal),
     "ArchipelagoClient owns the connection generation");
+True(pluginSource.Contains(
+        "private readonly SessionGenerationLeaseGate<ArchipelagoSession> ConnectionLifecycle = new();",
+        StringComparison.Ordinal),
+    "ArchipelagoClient uses an atomic session-generation lifecycle gate");
 True(generationIncrement >= 0 && generationIncrement < sessionCreation,
     "every new session attempt captures a unique generation before session creation");
-True(connectMethod.Contains("IsCurrentSession(session, generation)", StringComparison.Ordinal),
-    "session callbacks must prove both session identity and generation currency");
+True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation", StringComparison.Ordinal) &&
+     connectMethod.Contains("ConnectionLifecycle.TryEnd(session, generation", StringComparison.Ordinal),
+    "session callbacks atomically lease or end the matching session and generation");
+False(pluginSource.Contains("private bool IsCurrentSession(", StringComparison.Ordinal),
+    "the former check-then-act session helper is not available for callback dispatch");
 
 int garageSlotData = connectMethod.IndexOf("GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);", StringComparison.Ordinal);
-int beginServerSync = connectMethod.IndexOf("GarageCartridgeAccess.BeginServerSync(session, generation);", StringComparison.Ordinal);
+int beginServerSync = connectMethod.IndexOf("GarageCartridgeAccess.BeginServerSync(session, generation)", StringComparison.Ordinal);
 int connected = connectMethod.IndexOf("_connected = true;", StringComparison.Ordinal);
 True(garageSlotData >= 0 && beginServerSync > garageSlotData && connected > beginServerSync,
     "compatible Garage server sync begins after slot data and before the client becomes connected");
 
 string socketCloseHandler = MethodBody(connectMethod, "session.Socket.SocketClosed += reason =>", "session.Socket.ErrorReceived += (exception, message) =>");
-True(socketCloseHandler.Contains("IsCurrentSession(session, generation)", StringComparison.Ordinal) &&
+True(socketCloseHandler.Contains("ConnectionLifecycle.TryEnd(session, generation", StringComparison.Ordinal) &&
      socketCloseHandler.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
     "current-session socket close ends only its server synchronization generation");
 string failedLogin = MethodBody(connectMethod, "if (!result.Successful)", "if (result is LoginSuccessful loginSuccess)");
@@ -83,12 +90,18 @@ True(failedLogin.Contains("GarageCartridgeAccess.EndServerSync(generation);", St
     "failed login ends its server synchronization generation");
 True(connectMethod.Contains("GarageCartridgeAccess.EndServerSync(previousGeneration);", StringComparison.Ordinal),
     "replacing a session ends the replaced synchronization generation");
+True(connectMethod.Contains("ConnectionLifecycle.Replace(session, generation", StringComparison.Ordinal),
+    "session replacement is an atomic lifecycle claim");
+True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? loginLease)", StringComparison.Ordinal),
+    "successful login holds a current-session lease through server sync begin and connected publication");
+True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease)", StringComparison.Ordinal),
+    "received-item dispatch holds a current-session lease so replacement cannot overtake it");
 True(connectMethod.Contains("catch (Exception ex)\n        {\n            GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
     "connection exception cleanup ends its synchronization generation");
 True(shutdownMethod.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
     "deliberate shutdown ends the current synchronization generation");
 
-True(configureMethod.Contains("EndServerSync(generation);", StringComparison.Ordinal) &&
+True(configureMethod.Contains("ServerSyncLifecycle.EndActive", StringComparison.Ordinal) &&
      configureMethod.Contains("ResetNativeBagObservations", StringComparison.Ordinal),
     "Garage configuration resets server synchronization and native bag observations");
 False(configureMethod.Contains("new GarageCartridgeInsertionCoordinator", StringComparison.Ordinal),
@@ -102,12 +115,106 @@ True(nativeGrantMethod.Contains("GarageCartridgeInsertionPolicy.DecideGrant", St
     "native grants are gated by server insertion state");
 True(nativeGrantMethod.Contains("InsertionCoordinator.GetServerValue", StringComparison.Ordinal),
     "native grants read terminal insertion state from the coordinator");
+True(garageSource.Contains("private static readonly GenerationLeaseGate ServerSyncLifecycle = new();", StringComparison.Ordinal),
+    "Garage server synchronization uses a generation lease gate");
+True(garageSource.Contains("ServerSyncLifecycle.TryBegin(generation", StringComparison.Ordinal),
+    "Garage begin is atomic with respect to an earlier close tombstone");
+True(garageSource.Contains("ServerSyncLifecycle.End(generation", StringComparison.Ordinal),
+    "Garage end atomically invalidates its active generation");
+True(nativeGrantMethod.Contains("ServerSyncLifecycle.TryAcquireCurrent", StringComparison.Ordinal),
+    "native eligibility and mutation hold an active-generation lease through the grant");
 False(nativeGrantMethod.Contains("TryReadCartridgeCollected", StringComparison.Ordinal),
     "native cartridge-collected enquiries are not insertion state");
 False(nativeGrantMethod.Contains("HasGarageCartridgeBeenCollected", StringComparison.Ordinal),
     "the failed native registration experiment is removed");
 False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal),
     "diagnostic cartridge enum metadata is not terminal insertion state");
+
+{
+    var lifecycle = new GenerationLeaseGate();
+    var beginCount = 0;
+    var endCount = 0;
+    False(lifecycle.End(1, () => endCount++),
+        "closing before server synchronization begins records a tombstone without ending inactive work");
+    False(lifecycle.TryBegin(1, () => beginCount++),
+        "a close that wins before begin prevents the closed generation from starting");
+    Equal(0, beginCount, "close-before-begin never invokes coordinator begin");
+    Equal(0, endCount, "close-before-begin never invokes coordinator end without active work");
+}
+
+{
+    var lifecycle = new GenerationLeaseGate();
+    True(lifecycle.TryBegin(2, () => { }), "grant-race generation begins");
+    bool eligibilitySnapshot = true;
+    True(lifecycle.End(2, () => { }), "disconnect ends the grant-race generation");
+    var grantCount = 0;
+    if (eligibilitySnapshot && lifecycle.TryAcquire(2, out LifecycleLease? grantLease))
+    {
+        using (grantLease)
+            grantCount++;
+    }
+    Equal(0, grantCount,
+        "a generation lease revalidation prevents a native grant after disconnect ends eligibility");
+}
+
+{
+    var lifecycle = new GenerationLeaseGate();
+    True(lifecycle.TryBegin(3, () => { }), "leased generation begins");
+    True(lifecycle.TryAcquire(3, out LifecycleLease? grantLease), "active generation grants a lease");
+    using var endStarted = new ManualResetEventSlim();
+    using var endCompleted = new ManualResetEventSlim();
+    Task endTask = Task.Run(() =>
+    {
+        endStarted.Set();
+        lifecycle.End(3, () => { });
+        endCompleted.Set();
+    });
+    True(endStarted.Wait(TimeSpan.FromSeconds(1)), "disconnect attempt starts");
+    False(endCompleted.Wait(TimeSpan.FromMilliseconds(100)),
+        "disconnect cannot complete while a native grant lease is active");
+    grantLease!.Dispose();
+    True(endCompleted.Wait(TimeSpan.FromSeconds(1)), "disconnect completes after the native lease ends");
+    await endTask;
+}
+
+{
+    object oldSession = new();
+    object newSession = new();
+    var sessions = new SessionGenerationLeaseGate<object>();
+    sessions.Replace(oldSession, 1);
+    sessions.Replace(newSession, 2);
+    var dispatchCount = 0;
+    if (sessions.TryAcquire(oldSession, 1, out LifecycleLease? callbackLease))
+    {
+        using (callbackLease)
+            dispatchCount++;
+    }
+    Equal(0, dispatchCount,
+        "a callback whose session was replaced before dispatch cannot mutate managed item state");
+}
+
+{
+    object oldSession = new();
+    object newSession = new();
+    var sessions = new SessionGenerationLeaseGate<object>();
+    sessions.Replace(oldSession, 1);
+    True(sessions.TryAcquire(oldSession, 1, out LifecycleLease? callbackLease),
+        "current callback acquires an atomic dispatch lease");
+    using var replaceStarted = new ManualResetEventSlim();
+    using var replaceCompleted = new ManualResetEventSlim();
+    Task replaceTask = Task.Run(() =>
+    {
+        replaceStarted.Set();
+        sessions.Replace(newSession, 2);
+        replaceCompleted.Set();
+    });
+    True(replaceStarted.Wait(TimeSpan.FromSeconds(1)), "replacement attempt starts");
+    False(replaceCompleted.Wait(TimeSpan.FromMilliseconds(100)),
+        "replacement cannot complete while current callback dispatch holds its lease");
+    callbackLease!.Dispose();
+    True(replaceCompleted.Wait(TimeSpan.FromSeconds(1)), "replacement completes after callback dispatch ends");
+    await replaceTask;
+}
 
 var inserted = new GarageInsertionObservation(true, true, false, GarageInsertionServerValue.NotInserted, true, true, true, true, true, false);
 True(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted), "released AP cartridge held-to-absent transition records insertion");
