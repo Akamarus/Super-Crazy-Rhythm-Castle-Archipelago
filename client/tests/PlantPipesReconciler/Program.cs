@@ -71,12 +71,21 @@ string flushMethod = MethodBody(
     pluginSource,
     "public static void TryFlushPendingNativeGrant()",
     "internal static void TickPending(TimeSpan elapsed)");
+string ensureProcessorMethod = MethodBody(
+    pluginSource,
+    "private static bool EnsureProcessorAvailable()",
+    "private sealed class NativeAdapter");
 Equal(false, slotCallback.Contains("TryFlushPendingNativeGrant", StringComparison.Ordinal),
     "slot-data callback must not invoke native save APIs off the Unity thread");
 Equal(false, itemCallback.Contains("TryFlushPendingNativeGrant", StringComparison.Ordinal),
     "item callback must not invoke native save APIs off the Unity thread");
 Equal(true, flushMethod.Contains("if (_applyingNativeGrant)", StringComparison.Ordinal),
     "native grant reconciliation must reject recursive progression-hook entry");
+Equal(true,
+    ensureProcessorMethod.Contains(
+        "GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(processor);",
+        StringComparison.Ordinal),
+    "stateless save processor must be shared with Garage cartridge reconciliation");
 
 var adapter = new FakePlantPipesNativeAdapter();
 var runtime = new PlantPipesRuntime(adapter);

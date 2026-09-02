@@ -7,6 +7,14 @@ static void Equal<T>(T expected, T actual, string scenario)
 }
 static void True(bool value, string scenario) => Equal(true, value, scenario);
 static void False(bool value, string scenario) => Equal(false, value, scenario);
+static string MethodBody(string source, string signature, string nextSignature)
+{
+    int start = source.IndexOf(signature, StringComparison.Ordinal);
+    int end = source.IndexOf(nextSignature, start + signature.Length, StringComparison.Ordinal);
+    if (start < 0 || end < 0)
+        throw new InvalidOperationException($"Could not locate source boundaries for {signature}.");
+    return source[start..end];
+}
 static async Task Eventually(Func<bool> condition, string scenario)
 {
     for (var attempt = 0; attempt < 100; attempt++)
@@ -38,6 +46,68 @@ Equal(GarageNativeGrantDecision.WaitForNativeRead, GarageCartridgeInsertionPolic
 Equal(GarageNativeGrantDecision.AlreadyHeld, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, GarageInsertionServerValue.NotInserted, true, true), "already-held bag");
 Equal(GarageNativeGrantDecision.None, GarageCartridgeInsertionPolicy.DecideGrant(true, true, true, GarageInsertionServerValue.NotInserted, true, false), "physical vanilla cartridge");
 Equal(GarageNativeGrantDecision.WaitForServer, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, (GarageInsertionServerValue)99, true, false), "unrecognized server state fails closed");
+
+string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+string storageSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "GarageCartridgeInsertionStorage.cs"));
+string connectMethod = MethodBody(pluginSource, "private bool TryConnectOnce()", "public void Shutdown()");
+string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private bool IsCurrentSession(");
+int garageClassStart = pluginSource.IndexOf("internal static class GarageCartridgeAccess", StringComparison.Ordinal);
+if (garageClassStart < 0)
+    throw new InvalidOperationException("Could not locate GarageCartridgeAccess.");
+string garageSource = pluginSource[garageClassStart..];
+string configureMethod = MethodBody(garageSource, "public static void Configure()", "public static bool TryApplyItem(string itemName)");
+string itemCallback = MethodBody(garageSource, "public static bool TryApplyItem(string itemName)", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
+string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
+
+int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
+int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(_server)", StringComparison.Ordinal);
+True(pluginSource.Contains("private long _connectionGeneration;", StringComparison.Ordinal),
+    "ArchipelagoClient owns the connection generation");
+True(generationIncrement >= 0 && generationIncrement < sessionCreation,
+    "every new session attempt captures a unique generation before session creation");
+True(connectMethod.Contains("IsCurrentSession(session, generation)", StringComparison.Ordinal),
+    "session callbacks must prove both session identity and generation currency");
+
+int garageSlotData = connectMethod.IndexOf("GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);", StringComparison.Ordinal);
+int beginServerSync = connectMethod.IndexOf("GarageCartridgeAccess.BeginServerSync(session, generation);", StringComparison.Ordinal);
+int connected = connectMethod.IndexOf("_connected = true;", StringComparison.Ordinal);
+True(garageSlotData >= 0 && beginServerSync > garageSlotData && connected > beginServerSync,
+    "compatible Garage server sync begins after slot data and before the client becomes connected");
+
+string socketCloseHandler = MethodBody(connectMethod, "session.Socket.SocketClosed += reason =>", "session.Socket.ErrorReceived += (exception, message) =>");
+True(socketCloseHandler.Contains("IsCurrentSession(session, generation)", StringComparison.Ordinal) &&
+     socketCloseHandler.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+    "current-session socket close ends only its server synchronization generation");
+string failedLogin = MethodBody(connectMethod, "if (!result.Successful)", "if (result is LoginSuccessful loginSuccess)");
+True(failedLogin.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+    "failed login ends its server synchronization generation");
+True(connectMethod.Contains("GarageCartridgeAccess.EndServerSync(previousGeneration);", StringComparison.Ordinal),
+    "replacing a session ends the replaced synchronization generation");
+True(connectMethod.Contains("catch (Exception ex)\n        {\n            GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+    "connection exception cleanup ends its synchronization generation");
+True(shutdownMethod.Contains("GarageCartridgeAccess.EndServerSync(generation);", StringComparison.Ordinal),
+    "deliberate shutdown ends the current synchronization generation");
+
+True(configureMethod.Contains("EndServerSync(generation);", StringComparison.Ordinal) &&
+     configureMethod.Contains("ResetNativeBagObservations", StringComparison.Ordinal),
+    "Garage configuration resets server synchronization and native bag observations");
+False(configureMethod.Contains("new GarageCartridgeInsertionCoordinator", StringComparison.Ordinal),
+    "Garage configuration must retain monotonic pending writes in the long-lived coordinator");
+True(itemCallback.Contains("RequestUnityReconciliation", StringComparison.Ordinal),
+    "received-item callbacks queue Garage reconciliation on the Unity thread");
+False(storageSource.Contains("TryFlushPendingNativeGrants", StringComparison.Ordinal),
+    "data-storage continuations never invoke native reconciliation directly");
+
+True(nativeGrantMethod.Contains("GarageCartridgeInsertionPolicy.DecideGrant", StringComparison.Ordinal),
+    "native grants are gated by server insertion state");
+True(nativeGrantMethod.Contains("InsertionCoordinator.GetServerValue", StringComparison.Ordinal),
+    "native grants read terminal insertion state from the coordinator");
+False(nativeGrantMethod.Contains("TryReadCartridgeCollected", StringComparison.Ordinal),
+    "native cartridge-collected enquiries are not insertion state");
+False(nativeGrantMethod.Contains("HasGarageCartridgeBeenCollected", StringComparison.Ordinal),
+    "the failed native registration experiment is removed");
+False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal),
+    "diagnostic cartridge enum metadata is not terminal insertion state");
 
 var inserted = new GarageInsertionObservation(true, true, false, GarageInsertionServerValue.NotInserted, true, true, true, true, true, false);
 True(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted), "released AP cartridge held-to-absent transition records insertion");
