@@ -15,7 +15,8 @@
 - Task 1 landed as `ed84122` with `CassettePersistenceWaveQueue` and `CassettePointerBoundPersistenceRuntime` supporting `OneShotPerEpoch` and `SequentialVerifiedBatches`.
 - Task 2 production wiring landed as `db84da7`. Review follow-up `dba7221` extracted the executable `CassetteProductionPersistenceCoordinator`, which owns queue/runtime/marker transitions and exposes injected adapter-admission and reconciliation callbacks while `Plugin.cs` delegates orchestration. Review follow-up `a22d9ae` bound `BeginEpoch`, `TryInvoke`, and `CancelEpoch` to the complete generation/epoch/slot/pointer identity so a stale epoch cannot cancel or clear newer queued/active work.
 - The decisive live trial used `AP_54469213998348218286.zip`, `127.0.0.1:38282`, player `Jack`, UI save slot 4, and the four-song batch `BADASS`, `HEAVY_METAL`, `KEEP_ON_HUSTLIN`, `ON_THE_WAY`. PRE redundancy was `0/16`; polling VERIFIED at `1/17`. After a clean close and relaunch, all four remained present with zero semantic regrants and zero second persistence attempt.
-- These commits and the live trial are feature-branch evidence only. They do not represent an install performed by Task 3, a merge, push, public release, or broad manual gameplay pass.
+- Automatic production was then installed and accepted with deterministic seed `91001`, archive `AP_03679412317094840404.zip`, player `Jack`, and fresh UI save slot 4. With the developer acceptance switch false, `HEAVY_METAL` persisted in attempt 1 (`2/3` to `3/4`) and `ON_THE_WAY` persisted in attempt 2 (`3/4` to `4/5`) in the same unchanged save epoch. A clean close and relaunch restored both as `HAVE_IN_BAG` with zero semantic regrants, zero persistence attempts, and zero errors.
+- These commits and live trials remain feature-branch evidence. They do not represent a merge, push, public release, or broad manual gameplay pass.
 
 ## Global Constraints
 

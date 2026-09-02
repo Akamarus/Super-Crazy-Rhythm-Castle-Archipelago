@@ -120,6 +120,8 @@ Every coordinator transition compares the complete generation/epoch/slot/pointer
 
 The acceptance-only configuration key may remain as default-false diagnostic compatibility while production behavior is independent of it. Normal production logging uses the same attempt-keyed, globally sequenced journal and serialized emitter under a `CASSETTE PERSISTENCE` prefix. It records PRE, INVOKED, IMMEDIATE POST, and exactly one terminal VERIFIED, FAILED, TIMEOUT, or CANCELLED marker. Event markers are absent in normal production because the native event is not correlated to an attempt and is not required for polling.
 
+The automatic production path was accepted live with deterministic seed `91001`, archive `AP_03679412317094840404.zip`, server `127.0.0.1:38282`, player `Jack`, and a fresh UI save slot 4. `HEAVY_METAL` produced production attempt 1 on redundancy `2/3` and reached polling `VERIFIED` at `3/4`. Without changing generation, epoch, slot, or pointer, `ON_THE_WAY` then produced production attempt 2 on `3/4` and reached polling `VERIFIED` at `4/5`. The developer acceptance switch remained false, and normal production emitted no event-hint markers. After a normal close and clean relaunch, both songs loaded as `HAVE_IN_BAG` during Music Lab gameplay readiness with zero semantic grant submissions, zero persistence starts, zero persistence terminal markers, and zero errors. This proves both sequential same-epoch durability and clean-load idempotence in the installed production build.
+
 ### Load and switch behavior
 
 Every confirmed load/reload/switch:
