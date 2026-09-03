@@ -110,6 +110,9 @@ string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static 
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
+string nativeProgressionRequestMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionRequest(", "public static void RecordNativeBagProgressionFlagUpdated(");
+string nativeProgressionEventMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionFlagUpdated(", "private static void TryArmPendingNativeConsumption(");
+string nativeProgressionArmMethod = MethodBody(garageSource, "private static void TryArmPendingNativeConsumption(", "public static bool TryReleaseCartridgeObject(");
 string progressionRequestPrefixMethod = MethodBody(pluginSource, "public static bool ProgressionRequestPrefix(", "private static readonly string[] GateKeywords");
 string progressionFlagEventMethod = MethodBody(pluginSource, "public static void ProgressionFlagEventPostfix(", "public static void BagItemRequestPostfix(");
 
@@ -177,8 +180,15 @@ True(itemCallback.Contains("RequestUnityReconciliation", StringComparison.Ordina
 False(storageSource.Contains("TryFlushPendingNativeGrants", StringComparison.Ordinal),
     "data-storage continuations never invoke native reconciliation directly");
 
-True(nativeGrantMethod.Contains("GarageCartridgeInsertionPolicy.DecideGrant", StringComparison.Ordinal),
-    "native grants are gated by server insertion state");
+True(observeNativeBagMethod.Contains("InsertionTracker.Reconcile(", StringComparison.Ordinal) &&
+     nativeGrantMethod.Contains("ObserveNativeBagWithinLease(", StringComparison.Ordinal),
+    "native grants flow through the production reconciliation adapter");
+True(nativeProgressionArmMethod.Contains("InsertionTracker.RecordProgressionRequest(", StringComparison.Ordinal) &&
+     nativeProgressionArmMethod.Contains("InsertionTracker.RecordProgressionFlagUpdated(", StringComparison.Ordinal),
+    "native progression signals flow through the production reconciliation adapter");
+False(string.Join("\n", nativeProgressionRequestMethod, nativeProgressionEventMethod, nativeProgressionArmMethod)
+        .Contains("NoteInserted", StringComparison.Ordinal),
+    "native progression signals cannot directly mark durable insertion");
 True(nativeGrantMethod.Contains("InsertionCoordinator.GetServerValue", StringComparison.Ordinal),
     "native grants read terminal insertion state from the coordinator");
 True(garageSource.Contains("private static readonly GarageCartridgeReconciliationAccess ServerSyncLifecycle = new();", StringComparison.Ordinal),
@@ -188,7 +198,8 @@ True(garageSource.Contains("ServerSyncLifecycle.TryBegin(generation", StringComp
 True(garageSource.Contains("ServerSyncLifecycle.End(generation", StringComparison.Ordinal),
     "Garage end atomically invalidates its active generation");
 True(nativeGrantMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
-     nativeGrantMethod.Contains("current.Observe(() => ObserveNativeBagWithinLease", StringComparison.Ordinal),
+     nativeGrantMethod.Contains("current.Observe(() =>", StringComparison.Ordinal) &&
+     nativeGrantMethod.Contains("ObserveNativeBagWithinLease(", StringComparison.Ordinal),
     "native observation, eligibility, and mutation share one active-generation lease through the grant");
 False(nativeGrantMethod.Contains("ObserveNativeBag(\n", StringComparison.Ordinal),
     "native reconciliation does not recursively enter the public lease-acquiring observer");
@@ -1135,6 +1146,8 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 
         long signalResetEpoch = sequence.ResetEpoch;
         sequence.RoomTransitionReset();
+        CheckEqual(signalResetEpoch + 1, sequence.ResetEpoch,
+            "mutation skipping the production room-transition epoch change retains stale identity");
         var afterExit = sequence.Reconcile(readable: true, held: false, inGarage: false);
         CheckTrue(afterExit.RecordedInsertion,
             "mutation clearing pending confirmation during the room-transition reset loses native consumption");
@@ -1144,13 +1157,6 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
             "mutation omitting authoritative post-transition confirmation loses the slot write");
         CheckFalse(sequence.HasPendingConsumption,
             "mutation retaining pending confirmation after authoritative absence can duplicate insertion");
-        CheckFalse(sequence.TryConfirmPendingAt(
-                sequence.Generation,
-                signalResetEpoch,
-                GarageInsertionServerValue.NotInserted,
-                readable: true,
-                held: false),
-            "mutation accepting the stale pre-transition reset epoch can duplicate insertion");
     }
 
     {
@@ -1316,47 +1322,14 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                 value: false,
                 inGarage: true),
             "mutation dropping the pending signal prevents stale-generation validation");
-        CheckFalse(sequence.TryConfirmPendingAt(
-                sequence.Generation + 1,
-                sequence.ResetEpoch,
-                GarageInsertionServerValue.NotInserted,
-                readable: true,
-                held: false),
-            "mutation accepting a stale generation can confirm another session's signal");
-        CheckTrue(sequence.HasPendingConsumption,
-            "mutation allowing a stale generation to consume current pending evidence loses the real confirmation");
-
-        long staleEpoch = sequence.ResetEpoch;
-        sequence.RoomTransitionReset();
-        CheckFalse(sequence.TryConfirmPendingAt(
-                sequence.Generation,
-                staleEpoch,
-                GarageInsertionServerValue.NotInserted,
-                readable: true,
-                held: false),
-            "mutation accepting a stale reset epoch can confirm pre-reset evidence");
-        CheckTrue(sequence.HasPendingConsumption,
-            "mutation allowing stale reset work to consume carried pending evidence loses the current confirmation");
-        CheckFalse(sequence.TryConfirmPendingAt(
-                sequence.Generation + 1,
-                sequence.ResetEpoch,
-                GarageInsertionServerValue.NotInserted,
-                readable: true,
-                held: false),
-            "mutation carrying pending evidence into another server generation is unsafe");
-
-        sequence.ResetNativeBagObservations();
+        sequence.RoomTransitionReset(sequence.Generation + 1);
         CheckFalse(sequence.HasPendingConsumption,
-            "mutation retaining pending evidence across a save or processor reset can invent insertion");
-        CheckFalse(sequence.TryConfirmPendingAt(
-                sequence.Generation,
-                sequence.ResetEpoch,
-                GarageInsertionServerValue.NotInserted,
-                readable: true,
-                held: false),
-            "mutation confirming after a destructive evidence reset invents insertion");
+            "mutation carrying pending evidence into another server generation is unsafe");
+        var staleAbsence = sequence.Reconcile(readable: true, held: false, inGarage: false);
+        CheckFalse(staleAbsence.RecordedInsertion,
+            "mismatched-generation transition state cannot confirm another session's signal");
         CheckEqual(0, sequence.Store.WriteKeys.Count,
-            "mutation converting stale pending evidence into a write violates reset safety");
+            "mutation converting mismatched-generation pending evidence into a write violates reset safety");
     }
 
     {
@@ -1397,6 +1370,307 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     if (failures.Count != 0)
         throw new InvalidOperationException(
             "Garage transition-order regression failures:\n" + string.Join("\n", failures));
+}
+
+{
+    const string superstar = "Superstar";
+    const string superstarBagFlag = "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM";
+
+    async Task<(
+        GarageCartridgeReconciliationAdapter Adapter,
+        GarageCartridgeReconciliationAccess Lifecycle,
+        GarageCartridgeInsertionCoordinator Coordinator,
+        FakeGarageInsertionDataStore Store)> CreateProductionFixture()
+    {
+        var adapter = new GarageCartridgeReconciliationAdapter();
+        var lifecycle = new GarageCartridgeReconciliationAccess();
+        var store = new FakeGarageInsertionDataStore();
+        var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
+        True(lifecycle.TryBegin(1, () => coordinator.BeginConnection(1, store)),
+            "production reconciliation fixture begins the real generation lifecycle");
+        foreach (string key in store.ReadKeys.ToArray())
+            store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
+        await Eventually(() => coordinator.InitialSyncReady,
+            "production reconciliation fixture completes real server synchronization");
+        return (adapter, lifecycle, coordinator, store);
+    }
+
+    GarageCartridgeReconciliationResult RunProductionReconciliation(
+        (GarageCartridgeReconciliationAdapter Adapter,
+         GarageCartridgeReconciliationAccess Lifecycle,
+         GarageCartridgeInsertionCoordinator Coordinator,
+         FakeGarageInsertionDataStore Store) fixture,
+        List<bool> submittedGrantValues,
+        string song,
+        bool usesPhysicalVanillaEntrance,
+        bool readable,
+        bool held,
+        bool inGarage,
+        bool releasedThisVisit)
+    {
+        GarageCartridgeReconciliationResult result = default;
+        True(fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+                result = fixture.Adapter.Reconcile(
+                    song,
+                    compatible: true,
+                    apOwned: true,
+                    usesPhysicalVanillaEntrance,
+                    fixture.Coordinator.GetServerValue(song),
+                    readable,
+                    held,
+                    inGarage,
+                    releasedThisVisit,
+                    current.Generation,
+                    fixture.Coordinator.NoteInserted,
+                    value =>
+                    {
+                        submittedGrantValues.Add(value);
+                        return new GarageNativeGrantSubmission(true, "test processor accepted");
+                    }))),
+            "production reconciliation executes inside the current generation lease");
+        return result;
+    }
+
+    bool RecordRequest(
+        (GarageCartridgeReconciliationAdapter Adapter,
+         GarageCartridgeReconciliationAccess Lifecycle,
+         GarageCartridgeInsertionCoordinator Coordinator,
+         FakeGarageInsertionDataStore Store) fixture,
+        string flag,
+        bool? value,
+        bool compatible = true,
+        bool apOwned = true,
+        bool inGarage = true,
+        bool releasedThisVisit = true,
+        GarageInsertionServerValue? serverValue = null)
+    {
+        bool armed = false;
+        True(fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+                armed = fixture.Adapter.RecordProgressionRequest(
+                    flag,
+                    value,
+                    compatible,
+                    apOwned,
+                    serverValue ?? fixture.Coordinator.GetServerValue(superstar),
+                    inGarage,
+                    releasedThisVisit,
+                    current.Generation))),
+            "production progression request executes inside the current generation lease");
+        return armed;
+    }
+
+    bool RecordEvent(
+        (GarageCartridgeReconciliationAdapter Adapter,
+         GarageCartridgeReconciliationAccess Lifecycle,
+         GarageCartridgeInsertionCoordinator Coordinator,
+         FakeGarageInsertionDataStore Store) fixture,
+        string flag,
+        bool? flagIsSet,
+        bool? flagWasSet,
+        bool inGarage = true)
+    {
+        bool armed = false;
+        True(fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+                armed = fixture.Adapter.RecordProgressionFlagUpdated(
+                    flag,
+                    flagIsSet,
+                    flagWasSet,
+                    compatible: true,
+                    apOwned: true,
+                    fixture.Coordinator.GetServerValue(superstar),
+                    inGarage,
+                    releasedThisVisit: true,
+                    current.Generation))),
+            "production progression event executes inside the current generation lease");
+        return armed;
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        GarageCartridgeReconciliationResult held = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: true, inGarage: true, releasedThisVisit: false);
+        Equal(GarageNativeGrantDecision.AlreadyHeld, held.GrantDecision,
+            "production adapter records authoritative held state before release");
+        Equal(0, submittedGrantValues.Count,
+            "mutation granting an already-held cartridge bypasses native inventory");
+
+        True(RecordRequest(fixture, superstarBagFlag, value: false),
+            "mutation omitting the real request-to-adapter path loses pending confirmation");
+        Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
+            "mutation calling NoteInserted from the request alone bypasses authoritative readback");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "mutation writing insertion from the request alone bypasses authoritative readback");
+        Equal(0, submittedGrantValues.Count,
+            "mutation submitting a native true grant from the request races vanilla consumption");
+
+        long previousResetEpoch = fixture.Adapter.ResetEpoch;
+        True(fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() => fixture.Adapter.ResetForRoomTransition(current.Generation))),
+            "production room reset executes inside the current generation lease");
+        Equal(previousResetEpoch + 1, fixture.Adapter.ResetEpoch,
+            "mutation skipping the production room reset leaves stale epoch identity");
+        True(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "mutation destructively resetting pending state on the safe room transition loses consumption");
+
+        GarageCartridgeReconciliationResult unreadable = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: false, held: false, inGarage: false, releasedThisVisit: false);
+        False(unreadable.RecordedInsertion,
+            "mutation treating unreadable native state as absence invents insertion");
+        Equal(GarageNativeGrantDecision.WaitForNativeRead, unreadable.GrantDecision,
+            "mutation bypassing production reconciliation can regrant while confirmation is unreadable");
+        False(unreadable.GrantAttempted,
+            "mutation submitting a native true grant while pending and unreadable resurrects the cartridge");
+        Equal(0, submittedGrantValues.Count,
+            "production grant callback must remain untouched while pending is unreadable");
+        Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
+            "unreadable native state cannot invoke NoteInserted");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "unreadable native state cannot queue the durable write");
+
+        long unreadableResetEpoch = fixture.Adapter.ResetEpoch;
+        True(fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() => fixture.Adapter.ResetForRoomTransition(current.Generation))),
+            "a repeated safe room reset executes inside the same production generation lease");
+        Equal(unreadableResetEpoch + 1, fixture.Adapter.ResetEpoch,
+            "a repeated safe room reset advances the production adapter epoch");
+        True(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "matching generation and epoch carry pending confirmation across repeated unreadable transitions");
+        GarageCartridgeReconciliationResult stillUnreadable = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: false, held: false, inGarage: false, releasedThisVisit: false);
+        False(stillUnreadable.RecordedInsertion || stillUnreadable.GrantAttempted,
+            "repeated unreadable transitions neither invent insertion nor regrant");
+
+        GarageCartridgeReconciliationResult absent = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: false, inGarage: false, releasedThisVisit: false);
+        True(absent.RecordedInsertion,
+            "mutation omitting pending resolution from the real production adapter loses authoritative absence");
+        Equal(GarageNativeGrantDecision.AlreadyInserted, absent.GrantDecision,
+            "mutation calculating grant before NoteInserted can regrant after authoritative absence");
+        False(absent.GrantAttempted,
+            "mutation submitting true after authoritative absence resurrects the consumed cartridge");
+        Equal(0, submittedGrantValues.Count,
+            "authoritative pending confirmation reaches NoteInserted before the native grant boundary");
+        Equal(GarageInsertionServerValue.Inserted, fixture.Coordinator.GetServerValue(superstar),
+            "only authoritative readable absence invokes the real insertion coordinator");
+        Equal(1, fixture.Store.WriteKeys.Count,
+            "authoritative readable absence queues exactly one real slot-scoped write");
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        GarageCartridgeReconciliationResult missing = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: false, inGarage: false, releasedThisVisit: false);
+        Equal(GarageNativeGrantDecision.ApplyBagItem, missing.GrantDecision,
+            "the production adapter retains the ordinary missing-bag grant path");
+        True(missing.GrantAttempted && missing.GrantSubmitted,
+            "mutation moving native submission outside the production adapter leaves the real path untested");
+        Equal("True", string.Join(",", submittedGrantValues),
+            "the production adapter submits only the native true bag grant");
+        Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
+            "ordinary grant submission never marks insertion");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "ordinary grant submission never queues insertion storage");
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        _ = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: true, inGarage: true, releasedThisVisit: false);
+        True(RecordEvent(fixture, superstarBagFlag, flagIsSet: false, flagWasSet: true),
+            "mutation omitting the real event-to-adapter path loses pending confirmation");
+        Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
+            "mutation calling NoteInserted from the event alone bypasses authoritative readback");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "mutation writing insertion from the event alone bypasses authoritative readback");
+
+        GarageCartridgeReconciliationResult heldAgain = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: true, inGarage: true, releasedThisVisit: true);
+        False(heldAgain.RecordedInsertion,
+            "mutation confirming pending consumption from authoritative held state invents insertion");
+        Equal(GarageNativeGrantDecision.AlreadyHeld, heldAgain.GrantDecision,
+            "authoritative held state cancels pending without regrant");
+        False(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "mutation retaining pending after held readback can confirm unrelated later absence");
+        Equal(0, submittedGrantValues.Count,
+            "held cancellation does not touch the native grant callback");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "held cancellation does not invoke NoteInserted");
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        _ = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: true, inGarage: true, releasedThisVisit: false);
+        True(RecordRequest(fixture, superstarBagFlag, value: false),
+            "destructive-reset fixture arms pending through the real request adapter");
+        long previousResetEpoch = fixture.Adapter.ResetEpoch;
+        fixture.Adapter.Reset();
+        Equal(previousResetEpoch + 1, fixture.Adapter.ResetEpoch,
+            "destructive reset advances the production adapter epoch");
+        False(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "mutation retaining pending through a destructive reset can invent insertion");
+        Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
+            "destructive reset never converts stale pending evidence into insertion");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "destructive reset never queues an insertion write");
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        _ = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true, held: true, inGarage: true, releasedThisVisit: false);
+        False(RecordRequest(fixture, superstarBagFlag, value: false, inGarage: false),
+            "mutation accepting a false request outside Garage captures unrelated state");
+        False(RecordRequest(fixture, superstarBagFlag, value: false, releasedThisVisit: false),
+            "mutation arming without release evidence captures unrelated bag loss");
+        False(RecordRequest(fixture, superstarBagFlag, value: false, apOwned: false),
+            "mutation arming an unowned cartridge bypasses AP ownership");
+        False(RecordRequest(
+                fixture,
+                superstarBagFlag,
+                value: false,
+                serverValue: GarageInsertionServerValue.Unknown),
+            "mutation arming under unknown server state bypasses synchronization");
+        False(RecordEvent(fixture, superstarBagFlag, flagIsSet: false, flagWasSet: false),
+            "mutation accepting a false-to-false update invents consumption");
+        False(RecordRequest(
+                fixture,
+                "LEVEL_27_CARTRIDGE_STAR_EATER_COLLECTED",
+                value: false),
+            "mutation accepting a collected marker as bag consumption corrupts state");
+
+        False(RecordRequest(
+                fixture,
+                "LEVEL_27_CARTRIDGE_VAMPIREKILLER_BAG_ITEM",
+                value: false),
+            "mutation allowing physical Vampire Killer into pending AP insertion breaks vanilla entry");
+    }
+
+    True(progressionRequestPrefixMethod.Contains(
+            "GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);",
+            StringComparison.Ordinal),
+        "supplemental wiring guard keeps the request hook attached to GarageCartridgeAccess");
+    True(progressionFlagEventMethod.Contains(
+            "GarageCartridgeAccess.RecordNativeBagProgressionFlagUpdated(evt, flag);",
+            StringComparison.Ordinal),
+        "supplemental wiring guard keeps the event hook attached to GarageCartridgeAccess");
 }
 
 {
@@ -1616,7 +1890,7 @@ sealed class FakeArchipelagoGarageInsertionStorageTransport : IArchipelagoGarage
 
 sealed class GarageInsertionSequenceHarness
 {
-    private readonly GarageCartridgeInsertionTracker _tracker = new();
+    private readonly GarageCartridgeReconciliationAdapter _adapter = new();
 
     public GarageInsertionSequenceHarness(IReadOnlyDictionary<string, string> keys, string song)
     {
@@ -1634,16 +1908,16 @@ sealed class GarageInsertionSequenceHarness
     public bool UsesPhysicalVanillaEntrance { get; set; }
     public bool ReleasedThisVisit { get; private set; }
     public int DurableConfirmations { get; private set; }
-    public long Generation { get; private set; } = 1;
-    public long ResetEpoch { get; private set; } = 1;
+    public long Generation { get; } = 1;
+    public long ResetEpoch => _adapter.ResetEpoch;
     public bool HasPendingConsumption =>
-        _tracker.HasPendingConsumption(Song, Generation, ResetEpoch);
+        _adapter.HasPendingConsumption(Song, Generation);
 
     public void NoteGarageObjectReleased() => ReleasedThisVisit = true;
 
     public bool Observe(bool readable, bool held, bool inGarage)
     {
-        bool recorded = _tracker.Observe(
+        GarageCartridgeReconciliationResult result = _adapter.Reconcile(
             Song,
             compatible: true,
             ApOwned,
@@ -1652,10 +1926,11 @@ sealed class GarageInsertionSequenceHarness
             readable,
             held,
             inGarage,
-            ReleasedThisVisit);
-        if (recorded)
-            Coordinator.NoteInserted(Song);
-        return recorded;
+            ReleasedThisVisit,
+            Generation,
+            Coordinator.NoteInserted,
+            submitGrant: null);
+        return result.RecordedInsertion;
     }
 
     public bool SignalProgressionRequest(string flag, bool? value, bool inGarage) =>
@@ -1673,40 +1948,20 @@ sealed class GarageInsertionSequenceHarness
         bool held,
         bool inGarage)
     {
-        bool pendingHandled = _tracker.TryResolvePendingConsumption(
+        GarageCartridgeReconciliationResult result = _adapter.Reconcile(
             Song,
-            Generation,
-            ResetEpoch,
+            compatible: true,
+            ApOwned,
+            UsesPhysicalVanillaEntrance,
             Coordinator.GetServerValue(Song),
             readable,
             held,
-            out bool pendingConfirmed);
-        bool transitionConfirmed = Observe(readable, held, inGarage);
-        bool recorded = pendingConfirmed || transitionConfirmed;
-        if (pendingConfirmed && !transitionConfirmed)
-            Coordinator.NoteInserted(Song);
-        _ = pendingHandled;
-        return (recorded, GrantDecision(readable, held));
-    }
-
-    public bool TryConfirmPendingAt(
-        long generation,
-        long resetEpoch,
-        GarageInsertionServerValue serverValue,
-        bool readable,
-        bool held)
-    {
-        bool handled = _tracker.TryResolvePendingConsumption(
-            Song,
-            generation,
-            resetEpoch,
-            serverValue,
-            readable,
-            held,
-            out bool confirmed);
-        if (confirmed)
-            Coordinator.NoteInserted(Song);
-        return handled && confirmed;
+            inGarage,
+            ReleasedThisVisit,
+            Generation,
+            Coordinator.NoteInserted,
+            submitGrant: null);
+        return (result.RecordedInsertion, result.GrantDecision);
     }
 
     public GarageNativeGrantDecision GrantDecision(bool readable, bool held) =>
@@ -1720,16 +1975,13 @@ sealed class GarageInsertionSequenceHarness
 
     public void ResetNativeBagObservations()
     {
-        ResetEpoch++;
-        _tracker.Reset();
+        _adapter.Reset();
         ReleasedThisVisit = false;
     }
 
-    public void RoomTransitionReset()
+    public void RoomTransitionReset(long? generation = null)
     {
-        long previousResetEpoch = ResetEpoch;
-        ResetEpoch++;
-        _tracker.ResetForRoomTransition(Generation, previousResetEpoch, ResetEpoch);
+        _adapter.ResetForRoomTransition(generation ?? Generation);
         ReleasedThisVisit = false;
     }
 
@@ -1740,72 +1992,25 @@ sealed class GarageInsertionSequenceHarness
         bool requirePreviouslySet,
         bool inGarage)
     {
-        GarageCartridgeProgressionFlag? classification =
-            GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
-        if (classification is not { Kind: GarageCartridgeProgressionFlagKind.BagItem } classified ||
-            !string.Equals(classified.Cartridge.Song, Song, StringComparison.OrdinalIgnoreCase) ||
-            !GarageCartridgeNativePolicy.RandomizedCartridges.Any(cartridge =>
-                string.Equals(cartridge.Song, Song, StringComparison.OrdinalIgnoreCase)))
-        {
-            return false;
-        }
-
-        return _tracker.TryArmPendingConsumption(
-            Song,
-            signalIsSet,
-            signalWasSet,
-            requirePreviouslySet,
-            compatible: true,
-            ApOwned,
-            UsesPhysicalVanillaEntrance,
-            Coordinator.GetServerValue(Song),
-            inGarage,
-            ReleasedThisVisit,
-            Generation,
-            ResetEpoch);
+        return requirePreviouslySet
+            ? _adapter.RecordProgressionFlagUpdated(
+                flag,
+                signalIsSet,
+                signalWasSet,
+                compatible: true,
+                ApOwned,
+                Coordinator.GetServerValue(Song),
+                inGarage,
+                ReleasedThisVisit,
+                Generation)
+            : _adapter.RecordProgressionRequest(
+                flag,
+                signalIsSet,
+                compatible: true,
+                ApOwned,
+                Coordinator.GetServerValue(Song),
+                inGarage,
+                ReleasedThisVisit,
+                Generation);
     }
-}
-
-static class GaragePendingConsumptionFallbackExtensions
-{
-    internal static bool TryArmPendingConsumption(
-        this GarageCartridgeInsertionTracker tracker,
-        string song,
-        bool? signalIsSet,
-        bool? signalWasSet,
-        bool requirePreviouslySet,
-        bool compatible,
-        bool apOwned,
-        bool usesPhysicalVanillaEntrance,
-        GarageInsertionServerValue serverValue,
-        bool inGarage,
-        bool releasedThisVisit,
-        long generation,
-        long resetEpoch) => false;
-
-    internal static bool HasPendingConsumption(
-        this GarageCartridgeInsertionTracker tracker,
-        string song,
-        long generation,
-        long resetEpoch) => false;
-
-    internal static bool TryResolvePendingConsumption(
-        this GarageCartridgeInsertionTracker tracker,
-        string song,
-        long generation,
-        long resetEpoch,
-        GarageInsertionServerValue serverValue,
-        bool readable,
-        bool held,
-        out bool confirmed)
-    {
-        confirmed = false;
-        return false;
-    }
-
-    internal static void ResetForRoomTransition(
-        this GarageCartridgeInsertionTracker tracker,
-        long generation,
-        long previousResetEpoch,
-        long resetEpoch) => tracker.Reset();
 }

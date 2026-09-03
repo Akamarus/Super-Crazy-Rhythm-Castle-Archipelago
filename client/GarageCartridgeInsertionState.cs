@@ -229,6 +229,227 @@ internal sealed class GarageCartridgeInsertionTracker
         long ResetEpoch);
 }
 
+internal readonly record struct GarageNativeGrantSubmission(
+    bool Submitted,
+    string Detail);
+
+internal readonly record struct GarageCartridgeReconciliationResult(
+    bool RecordedInsertion,
+    bool CandidateArmed,
+    GarageNativeGrantDecision GrantDecision,
+    bool GrantAttempted,
+    bool GrantSubmitted,
+    string GrantDetail);
+
+internal sealed class GarageCartridgeReconciliationAdapter
+{
+    private readonly object _gate = new();
+    private readonly GarageCartridgeInsertionTracker _tracker = new();
+    private long _resetEpoch;
+
+    internal long ResetEpoch
+    {
+        get
+        {
+            lock (_gate)
+                return _resetEpoch;
+        }
+    }
+
+    internal bool HasAuthoritativeHeldObservation(string song)
+    {
+        lock (_gate)
+            return _tracker.HasAuthoritativeHeldObservation(song);
+    }
+
+    internal bool HasPendingConsumption(string song, long generation)
+    {
+        lock (_gate)
+            return _tracker.HasPendingConsumption(song, generation, _resetEpoch);
+    }
+
+    internal bool RecordProgressionRequest(
+        string flag,
+        bool? value,
+        bool compatible,
+        bool apOwned,
+        GarageInsertionServerValue serverValue,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation) =>
+        TryArmPendingConsumption(
+            flag,
+            value,
+            signalWasSet: null,
+            requirePreviouslySet: false,
+            compatible,
+            apOwned,
+            serverValue,
+            inGarage,
+            releasedThisVisit,
+            generation);
+
+    internal bool RecordProgressionFlagUpdated(
+        string flag,
+        bool? flagIsSet,
+        bool? flagWasSet,
+        bool compatible,
+        bool apOwned,
+        GarageInsertionServerValue serverValue,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation) =>
+        TryArmPendingConsumption(
+            flag,
+            flagIsSet,
+            flagWasSet,
+            requirePreviouslySet: true,
+            compatible,
+            apOwned,
+            serverValue,
+            inGarage,
+            releasedThisVisit,
+            generation);
+
+    internal GarageCartridgeReconciliationResult Reconcile(
+        string song,
+        bool compatible,
+        bool apOwned,
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue,
+        bool readable,
+        bool held,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation,
+        Action<string> noteInserted,
+        Func<bool, GarageNativeGrantSubmission>? submitGrant)
+    {
+        ArgumentNullException.ThrowIfNull(noteInserted);
+
+        bool recordInsertion;
+        bool candidateArmed;
+        lock (_gate)
+        {
+            _tracker.TryResolvePendingConsumption(
+                song,
+                generation,
+                _resetEpoch,
+                serverValue,
+                readable,
+                held,
+                out bool pendingConfirmed);
+            bool transitionConfirmed = _tracker.Observe(
+                song,
+                compatible,
+                apOwned,
+                usesPhysicalVanillaEntrance,
+                serverValue,
+                readable,
+                held,
+                inGarage,
+                releasedThisVisit);
+            recordInsertion = pendingConfirmed || transitionConfirmed;
+            candidateArmed = compatible &&
+                apOwned &&
+                !usesPhysicalVanillaEntrance &&
+                serverValue == GarageInsertionServerValue.NotInserted &&
+                inGarage &&
+                releasedThisVisit &&
+                readable &&
+                held;
+        }
+
+        if (recordInsertion)
+            noteInserted(song);
+
+        GarageInsertionServerValue effectiveServerValue = recordInsertion
+            ? GarageInsertionServerValue.Inserted
+            : serverValue;
+        GarageNativeGrantDecision decision = GarageCartridgeInsertionPolicy.DecideGrant(
+            compatible,
+            apOwned,
+            usesPhysicalVanillaEntrance,
+            effectiveServerValue,
+            readable,
+            held);
+        if (decision != GarageNativeGrantDecision.ApplyBagItem || submitGrant == null)
+        {
+            return new GarageCartridgeReconciliationResult(
+                recordInsertion,
+                candidateArmed,
+                decision,
+                GrantAttempted: false,
+                GrantSubmitted: false,
+                GrantDetail: string.Empty);
+        }
+
+        GarageNativeGrantSubmission submission = submitGrant(true);
+        return new GarageCartridgeReconciliationResult(
+            recordInsertion,
+            candidateArmed,
+            decision,
+            GrantAttempted: true,
+            submission.Submitted,
+            submission.Detail);
+    }
+
+    internal void Reset()
+    {
+        lock (_gate)
+        {
+            _resetEpoch++;
+            _tracker.Reset();
+        }
+    }
+
+    internal void ResetForRoomTransition(long generation)
+    {
+        lock (_gate)
+        {
+            long previousResetEpoch = _resetEpoch;
+            _resetEpoch++;
+            _tracker.ResetForRoomTransition(generation, previousResetEpoch, _resetEpoch);
+        }
+    }
+
+    private bool TryArmPendingConsumption(
+        string flag,
+        bool? signalIsSet,
+        bool? signalWasSet,
+        bool requirePreviouslySet,
+        bool compatible,
+        bool apOwned,
+        GarageInsertionServerValue serverValue,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation)
+    {
+        GarageCartridgeProgressionFlag? classification =
+            GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
+        if (classification is not { Kind: GarageCartridgeProgressionFlagKind.BagItem } classified)
+            return false;
+
+        GarageCartridgeNativeDefinition cartridge = classified.Cartridge;
+        lock (_gate)
+        {
+            return _tracker.TryArmPendingConsumption(
+                cartridge.Song,
+                signalIsSet,
+                signalWasSet,
+                requirePreviouslySet,
+                compatible,
+                apOwned,
+                cartridge.UsesPhysicalVanillaEntrance,
+                serverValue,
+                inGarage,
+                releasedThisVisit,
+                generation,
+                _resetEpoch);
+        }
+    }
+}
+
 internal sealed class GarageCartridgeReconciliationAccess
 {
     private readonly GenerationLeaseGate _lifecycle = new();
