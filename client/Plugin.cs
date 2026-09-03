@@ -20810,6 +20810,24 @@ internal static class GarageCartridgeAccess
         return result;
     }
 
+    public static void RecordGarageEntryTransitionRequest(
+        string? originRoom,
+        string? destinationRoom)
+    {
+        if (!GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(originRoom, destinationRoom))
+            return;
+
+        bool bound = false;
+        ServerSyncLifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+                bound = InsertionTracker.RecordGarageEntryTransitionRequest(
+                    originRoom,
+                    destinationRoom,
+                    current.Generation)));
+        if (bound)
+            RequestUnityReconciliation("Garage entry transition request bound native consumption");
+    }
+
     public static void RecordNativeBagProgressionRequest(object request, string flag)
     {
         bool? value = ReflectionUtil.ReadBool(request, "Value")
@@ -22578,6 +22596,7 @@ internal static class IntroRoomToHubRedirectPatches
                 __instance, __originalMethod, __args, roomId))
             return false;
 
+        GarageCartridgeAccess.RecordGarageEntryTransitionRequest(originRoom, roomId);
         AreaArrivalPresentationOverride.ObserveTransition(originRoom, roomId);
 
         DeveloperHarness.CaptureGameFlow(__instance, request);

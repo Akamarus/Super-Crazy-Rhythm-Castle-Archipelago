@@ -110,11 +110,17 @@ string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static 
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
+string garageEntryTransitionRequestMethod = MethodBody(garageSource, "public static void RecordGarageEntryTransitionRequest(", "public static void RecordNativeBagProgressionRequest(");
 string nativeProgressionRequestMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionRequest(", "public static void RecordNativeBagProgressionFlagUpdated(");
 string nativeProgressionEventMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionFlagUpdated(", "private static void TryArmPendingNativeConsumption(");
 string nativeProgressionArmMethod = MethodBody(garageSource, "private static void TryArmPendingNativeConsumption(", "public static bool TryReleaseCartridgeObject(");
 string progressionRequestPrefixMethod = MethodBody(pluginSource, "public static bool ProgressionRequestPrefix(", "private static readonly string[] GateKeywords");
 string progressionFlagEventMethod = MethodBody(pluginSource, "public static void ProgressionFlagEventPostfix(", "public static void BagItemRequestPostfix(");
+int introRedirectClassStart = pluginSource.IndexOf("internal static class IntroRoomToHubRedirectPatches", StringComparison.Ordinal);
+if (introRedirectClassStart < 0)
+    throw new InvalidOperationException("Could not locate IntroRoomToHubRedirectPatches.");
+string introRedirectSource = pluginSource[introRedirectClassStart..];
+string introRedirectPrefixMethod = MethodBody(introRedirectSource, "public static bool Prefix(", "private static object? BuildIdentifier(");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
@@ -194,6 +200,19 @@ True(nativeProgressionArmMethod.Contains(
          StringComparison.Ordinal) &&
      nativeProgressionArmMethod.Contains("inGarageApproachRoom", StringComparison.Ordinal),
     "production signal wiring identifies only the exact Garage approach room");
+True(garageEntryTransitionRequestMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
+     garageEntryTransitionRequestMethod.Contains("current.Observe(() =>", StringComparison.Ordinal) &&
+     garageEntryTransitionRequestMethod.Contains("InsertionTracker.RecordGarageEntryTransitionRequest(", StringComparison.Ordinal),
+    "the exact Garage transition request binds evidence through the production generation lifecycle and adapter");
+int garageEntryAttemptBinding = introRedirectPrefixMethod.IndexOf(
+    "GarageCartridgeAccess.RecordGarageEntryTransitionRequest(originRoom, roomId);",
+    StringComparison.Ordinal);
+int roomPublication = introRedirectPrefixMethod.IndexOf(
+    "DeveloperHarness.CaptureGameFlow(__instance, request);",
+    StringComparison.Ordinal);
+True(garageEntryAttemptBinding >= 0 &&
+     roomPublication > garageEntryAttemptBinding,
+    "the accepted transition request binds pre-entry evidence before production publishes the Garage room");
 False(string.Join("\n", nativeProgressionRequestMethod, nativeProgressionEventMethod, nativeProgressionArmMethod)
         .Contains("NoteInserted", StringComparison.Ordinal),
     "native progression signals cannot directly mark durable insertion");
@@ -1598,6 +1617,24 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         return armed;
     }
 
+    bool RecordGarageEntryTransitionRequest(
+        (GarageCartridgeReconciliationAdapter Adapter,
+         GarageCartridgeReconciliationAccess Lifecycle,
+         GarageCartridgeInsertionCoordinator Coordinator,
+         FakeGarageInsertionDataStore Store) fixture,
+        string originRoom,
+        string destinationRoom)
+    {
+        bool bound = false;
+        bool admitted = fixture.Lifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+                bound = fixture.Adapter.RecordGarageEntryTransitionRequest(
+                    originRoom,
+                    destinationRoom,
+                    current.Generation)));
+        return admitted && bound;
+    }
+
     False(GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
         "Hub6 is pre-entry evidence context, not premature Garage confirmation");
     True(GarageCartridgeRoomPolicy.IsGarageApproachRoom(garageApproachRoom),
@@ -1640,6 +1677,8 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                 releasedThisVisit: false,
                 inGarageApproachRoom: GarageCartridgeRoomPolicy.IsGarageApproachRoom(garageApproachRoom)),
             "mutation rejecting the authentic pre-transition false request loses automatic Garage consumption");
+        True(RecordGarageEntryTransitionRequest(fixture, garageApproachRoom, garageRoom),
+            "the exact allowed Hub6-to-GameRoom_27 request binds the pending entry attempt");
         Equal(GarageInsertionServerValue.NotInserted, fixture.Coordinator.GetServerValue(superstar),
             "pre-transition signals alone cannot mark durable insertion");
         Equal(0, fixture.Store.WriteKeys.Count,
@@ -1707,7 +1746,10 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         var submittedGrantValues = new List<bool>();
         _ = RunProductionReconciliation(
             fixture, submittedGrantValues, superstar, false,
-            readable: true, held: true, inGarage: false, releasedThisVisit: false);
+            readable: true,
+            held: true,
+            inGarage: GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
+            releasedThisVisit: false);
         True(RecordRequest(
                 fixture,
                 superstarBagFlag,
@@ -1715,30 +1757,81 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                 inGarage: GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
                 releasedThisVisit: false,
                 inGarageApproachRoom: GarageCartridgeRoomPolicy.IsGarageApproachRoom(garageApproachRoom)),
-            "unrelated-transition fixture records authentic pre-entry evidence");
-        _ = RunProductionReconciliation(
+            "post-entry-unreadable fixture records authentic pre-entry evidence");
+        True(RecordGarageEntryTransitionRequest(fixture, garageApproachRoom, garageRoom),
+            "post-entry-unreadable fixture binds the exact Garage transition request");
+        fixture.Adapter.ResetForRoomTransition(
+            generation: 1,
+            enteringGarageFromApproachRoom:
+                GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(garageApproachRoom, garageRoom));
+
+        GarageCartridgeReconciliationResult unreadableInGarage = RunProductionReconciliation(
             fixture, submittedGrantValues, superstar, false,
-            readable: true, held: false, inGarage: false, releasedThisVisit: false);
-        Equal(0, submittedGrantValues.Count,
-            "absence before any room transition remains fail-closed without a regrant");
+            readable: false,
+            held: false,
+            inGarage: GarageCartridgeRoomPolicy.IsGarage(garageRoom),
+            releasedThisVisit: false);
+        Equal(GarageNativeGrantDecision.WaitForNativeRead, unreadableInGarage.GrantDecision,
+            "promoted pre-entry evidence waits for authoritative native readback in Garage");
+        True(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "unreadable Garage observation retains matching pre-entry evidence for this room only");
 
         fixture.Adapter.ResetForRoomTransition(
             generation: 1,
             enteringGarageFromApproachRoom:
-                GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(garageApproachRoom, unrelatedRoom));
+                GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(garageRoom, unrelatedRoom));
         False(fixture.Adapter.HasPendingConsumption(superstar, 1),
-            "an unrelated room transition clears uncorroborated pre-entry evidence");
-        GarageCartridgeReconciliationResult afterUnrelatedTransition = RunProductionReconciliation(
+            "mutation carrying promoted pre-entry evidence across a later unrelated transition is unsafe");
+        GarageCartridgeReconciliationResult absentOutsideGarage = RunProductionReconciliation(
             fixture, submittedGrantValues, superstar, false,
-            readable: true, held: false, inGarage: false, releasedThisVisit: false);
-        False(afterUnrelatedTransition.RecordedInsertion,
-            "an unrelated transition cannot convert pre-entry evidence into insertion");
-        True(afterUnrelatedTransition.GrantAttempted,
-            "after unrelated-transition cancellation, ordinary AP reconciliation may restore the bag");
+            readable: true,
+            held: false,
+            inGarage: GarageCartridgeRoomPolicy.IsGarage(unrelatedRoom),
+            releasedThisVisit: false);
+        False(absentOutsideGarage.RecordedInsertion,
+            "later readable absence outside Garage cannot confirm pre-entry-derived evidence");
         Equal("True", string.Join(",", submittedGrantValues),
-            "unrelated-transition cancellation allows exactly the ordinary true grant");
+            "destroyed pre-entry evidence returns to exactly one ordinary native regrant");
         Equal(0, fixture.Store.WriteKeys.Count,
-            "an unrelated transition never writes insertion storage");
+            "leaving Garage before readback cannot queue an insertion write");
+    }
+
+    {
+        var fixture = await CreateProductionFixture();
+        var submittedGrantValues = new List<bool>();
+        _ = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true,
+            held: true,
+            inGarage: GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
+            releasedThisVisit: false);
+        True(RecordRequest(
+                fixture,
+                superstarBagFlag,
+                value: false,
+                inGarage: GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
+                releasedThisVisit: false,
+                inGarageApproachRoom: GarageCartridgeRoomPolicy.IsGarageApproachRoom(garageApproachRoom)),
+            "stable-Hub6 fixture records an unbound false bag signal");
+        False(RecordGarageEntryTransitionRequest(fixture, garageApproachRoom, unrelatedRoom),
+            "an unrelated transition request cannot bind the Garage entry attempt");
+
+        GarageCartridgeReconciliationResult stableHub6 = RunProductionReconciliation(
+            fixture, submittedGrantValues, superstar, false,
+            readable: true,
+            held: false,
+            inGarage: GarageCartridgeRoomPolicy.IsGarage(garageApproachRoom),
+            releasedThisVisit: false);
+        False(stableHub6.RecordedInsertion,
+            "an unbound signal in stable Hub6 cannot record insertion");
+        True(stableHub6.GrantAttempted && stableHub6.GrantSubmitted,
+            "mutation retaining an unbound Hub6 signal suppresses regrant indefinitely");
+        False(fixture.Adapter.HasPendingConsumption(superstar, 1),
+            "the first production Unity reconciliation aborts an unbound entry attempt");
+        Equal("True", string.Join(",", submittedGrantValues),
+            "stable Hub6 abort invokes exactly one ordinary native true grant");
+        Equal(0, fixture.Store.WriteKeys.Count,
+            "stable Hub6 abort never writes insertion storage");
     }
 
     {

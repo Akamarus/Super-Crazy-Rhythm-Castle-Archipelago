@@ -164,8 +164,34 @@ internal sealed class GarageCartridgeInsertionTracker
         _pendingConsumption[song] = new GaragePendingNativeConsumption(
             generation,
             resetEpoch,
-            AwaitingGarageEntry: !inGarage);
+            inGarage
+                ? GaragePendingNativeConsumptionPhase.InGarageReleaseBacked
+                : GaragePendingNativeConsumptionPhase.AwaitingGarageEntryAttempt);
         return true;
+    }
+
+    internal bool TryBindGarageEntryAttempt(long generation, long resetEpoch)
+    {
+        var bind = new List<string>();
+        foreach ((string song, GaragePendingNativeConsumption pending) in _pendingConsumption)
+        {
+            if (pending.Generation == generation &&
+                pending.ResetEpoch == resetEpoch &&
+                pending.Phase == GaragePendingNativeConsumptionPhase.AwaitingGarageEntryAttempt)
+            {
+                bind.Add(song);
+            }
+        }
+
+        foreach (string song in bind)
+        {
+            GaragePendingNativeConsumption pending = _pendingConsumption[song];
+            _pendingConsumption[song] = pending with
+            {
+                Phase = GaragePendingNativeConsumptionPhase.AwaitingGarageRoom,
+            };
+        }
+        return bind.Count != 0;
     }
 
     internal bool HasPendingConsumption(string song, long generation, long resetEpoch) =>
@@ -180,6 +206,7 @@ internal sealed class GarageCartridgeInsertionTracker
         GarageInsertionServerValue serverValue,
         bool readable,
         bool held,
+        bool inGarage,
         out bool confirmed)
     {
         confirmed = false;
@@ -196,6 +223,19 @@ internal sealed class GarageCartridgeInsertionTracker
             return true;
         }
 
+        if (pending.Phase == GaragePendingNativeConsumptionPhase.GarageReadback &&
+            !inGarage)
+        {
+            _pendingConsumption.Remove(song);
+            return true;
+        }
+
+        if (pending.Phase == GaragePendingNativeConsumptionPhase.AwaitingGarageEntryAttempt)
+        {
+            _pendingConsumption.Remove(song);
+            return true;
+        }
+
         if (serverValue != GarageInsertionServerValue.NotInserted || !readable)
             return true;
 
@@ -205,7 +245,7 @@ internal sealed class GarageCartridgeInsertionTracker
             return true;
         }
 
-        if (pending.AwaitingGarageEntry)
+        if (pending.Phase == GaragePendingNativeConsumptionPhase.AwaitingGarageRoom)
             return true;
 
         _pendingConsumption.Remove(song);
@@ -227,15 +267,27 @@ internal sealed class GarageCartridgeInsertionTracker
     {
         _previous.Clear();
 
-        var carry = new List<string>();
+        var carry = new List<KeyValuePair<string, GaragePendingNativeConsumptionPhase>>();
         var remove = new List<string>();
         foreach ((string song, GaragePendingNativeConsumption pending) in _pendingConsumption)
         {
-            if (pending.Generation == generation &&
-                pending.ResetEpoch == previousResetEpoch &&
-                (!pending.AwaitingGarageEntry || enteringGarageFromApproachRoom))
+            bool matchingIdentity =
+                pending.Generation == generation &&
+                pending.ResetEpoch == previousResetEpoch;
+            if (matchingIdentity &&
+                pending.Phase == GaragePendingNativeConsumptionPhase.InGarageReleaseBacked)
             {
-                carry.Add(song);
+                carry.Add(new KeyValuePair<string, GaragePendingNativeConsumptionPhase>(
+                    song,
+                    GaragePendingNativeConsumptionPhase.InGarageReleaseBacked));
+            }
+            else if (matchingIdentity &&
+                     pending.Phase == GaragePendingNativeConsumptionPhase.AwaitingGarageRoom &&
+                     enteringGarageFromApproachRoom)
+            {
+                carry.Add(new KeyValuePair<string, GaragePendingNativeConsumptionPhase>(
+                    song,
+                    GaragePendingNativeConsumptionPhase.GarageReadback));
             }
             else
             {
@@ -243,13 +295,13 @@ internal sealed class GarageCartridgeInsertionTracker
             }
         }
 
-        foreach (string song in carry)
+        foreach ((string song, GaragePendingNativeConsumptionPhase phase) in carry)
         {
             GaragePendingNativeConsumption pending = _pendingConsumption[song];
             _pendingConsumption[song] = pending with
             {
                 ResetEpoch = resetEpoch,
-                AwaitingGarageEntry = false,
+                Phase = phase,
             };
         }
         foreach (string song in remove)
@@ -257,10 +309,18 @@ internal sealed class GarageCartridgeInsertionTracker
     }
 
     private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
+    private enum GaragePendingNativeConsumptionPhase
+    {
+        InGarageReleaseBacked,
+        AwaitingGarageEntryAttempt,
+        AwaitingGarageRoom,
+        GarageReadback,
+    }
+
     private readonly record struct GaragePendingNativeConsumption(
         long Generation,
         long ResetEpoch,
-        bool AwaitingGarageEntry);
+        GaragePendingNativeConsumptionPhase Phase);
 }
 
 internal readonly record struct GarageNativeGrantSubmission(
@@ -300,6 +360,18 @@ internal sealed class GarageCartridgeReconciliationAdapter
     {
         lock (_gate)
             return _tracker.HasPendingConsumption(song, generation, _resetEpoch);
+    }
+
+    internal bool RecordGarageEntryTransitionRequest(
+        string? originRoom,
+        string? destinationRoom,
+        long generation)
+    {
+        if (!GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(originRoom, destinationRoom))
+            return false;
+
+        lock (_gate)
+            return _tracker.TryBindGarageEntryAttempt(generation, _resetEpoch);
     }
 
     internal bool RecordProgressionRequest(
@@ -377,6 +449,7 @@ internal sealed class GarageCartridgeReconciliationAdapter
                 serverValue,
                 readable,
                 held,
+                inGarage,
                 out bool pendingConfirmed);
             bool transitionConfirmed = _tracker.Observe(
                 song,
