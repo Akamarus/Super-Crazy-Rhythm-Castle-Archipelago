@@ -12,9 +12,22 @@ internal enum GarageNativeGrantDecision
     None,
     WaitForServer,
     WaitForNativeRead,
+    WaitForGarageEntry,
     AlreadyHeld,
     AlreadyInserted,
     ApplyBagItem,
+}
+
+internal static class GarageCartridgeRoomPolicy
+{
+    internal static bool IsGarage(string? room) =>
+        string.Equals(room, "GameRoom_27", StringComparison.Ordinal);
+
+    internal static bool IsGarageApproachRoom(string? room) =>
+        string.Equals(room, "GameRoom_Hub6", StringComparison.Ordinal);
+
+    internal static bool IsGarageEntryFromApproach(string? previousRoom, string? currentRoom) =>
+        IsGarageApproachRoom(previousRoom) && IsGarage(currentRoom);
 }
 
 internal readonly record struct GarageInsertionObservation(
@@ -130,16 +143,19 @@ internal sealed class GarageCartridgeInsertionTracker
         bool inGarage,
         bool releasedThisVisit,
         long generation,
-        long resetEpoch)
+        long resetEpoch,
+        bool inGarageApproachRoom = false)
     {
+        bool validConsumptionContext =
+            (inGarage && releasedThisVisit) ||
+            (!inGarage && inGarageApproachRoom);
         if (signalIsSet != false ||
             (requirePreviouslySet && signalWasSet != true) ||
             !compatible ||
             !apOwned ||
             usesPhysicalVanillaEntrance ||
             serverValue != GarageInsertionServerValue.NotInserted ||
-            !inGarage ||
-            !releasedThisVisit ||
+            !validConsumptionContext ||
             !HasAuthoritativeHeldObservation(song))
         {
             return false;
@@ -147,7 +163,8 @@ internal sealed class GarageCartridgeInsertionTracker
 
         _pendingConsumption[song] = new GaragePendingNativeConsumption(
             generation,
-            resetEpoch);
+            resetEpoch,
+            AwaitingGarageEntry: !inGarage);
         return true;
     }
 
@@ -166,8 +183,12 @@ internal sealed class GarageCartridgeInsertionTracker
         out bool confirmed)
     {
         confirmed = false;
-        if (!HasPendingConsumption(song, generation, resetEpoch))
+        if (!_pendingConsumption.TryGetValue(song, out GaragePendingNativeConsumption pending) ||
+            pending.Generation != generation ||
+            pending.ResetEpoch != resetEpoch)
+        {
             return false;
+        }
 
         if (serverValue == GarageInsertionServerValue.Inserted)
         {
@@ -178,8 +199,17 @@ internal sealed class GarageCartridgeInsertionTracker
         if (serverValue != GarageInsertionServerValue.NotInserted || !readable)
             return true;
 
+        if (held)
+        {
+            _pendingConsumption.Remove(song);
+            return true;
+        }
+
+        if (pending.AwaitingGarageEntry)
+            return true;
+
         _pendingConsumption.Remove(song);
-        confirmed = !held;
+        confirmed = true;
         return true;
     }
 
@@ -192,7 +222,8 @@ internal sealed class GarageCartridgeInsertionTracker
     internal void ResetForRoomTransition(
         long generation,
         long previousResetEpoch,
-        long resetEpoch)
+        long resetEpoch,
+        bool enteringGarageFromApproachRoom)
     {
         _previous.Clear();
 
@@ -201,7 +232,8 @@ internal sealed class GarageCartridgeInsertionTracker
         foreach ((string song, GaragePendingNativeConsumption pending) in _pendingConsumption)
         {
             if (pending.Generation == generation &&
-                pending.ResetEpoch == previousResetEpoch)
+                pending.ResetEpoch == previousResetEpoch &&
+                (!pending.AwaitingGarageEntry || enteringGarageFromApproachRoom))
             {
                 carry.Add(song);
             }
@@ -217,6 +249,7 @@ internal sealed class GarageCartridgeInsertionTracker
             _pendingConsumption[song] = pending with
             {
                 ResetEpoch = resetEpoch,
+                AwaitingGarageEntry = false,
             };
         }
         foreach (string song in remove)
@@ -226,7 +259,8 @@ internal sealed class GarageCartridgeInsertionTracker
     private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
     private readonly record struct GaragePendingNativeConsumption(
         long Generation,
-        long ResetEpoch);
+        long ResetEpoch,
+        bool AwaitingGarageEntry);
 }
 
 internal readonly record struct GarageNativeGrantSubmission(
@@ -276,7 +310,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
         GarageInsertionServerValue serverValue,
         bool inGarage,
         bool releasedThisVisit,
-        long generation) =>
+        long generation,
+        bool inGarageApproachRoom = false) =>
         TryArmPendingConsumption(
             flag,
             value,
@@ -287,7 +322,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
             serverValue,
             inGarage,
             releasedThisVisit,
-            generation);
+            generation,
+            inGarageApproachRoom);
 
     internal bool RecordProgressionFlagUpdated(
         string flag,
@@ -298,7 +334,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
         GarageInsertionServerValue serverValue,
         bool inGarage,
         bool releasedThisVisit,
-        long generation) =>
+        long generation,
+        bool inGarageApproachRoom = false) =>
         TryArmPendingConsumption(
             flag,
             flagIsSet,
@@ -309,7 +346,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
             serverValue,
             inGarage,
             releasedThisVisit,
-            generation);
+            generation,
+            inGarageApproachRoom);
 
     internal GarageCartridgeReconciliationResult Reconcile(
         string song,
@@ -329,6 +367,7 @@ internal sealed class GarageCartridgeReconciliationAdapter
 
         bool recordInsertion;
         bool candidateArmed;
+        bool pendingConsumption;
         lock (_gate)
         {
             _tracker.TryResolvePendingConsumption(
@@ -358,6 +397,10 @@ internal sealed class GarageCartridgeReconciliationAdapter
                 releasedThisVisit &&
                 readable &&
                 held;
+            pendingConsumption = _tracker.HasPendingConsumption(
+                song,
+                generation,
+                _resetEpoch);
         }
 
         if (recordInsertion)
@@ -373,6 +416,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
             effectiveServerValue,
             readable,
             held);
+        if (pendingConsumption && decision == GarageNativeGrantDecision.ApplyBagItem)
+            decision = GarageNativeGrantDecision.WaitForGarageEntry;
         if (decision != GarageNativeGrantDecision.ApplyBagItem || submitGrant == null)
         {
             return new GarageCartridgeReconciliationResult(
@@ -403,13 +448,19 @@ internal sealed class GarageCartridgeReconciliationAdapter
         }
     }
 
-    internal void ResetForRoomTransition(long generation)
+    internal void ResetForRoomTransition(
+        long generation,
+        bool enteringGarageFromApproachRoom = false)
     {
         lock (_gate)
         {
             long previousResetEpoch = _resetEpoch;
             _resetEpoch++;
-            _tracker.ResetForRoomTransition(generation, previousResetEpoch, _resetEpoch);
+            _tracker.ResetForRoomTransition(
+                generation,
+                previousResetEpoch,
+                _resetEpoch,
+                enteringGarageFromApproachRoom);
         }
     }
 
@@ -423,7 +474,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
         GarageInsertionServerValue serverValue,
         bool inGarage,
         bool releasedThisVisit,
-        long generation)
+        long generation,
+        bool inGarageApproachRoom)
     {
         GarageCartridgeProgressionFlag? classification =
             GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
@@ -445,7 +497,8 @@ internal sealed class GarageCartridgeReconciliationAdapter
                 inGarage,
                 releasedThisVisit,
                 generation,
-                _resetEpoch);
+                _resetEpoch,
+                inGarageApproachRoom);
         }
     }
 }

@@ -20686,28 +20686,38 @@ internal static class GarageCartridgeAccess
 
     public static void ResetNativeBagObservations(
         string reason,
-        bool preservePendingConsumption = false)
+        bool preservePendingConsumption = false,
+        bool enteringGarageFromApproachRoom = false)
     {
         if (preservePendingConsumption &&
             ServerSyncLifecycle.TryRunCurrent(current =>
                 current.Observe(() => ResetNativeBagObservationsWithinLease(
                     reason,
-                    current.Generation))))
+                    current.Generation,
+                    enteringGarageFromApproachRoom))))
         {
             return;
         }
 
-        ResetNativeBagObservationsWithinLease(reason, generation: null);
+        ResetNativeBagObservationsWithinLease(
+            reason,
+            generation: null,
+            enteringGarageFromApproachRoom: false);
     }
 
     private static void ResetNativeBagObservationsWithinLease(
         string reason,
-        long? generation)
+        long? generation,
+        bool enteringGarageFromApproachRoom)
     {
         lock (Sync)
         {
             if (generation.HasValue)
-                InsertionTracker.ResetForRoomTransition(generation.Value);
+            {
+                InsertionTracker.ResetForRoomTransition(
+                    generation.Value,
+                    enteringGarageFromApproachRoom);
+            }
             else
                 InsertionTracker.Reset();
             ReleasedThisVisit.Clear();
@@ -20830,13 +20840,12 @@ internal static class GarageCartridgeAccess
         bool? signalWasSet,
         bool requirePreviouslySet)
     {
-        bool inGarage = string.Equals(
-            DeveloperHarness.CurrentRoomId,
-            "GameRoom_27",
-            StringComparison.Ordinal);
+        string room = DeveloperHarness.CurrentRoomId;
+        bool inGarage = GarageCartridgeRoomPolicy.IsGarage(room);
+        bool inGarageApproachRoom = GarageCartridgeRoomPolicy.IsGarageApproachRoom(room);
         GarageCartridgeProgressionFlag? classification =
             GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
-        if (!inGarage ||
+        if ((!inGarage && !inGarageApproachRoom) ||
             classification is not { Kind: GarageCartridgeProgressionFlagKind.BagItem } classified ||
             classified.Cartridge.UsesPhysicalVanillaEntrance)
         {
@@ -20863,7 +20872,8 @@ internal static class GarageCartridgeAccess
                             serverValue,
                             inGarage,
                             ReleasedThisVisit.Contains(cartridge.Song),
-                            current.Generation)
+                            current.Generation,
+                            inGarageApproachRoom)
                         : InsertionTracker.RecordProgressionRequest(
                             flag,
                             signalIsSet,
@@ -20872,7 +20882,8 @@ internal static class GarageCartridgeAccess
                             serverValue,
                             inGarage,
                             ReleasedThisVisit.Contains(cartridge.Song),
-                            current.Generation);
+                            current.Generation,
+                            inGarageApproachRoom);
                 }
             });
         if (requirePreviouslySet)
@@ -21048,7 +21059,7 @@ internal static class GarageCartridgeAccess
 
             bool initialSyncReady = InsertionCoordinator.InitialSyncReady;
             string room = DeveloperHarness.CurrentRoomId;
-            bool inGarage = string.Equals(room, "GameRoom_27", StringComparison.Ordinal);
+            bool inGarage = GarageCartridgeRoomPolicy.IsGarage(room);
             foreach (GarageCartridgeNativeDefinition cartridge in GarageCartridgeNativePolicy.RandomizedCartridges)
             {
                 bool bagReadable = RootsBucketRandomization.TryReadProgressionFlag(cartridge.NativeBagFlag, out bool bagHeld);
@@ -21306,9 +21317,12 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal))
         {
+            bool enteringGarageFromApproachRoom =
+                GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(_lastRoom, room);
             GarageCartridgeAccess.ResetNativeBagObservations(
                 $"room transition '{_lastRoom}' -> '{room}'",
-                preservePendingConsumption: true);
+                preservePendingConsumption: true,
+                enteringGarageFromApproachRoom);
             _lastRoom = room;
             _objects.Clear();
             _releaseVisit.Clear();
