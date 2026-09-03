@@ -110,6 +110,8 @@ string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static 
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
 string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
+string progressionRequestPrefixMethod = MethodBody(pluginSource, "public static bool ProgressionRequestPrefix(", "private static readonly string[] GateKeywords");
+string progressionFlagEventMethod = MethodBody(pluginSource, "public static void ProgressionFlagEventPostfix(", "public static void BagItemRequestPostfix(");
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
@@ -1106,6 +1108,298 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 }
 
 {
+    var failures = new List<string>();
+    void CheckEqual<T>(T expected, T actual, string mutation)
+    {
+        if (!EqualityComparer<T>.Default.Equals(expected, actual))
+            failures.Add($"{mutation}: expected {expected}, got {actual}");
+    }
+    void CheckTrue(bool actual, string mutation) => CheckEqual(true, actual, mutation);
+    void CheckFalse(bool actual, string mutation) => CheckEqual(false, actual, mutation);
+
+    {
+        var sequence = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(sequence.Observe(readable: true, held: true, inGarage: true),
+            "live-order sequence begins with authoritative held history");
+        sequence.NoteGarageObjectReleased();
+        CheckTrue(
+            sequence.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation ignoring the exact in-Garage false request loses pending confirmation");
+        CheckEqual(GarageInsertionServerValue.NotInserted, sequence.Coordinator.GetServerValue(sequence.Song),
+            "mutation treating the progression signal alone as insertion violates authoritative readback");
+        CheckEqual(0, sequence.Store.WriteKeys.Count,
+            "mutation writing from the progression signal alone violates authoritative readback");
+
+        long signalResetEpoch = sequence.ResetEpoch;
+        sequence.RoomTransitionReset();
+        var afterExit = sequence.Reconcile(readable: true, held: false, inGarage: false);
+        CheckTrue(afterExit.RecordedInsertion,
+            "mutation clearing pending confirmation during the room-transition reset loses native consumption");
+        CheckEqual(GarageNativeGrantDecision.AlreadyInserted, afterExit.GrantDecision,
+            "mutation allowing regrant after transition resurrects a consumed cartridge");
+        CheckEqual(1, sequence.Store.WriteKeys.Count,
+            "mutation omitting authoritative post-transition confirmation loses the slot write");
+        CheckFalse(sequence.HasPendingConsumption,
+            "mutation retaining pending confirmation after authoritative absence can duplicate insertion");
+        CheckFalse(sequence.TryConfirmPendingAt(
+                sequence.Generation,
+                signalResetEpoch,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: false),
+            "mutation accepting the stale pre-transition reset epoch can duplicate insertion");
+    }
+
+    {
+        var sequence = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(sequence.Observe(readable: true, held: true, inGarage: true),
+            "event-only sequence begins with authoritative held history");
+        sequence.NoteGarageObjectReleased();
+        CheckTrue(
+            sequence.SignalProgressionEvent(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                flagIsSet: false,
+                flagWasSet: true,
+                inGarage: true),
+            "mutation ignoring the exact false update event loses pending confirmation");
+        CheckEqual(GarageInsertionServerValue.NotInserted, sequence.Coordinator.GetServerValue(sequence.Song),
+            "mutation treating the update event alone as durable insertion bypasses native readback");
+        CheckEqual(0, sequence.Store.WriteKeys.Count,
+            "mutation writing from the update event alone bypasses native readback");
+
+        var unreadable = sequence.Reconcile(readable: false, held: false, inGarage: true);
+        CheckFalse(unreadable.RecordedInsertion,
+            "mutation treating unreadable confirmation as absence invents insertion");
+        CheckEqual(GarageNativeGrantDecision.WaitForNativeRead, unreadable.GrantDecision,
+            "mutation regranting while pending confirmation is unreadable is unsafe");
+        CheckTrue(sequence.HasPendingConsumption,
+            "mutation dropping pending confirmation on an unreadable sample permits later regrant");
+        CheckEqual(0, sequence.Store.WriteKeys.Count,
+            "mutation writing on unreadable confirmation invents durable evidence");
+
+        sequence.RoomTransitionReset();
+        CheckTrue(sequence.HasPendingConsumption,
+            "mutation dropping unreadable pending confirmation at the first room boundary permits regrant");
+        var stillUnreadable = sequence.Reconcile(readable: false, held: false, inGarage: false);
+        CheckFalse(stillUnreadable.RecordedInsertion,
+            "mutation treating post-transition unreadable state as absence invents insertion");
+        sequence.RoomTransitionReset();
+        CheckTrue(sequence.HasPendingConsumption,
+            "mutation expiring safe unreadable pending confirmation at a later room boundary permits regrant");
+        var eventuallyAbsent = sequence.Reconcile(readable: true, held: false, inGarage: false);
+        CheckTrue(eventuallyAbsent.RecordedInsertion,
+            "mutation failing to retain pending confirmation until authoritative readback loses consumption");
+        CheckEqual(GarageNativeGrantDecision.AlreadyInserted, eventuallyAbsent.GrantDecision,
+            "mutation regranting after delayed authoritative confirmation resurrects a consumed cartridge");
+        CheckEqual(1, sequence.Store.WriteKeys.Count,
+            "mutation omitting the delayed authoritative confirmation write loses durable insertion");
+    }
+
+    {
+        var sequence = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(sequence.Observe(readable: true, held: true, inGarage: true),
+            "held-cancellation sequence begins with authoritative held history");
+        sequence.NoteGarageObjectReleased();
+        CheckTrue(
+            sequence.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation refusing a valid pending signal prevents held cancellation from being tested");
+        var heldAgain = sequence.Reconcile(readable: true, held: true, inGarage: true);
+        CheckFalse(heldAgain.RecordedInsertion,
+            "mutation confirming pending consumption while the bag is authoritatively held invents insertion");
+        CheckEqual(GarageNativeGrantDecision.AlreadyHeld, heldAgain.GrantDecision,
+            "mutation regranting an authoritatively held cartridge duplicates the native item");
+        CheckFalse(sequence.HasPendingConsumption,
+            "mutation retaining pending consumption after held readback can confirm a later unrelated absence");
+        CheckEqual(0, sequence.Store.WriteKeys.Count,
+            "mutation writing after held cancellation invents insertion");
+    }
+
+    {
+        var outsideGarage = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(outsideGarage.Observe(readable: true, held: true, inGarage: true),
+            "ignored-signal sequence establishes held history");
+        outsideGarage.NoteGarageObjectReleased();
+        CheckFalse(outsideGarage.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: false),
+            "mutation accepting false requests outside Game Garage captures unrelated state changes");
+        CheckFalse(outsideGarage.SignalProgressionEvent(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                flagIsSet: false,
+                flagWasSet: false,
+                inGarage: true),
+            "mutation accepting a false-to-false event invents native consumption");
+        CheckFalse(outsideGarage.SignalProgressionEvent(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                flagIsSet: true,
+                flagWasSet: false,
+                inGarage: true),
+            "mutation accepting a true update event mistakes a grant for consumption");
+        CheckFalse(outsideGarage.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_SMOOCH_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation accepting a different song flag cross-arms pending consumption");
+        CheckFalse(outsideGarage.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_COLLECTED",
+                value: false,
+                inGarage: true),
+            "mutation accepting a collected marker as bag consumption corrupts insertion state");
+
+        var withoutHeld = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        withoutHeld.NoteGarageObjectReleased();
+        CheckFalse(withoutHeld.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation arming without authoritative held history invents consumption");
+
+        var withoutRelease = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(withoutRelease.Observe(readable: true, held: true, inGarage: true),
+            "no-release sequence establishes held history");
+        CheckFalse(withoutRelease.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation arming without real object release evidence captures unrelated bag loss");
+
+        var unowned = await CreateSequenceHarness(cartridgeKeys, "Superstar", apOwned: false);
+        unowned.NoteGarageObjectReleased();
+        CheckFalse(unowned.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation arming an unowned cartridge bypasses AP ownership");
+    }
+
+    {
+        var tracker = new GarageCartridgeInsertionTracker();
+        False(tracker.Observe(
+                "Superstar",
+                compatible: true,
+                apOwned: true,
+                usesPhysicalVanillaEntrance: false,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: true,
+                inGarage: true,
+                releasedThisVisit: false),
+            "server-state guard establishes held history");
+        CheckFalse(tracker.TryArmPendingConsumption(
+                "Superstar", false, null, false, true, true, false,
+                GarageInsertionServerValue.Unknown, true, true, 1, 1),
+            "mutation arming while server state is unknown bypasses synchronization");
+        CheckFalse(tracker.TryArmPendingConsumption(
+                "Superstar", false, null, false, true, true, false,
+                GarageInsertionServerValue.Inserted, true, true, 1, 1),
+            "mutation arming after terminal insertion can duplicate the transition");
+        CheckFalse(tracker.TryArmPendingConsumption(
+                "Superstar", false, null, false, true, false, false,
+                GarageInsertionServerValue.NotInserted, true, true, 1, 1),
+            "mutation arming an unowned cartridge bypasses AP ownership");
+    }
+
+    {
+        var sequence = await CreateSequenceHarness(cartridgeKeys, "Superstar");
+        False(sequence.Observe(readable: true, held: true, inGarage: true),
+            "stale-evidence sequence establishes held history");
+        sequence.NoteGarageObjectReleased();
+        CheckTrue(sequence.SignalProgressionRequest(
+                "LEVEL_27_CARTRIDGE_STAR_EATER_BAG_ITEM",
+                value: false,
+                inGarage: true),
+            "mutation dropping the pending signal prevents stale-generation validation");
+        CheckFalse(sequence.TryConfirmPendingAt(
+                sequence.Generation + 1,
+                sequence.ResetEpoch,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: false),
+            "mutation accepting a stale generation can confirm another session's signal");
+        CheckTrue(sequence.HasPendingConsumption,
+            "mutation allowing a stale generation to consume current pending evidence loses the real confirmation");
+
+        long staleEpoch = sequence.ResetEpoch;
+        sequence.RoomTransitionReset();
+        CheckFalse(sequence.TryConfirmPendingAt(
+                sequence.Generation,
+                staleEpoch,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: false),
+            "mutation accepting a stale reset epoch can confirm pre-reset evidence");
+        CheckTrue(sequence.HasPendingConsumption,
+            "mutation allowing stale reset work to consume carried pending evidence loses the current confirmation");
+        CheckFalse(sequence.TryConfirmPendingAt(
+                sequence.Generation + 1,
+                sequence.ResetEpoch,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: false),
+            "mutation carrying pending evidence into another server generation is unsafe");
+
+        sequence.ResetNativeBagObservations();
+        CheckFalse(sequence.HasPendingConsumption,
+            "mutation retaining pending evidence across a save or processor reset can invent insertion");
+        CheckFalse(sequence.TryConfirmPendingAt(
+                sequence.Generation,
+                sequence.ResetEpoch,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: false),
+            "mutation confirming after a destructive evidence reset invents insertion");
+        CheckEqual(0, sequence.Store.WriteKeys.Count,
+            "mutation converting stale pending evidence into a write violates reset safety");
+    }
+
+    {
+        var tracker = new GarageCartridgeInsertionTracker();
+        False(tracker.Observe(
+                "Vampire Killer",
+                compatible: true,
+                apOwned: true,
+                usesPhysicalVanillaEntrance: false,
+                GarageInsertionServerValue.NotInserted,
+                readable: true,
+                held: true,
+                inGarage: true,
+                releasedThisVisit: true),
+            "Vampire Killer fixture establishes held evidence so physical-path rejection is independent");
+        CheckFalse(tracker.TryArmPendingConsumption(
+                "Vampire Killer", false, null, false, true, true, true,
+                GarageInsertionServerValue.NotInserted, true, true, 1, 1),
+            "mutation arming physical Vampire Killer violates its vanilla path");
+        CheckTrue(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+                usesPhysicalVanillaEntrance: true,
+                GarageInsertionServerValue.Unknown,
+                currentVisitNativeBagHeldObserved: false),
+            "mutation gating physical Vampire Killer on AP pending evidence breaks vanilla entry");
+    }
+
+    CheckTrue(progressionRequestPrefixMethod.Contains(
+            "GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);",
+            StringComparison.Ordinal),
+        "mutation omitting the progression-request integration loses the synchronous false signal");
+    CheckTrue(progressionFlagEventMethod.Contains(
+            "GarageCartridgeAccess.RecordNativeBagProgressionFlagUpdated(evt, flag);",
+            StringComparison.Ordinal),
+        "mutation omitting the progression-update integration loses the synchronous false event");
+    CheckTrue(garageSource.Contains("preservePendingConsumption: true", StringComparison.Ordinal),
+        "mutation using a destructive room-transition reset loses valid pending confirmation");
+
+    if (failures.Count != 0)
+        throw new InvalidOperationException(
+            "Garage transition-order regression failures:\n" + string.Join("\n", failures));
+}
+
+{
     var tracker = new GarageCartridgeInsertionTracker();
     False(tracker.Observe(
             "Vampire Killer",
@@ -1340,6 +1634,10 @@ sealed class GarageInsertionSequenceHarness
     public bool UsesPhysicalVanillaEntrance { get; set; }
     public bool ReleasedThisVisit { get; private set; }
     public int DurableConfirmations { get; private set; }
+    public long Generation { get; private set; } = 1;
+    public long ResetEpoch { get; private set; } = 1;
+    public bool HasPendingConsumption =>
+        _tracker.HasPendingConsumption(Song, Generation, ResetEpoch);
 
     public void NoteGarageObjectReleased() => ReleasedThisVisit = true;
 
@@ -1360,6 +1658,57 @@ sealed class GarageInsertionSequenceHarness
         return recorded;
     }
 
+    public bool SignalProgressionRequest(string flag, bool? value, bool inGarage) =>
+        SignalProgression(flag, value, signalWasSet: null, requirePreviouslySet: false, inGarage);
+
+    public bool SignalProgressionEvent(
+        string flag,
+        bool? flagIsSet,
+        bool? flagWasSet,
+        bool inGarage) =>
+        SignalProgression(flag, flagIsSet, flagWasSet, requirePreviouslySet: true, inGarage);
+
+    public (bool RecordedInsertion, GarageNativeGrantDecision GrantDecision) Reconcile(
+        bool readable,
+        bool held,
+        bool inGarage)
+    {
+        bool pendingHandled = _tracker.TryResolvePendingConsumption(
+            Song,
+            Generation,
+            ResetEpoch,
+            Coordinator.GetServerValue(Song),
+            readable,
+            held,
+            out bool pendingConfirmed);
+        bool transitionConfirmed = Observe(readable, held, inGarage);
+        bool recorded = pendingConfirmed || transitionConfirmed;
+        if (pendingConfirmed && !transitionConfirmed)
+            Coordinator.NoteInserted(Song);
+        _ = pendingHandled;
+        return (recorded, GrantDecision(readable, held));
+    }
+
+    public bool TryConfirmPendingAt(
+        long generation,
+        long resetEpoch,
+        GarageInsertionServerValue serverValue,
+        bool readable,
+        bool held)
+    {
+        bool handled = _tracker.TryResolvePendingConsumption(
+            Song,
+            generation,
+            resetEpoch,
+            serverValue,
+            readable,
+            held,
+            out bool confirmed);
+        if (confirmed)
+            Coordinator.NoteInserted(Song);
+        return handled && confirmed;
+    }
+
     public GarageNativeGrantDecision GrantDecision(bool readable, bool held) =>
         GarageCartridgeInsertionPolicy.DecideGrant(
             compatible: true,
@@ -1371,7 +1720,92 @@ sealed class GarageInsertionSequenceHarness
 
     public void ResetNativeBagObservations()
     {
+        ResetEpoch++;
         _tracker.Reset();
         ReleasedThisVisit = false;
     }
+
+    public void RoomTransitionReset()
+    {
+        long previousResetEpoch = ResetEpoch;
+        ResetEpoch++;
+        _tracker.ResetForRoomTransition(Generation, previousResetEpoch, ResetEpoch);
+        ReleasedThisVisit = false;
+    }
+
+    private bool SignalProgression(
+        string flag,
+        bool? signalIsSet,
+        bool? signalWasSet,
+        bool requirePreviouslySet,
+        bool inGarage)
+    {
+        GarageCartridgeProgressionFlag? classification =
+            GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
+        if (classification is not { Kind: GarageCartridgeProgressionFlagKind.BagItem } classified ||
+            !string.Equals(classified.Cartridge.Song, Song, StringComparison.OrdinalIgnoreCase) ||
+            !GarageCartridgeNativePolicy.RandomizedCartridges.Any(cartridge =>
+                string.Equals(cartridge.Song, Song, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return _tracker.TryArmPendingConsumption(
+            Song,
+            signalIsSet,
+            signalWasSet,
+            requirePreviouslySet,
+            compatible: true,
+            ApOwned,
+            UsesPhysicalVanillaEntrance,
+            Coordinator.GetServerValue(Song),
+            inGarage,
+            ReleasedThisVisit,
+            Generation,
+            ResetEpoch);
+    }
+}
+
+static class GaragePendingConsumptionFallbackExtensions
+{
+    internal static bool TryArmPendingConsumption(
+        this GarageCartridgeInsertionTracker tracker,
+        string song,
+        bool? signalIsSet,
+        bool? signalWasSet,
+        bool requirePreviouslySet,
+        bool compatible,
+        bool apOwned,
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation,
+        long resetEpoch) => false;
+
+    internal static bool HasPendingConsumption(
+        this GarageCartridgeInsertionTracker tracker,
+        string song,
+        long generation,
+        long resetEpoch) => false;
+
+    internal static bool TryResolvePendingConsumption(
+        this GarageCartridgeInsertionTracker tracker,
+        string song,
+        long generation,
+        long resetEpoch,
+        GarageInsertionServerValue serverValue,
+        bool readable,
+        bool held,
+        out bool confirmed)
+    {
+        confirmed = false;
+        return false;
+    }
+
+    internal static void ResetForRoomTransition(
+        this GarageCartridgeInsertionTracker tracker,
+        long generation,
+        long previousResetEpoch,
+        long resetEpoch) => tracker.Reset();
 }

@@ -76,6 +76,8 @@ internal sealed class GarageCartridgeInsertionTracker
 {
     private readonly Dictionary<string, GarageNativeBagObservation> _previous =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, GaragePendingNativeConsumption> _pendingConsumption =
+        new(StringComparer.OrdinalIgnoreCase);
 
     internal bool Observe(
         string song,
@@ -116,9 +118,115 @@ internal sealed class GarageCartridgeInsertionTracker
         observation.Readable &&
         observation.Held;
 
-    internal void Reset() => _previous.Clear();
+    internal bool TryArmPendingConsumption(
+        string song,
+        bool? signalIsSet,
+        bool? signalWasSet,
+        bool requirePreviouslySet,
+        bool compatible,
+        bool apOwned,
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue,
+        bool inGarage,
+        bool releasedThisVisit,
+        long generation,
+        long resetEpoch)
+    {
+        if (signalIsSet != false ||
+            (requirePreviouslySet && signalWasSet != true) ||
+            !compatible ||
+            !apOwned ||
+            usesPhysicalVanillaEntrance ||
+            serverValue != GarageInsertionServerValue.NotInserted ||
+            !inGarage ||
+            !releasedThisVisit ||
+            !HasAuthoritativeHeldObservation(song))
+        {
+            return false;
+        }
+
+        _pendingConsumption[song] = new GaragePendingNativeConsumption(
+            generation,
+            resetEpoch);
+        return true;
+    }
+
+    internal bool HasPendingConsumption(string song, long generation, long resetEpoch) =>
+        _pendingConsumption.TryGetValue(song, out GaragePendingNativeConsumption pending) &&
+        pending.Generation == generation &&
+        pending.ResetEpoch == resetEpoch;
+
+    internal bool TryResolvePendingConsumption(
+        string song,
+        long generation,
+        long resetEpoch,
+        GarageInsertionServerValue serverValue,
+        bool readable,
+        bool held,
+        out bool confirmed)
+    {
+        confirmed = false;
+        if (!HasPendingConsumption(song, generation, resetEpoch))
+            return false;
+
+        if (serverValue == GarageInsertionServerValue.Inserted)
+        {
+            _pendingConsumption.Remove(song);
+            return true;
+        }
+
+        if (serverValue != GarageInsertionServerValue.NotInserted || !readable)
+            return true;
+
+        _pendingConsumption.Remove(song);
+        confirmed = !held;
+        return true;
+    }
+
+    internal void Reset()
+    {
+        _previous.Clear();
+        _pendingConsumption.Clear();
+    }
+
+    internal void ResetForRoomTransition(
+        long generation,
+        long previousResetEpoch,
+        long resetEpoch)
+    {
+        _previous.Clear();
+
+        var carry = new List<string>();
+        var remove = new List<string>();
+        foreach ((string song, GaragePendingNativeConsumption pending) in _pendingConsumption)
+        {
+            if (pending.Generation == generation &&
+                pending.ResetEpoch == previousResetEpoch)
+            {
+                carry.Add(song);
+            }
+            else
+            {
+                remove.Add(song);
+            }
+        }
+
+        foreach (string song in carry)
+        {
+            GaragePendingNativeConsumption pending = _pendingConsumption[song];
+            _pendingConsumption[song] = pending with
+            {
+                ResetEpoch = resetEpoch,
+            };
+        }
+        foreach (string song in remove)
+            _pendingConsumption.Remove(song);
+    }
 
     private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
+    private readonly record struct GaragePendingNativeConsumption(
+        long Generation,
+        long ResetEpoch);
 }
 
 internal sealed class GarageCartridgeReconciliationAccess

@@ -20685,12 +20685,41 @@ internal static class GarageCartridgeAccess
         UnityDispatcher.Drain(_ => TryFlushPendingNativeGrants());
     }
 
-    public static void ResetNativeBagObservations(string reason)
+    public static void ResetNativeBagObservations(
+        string reason,
+        bool preservePendingConsumption = false)
+    {
+        if (preservePendingConsumption &&
+            ServerSyncLifecycle.TryRunCurrent(current =>
+                current.Observe(() => ResetNativeBagObservationsWithinLease(
+                    reason,
+                    current.Generation))))
+        {
+            return;
+        }
+
+        ResetNativeBagObservationsWithinLease(reason, generation: null);
+    }
+
+    private static void ResetNativeBagObservationsWithinLease(
+        string reason,
+        long? generation)
     {
         lock (Sync)
         {
+            long previousResetEpoch = _nativeBagObservationResetEpoch;
             _nativeBagObservationResetEpoch++;
-            InsertionTracker.Reset();
+            if (generation.HasValue)
+            {
+                InsertionTracker.ResetForRoomTransition(
+                    generation.Value,
+                    previousResetEpoch,
+                    _nativeBagObservationResetEpoch);
+            }
+            else
+            {
+                InsertionTracker.Reset();
+            }
             ReleasedThisVisit.Clear();
             InsertionCandidateArmedLogged.Clear();
             LastNativeDecisions.Clear();
@@ -20715,6 +20744,7 @@ internal static class GarageCartridgeAccess
 
         ServerSyncLifecycle.TryRunCurrent(current =>
             current.Observe(() => ObserveNativeBagWithinLease(
+                current.Generation,
                 cartridge,
                 readable,
                 held,
@@ -20723,6 +20753,7 @@ internal static class GarageCartridgeAccess
     }
 
     private static void ObserveNativeBagWithinLease(
+        long generation,
         GarageCartridgeNativeDefinition cartridge,
         bool readable,
         bool held,
@@ -20746,7 +20777,15 @@ internal static class GarageCartridgeAccess
         bool logCandidateArmed;
         lock (Sync)
         {
-            recordInsertion = InsertionTracker.Observe(
+            InsertionTracker.TryResolvePendingConsumption(
+                cartridge.Song,
+                generation,
+                _nativeBagObservationResetEpoch,
+                serverValue,
+                readable,
+                held,
+                out bool pendingConfirmed);
+            bool transitionConfirmed = InsertionTracker.Observe(
                 cartridge.Song,
                 enabled,
                 apOwned,
@@ -20756,6 +20795,7 @@ internal static class GarageCartridgeAccess
                 held,
                 inGarage,
                 releaseObserved);
+            recordInsertion = pendingConfirmed || transitionConfirmed;
             logCandidateArmed = enabled &&
                 apOwned &&
                 !cartridge.UsesPhysicalVanillaEntrance &&
@@ -20781,6 +20821,79 @@ internal static class GarageCartridgeAccess
         LogDiagnostic(GarageCartridgeDiagnostics.NativeConsumptionObserved(cartridge.Song));
         LogDiagnostic(GarageCartridgeDiagnostics.ServerWritePending(cartridge.Song));
         RequestUnityReconciliation("Garage native cartridge consumption observed");
+    }
+
+    public static void RecordNativeBagProgressionRequest(object request, string flag)
+    {
+        bool? value = ReflectionUtil.ReadBool(request, "Value")
+                      ?? ReflectionUtil.ReadBool(request, "_Value_k__BackingField");
+        TryArmPendingNativeConsumption(
+            flag,
+            value,
+            signalWasSet: null,
+            requirePreviouslySet: false);
+    }
+
+    public static void RecordNativeBagProgressionFlagUpdated(object evt, string flag)
+    {
+        bool? isSet = ReflectionUtil.ReadBool(evt, "FlagIsSet")
+                      ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField");
+        bool? wasSet = ReflectionUtil.ReadBool(evt, "FlagWasSet")
+                       ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField");
+        TryArmPendingNativeConsumption(
+            flag,
+            isSet,
+            wasSet,
+            requirePreviouslySet: true);
+    }
+
+    private static void TryArmPendingNativeConsumption(
+        string flag,
+        bool? signalIsSet,
+        bool? signalWasSet,
+        bool requirePreviouslySet)
+    {
+        bool inGarage = string.Equals(
+            DeveloperHarness.CurrentRoomId,
+            "GameRoom_27",
+            StringComparison.Ordinal);
+        GarageCartridgeProgressionFlag? classification =
+            GarageCartridgeNativePolicy.ClassifyProgressionFlag(flag);
+        if (!inGarage ||
+            classification is not { Kind: GarageCartridgeProgressionFlagKind.BagItem } classified ||
+            classified.Cartridge.UsesPhysicalVanillaEntrance)
+        {
+            return;
+        }
+
+        GarageCartridgeNativeDefinition cartridge = classified.Cartridge;
+        bool armed = false;
+        ServerSyncLifecycle.TryRunCurrent(current =>
+            current.Observe(() =>
+            {
+                GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
+                    ? InsertionCoordinator.GetServerValue(cartridge.Song)
+                    : GarageInsertionServerValue.Unknown;
+                lock (Sync)
+                {
+                    armed = InsertionTracker.TryArmPendingConsumption(
+                        cartridge.Song,
+                        signalIsSet,
+                        signalWasSet,
+                        requirePreviouslySet,
+                        Enabled,
+                        OwnedSongs.Contains(cartridge.Song),
+                        cartridge.UsesPhysicalVanillaEntrance,
+                        serverValue,
+                        inGarage,
+                        ReleasedThisVisit.Contains(cartridge.Song),
+                        current.Generation,
+                        _nativeBagObservationResetEpoch);
+                }
+            }));
+
+        if (armed)
+            RequestUnityReconciliation("Garage native cartridge consumption awaiting confirmation");
     }
 
     public static bool TryReleaseCartridgeObject(
@@ -20950,6 +21063,7 @@ internal static class GarageCartridgeAccess
                 lock (Sync)
                     releasedThisVisit = ReleasedThisVisit.Contains(cartridge.Song);
                 current.Observe(() => ObserveNativeBagWithinLease(
+                    current.Generation,
                     cartridge,
                     bagReadable,
                     bagHeld,
@@ -21201,7 +21315,8 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal))
         {
             GarageCartridgeAccess.ResetNativeBagObservations(
-                $"room transition '{_lastRoom}' -> '{room}'");
+                $"room transition '{_lastRoom}' -> '{room}'",
+                preservePendingConsumption: true);
             _lastRoom = room;
             _objects.Clear();
             _releaseVisit.Clear();
@@ -26268,6 +26383,8 @@ internal static class ProgressionPatches
                       ?? ReflectionUtil.ReadMember(req, "_Flag_k__BackingField")?.ToString()
                       ?? "<unknown>";
 
+        GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);
+
         if (GarageCartridgeAccess.ShouldSuppressVanillaSourceGrant(req, flag))
             return false;
 
@@ -26346,6 +26463,8 @@ internal static class ProgressionPatches
         string flag = ReflectionUtil.ReadMember(evt, "ProgressionFlag")?.ToString()
                       ?? ReflectionUtil.ReadMember(evt, "_ProgressionFlag_k__BackingField")?.ToString()
                       ?? "<unknown>";
+
+        GarageCartridgeAccess.RecordNativeBagProgressionFlagUpdated(evt, flag);
 
         Level5Discovery.RecordProgressionFlagUpdated(flag);
         Level6Discovery.RecordProgressionFlagUpdated(flag);
