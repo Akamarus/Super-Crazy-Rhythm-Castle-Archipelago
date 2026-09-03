@@ -20845,7 +20845,7 @@ internal static class GarageCartridgeAccess
 
         GarageCartridgeNativeDefinition cartridge = classified.Cartridge;
         bool armed = false;
-        ServerSyncLifecycle.TryRunCurrent(current =>
+        Action<GarageCartridgeReconciliationLease> record = current =>
             current.Observe(() =>
             {
                 GarageInsertionServerValue serverValue = InsertionCoordinator.InitialSyncReady
@@ -20874,7 +20874,18 @@ internal static class GarageCartridgeAccess
                             ReleasedThisVisit.Contains(cartridge.Song),
                             current.Generation);
                 }
-            }));
+            });
+        if (requirePreviouslySet)
+        {
+            ServerSyncLifecycle.TryRunProgressionFlagUpdated(
+                signalIsSet,
+                signalWasSet,
+                record);
+        }
+        else
+        {
+            ServerSyncLifecycle.TryRunProgressionRequest(signalIsSet, record);
+        }
 
         if (armed)
             RequestUnityReconciliation("Garage native cartridge consumption awaiting confirmation");

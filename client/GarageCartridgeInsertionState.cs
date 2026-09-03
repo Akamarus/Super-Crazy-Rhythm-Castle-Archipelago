@@ -463,6 +463,25 @@ internal sealed class GarageCartridgeReconciliationAccess
     internal bool EndActive(Action<long> end) =>
         _lifecycle.EndActive(end);
 
+    internal bool TryRunProgressionRequest(
+        bool? value,
+        Action<GarageCartridgeReconciliationLease> record)
+    {
+        if (value != false)
+            return false;
+        return TryRunCurrent(record);
+    }
+
+    internal bool TryRunProgressionFlagUpdated(
+        bool? flagIsSet,
+        bool? flagWasSet,
+        Action<GarageCartridgeReconciliationLease> record)
+    {
+        if (flagIsSet != false || flagWasSet != true)
+            return false;
+        return TryRunCurrent(record);
+    }
+
     internal bool TryRunCurrent(Action<GarageCartridgeReconciliationLease> reconcile)
     {
         ArgumentNullException.ThrowIfNull(reconcile);

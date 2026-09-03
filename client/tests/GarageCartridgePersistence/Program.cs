@@ -186,6 +186,9 @@ True(observeNativeBagMethod.Contains("InsertionTracker.Reconcile(", StringCompar
 True(nativeProgressionArmMethod.Contains("InsertionTracker.RecordProgressionRequest(", StringComparison.Ordinal) &&
      nativeProgressionArmMethod.Contains("InsertionTracker.RecordProgressionFlagUpdated(", StringComparison.Ordinal),
     "native progression signals flow through the production reconciliation adapter");
+True(nativeProgressionArmMethod.Contains("ServerSyncLifecycle.TryRunProgressionRequest(", StringComparison.Ordinal) &&
+     nativeProgressionArmMethod.Contains("ServerSyncLifecycle.TryRunProgressionFlagUpdated(", StringComparison.Ordinal),
+    "native progression signals use the production pre-lease admission seam");
 False(string.Join("\n", nativeProgressionRequestMethod, nativeProgressionEventMethod, nativeProgressionArmMethod)
         .Contains("NoteInserted", StringComparison.Ordinal),
     "native progression signals cannot directly mark durable insertion");
@@ -248,6 +251,82 @@ True(releaseGarageObjectMethod.Contains("InsertionTracker.HasAuthoritativeHeldOb
     Equal(1, observations, "the leased observation executes exactly once");
     Equal(1, decisions, "decision work executes under the same lease after observation");
     True(access.End(41, () => { }), "production Garage reconciliation access ends the generation");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    True(access.TryBegin(410, () => { }),
+        "reentrant native-grant regression begins a real production generation");
+    var nativeGrantCallbacks = 0;
+    var nestedSignalCallbacks = 0;
+    bool requestAdmitted = true;
+    bool updateAdmitted = true;
+
+    True(access.TryRunCurrent(current => current.Observe(() =>
+    {
+        nativeGrantCallbacks++;
+        requestAdmitted = access.TryRunProgressionRequest(
+            value: true,
+            nested => nested.Observe(() => nestedSignalCallbacks++));
+        updateAdmitted = access.TryRunProgressionFlagUpdated(
+            flagIsSet: true,
+            flagWasSet: false,
+            nested => nested.Observe(() => nestedSignalCallbacks++));
+    })), "AP-authored native grant completes inside its original current-generation lease");
+
+    False(requestAdmitted,
+        "mutation admitting a nested true request reacquires the non-recursive generation lease");
+    False(updateAdmitted,
+        "mutation admitting a nested true update reacquires the non-recursive generation lease");
+    Equal(1, nativeGrantCallbacks,
+        "the outer native grant callback completes exactly once");
+    Equal(0, nestedSignalCallbacks,
+        "true request/update callbacks reject before any nested leased work executes");
+}
+
+{
+    var access = new GarageCartridgeReconciliationAccess();
+    True(access.TryBegin(411, () => { }),
+        "standalone signal-admission regression begins a real production generation");
+    var admittedCallbacks = 0;
+    var rejectedCallbacks = 0;
+
+    True(access.TryRunProgressionRequest(
+            value: false,
+            current => current.Observe(() => admittedCallbacks++)),
+        "a genuine false request enters the current-generation seam");
+    True(access.TryRunProgressionFlagUpdated(
+            flagIsSet: false,
+            flagWasSet: true,
+            current => current.Observe(() => admittedCallbacks++)),
+        "a genuine false-from-true update enters the current-generation seam");
+    False(access.TryRunProgressionRequest(
+            value: true,
+            current => current.Observe(() => rejectedCallbacks++)),
+        "a standalone true request rejects before lifecycle admission");
+    False(access.TryRunProgressionRequest(
+            value: null,
+            current => current.Observe(() => rejectedCallbacks++)),
+        "a null request rejects before lifecycle admission");
+    False(access.TryRunProgressionFlagUpdated(
+            flagIsSet: false,
+            flagWasSet: false,
+            current => current.Observe(() => rejectedCallbacks++)),
+        "a false-to-false update rejects before lifecycle admission");
+    False(access.TryRunProgressionFlagUpdated(
+            flagIsSet: true,
+            flagWasSet: false,
+            current => current.Observe(() => rejectedCallbacks++)),
+        "a true update rejects before lifecycle admission");
+    False(access.TryRunProgressionFlagUpdated(
+            flagIsSet: null,
+            flagWasSet: true,
+            current => current.Observe(() => rejectedCallbacks++)),
+        "a null update rejects before lifecycle admission");
+    Equal(2, admittedCallbacks,
+        "both genuine consumption signal shapes retain leased execution");
+    Equal(0, rejectedCallbacks,
+        "non-consumption signals execute no leased callback");
 }
 
 {
@@ -1446,7 +1525,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         GarageInsertionServerValue? serverValue = null)
     {
         bool armed = false;
-        True(fixture.Lifecycle.TryRunCurrent(current =>
+        fixture.Lifecycle.TryRunProgressionRequest(value, current =>
             current.Observe(() =>
                 armed = fixture.Adapter.RecordProgressionRequest(
                     flag,
@@ -1456,8 +1535,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                     serverValue ?? fixture.Coordinator.GetServerValue(superstar),
                     inGarage,
                     releasedThisVisit,
-                    current.Generation))),
-            "production progression request executes inside the current generation lease");
+                    current.Generation)));
         return armed;
     }
 
@@ -1472,7 +1550,10 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         bool inGarage = true)
     {
         bool armed = false;
-        True(fixture.Lifecycle.TryRunCurrent(current =>
+        fixture.Lifecycle.TryRunProgressionFlagUpdated(
+            flagIsSet,
+            flagWasSet,
+            current =>
             current.Observe(() =>
                 armed = fixture.Adapter.RecordProgressionFlagUpdated(
                     flag,
@@ -1483,8 +1564,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                     fixture.Coordinator.GetServerValue(superstar),
                     inGarage,
                     releasedThisVisit: true,
-                    current.Generation))),
-            "production progression event executes inside the current generation lease");
+                    current.Generation)));
         return armed;
     }
 
