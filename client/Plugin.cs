@@ -135,6 +135,7 @@ public sealed class Plugin : BasePlugin
         patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
+        patched += PatchGarageEntrancePreview();
         patched += PatchMethodsByParameter(
             "ProcessRequest",
             "CreateNewPlayerSaveFileInSlotRequest",
@@ -1022,6 +1023,80 @@ public sealed class Plugin : BasePlugin
         return type.GetMethod(
             name,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+    }
+
+    private int PatchGarageEntrancePreview()
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? owner = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
+            .FirstOrDefault(type => string.Equals(type.Name, "LevelPreviewUIData", StringComparison.Ordinal));
+        var matchingTargets = new List<MethodInfo>();
+        if (owner != null)
+        {
+            MethodInfo[] methods;
+            try
+            {
+                methods = owner.GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
+                    BindingFlags.Static | BindingFlags.DeclaredOnly);
+            }
+            catch
+            {
+                methods = Array.Empty<MethodInfo>();
+            }
+
+            foreach (MethodInfo method in methods)
+            {
+                string[] parameterTypeNames;
+                try
+                {
+                    parameterTypeNames = method.GetParameters()
+                        .Select(parameter => parameter.ParameterType.Name)
+                        .ToArray();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(
+                        owner.Name,
+                        method.Name,
+                        method.ReturnType.Name,
+                        parameterTypeNames))
+                {
+                    matchingTargets.Add(method);
+                }
+            }
+        }
+
+        MethodInfo? prefix = FindPatchMethod(
+            typeof(GarageEntrancePreviewPatches),
+            nameof(GarageEntrancePreviewPatches.Prefix));
+        if (matchingTargets.Count != 1 || prefix == null || _harmony == null)
+        {
+            Log.LogWarning(
+                $"[SCRC-AP] GAME GARAGE ENTRANCE PREVIEW hook unavailable: expected exact " +
+                "LevelPreviewUIData.RefreshDataForGarageCartridge(" +
+                "eRoom27GameCartridgeType, Boolean, eCleanMedal, eCleanMedal) signature " +
+                $"(matches={matchingTargets.Count}). Native preview ownership remains unchanged.");
+            return 0;
+        }
+
+        try
+        {
+            _harmony.Patch(matchingTargets[0], prefix: new HarmonyMethod(prefix));
+            Log.LogInfo(
+                "[SCRC-AP] Hooked exact Game Garage entrance preview ownership boundary.");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning(
+                $"[SCRC-AP] GAME GARAGE ENTRANCE PREVIEW hook skipped: {ex.GetBaseException().Message}. " +
+                "Native preview ownership remains unchanged.");
+            return 0;
+        }
     }
 
     private int PatchMethodsByParameter(string methodName, string parameterTypeName, string postfixName)
@@ -20534,6 +20609,61 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
     }
 }
 
+internal static class GarageEntrancePreviewPatches
+{
+    private static readonly object Sync = new();
+    private static readonly Dictionary<string,
+        (bool RoutingEnabled, bool Compatible, bool NativeOwned, bool ApOwned, bool EffectiveOwned)>
+        LastLoggedState = new(StringComparer.Ordinal);
+
+    public static void Prefix(object[]? __args, ref bool __1)
+    {
+        if (__args == null || __args.Length != 4 || __args[0] == null)
+            return;
+
+        bool nativeOwned = __1;
+        string nativeCartridgeType = __args[0].ToString() ?? string.Empty;
+        if (!GarageCartridgeAccess.TryResolveEntrancePreviewOwned(
+                nativeCartridgeType,
+                nativeOwned,
+                out GarageEntrancePreviewOwnership ownership))
+        {
+            return;
+        }
+
+        __1 = ownership.EffectiveOwned;
+
+        bool shouldLog;
+        lock (Sync)
+        {
+            var current = (
+                ownership.RoutingEnabled,
+                ownership.Compatible,
+                ownership.NativeOwned,
+                ownership.ApOwned,
+                ownership.EffectiveOwned);
+            shouldLog = !LastLoggedState.TryGetValue(ownership.NativeCartridgeType, out var previous) ||
+                previous != current;
+            LastLoggedState[ownership.NativeCartridgeType] = current;
+        }
+
+        if (shouldLog)
+        {
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] GAME GARAGE ENTRANCE PREVIEW song='{ownership.Song}' " +
+                $"nativeType='{ownership.NativeCartridgeType}' routingEnabled={ownership.RoutingEnabled} " +
+                $"compatible={ownership.Compatible} originalOwned={ownership.NativeOwned} " +
+                $"apOwned={ownership.ApOwned} effectiveOwned={ownership.EffectiveOwned}.");
+        }
+    }
+
+    public static void ResetDiagnostics()
+    {
+        lock (Sync)
+            LastLoggedState.Clear();
+    }
+}
+
 
 internal static class GarageCartridgeAccess
 {
@@ -20619,6 +20749,7 @@ internal static class GarageCartridgeAccess
         }
         ResetNativeBagObservations("configure");
         UnityDispatcher.Clear();
+        GarageEntrancePreviewPatches.ResetDiagnostics();
     }
 
     public static bool TryApplyItem(string itemName)
@@ -21224,6 +21355,25 @@ internal static class GarageCartridgeAccess
             VanillaEntranceEnabled
                 ? $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Vampire Killer uses its physical vanilla pickup and normal Garage entrance sequence; the other five songs require AP Cartridge items."
                 : $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Six Garage songs require their corresponding AP Cartridge item.");
+    }
+
+    public static bool TryResolveEntrancePreviewOwned(
+        string nativeCartridgeType,
+        bool nativeOwned,
+        out GarageEntrancePreviewOwnership ownership)
+    {
+        string[] apOwnedSongs;
+        lock (Sync)
+            apOwnedSongs = OwnedSongs.ToArray();
+        bool compatible =
+            ImplementationVersion.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+        return GarageAvailabilityPolicy.TryResolveEntrancePreviewOwned(
+            Enabled,
+            compatible,
+            nativeCartridgeType,
+            nativeOwned,
+            apOwnedSongs,
+            out ownership);
     }
 
     public static bool ShouldSuppressVanillaSourceGrant(object request, string flag)
