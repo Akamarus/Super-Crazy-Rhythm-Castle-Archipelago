@@ -105,7 +105,7 @@ When insertion is detected, the client:
 
 Repeated consumption observations and repeated server updates are idempotent. Server state is monotonic: this feature never writes `false`.
 
-On reconnect, the client reloads all five keys before allowing native grants. A server-confirmed inserted cartridge remains absent from the bag. The existing Garage routing may make its song available through the normal game path, but the client does not simulate controller input or force the cartridge machine open.
+On reconnect, the client reloads all five keys before allowing native grants. A server-confirmed inserted cartridge remains absent from the bag, but AP ownership independently keeps its Garage song object available: the Unity keeper performs the normal object release once per Garage visit even when insertion is already terminal. That availability action does not regrant the bag, record insertion again, write storage, simulate controller input, or force the cartridge machine open.
 
 ## Failure Handling
 
@@ -148,6 +148,7 @@ Pure state-machine and storage-adapter tests must prove:
 11. Duplicate receipts, transitions, and server callbacks remain idempotent.
 12. Vampire Killer never enters AP insertion reconciliation.
 13. No AP grant or insertion path writes a native `*_COLLECTED` source flag.
+14. AP-owned + server-inserted + readable absent native bag releases the Garage song object exactly once per visit, releases again on a later visit, and never invokes a bag grant or duplicate insertion write.
 
 ## Manual Acceptance
 

@@ -366,6 +366,7 @@ Use a small managed `GarageCartridgeInsertionTracker` (or the coordinator if it 
 6. Repeated absent polls, object deactivation, room exit, and duplicate server callbacks do not submit duplicate writes.
 7. Save observation reset removes held/released evidence but retains AP ownership and server insertion state.
 8. Vampire Killer never arms or records.
+9. AP-owned Superstar loaded as server-inserted with a readable absent bag releases its song object exactly once in each Garage visit while invoking no bag grant and no insertion write.
 
 Add a source-safety assertion over production source text that no Garage AP insertion/grant method submits any flag ending `_COLLECTED`.
 
@@ -404,7 +405,7 @@ When the policy returns true:
 4. request later Unity reconciliation;
 5. when the coordinator reports confirmed `true`, log `server insertion state confirmed durable` exactly once.
 
-Never reactivate a consumed Garage object, regrant its native bag flag, or call native save APIs from the write continuation. `HasCartridge(song)` continues to mean AP ownership for Garage availability, so the inserted song remains playable.
+Never regrant a consumed cartridge's native bag flag or call native save APIs from the write continuation. Garage availability is independent: `HasCartridge(song)` continues to mean AP ownership, so the keeper activates/releases the AP-owned song object once per Garage visit even when durable insertion is already terminal. That release must not record another insertion, write storage, or touch a native `*_COLLECTED` flag.
 
 - [x] **Step 5: Preserve source checks and vanilla entrance behavior**
 

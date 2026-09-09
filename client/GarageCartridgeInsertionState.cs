@@ -82,6 +82,7 @@ internal static class GarageCartridgeInsertionPolicy
         GarageInsertionServerValue serverValue,
         bool currentVisitNativeBagHeldObserved) =>
         usesPhysicalVanillaEntrance ||
+        serverValue == GarageInsertionServerValue.Inserted ||
         (currentVisitNativeBagHeldObserved && serverValue == GarageInsertionServerValue.NotInserted);
 }
 
@@ -354,6 +355,24 @@ internal sealed class GarageCartridgeReconciliationAdapter
     {
         lock (_gate)
             return _tracker.HasAuthoritativeHeldObservation(song);
+    }
+
+    internal bool ShouldReleaseObject(
+        string song,
+        bool usesPhysicalVanillaEntrance,
+        GarageInsertionServerValue serverValue,
+        long nativeBagObservationResetEpoch)
+    {
+        lock (_gate)
+        {
+            bool currentVisitNativeBagHeldObserved =
+                nativeBagObservationResetEpoch == _resetEpoch &&
+                _tracker.HasAuthoritativeHeldObservation(song);
+            return GarageCartridgeInsertionPolicy.ShouldReleaseObject(
+                usesPhysicalVanillaEntrance,
+                serverValue,
+                currentVisitNativeBagHeldObserved);
+        }
     }
 
     internal bool HasPendingConsumption(string song, long generation)
