@@ -137,6 +137,59 @@ False(
         new[] { "eRoom27GameCartridgeType" }),
     "the production target policy rejects the global collected enquiry");
 
+True(
+    GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature(
+        "LevelPreviewUI",
+        "RefreshLevelPreviewUIData",
+        "Void",
+        new[] { "LevelIdentifier", "LevelVariantIdentifier" }),
+    "diagnostic targets the exact LevelPreviewUI refresh signature");
+False(
+    GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature(
+        "LevelPreviewUI",
+        "RefreshLevelPreviewUIData",
+        "Void",
+        new[] { "LevelIdentifier" }),
+    "diagnostic rejects a partial LevelPreviewUI refresh signature");
+True(
+    GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature(
+        "LevelPreviewUIView",
+        "ReflectGarageVisuals",
+        "Void",
+        new[] { "LevelPreviewUIData" }),
+    "diagnostic targets the exact LevelPreviewUIView Garage signature");
+False(
+    GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature(
+        "LevelPreviewUIData",
+        "ReflectGarageVisuals",
+        "Void",
+        new[] { "LevelPreviewUIData" }),
+    "diagnostic rejects the Garage visuals method on any other owner");
+
+var diagnosticGate = new GarageEntrancePipelineDiagnosticGate();
+True(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Default"),
+    "first entrance refresh diagnostic is emitted");
+False(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Default"),
+    "duplicate entrance refresh diagnostic is suppressed");
+True(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Pro"),
+    "changed entrance refresh diagnostic is emitted");
+True(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
+    "first Garage data snapshot is emitted independently");
+False(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
+    "unchanged Garage data snapshot is suppressed");
+True(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.View, "SUPERSTAR:false:false"),
+    "first Garage view snapshot is emitted independently");
+diagnosticGate.Reset();
+True(
+    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
+    "diagnostic reset permits one fresh bounded snapshot");
+
 string pluginSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "client", "Plugin.cs"));
 True(
     pluginSource.Contains("patched += PatchGarageEntrancePreview();", StringComparison.Ordinal),
@@ -171,6 +224,55 @@ True(
         "GarageAvailabilityPolicy.TryResolveEntrancePreviewOwned(",
         StringComparison.Ordinal),
     "production ownership access delegates to the tested catalog-aware seam");
+
+True(
+    pluginSource.Contains(
+        "patched += PatchGarageEntrancePipelineDiagnostics();",
+        StringComparison.Ordinal),
+    "plugin load installs the temporary entrance-pipeline diagnostic hooks");
+True(
+    pluginSource.Contains(
+        "GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature",
+        StringComparison.Ordinal) &&
+    pluginSource.Contains(
+        "GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature",
+        StringComparison.Ordinal),
+    "diagnostic hook discovery uses both tested exact-signature policies");
+string entrancePipelineInstallerSource = Slice(
+    pluginSource,
+    "private int PatchGarageEntrancePipelineDiagnostics()",
+    "private static MethodInfo? FindUniqueGarageDiagnosticTarget(");
+True(
+    entrancePipelineInstallerSource.Contains(
+        "_harmony.Patch(refreshTarget, prefix: new HarmonyMethod(refreshPrefix));",
+        StringComparison.Ordinal),
+    "the exact refresh target receives the read-only prefix diagnostic");
+True(
+    entrancePipelineInstallerSource.Contains(
+        "viewTarget,",
+        StringComparison.Ordinal) &&
+    entrancePipelineInstallerSource.Contains(
+        "prefix: new HarmonyMethod(viewPrefix)",
+        StringComparison.Ordinal) &&
+    entrancePipelineInstallerSource.Contains(
+        "postfix: new HarmonyMethod(viewPostfix)",
+        StringComparison.Ordinal),
+    "the exact Garage visual target receives read-only before/after diagnostics");
+string entrancePipelineDiagnosticSource = Slice(
+    pluginSource,
+    "internal static class GarageEntrancePipelineDiagnosticPatches",
+    "internal static class GarageEntrancePreviewPatches");
+foreach (string expectedMarker in new[]
+{
+    "GAME GARAGE ENTRANCE PIPELINE REFRESH",
+    "GAME GARAGE ENTRANCE PIPELINE DATA",
+    "GAME GARAGE ENTRANCE PIPELINE VIEW",
+})
+{
+    True(
+        entrancePipelineDiagnosticSource.Contains(expectedMarker, StringComparison.Ordinal),
+        $"temporary diagnostic exposes bounded live marker {expectedMarker}");
+}
 foreach (string forbiddenWriteApi in new[]
 {
     "InsertionCoordinator",
@@ -185,6 +287,15 @@ foreach (string forbiddenWriteApi in new[]
         entrancePatchSource.Contains(forbiddenWriteApi, StringComparison.Ordinal) ||
         entranceAccessSource.Contains(forbiddenWriteApi, StringComparison.Ordinal),
         $"Garage entrance preview path never invokes insertion/native write API {forbiddenWriteApi}");
+    False(
+        entrancePipelineDiagnosticSource.Contains(forbiddenWriteApi, StringComparison.Ordinal),
+        $"Garage entrance diagnostic never invokes insertion/native write API {forbiddenWriteApi}");
+}
+foreach (string forbiddenMutation in new[] { "SetActive(", "TryWrite", "WriteMember", "_COLLECTED" })
+{
+    False(
+        entrancePipelineDiagnosticSource.Contains(forbiddenMutation, StringComparison.Ordinal),
+        $"Garage entrance diagnostic remains read-only without {forbiddenMutation}");
 }
 
 Equal(true,

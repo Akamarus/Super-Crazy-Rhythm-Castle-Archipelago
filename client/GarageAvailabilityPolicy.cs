@@ -22,6 +22,41 @@ internal readonly record struct GarageEntrancePreviewOwnership(
     bool ApOwned,
     bool EffectiveOwned);
 
+internal enum GarageEntrancePipelineDiagnosticStage
+{
+    Refresh,
+    Data,
+    View,
+}
+
+internal sealed class GarageEntrancePipelineDiagnosticGate
+{
+    private readonly object _sync = new();
+    private readonly Dictionary<GarageEntrancePipelineDiagnosticStage, string> _lastSignatures = new();
+
+    internal bool ShouldLog(GarageEntrancePipelineDiagnosticStage stage, string signature)
+    {
+        signature ??= string.Empty;
+        lock (_sync)
+        {
+            if (_lastSignatures.TryGetValue(stage, out string? previous) &&
+                string.Equals(previous, signature, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _lastSignatures[stage] = signature;
+            return true;
+        }
+    }
+
+    internal void Reset()
+    {
+        lock (_sync)
+            _lastSignatures.Clear();
+    }
+}
+
 internal static class GarageAvailabilityPolicy
 {
     private static readonly string[] EntrancePreviewParameterTypes =
@@ -30,6 +65,15 @@ internal static class GarageAvailabilityPolicy
         "Boolean",
         "eCleanMedal",
         "eCleanMedal",
+    };
+    private static readonly string[] EntrancePipelineRefreshParameterTypes =
+    {
+        "LevelIdentifier",
+        "LevelVariantIdentifier",
+    };
+    private static readonly string[] EntrancePipelineViewParameterTypes =
+    {
+        "LevelPreviewUIData",
     };
 
     internal static GarageObjectDecision Decide(
@@ -91,5 +135,37 @@ internal static class GarageAvailabilityPolicy
             string.Equals(returnTypeName, "Void", StringComparison.Ordinal) &&
             parameterTypeNames is { Count: 4 } &&
             EntrancePreviewParameterTypes.SequenceEqual(parameterTypeNames, StringComparer.Ordinal);
+    }
+
+    internal static bool IsExactEntrancePipelineRefreshSignature(
+        string declaringTypeName,
+        string methodName,
+        string returnTypeName,
+        IReadOnlyList<string>? parameterTypeNames)
+    {
+        return string.Equals(declaringTypeName, "LevelPreviewUI", StringComparison.Ordinal) &&
+            string.Equals(methodName, "RefreshLevelPreviewUIData", StringComparison.Ordinal) &&
+            IsExactVoidSignature(parameterTypeNames, returnTypeName, EntrancePipelineRefreshParameterTypes);
+    }
+
+    internal static bool IsExactEntrancePipelineViewSignature(
+        string declaringTypeName,
+        string methodName,
+        string returnTypeName,
+        IReadOnlyList<string>? parameterTypeNames)
+    {
+        return string.Equals(declaringTypeName, "LevelPreviewUIView", StringComparison.Ordinal) &&
+            string.Equals(methodName, "ReflectGarageVisuals", StringComparison.Ordinal) &&
+            IsExactVoidSignature(parameterTypeNames, returnTypeName, EntrancePipelineViewParameterTypes);
+    }
+
+    private static bool IsExactVoidSignature(
+        IReadOnlyList<string>? actualParameterTypes,
+        string returnTypeName,
+        IReadOnlyList<string> expectedParameterTypes)
+    {
+        return string.Equals(returnTypeName, "Void", StringComparison.Ordinal) &&
+            actualParameterTypes is not null &&
+            expectedParameterTypes.SequenceEqual(actualParameterTypes, StringComparer.Ordinal);
     }
 }
