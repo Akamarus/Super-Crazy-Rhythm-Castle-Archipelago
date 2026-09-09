@@ -51,6 +51,21 @@ static (bool Intercepted, bool EffectiveOwned) ResolveEntrancePreview(
     return (intercepted, intercepted ? ownership.EffectiveOwned : nativeOwned);
 }
 
+static (bool ContractMatched, int ChangedCount) ApplyEntrancePreview(
+    object previewData,
+    bool enabled,
+    bool compatible,
+    params string[] apOwnedSongs)
+{
+    bool contractMatched = GarageAvailabilityPolicy.TryApplyEntrancePreviewOwnership(
+        previewData,
+        enabled,
+        compatible,
+        apOwnedSongs,
+        out int changedCount);
+    return (contractMatched, changedCount);
+}
+
 foreach (bool owns in new[] { false, true })
 {
     Equal(GarageObjectDecision.Active,
@@ -108,87 +123,83 @@ foreach (var testCase in entrancePreviewCases)
         testCase.Scenario);
 }
 
-string[] exactEntrancePreviewParameterTypes =
-{
-    "eRoom27GameCartridgeType",
-    "Boolean",
-    "eCleanMedal",
-    "eCleanMedal",
-};
 True(
-    GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(
-        "LevelPreviewUIData",
-        "RefreshDataForGarageCartridge",
-        "Void",
-        exactEntrancePreviewParameterTypes),
-    "the production target policy accepts only the verified Garage entrance refresh signature");
-False(
-    GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(
-        "LevelPreviewUIData",
-        "RefreshDataForGarageCartridge",
-        "Void",
-        new[] { "eRoom27GameCartridgeType", "Boolean", "eCleanMedal" }),
-    "the production target policy rejects an incomplete native signature");
-False(
-    GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(
-        "GameProgressionEnquiries",
-        "HasGarageCartridgeBeenCollected",
-        "Boolean",
-        new[] { "eRoom27GameCartridgeType" }),
-    "the production target policy rejects the global collected enquiry");
-
-True(
-    GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature(
-        "LevelPreviewUI",
-        "RefreshLevelPreviewUIData",
-        "Void",
-        new[] { "LevelIdentifier", "LevelVariantIdentifier" }),
-    "diagnostic targets the exact LevelPreviewUI refresh signature");
-False(
-    GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature(
-        "LevelPreviewUI",
-        "RefreshLevelPreviewUIData",
-        "Void",
-        new[] { "LevelIdentifier" }),
-    "diagnostic rejects a partial LevelPreviewUI refresh signature");
-True(
-    GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature(
+    GarageAvailabilityPolicy.IsExactEntrancePreviewViewSignature(
         "LevelPreviewUIView",
         "ReflectGarageVisuals",
         "Void",
         new[] { "LevelPreviewUIData" }),
-    "diagnostic targets the exact LevelPreviewUIView Garage signature");
+    "preview override targets the exact LevelPreviewUIView Garage signature");
 False(
-    GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature(
+    GarageAvailabilityPolicy.IsExactEntrancePreviewViewSignature(
         "LevelPreviewUIData",
         "ReflectGarageVisuals",
         "Void",
         new[] { "LevelPreviewUIData" }),
-    "diagnostic rejects the Garage visuals method on any other owner");
+    "preview override rejects the Garage visuals method on any other owner");
 
-var diagnosticGate = new GarageEntrancePipelineDiagnosticGate();
-True(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Default"),
-    "first entrance refresh diagnostic is emitted");
-False(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Default"),
-    "duplicate entrance refresh diagnostic is suppressed");
-True(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, "Level_27|Pro"),
-    "changed entrance refresh diagnostic is emitted");
-True(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
-    "first Garage data snapshot is emitted independently");
-False(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
-    "unchanged Garage data snapshot is suppressed");
-True(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.View, "SUPERSTAR:false:false"),
-    "first Garage view snapshot is emitted independently");
-diagnosticGate.Reset();
-True(
-    diagnosticGate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, "SUPERSTAR:false"),
-    "diagnostic reset permits one fresh bounded snapshot");
+var liveShape = new FakeGaragePreviewData(
+    new FakeGarageResult("BLOODY_TEARS", false),
+    new FakeGarageResult("VAMPIRE_KILLER", true),
+    new FakeGarageResult("SMOOCH", false),
+    new FakeGarageResult("GRADIUS_REMIX", false),
+    new FakeGarageResult("WAG_THE_DOG", false),
+    new FakeGarageResult("SUPERSTAR", false));
+Equal(
+    (true, 1),
+    ApplyEntrancePreview(liveShape, true, true, "Superstar"),
+    "the six-entry live Garage DTO promotes only AP-owned Superstar");
+Equal(false, liveShape.PreviousGarageResults[0].cartridgeOwned,
+    "unowned Bloody Tears remains hidden");
+Equal(true, liveShape.PreviousGarageResults[1].cartridgeOwned,
+    "physical Vampire Killer preserves native ownership");
+Equal(true, liveShape.PreviousGarageResults[5].cartridgeOwned,
+    "AP-owned Superstar becomes display-owned before visual reflection");
+Equal(1, liveShape.PreviousGarageResults[5].WriteCount,
+    "the ephemeral Superstar DTO is changed exactly once");
+Equal(0, liveShape.PreviousGarageResults.Take(5).Sum(result => result.WriteCount),
+    "no other Garage DTO entry is written");
+
+foreach (var scenario in new[]
+{
+    (Enabled: true, Compatible: true, NativeOwned: false, ApOwned: Array.Empty<string>(), Expected: false,
+        Name: "unowned randomized cartridge remains native false"),
+    (Enabled: true, Compatible: true, NativeOwned: true, ApOwned: Array.Empty<string>(), Expected: true,
+        Name: "native true remains true without a redundant write"),
+    (Enabled: false, Compatible: true, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false,
+        Name: "disabled routing preserves native false"),
+    (Enabled: true, Compatible: false, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false,
+        Name: "incompatible routing preserves native false"),
+})
+{
+    var data = new FakeGaragePreviewData(new FakeGarageResult("SUPERSTAR", scenario.NativeOwned));
+    Equal((true, 0), ApplyEntrancePreview(data, scenario.Enabled, scenario.Compatible, scenario.ApOwned), scenario.Name);
+    Equal(scenario.Expected, data.PreviousGarageResults[0].cartridgeOwned, scenario.Name);
+    Equal(0, data.PreviousGarageResults[0].WriteCount, scenario.Name);
+}
+
+var nativeVampire = new FakeGaragePreviewData(new FakeGarageResult("VAMPIRE_KILLER", false));
+Equal(
+    (true, 0),
+    ApplyEntrancePreview(nativeVampire, true, true, "Vampire Killer"),
+    "Vampire Killer remains outside the AP preview override");
+Equal(false, nativeVampire.PreviousGarageResults[0].cartridgeOwned,
+    "Vampire Killer false remains native false");
+Equal(0, nativeVampire.PreviousGarageResults[0].WriteCount,
+    "Vampire Killer is never written by the preview helper");
+
+var validBeforeMismatch = new FakeGarageResult("SUPERSTAR", false);
+var malformedShape = new FakeMalformedGaragePreviewData(
+    validBeforeMismatch,
+    new FakeGarageResultWithoutOwned("SMOOCH"));
+Equal(
+    (false, 0),
+    ApplyEntrancePreview(malformedShape, true, true, "Superstar"),
+    "a reflection contract mismatch fails closed");
+Equal(false, validBeforeMismatch.cartridgeOwned,
+    "reflection validation is all-or-nothing and makes no partial DTO mutation");
+Equal(0, validBeforeMismatch.WriteCount,
+    "reflection mismatch performs zero writes");
 
 string pluginSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "client", "Plugin.cs"));
 True(
@@ -196,14 +207,14 @@ True(
     "plugin load installs the bounded Garage entrance preview hook");
 True(
     pluginSource.Contains(
-        "GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(",
+        "GarageAvailabilityPolicy.IsExactEntrancePreviewViewSignature(",
         StringComparison.Ordinal),
-    "production hook discovery uses the tested exact-signature policy");
+    "production hook discovery uses the tested exact ReflectGarageVisuals signature policy");
 True(
     pluginSource.Contains(
         "_harmony.Patch(matchingTargets[0], prefix: new HarmonyMethod(prefix));",
         StringComparison.Ordinal),
-    "the exact Garage entrance target is patched only with the bounded prefix");
+    "the exact ReflectGarageVisuals target is patched only with the bounded prefix");
 False(
     pluginSource.Contains("HasGarageCartridgeBeenCollected", StringComparison.Ordinal),
     "production never patches the global Garage collected enquiry");
@@ -214,64 +225,28 @@ string entrancePatchSource = Slice(
     "internal static class GarageCartridgeAccess");
 string entranceAccessSource = Slice(
     pluginSource,
-    "public static bool TryResolveEntrancePreviewOwned(",
+    "public static bool TryApplyEntrancePreviewOwnership(",
     "public static bool ShouldSuppressVanillaSourceGrant(");
 True(
-    entrancePatchSource.Contains("__1 = ownership.EffectiveOwned;", StringComparison.Ordinal),
-    "production prefix supplies the tested effective ownership as the second native argument");
+    entrancePatchSource.Contains(
+        "GarageCartridgeAccess.TryApplyEntrancePreviewOwnership(__args[0])",
+        StringComparison.Ordinal),
+    "production ReflectGarageVisuals prefix applies ownership to the received ephemeral DTO");
 True(
     entranceAccessSource.Contains(
-        "GarageAvailabilityPolicy.TryResolveEntrancePreviewOwned(",
+        "GarageAvailabilityPolicy.TryApplyEntrancePreviewOwnership(",
         StringComparison.Ordinal),
-    "production ownership access delegates to the tested catalog-aware seam");
-
-True(
-    pluginSource.Contains(
-        "patched += PatchGarageEntrancePipelineDiagnostics();",
-        StringComparison.Ordinal),
-    "plugin load installs the temporary entrance-pipeline diagnostic hooks");
-True(
-    pluginSource.Contains(
-        "GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature",
-        StringComparison.Ordinal) &&
-    pluginSource.Contains(
-        "GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature",
-        StringComparison.Ordinal),
-    "diagnostic hook discovery uses both tested exact-signature policies");
-string entrancePipelineInstallerSource = Slice(
-    pluginSource,
-    "private int PatchGarageEntrancePipelineDiagnostics()",
-    "private static MethodInfo? FindUniqueGarageDiagnosticTarget(");
-True(
-    entrancePipelineInstallerSource.Contains(
-        "_harmony.Patch(refreshTarget, prefix: new HarmonyMethod(refreshPrefix));",
-        StringComparison.Ordinal),
-    "the exact refresh target receives the read-only prefix diagnostic");
-True(
-    entrancePipelineInstallerSource.Contains(
-        "viewTarget,",
-        StringComparison.Ordinal) &&
-    entrancePipelineInstallerSource.Contains(
-        "prefix: new HarmonyMethod(viewPrefix)",
-        StringComparison.Ordinal) &&
-    entrancePipelineInstallerSource.Contains(
-        "postfix: new HarmonyMethod(viewPostfix)",
-        StringComparison.Ordinal),
-    "the exact Garage visual target receives read-only before/after diagnostics");
-string entrancePipelineDiagnosticSource = Slice(
-    pluginSource,
-    "internal static class GarageEntrancePipelineDiagnosticPatches",
-    "internal static class GarageEntrancePreviewPatches");
-foreach (string expectedMarker in new[]
+    "production ownership access delegates the live DTO to the tested reflection seam");
+foreach (string removedProbe in new[]
 {
-    "GAME GARAGE ENTRANCE PIPELINE REFRESH",
-    "GAME GARAGE ENTRANCE PIPELINE DATA",
-    "GAME GARAGE ENTRANCE PIPELINE VIEW",
+    "PatchGarageEntrancePipelineDiagnostics",
+    "GarageEntrancePipelineDiagnosticPatches",
+    "GAME GARAGE ENTRANCE PIPELINE",
+    "RefreshDataForGarageCartridge",
 })
 {
-    True(
-        entrancePipelineDiagnosticSource.Contains(expectedMarker, StringComparison.Ordinal),
-        $"temporary diagnostic exposes bounded live marker {expectedMarker}");
+    False(pluginSource.Contains(removedProbe, StringComparison.Ordinal),
+        $"superseded diagnostic/ineffective hook is removed: {removedProbe}");
 }
 foreach (string forbiddenWriteApi in new[]
 {
@@ -287,15 +262,13 @@ foreach (string forbiddenWriteApi in new[]
         entrancePatchSource.Contains(forbiddenWriteApi, StringComparison.Ordinal) ||
         entranceAccessSource.Contains(forbiddenWriteApi, StringComparison.Ordinal),
         $"Garage entrance preview path never invokes insertion/native write API {forbiddenWriteApi}");
-    False(
-        entrancePipelineDiagnosticSource.Contains(forbiddenWriteApi, StringComparison.Ordinal),
-        $"Garage entrance diagnostic never invokes insertion/native write API {forbiddenWriteApi}");
 }
-foreach (string forbiddenMutation in new[] { "SetActive(", "TryWrite", "WriteMember", "_COLLECTED" })
+foreach (string forbiddenMutation in new[] { "SetActive(", "TryWrite", "WriteMember", "_COLLECTED", "DataStorage" })
 {
     False(
-        entrancePipelineDiagnosticSource.Contains(forbiddenMutation, StringComparison.Ordinal),
-        $"Garage entrance diagnostic remains read-only without {forbiddenMutation}");
+        entrancePatchSource.Contains(forbiddenMutation, StringComparison.Ordinal) ||
+        entranceAccessSource.Contains(forbiddenMutation, StringComparison.Ordinal),
+        $"Garage entrance preview changes no save/bag/visual state through {forbiddenMutation}");
 }
 
 Equal(true,
@@ -347,3 +320,58 @@ Equal(false,
     "physical Vampire Killer is excluded from native AP reconciliation");
 
 Console.WriteLine("Game Garage availability policy tests passed.");
+
+internal sealed class FakeGaragePreviewData
+{
+    internal FakeGaragePreviewData(params FakeGarageResult[] results)
+    {
+        PreviousGarageResults = results.ToList();
+    }
+
+    public List<FakeGarageResult> PreviousGarageResults { get; }
+}
+
+internal sealed class FakeGarageResult
+{
+    private bool _owned;
+
+    internal FakeGarageResult(string nativeType, bool owned)
+    {
+        cartridgeType = nativeType;
+        _owned = owned;
+    }
+
+    public string cartridgeType { get; }
+
+    public bool cartridgeOwned
+    {
+        get => _owned;
+        set
+        {
+            _owned = value;
+            WriteCount++;
+        }
+    }
+
+    internal int WriteCount { get; private set; }
+}
+
+internal sealed class FakeMalformedGaragePreviewData
+{
+    internal FakeMalformedGaragePreviewData(params object[] results)
+    {
+        PreviousGarageResults = results.ToList();
+    }
+
+    public List<object> PreviousGarageResults { get; }
+}
+
+internal sealed class FakeGarageResultWithoutOwned
+{
+    internal FakeGarageResultWithoutOwned(string nativeType)
+    {
+        cartridgeType = nativeType;
+    }
+
+    public string cartridgeType { get; }
+}

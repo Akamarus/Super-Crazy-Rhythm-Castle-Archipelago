@@ -135,7 +135,6 @@ public sealed class Plugin : BasePlugin
         patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
-        patched += PatchGarageEntrancePipelineDiagnostics();
         patched += PatchGarageEntrancePreview();
         patched += PatchMethodsByParameter(
             "ProcessRequest",
@@ -1026,123 +1025,11 @@ public sealed class Plugin : BasePlugin
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
     }
 
-    private int PatchGarageEntrancePipelineDiagnostics()
-    {
-        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-        Type[] gameTypes = gameAssembly == null
-            ? Array.Empty<Type>()
-            : ReflectionUtil.SafeGetTypes(gameAssembly).ToArray();
-        Type[] refreshOwners = gameTypes
-            .Where(type => string.Equals(type.Name, "LevelPreviewUI", StringComparison.Ordinal))
-            .ToArray();
-        Type[] viewOwners = gameTypes
-            .Where(type => string.Equals(type.Name, "LevelPreviewUIView", StringComparison.Ordinal))
-            .ToArray();
-        MethodInfo? refreshTarget = refreshOwners.Length == 1
-            ? FindUniqueGarageDiagnosticTarget(
-                refreshOwners[0],
-                GarageAvailabilityPolicy.IsExactEntrancePipelineRefreshSignature)
-            : null;
-        MethodInfo? viewTarget = viewOwners.Length == 1
-            ? FindUniqueGarageDiagnosticTarget(
-                viewOwners[0],
-                GarageAvailabilityPolicy.IsExactEntrancePipelineViewSignature)
-            : null;
-        MethodInfo? refreshPrefix = FindPatchMethod(
-            typeof(GarageEntrancePipelineDiagnosticPatches),
-            nameof(GarageEntrancePipelineDiagnosticPatches.RefreshPrefix));
-        MethodInfo? viewPrefix = FindPatchMethod(
-            typeof(GarageEntrancePipelineDiagnosticPatches),
-            nameof(GarageEntrancePipelineDiagnosticPatches.ViewPrefix));
-        MethodInfo? viewPostfix = FindPatchMethod(
-            typeof(GarageEntrancePipelineDiagnosticPatches),
-            nameof(GarageEntrancePipelineDiagnosticPatches.ViewPostfix));
-
-        int count = 0;
-        if (refreshTarget == null || refreshPrefix == null || _harmony == null)
-        {
-            Log.LogWarning(
-                "[SCRC-AP] TEMP GAME GARAGE ENTRANCE PIPELINE refresh diagnostic unavailable; " +
-                "expected exact LevelPreviewUI.RefreshLevelPreviewUIData(" +
-                "LevelIdentifier, LevelVariantIdentifier).");
-        }
-        else
-        {
-            try
-            {
-                _harmony.Patch(refreshTarget, prefix: new HarmonyMethod(refreshPrefix));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                Log.LogWarning(
-                    $"[SCRC-AP] TEMP GAME GARAGE ENTRANCE PIPELINE refresh diagnostic skipped: " +
-                    ex.GetBaseException().Message);
-            }
-        }
-
-        if (viewTarget == null || viewPrefix == null || viewPostfix == null || _harmony == null)
-        {
-            Log.LogWarning(
-                "[SCRC-AP] TEMP GAME GARAGE ENTRANCE PIPELINE view diagnostic unavailable; " +
-                "expected exact LevelPreviewUIView.ReflectGarageVisuals(LevelPreviewUIData).");
-        }
-        else
-        {
-            try
-            {
-                _harmony.Patch(
-                    viewTarget,
-                    prefix: new HarmonyMethod(viewPrefix),
-                    postfix: new HarmonyMethod(viewPostfix));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                Log.LogWarning(
-                    $"[SCRC-AP] TEMP GAME GARAGE ENTRANCE PIPELINE view diagnostic skipped: " +
-                    ex.GetBaseException().Message);
-            }
-        }
-
-        Log.LogWarning(
-            $"[SCRC-AP] TEMP GAME GARAGE ENTRANCE PIPELINE DIAGNOSTICS hooksInstalled={count}/2; " +
-            "read-only bounded snapshots are active until this temporary probe is removed.");
-        return count;
-    }
-
-    private static MethodInfo? FindUniqueGarageDiagnosticTarget(
-        Type owner,
-        Func<string, string, string, IReadOnlyList<string>?, bool> signatureMatches)
-    {
-        try
-        {
-            MethodInfo[] matches = owner
-                .GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance |
-                    BindingFlags.Static | BindingFlags.DeclaredOnly)
-                .Where(method => signatureMatches(
-                    owner.Name,
-                    method.Name,
-                    method.ReturnType.Name,
-                    method.GetParameters()
-                        .Select(parameter => parameter.ParameterType.Name)
-                        .ToArray()))
-                .Take(2)
-                .ToArray();
-            return matches.Length == 1 ? matches[0] : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private int PatchGarageEntrancePreview()
     {
         Assembly? gameAssembly = ReflectionUtil.GameAssembly;
         Type? owner = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
-            .FirstOrDefault(type => string.Equals(type.Name, "LevelPreviewUIData", StringComparison.Ordinal));
+            .FirstOrDefault(type => string.Equals(type.Name, "LevelPreviewUIView", StringComparison.Ordinal));
         var matchingTargets = new List<MethodInfo>();
         if (owner != null)
         {
@@ -1172,7 +1059,7 @@ public sealed class Plugin : BasePlugin
                     continue;
                 }
 
-                if (GarageAvailabilityPolicy.IsExactEntrancePreviewRefreshSignature(
+                if (GarageAvailabilityPolicy.IsExactEntrancePreviewViewSignature(
                         owner.Name,
                         method.Name,
                         method.ReturnType.Name,
@@ -1190,8 +1077,7 @@ public sealed class Plugin : BasePlugin
         {
             Log.LogWarning(
                 $"[SCRC-AP] GAME GARAGE ENTRANCE PREVIEW hook unavailable: expected exact " +
-                "LevelPreviewUIData.RefreshDataForGarageCartridge(" +
-                "eRoom27GameCartridgeType, Boolean, eCleanMedal, eCleanMedal) signature " +
+                "LevelPreviewUIView.ReflectGarageVisuals(LevelPreviewUIData) signature " +
                 $"(matches={matchingTargets.Count}). Native preview ownership remains unchanged.");
             return 0;
         }
@@ -20722,299 +20608,16 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
     }
 }
 
-internal static class GarageEntrancePipelineDiagnosticPatches
-{
-    private const int MaxEntries = 8;
-    private const int MaxSimpleValueLength = 96;
-    private static readonly GarageEntrancePipelineDiagnosticGate Gate = new();
-
-    public static void RefreshPrefix(object[]? __args)
-    {
-        string level = ReadSimpleValue(__args is { Length: > 0 } ? __args[0] : null);
-        string variant = ReadSimpleValue(__args is { Length: > 1 } ? __args[1] : null);
-        string signature = $"{level}|{variant}";
-        if (!Gate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Refresh, signature))
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] GAME GARAGE ENTRANCE PIPELINE REFRESH level='{level}' variant='{variant}'.");
-    }
-
-    public static void ViewPrefix(object[]? __args)
-    {
-        object? previewData = __args is { Length: > 0 } ? __args[0] : null;
-        string snapshot = DescribePreviewData(previewData);
-        if (!Gate.ShouldLog(GarageEntrancePipelineDiagnosticStage.Data, snapshot))
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] GAME GARAGE ENTRANCE PIPELINE DATA {snapshot}");
-    }
-
-    public static void ViewPostfix(object? __instance)
-    {
-        string snapshot = DescribeGarageView(__instance);
-        if (!Gate.ShouldLog(GarageEntrancePipelineDiagnosticStage.View, snapshot))
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] GAME GARAGE ENTRANCE PIPELINE VIEW {snapshot}");
-    }
-
-    public static void ResetDiagnostics() => Gate.Reset();
-
-    private static string DescribePreviewData(object? previewData)
-    {
-        if (previewData == null)
-            return "data=<null>";
-
-        string level = ReadSimpleMember(previewData, "LevelIdentifier", "_LevelIdentifier_k__BackingField");
-        string variant = ReadSimpleMember(previewData, "LevelVariant", "_LevelVariant_k__BackingField");
-        object? thresholds = ReflectionUtil.UnwrapNullable(
-            ReflectionUtil.ReadMember(previewData, "GarageMedalScoreThresholds") ??
-            ReflectionUtil.ReadMember(previewData, "_GarageMedalScoreThresholds_k__BackingField"));
-        string thresholdCount = thresholds == null
-            ? "<null>"
-            : ReadSimpleMember(thresholds, "thresholdsCount");
-        object? results = ReflectionUtil.ReadMember(previewData, "PreviousGarageResults") ??
-            ReflectionUtil.ReadMember(previewData, "_PreviousGarageResults_k__BackingField");
-        int? count = results == null ? null : ReflectionUtil.ReadInt(results, "Count");
-        var entries = new List<string>();
-        int boundedCount = Math.Min(Math.Max(count ?? 0, 0), MaxEntries);
-        for (int index = 0; index < boundedCount; index++)
-        {
-            object? result = ReadIndexedValue(results, index);
-            if (result == null)
-            {
-                entries.Add($"{index}:<unreadable>");
-                continue;
-            }
-
-            string cartridgeType = ReadSimpleMember(
-                result,
-                "cartridgeType",
-                "_cartridgeType_k__BackingField");
-            string song = MapGarageSong(cartridgeType);
-            string owned = ReadSimpleMember(
-                result,
-                "cartridgeOwned",
-                "_cartridgeOwned_k__BackingField");
-            string found = ReadSimpleMember(
-                result,
-                "cartridgeFound",
-                "CartridgeFound",
-                "found",
-                "Found");
-            string medal = ReadSimpleMember(
-                result,
-                "medalEarned",
-                "_medalEarned_k__BackingField");
-            string proMedal = ReadSimpleMember(
-                result,
-                "proMedalEarned",
-                "_proMedalEarned_k__BackingField");
-            entries.Add(
-                $"{index}:type={cartridgeType},song={song},owned={owned},found={found}," +
-                $"medal={medal},proMedal={proMedal}");
-        }
-
-        string countText = count?.ToString(CultureInfo.InvariantCulture) ?? "<unavailable>";
-        string truncation = count > MaxEntries ? $",truncatedAfter={MaxEntries}" : string.Empty;
-        return $"dataType='{previewData.GetType().Name}' level='{level}' variant='{variant}' " +
-            $"garageThresholdCount={thresholdCount} previousGarageResultsCount={countText}{truncation} " +
-            $"results=[{string.Join(";", entries)}]";
-    }
-
-    private static string DescribeGarageView(object? view)
-    {
-        if (view == null)
-            return "view=<null>";
-
-        object? container = ReflectionUtil.ReadMember(view, "garageCartsContainer");
-        (string containerSelf, string containerHierarchy) = ReadActiveState(container);
-        object? visuals = ReflectionUtil.ReadMember(view, "individualGarageCarts");
-        int? count = visuals == null ? null : ReflectionUtil.ReadInt(visuals, "Count");
-        var entries = new List<string>();
-        int boundedCount = Math.Min(Math.Max(count ?? 0, 0), MaxEntries);
-        for (int index = 0; index < boundedCount; index++)
-        {
-            object? visual = ReadIndexedValue(visuals, index);
-            if (visual == null)
-            {
-                entries.Add($"{index}:<unreadable>");
-                continue;
-            }
-
-            string cartridgeType = ReadSimpleMember(visual, "Type", "type");
-            string song = MapGarageSong(cartridgeType);
-            (string activeSelf, string activeHierarchy) = ReadActiveState(visual);
-            entries.Add(
-                $"{index}:runtime={visual.GetType().Name},type={cartridgeType},song={song}," +
-                $"activeSelf={activeSelf},activeInHierarchy={activeHierarchy}");
-        }
-
-        string countText = count?.ToString(CultureInfo.InvariantCulture) ?? "<unavailable>";
-        string truncation = count > MaxEntries ? $",truncatedAfter={MaxEntries}" : string.Empty;
-        return $"viewType='{view.GetType().Name}' containerActiveSelf={containerSelf} " +
-            $"containerActiveInHierarchy={containerHierarchy} individualGarageCartsCount={countText}" +
-            $"{truncation} visuals=[{string.Join(";", entries)}]";
-    }
-
-    private static object? ReadIndexedValue(object? collection, int index)
-    {
-        if (collection == null || index < 0 || index >= MaxEntries)
-            return null;
-
-        try
-        {
-            PropertyInfo? indexer = collection.GetType()
-                .GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(property =>
-                    string.Equals(property.Name, "Item", StringComparison.Ordinal) &&
-                    property.GetIndexParameters() is ParameterInfo[] parameters &&
-                    parameters.Length == 1 &&
-                    parameters[0].ParameterType == typeof(int));
-            return indexer?.GetValue(collection, new object[] { index });
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static (string ActiveSelf, string ActiveInHierarchy) ReadActiveState(object? owner)
-    {
-        try
-        {
-            object? gameObjectValue = owner is GameObject
-                ? owner
-                : ReflectionUtil.ReadMember(owner, "gameObject");
-            if (gameObjectValue is GameObject gameObject)
-            {
-                return (
-                    gameObject.activeSelf.ToString(),
-                    gameObject.activeInHierarchy.ToString());
-            }
-        }
-        catch
-        {
-        }
-
-        return ("<unavailable>", "<unavailable>");
-    }
-
-    private static string ReadSimpleMember(object? owner, params string[] memberNames)
-    {
-        if (owner == null)
-            return "<null>";
-
-        foreach (string memberName in memberNames)
-        {
-            object? value = ReflectionUtil.UnwrapNullable(
-                ReflectionUtil.ReadMember(owner, memberName));
-            if (value != null)
-                return ReadSimpleValue(value);
-        }
-
-        return "<unavailable>";
-    }
-
-    private static string ReadSimpleValue(object? value)
-    {
-        value = ReflectionUtil.UnwrapNullable(value);
-        if (value == null)
-            return "<null>";
-
-        Type type = value.GetType();
-        string text;
-        if (value is string || value is decimal || type.IsPrimitive || type.IsEnum)
-        {
-            text = value.ToString() ?? string.Empty;
-        }
-        else if (type.Name.Contains("Identifier", StringComparison.Ordinal))
-        {
-            text = ReflectionUtil.ExtractIdentifier(value) ?? $"<{type.Name}>";
-        }
-        else
-        {
-            return $"<{type.Name}>";
-        }
-
-        text = text.Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal)
-            .Replace("'", "’", StringComparison.Ordinal);
-        return text.Length <= MaxSimpleValueLength
-            ? text
-            : text[..MaxSimpleValueLength] + "…";
-    }
-
-    private static string MapGarageSong(string nativeCartridgeType)
-    {
-        GarageCartridgeNativeDefinition cartridge =
-            GarageCartridgeNativePolicy.AllCartridges.FirstOrDefault(candidate =>
-                string.Equals(
-                    candidate.NativeCartridgeType,
-                    nativeCartridgeType,
-                    StringComparison.Ordinal));
-        return string.IsNullOrEmpty(cartridge.Song) ? "<unknown>" : cartridge.Song;
-    }
-}
-
 internal static class GarageEntrancePreviewPatches
 {
-    private static readonly object Sync = new();
-    private static readonly Dictionary<string,
-        (bool RoutingEnabled, bool Compatible, bool NativeOwned, bool ApOwned, bool EffectiveOwned)>
-        LastLoggedState = new(StringComparer.Ordinal);
-
-    public static void Prefix(object[]? __args, ref bool __1)
+    public static void Prefix(object[]? __args)
     {
-        if (__args == null || __args.Length != 4 || __args[0] == null)
+        if (__args is not { Length: > 0 } || __args[0] == null)
             return;
 
-        bool nativeOwned = __1;
-        string nativeCartridgeType = __args[0].ToString() ?? string.Empty;
-        if (!GarageCartridgeAccess.TryResolveEntrancePreviewOwned(
-                nativeCartridgeType,
-                nativeOwned,
-                out GarageEntrancePreviewOwnership ownership))
-        {
-            return;
-        }
-
-        __1 = ownership.EffectiveOwned;
-
-        bool shouldLog;
-        lock (Sync)
-        {
-            var current = (
-                ownership.RoutingEnabled,
-                ownership.Compatible,
-                ownership.NativeOwned,
-                ownership.ApOwned,
-                ownership.EffectiveOwned);
-            shouldLog = !LastLoggedState.TryGetValue(ownership.NativeCartridgeType, out var previous) ||
-                previous != current;
-            LastLoggedState[ownership.NativeCartridgeType] = current;
-        }
-
-        if (shouldLog)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] GAME GARAGE ENTRANCE PREVIEW song='{ownership.Song}' " +
-                $"nativeType='{ownership.NativeCartridgeType}' routingEnabled={ownership.RoutingEnabled} " +
-                $"compatible={ownership.Compatible} originalOwned={ownership.NativeOwned} " +
-                $"apOwned={ownership.ApOwned} effectiveOwned={ownership.EffectiveOwned}.");
-        }
-    }
-
-    public static void ResetDiagnostics()
-    {
-        lock (Sync)
-            LastLoggedState.Clear();
+        GarageCartridgeAccess.TryApplyEntrancePreviewOwnership(__args[0]);
     }
 }
-
 
 internal static class GarageCartridgeAccess
 {
@@ -21100,8 +20703,6 @@ internal static class GarageCartridgeAccess
         }
         ResetNativeBagObservations("configure");
         UnityDispatcher.Clear();
-        GarageEntrancePipelineDiagnosticPatches.ResetDiagnostics();
-        GarageEntrancePreviewPatches.ResetDiagnostics();
     }
 
     public static bool TryApplyItem(string itemName)
@@ -21709,23 +21310,19 @@ internal static class GarageCartridgeAccess
                 : $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION ENABLED implementation='{ImplementationVersion}' receivedSoFar='{owned}' sourceChecks={SourceRandomizationEnabled}. Six Garage songs require their corresponding AP Cartridge item.");
     }
 
-    public static bool TryResolveEntrancePreviewOwned(
-        string nativeCartridgeType,
-        bool nativeOwned,
-        out GarageEntrancePreviewOwnership ownership)
+    public static bool TryApplyEntrancePreviewOwnership(object previewData)
     {
         string[] apOwnedSongs;
         lock (Sync)
             apOwnedSongs = OwnedSongs.ToArray();
         bool compatible =
             ImplementationVersion.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
-        return GarageAvailabilityPolicy.TryResolveEntrancePreviewOwned(
+        return GarageAvailabilityPolicy.TryApplyEntrancePreviewOwnership(
+            previewData,
             Enabled,
             compatible,
-            nativeCartridgeType,
-            nativeOwned,
             apOwnedSongs,
-            out ownership);
+            out _);
     }
 
     public static bool ShouldSuppressVanillaSourceGrant(object request, string flag)
