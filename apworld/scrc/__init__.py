@@ -15,7 +15,11 @@ from .cassettes import (
     NEW_CASSETTE_SOURCE_IDS,
     validate_cassette_catalog,
 )
-from .campaign_levels import CAMPAIGN_LOCATION_NAMES, CAMPAIGN_LOCATION_NAME_TO_ID
+from .campaign_levels import (
+    CAMPAIGN_LOCATION_NAMES,
+    CAMPAIGN_LOCATION_NAME_TO_ID,
+    NEW_CAMPAIGN_LOCATION_NAMES,
+)
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
@@ -377,7 +381,10 @@ class SCRCWorld(World):
         self.active_location_names = frozenset(
             name
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
-            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+            if (
+                name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and name not in NEW_CAMPAIGN_LOCATION_NAMES
+            )
         )
         self.active_campaign_star_tiers = active_campaign_star_tiers
         self.active_medal_tiers = active_medal_tiers
@@ -813,7 +820,10 @@ class SCRCWorld(World):
         default_active_location_names = frozenset(
             name
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
-            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+            if (
+                name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and name not in NEW_CAMPAIGN_LOCATION_NAMES
+            )
         )
         default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
         default_medal_tiers = medal_tiers(difficulty_value)

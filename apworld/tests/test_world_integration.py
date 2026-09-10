@@ -27,6 +27,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.module, cleanup = load_scrc_world()
         self.addCleanup(cleanup)
         self.catalog = load_scrc_module("cassettes")
+        self.campaign = load_scrc_module("campaign_levels")
         self.points = load_scrc_module("music_lab_points")
 
     def make_world(
@@ -165,6 +166,22 @@ class WorldIntegrationTests(unittest.TestCase):
             world.fill_slot_data()["active_location_count"],
             len(self.addressed_names(world)),
         )
+
+    def test_registered_uninstantiated_campaign_locations_stay_out_of_active_seed_counts(self):
+        expected = {0: 92, 1: 129, 2: 166, 3: 202}
+        for difficulty, count in expected.items():
+            with self.subTest(difficulty=difficulty):
+                world = self.build_world(difficulty=difficulty)
+                addressed = self.addressed_names(world)
+
+                self.assertEqual(len(addressed), count)
+                self.assertEqual(world.fill_slot_data()["active_location_count"], count)
+                self.assertEqual(world.fill_slot_data()["active_location_count"], len(addressed))
+                self.assertTrue(
+                    set(self.campaign.NEW_CAMPAIGN_LOCATION_NAMES).isdisjoint(
+                        world.active_location_names
+                    )
+                )
 
     def test_item_pool_matches_active_unfilled_capacity(self):
         expected = {0: 92, 1: 129, 2: 166, 3: 202}
