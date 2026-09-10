@@ -3,17 +3,28 @@
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 > [!WARNING]
-> This is an experimental development build, not a release. Back up your save and expect incomplete logic.
+> This is an experimental development prerelease, not a stable release. Back up your save and expect incomplete logic.
 
 ## TL;DR
 
-- Current development candidate: APWorld v0.23.0 and Client v0.69.0 add AP Music Lab Points while retaining all 30 cassette items and sources. This experimental v0.23 candidate requires manual acceptance with a fresh v0.23 seed and fresh in-game save. The existing Music Lab display, all nine thresholds, persistence, and compatibility remain live-unverified; many cassette routes also still require individual verification.
+- Latest development prerelease: APWorld v0.23.0 and Client v0.69.0 add AP Music Lab Points while retaining all 30 cassette items and sources. Use the two matching components together with a fresh v0.23 seed and fresh in-game save.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
-- Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
-- Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
+- Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
+- Testers can download both matching components from the latest GitHub prerelease or build them from source, then generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
-[Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Approved randomizer design](docs/superpowers/specs/2026-08-20-randomizer-logic-design.md)
+[Latest development release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.23.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Approved randomizer design](docs/superpowers/specs/2026-08-20-randomizer-logic-design.md)
+
+## Latest development release — v0.23.0-dev
+
+- Added **AP Music Lab Points** as 20 progression items worth 180 total points: ten 1-point items, three 10-point bundles, and seven 20-point large bundles.
+- The nine existing Music Lab chests now use AP totals at 5/10/20/32/46/64/89/111/140 points. The final chest leaves 40 points of routing slack, and solver-reachable chests may contain progression.
+- Retained all 30 randomized cassette items and sources from v0.22, including normal player insertion at the matching Music Lab machines.
+- Kept native medals separate from AP points. Compatible v0.23 sessions rebuild the authoritative total on reconnect or relaunch without writing native score/save state.
+- Fixed a pre-login connection-refused callback stall so normal reconnect retries remain responsive when the server is temporarily unavailable.
+- Core point totals, the cap, all nine one-time chest checks, native-medal isolation, disconnect retention, reconnect, and relaunch have live-test evidence. Queued-check recovery and the v0.22/non-AP/malformed-v0.23 compatibility matrix remain pending, so this stays an experimental prerelease.
+
+See the full [changelog](CHANGELOG.md) and [Music Lab Points acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md) for detailed status and remaining test cases.
 
 ## Simplified roadmap
 

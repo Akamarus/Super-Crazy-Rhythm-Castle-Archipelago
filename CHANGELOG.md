@@ -1,13 +1,14 @@
 # Changelog
 
-## Unreleased — APWorld v0.23.0 / Client v0.69.0 experimental Music Lab Points candidate
+## APWorld v0.23.0 / Client v0.69.0 — Experimental Music Lab Points testing
 
 - Added 10 Music Lab Point items worth 1 each, 3 bundles worth 10 each, and 7 large bundles worth 20 each: 180 points in 20 progression instances replacing 20 Stardust. The existing nine thresholds are 5/10/20/32/46/64/89/111/140; the final threshold leaves 40 slack.
 - Added the exact schema-14/point-schema-1 contract and permanent point item IDs `187256153..187256155`. The next item ID is `187256156`; the next location ID remains `187256211`, and active location counts remain 92/129/166/202.
 - Weighted point-chest rules allow solver-reachable progression. No point milestones or duplicate cassette/cartridge checks are added; all existing source reuse is retained.
 - The managed score getter applies AP totals only in `GameRoom_Hub6`: zero before synchronization, authoritative weighted receipts capped at 180 after synchronization, and the retained total during a temporary disconnect. Reconnect and relaunch rebuild history without double-counting. Native medals never contribute, native medal/save scores are never written, and compatible AP state supersedes the developer override.
 - Recognized v0.22 seeds and non-AP play retain native scoring. Malformed v0.23 point contracts report incompatibility and fail closed at zero.
-- Diagnostic-first investigation rejected the generated chest hook and native detour. The room-scoped candidate installs neither and never forces chest interactions. Existing display, every threshold below/at, exactly-once checks, persistence, native medal invariance, and compatibility remain pending manual acceptance with a fresh v0.23 seed/save; this is not a completed release.
+- Diagnostic-first investigation rejected the generated chest hook and native detour. The room-scoped client installs neither and never forces chest interactions. Live testing verified weighted totals, the 180-point cap, exact threshold pairs at 5/10/20/64/89/111/140, all nine one-time chest checks, native medal invariance, disconnected-total retention, automatic reconnect/history rebuild, and full-relaunch restoration. The project owner waived redundant exact pairs at 32 and 46; queued-check recovery and the v0.22/non-AP/malformed-v0.23 compatibility matrix remain pending.
+- Fixed a pre-login connection-refused callback stall by evaluating socket state lazily only for established sessions. Repeated server-off retries remained responsive and automatically reconnected when the server returned.
 - Advanced candidate metadata/documentation and independent validation, including rejection of changed base-ID assignments. All historical implementation-version prefixes are preserved, ending `full-cassettes-0.22-music-lab-points-0.23`. Prior cassette-route and unrelated known-issue acceptance remains open.
 
 ## APWorld v0.22.0 / Client v0.68.0 — Experimental full Music Lab cassette testing
