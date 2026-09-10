@@ -133,9 +133,12 @@ Cassette` source at `187256186`.
 | `+150` | `187256150` | Ten-Four Good Buddy Cassette |
 | `+151` | `187256151` | Zen Cassette |
 | `+152` | `187256152` | Wiggle Cassette |
+| `+153` | `187256153` | Music Lab Point |
+| `+154` | `187256154` | Music Lab Point Bundle |
+| `+155` | `187256155` | Music Lab Point Large Bundle |
 
-**Next safe item offset:** `+153`
-**Next safe item ID:** `187256153`
+**Next safe item offset:** `+156`
+**Next safe item ID:** `187256156`
 
 ## Rule for changes
 

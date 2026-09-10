@@ -1,6 +1,7 @@
 from BaseClasses import ItemClassification
 
 from .cassettes import CASSETTES
+from .music_lab_points import MUSIC_LAB_POINT_ITEMS
 
 
 BASE_ID = 187256000
@@ -35,6 +36,16 @@ CASSETTE_ITEM_NAME_TO_ID = {
 CASSETTE_ITEM_CLASSIFICATIONS = {
     entry.item_name: ItemClassification.progression
     for entry in CASSETTES
+}
+
+MUSIC_LAB_POINT_ITEM_NAME_TO_ID = {
+    entry.name: entry.item_id
+    for entry in MUSIC_LAB_POINT_ITEMS
+}
+
+MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS = {
+    entry.name: ItemClassification.progression
+    for entry in MUSIC_LAB_POINT_ITEMS
 }
 
 
