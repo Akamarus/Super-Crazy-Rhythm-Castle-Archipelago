@@ -23,6 +23,28 @@ static void WaitUntilBlocked(Thread thread, string scenario)
     throw new InvalidOperationException($"{scenario}: thread did not block within the timeout");
 }
 
+var preLoginSocketStateReads = 0;
+Equal(
+    ConnectionErrorDisposition.IgnoreUntilLoginReturns,
+    ConnectionErrorDispositionPolicy.Decide(
+        loginEstablished: false,
+        socketConnected: () =>
+        {
+            preLoginSocketStateReads++;
+            return false;
+        }),
+    "connection-refused error before login returns to the active attempt");
+Equal(0, preLoginSocketStateReads,
+    "pre-login error disposition does not touch the socket state");
+Equal(
+    ConnectionErrorDisposition.ObserveOnly,
+    ConnectionErrorDispositionPolicy.Decide(loginEstablished: true, socketConnected: () => true),
+    "non-terminal error on an established open socket is observed only");
+Equal(
+    ConnectionErrorDisposition.EndSessionAndReconnect,
+    ConnectionErrorDispositionPolicy.Decide(loginEstablished: true, socketConnected: () => false),
+    "closed socket after login ends the established session and reconnects");
+
 var policy = new ReconnectPolicy();
 Equal<TimeSpan?>(null, policy.NextDelay(), "connected startup has no retry");
 

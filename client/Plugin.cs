@@ -1383,6 +1383,7 @@ internal sealed class ArchipelagoClient
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
             session = ArchipelagoSessionFactory.CreateSession(_server);
             var pointHistory = new MusicLabPointSessionHistory(generation);
+            int loginEstablished = 0;
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=session-created");
 
             session.Socket.SocketOpened += () =>
@@ -1404,7 +1405,12 @@ internal sealed class ArchipelagoClient
 
             session.Socket.ErrorReceived += (exception, message) =>
             {
-                if (!session.Socket.Connected)
+                ConnectionErrorDisposition disposition = ConnectionErrorDispositionPolicy.Decide(
+                    Volatile.Read(ref loginEstablished) != 0,
+                    () => session.Socket.Connected);
+                if (disposition == ConnectionErrorDisposition.IgnoreUntilLoginReturns)
+                    return;
+                if (disposition == ConnectionErrorDisposition.EndSessionAndReconnect)
                 {
                     ClearCurrentSession(session, generation, () =>
                     {
@@ -1520,6 +1526,9 @@ internal sealed class ArchipelagoClient
 
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] NET stage=login-returned successful={result.Successful} resultType={result.GetType().FullName}");
+
+            if (result.Successful)
+                Interlocked.Exchange(ref loginEstablished, 1);
 
             if (!result.Successful)
             {

@@ -1,5 +1,25 @@
 namespace RhythmCastleAP;
 
+internal enum ConnectionErrorDisposition
+{
+    IgnoreUntilLoginReturns,
+    ObserveOnly,
+    EndSessionAndReconnect,
+}
+
+internal static class ConnectionErrorDispositionPolicy
+{
+    internal static ConnectionErrorDisposition Decide(bool loginEstablished, Func<bool> socketConnected)
+    {
+        ArgumentNullException.ThrowIfNull(socketConnected);
+        if (!loginEstablished)
+            return ConnectionErrorDisposition.IgnoreUntilLoginReturns;
+        return socketConnected()
+            ? ConnectionErrorDisposition.ObserveOnly
+            : ConnectionErrorDisposition.EndSessionAndReconnect;
+    }
+}
+
 internal readonly record struct ReconnectAttempt(long IntentGeneration, TimeSpan Delay);
 
 internal sealed class ReconnectPolicy
