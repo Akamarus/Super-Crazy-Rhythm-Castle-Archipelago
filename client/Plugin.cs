@@ -1471,7 +1471,7 @@ internal sealed class ArchipelagoClient
                         }
                         MusicLabPointRandomization.SynchronizeHistory(
                             generation,
-                            helper.AllItemsReceived.Select(
+                            () => helper.AllItemsReceived.Select(
                                 (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
                     }
                     catch (Exception ex)
@@ -1553,7 +1553,7 @@ internal sealed class ArchipelagoClient
                             generation);
                         MusicLabPointRandomization.SynchronizeHistory(
                             generation,
-                            session.Items.AllItemsReceived.Select(
+                            () => session.Items.AllItemsReceived.Select(
                                 (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))

@@ -39,6 +39,21 @@ internal static class MusicLabPointRandomization
 
     internal static MusicLabPointSnapshot SynchronizeHistory(
         long generation,
+        Func<IEnumerable<MusicLabPointReceipt>> readReceipts)
+    {
+        lock (Sync)
+        {
+            if (_activeGeneration != generation || !_identity.HasValue)
+                return Runtime.Snapshot;
+            // AllItemsReceived is a replaceable cached collection. Acquire it
+            // under the publication lock so a paused older read cannot follow
+            // a newer callback's publication within the same generation.
+            return SynchronizeHistory(generation, readReceipts());
+        }
+    }
+
+    internal static MusicLabPointSnapshot SynchronizeHistory(
+        long generation,
         IEnumerable<MusicLabPointReceipt> receipts)
     {
         lock (Sync)

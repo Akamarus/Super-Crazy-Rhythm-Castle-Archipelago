@@ -262,16 +262,16 @@ int pointHistory = loginWiring.IndexOf("MusicLabPointRandomization.SynchronizeHi
 int connectedWiring = loginWiring.IndexOf("_connected = true;", StringComparison.Ordinal);
 True(pointConfig >= 0 && pointHistory > pointConfig && connectedWiring > pointHistory,
     "login applies point slot data then authoritative history before advertising connected");
-True(loginWiring[..connectedWiring].Contains("session.Items.AllItemsReceived.Select(", StringComparison.Ordinal),
-    "login rebuilds from all received items");
+True(loginWiring[..connectedWiring].Contains("() => session.Items.AllItemsReceived.Select(", StringComparison.Ordinal),
+    "login defers full-history acquisition to the adapter synchronization boundary");
 True(loginWiring[..connectedWiring].Contains("(item, index) => new MusicLabPointReceipt(index, item.ItemId)", StringComparison.Ordinal),
     "login converts list ordinal and permanent network ID");
 string itemWiring = pluginSource[pluginSource.IndexOf("session.Items.ItemReceived += helper =>", StringComparison.Ordinal)..pluginSource.IndexOf("if (!ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal)];
 True(itemWiring.IndexOf("MusicLabPointRandomization.SynchronizeHistory(", StringComparison.Ordinal) > itemWiring.IndexOf("while (helper.Any())", StringComparison.Ordinal),
     "received callback rebuilds history after queue processing");
-True(itemWiring.Contains("helper.AllItemsReceived.Select(", StringComparison.Ordinal) &&
+True(itemWiring.Contains("() => helper.AllItemsReceived.Select(", StringComparison.Ordinal) &&
     itemWiring.Contains("(item, index) => new MusicLabPointReceipt(index, item.ItemId)", StringComparison.Ordinal),
-    "received callback converts complete history by ordinal and permanent ID");
+    "received callback defers full-history acquisition and converts ordinal plus permanent ID");
 True(itemWiring.Contains("MusicLabPointRandomization.TryHandleItemName,", StringComparison.Ordinal), "point names are consumed by item dispatch");
 string ending = pluginSource[pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)..pluginSource.IndexOf("private void RequestReconnect(", StringComparison.Ordinal)];
 True(ending.Contains("MusicLabPointRandomization.OnDisconnected(generation)", StringComparison.Ordinal), "accepted session ending retains synchronized points");

@@ -266,4 +266,85 @@ foreach (bool experimental in new[] { false, true })
     Equal(0, MusicLabPointRandomization.Snapshot.Total, "point dispatch never changes authoritative state");
 }
 
+// Reproduce the two concurrent read leases used by login and ItemReceived.
+// A library receipt update replaces its cached history while login holds the old
+// collection. The real adapter must order acquisition and publication together.
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "race-seed", "slot-a", 10L);
+var sessionGate = new SessionGenerationLeaseGate<object>();
+var raceSession = new object();
+Equal(true, sessionGate.TryAdmit(10L), "race generation admitted");
+Equal(true, sessionGate.TryPublish(raceSession, 10L, _ => { }, out _), "race session published");
+MusicLabPointReceipt[] cachedHistory = { new(0, 187256153) };
+using var loginCapturedHistory = new ManualResetEventSlim();
+using var releaseLoginHistory = new ManualResetEventSlim();
+using var callbackStarted = new ManualResetEventSlim();
+using var callbackAcquiredHistory = new ManualResetEventSlim();
+Exception? loginError = null;
+Exception? callbackError = null;
+var loginThread = new Thread(() =>
+{
+    try
+    {
+        Equal(true, sessionGate.TryAcquire(raceSession, 10L, out LifecycleLease? lease), "login holds current read lease");
+        using (lease)
+            MusicLabPointRandomization.SynchronizeHistory(10L, () =>
+            {
+                MusicLabPointReceipt[] captured = Volatile.Read(ref cachedHistory);
+                loginCapturedHistory.Set();
+                if (!releaseLoginHistory.Wait(TimeSpan.FromSeconds(5)))
+                    throw new InvalidOperationException("login history was not released");
+                return captured;
+            });
+    }
+    catch (Exception error) { loginError = error; }
+}) { IsBackground = true };
+var callbackThread = new Thread(() =>
+{
+    try
+    {
+        Equal(true, sessionGate.TryAcquire(raceSession, 10L, out LifecycleLease? lease), "callback holds concurrent current read lease");
+        using (lease)
+        {
+            callbackStarted.Set();
+            MusicLabPointRandomization.SynchronizeHistory(10L, () =>
+            {
+                callbackAcquiredHistory.Set();
+                return Volatile.Read(ref cachedHistory);
+            });
+        }
+    }
+    catch (Exception error) { callbackError = error; }
+}) { IsBackground = true };
+bool callbackReadWhileLoginPaused;
+loginThread.Start();
+try
+{
+    Equal(true, loginCapturedHistory.Wait(TimeSpan.FromSeconds(5)), "login captures old cached history");
+    Volatile.Write(ref cachedHistory, new[] { new MusicLabPointReceipt(0, 187256153), new MusicLabPointReceipt(1, 187256155) });
+    callbackThread.Start();
+    Equal(true, callbackStarted.Wait(TimeSpan.FromSeconds(5)), "new callback enters under concurrent read lease");
+    var deadline = System.Diagnostics.Stopwatch.StartNew();
+    var spinner = new SpinWait();
+    while ((callbackThread.ThreadState & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) == 0)
+    {
+        if (deadline.Elapsed > TimeSpan.FromSeconds(5))
+            throw new InvalidOperationException("callback did not reach synchronization boundary");
+        spinner.SpinOnce();
+    }
+    callbackReadWhileLoginPaused = callbackAcquiredHistory.IsSet;
+}
+finally
+{
+    releaseLoginHistory.Set();
+    Equal(true, loginThread.Join(TimeSpan.FromSeconds(5)), "login history publication completes");
+    if ((callbackThread.ThreadState & ThreadState.Unstarted) == 0)
+        Equal(true, callbackThread.Join(TimeSpan.FromSeconds(5)), "callback history publication completes");
+}
+if (loginError != null) throw new InvalidOperationException("login worker failed", loginError);
+if (callbackError != null) throw new InvalidOperationException("callback worker failed", callbackError);
+Equal(21, MusicLabPointRandomization.Snapshot.Total, "older same-generation login history cannot overwrite newer callback history");
+Equal(false, callbackReadWhileLoginPaused, "history acquisition waits for prior acquisition and publication");
+Equal(true, callbackAcquiredHistory.IsSet, "new callback acquires history after login publishes");
+MusicLabPointRandomization.Reset();
+Console.WriteLine("PASS: same_generation_login_callback_history_is_serialized");
 Console.WriteLine("Music Lab Point policy and adapter tests passed.");
