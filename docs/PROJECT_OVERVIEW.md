@@ -381,6 +381,8 @@ Nine Hub6 Music Lab reward chests are tracked from their live native metadata. T
 
 Music Lab Points currently remain the game's native medal-score currency, read through `CurrentPlayerSaveEnquiries.GetMedalScore()`. The nine reward chests are AP locations; Music Lab Points are not currently generated AP inventory items. Separate AP Music Lab Point inventory is approved future design, not implemented; its final item distribution remains provisional until the location count is validated.
 
+The v0.23 candidate now includes internal client groundwork for rebuilding AP point totals from complete received-item history, using permanent item IDs and list ordinals. Matching reconnects retain synchronized totals; identity replacement and shutdown clear them. Point item names are consumed before experimental native fallback and do not increment totals. This history wiring has not been connected to the live score query or accepted in gameplay; later integration and acceptance tasks remain required.
+
 | Point threshold | Native chest |
 | ---: | --- |
 | 5 | ManiacMemoryCardChest |

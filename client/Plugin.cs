@@ -162,6 +162,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
+        MusicLabPointRandomization.Configure();
         CassetteReceiptRandomization.Configure(
             acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value);
         cassettePointerBoundPersistenceAcceptance.SettingChanged += (_, _) =>
@@ -1457,6 +1458,7 @@ internal sealed class ArchipelagoClient
                                     PreviewAbilityRandomization.TryApplyItem,
                                     RootsBucketRandomization.TryApplyItem,
                                     CassetteReceiptRandomization.TryApplyItem,
+                                    MusicLabPointRandomization.TryHandleItemName,
                                     NativeProgression.ApplyArchipelagoItem);
                             }
                             catch (Exception ex)
@@ -1467,6 +1469,10 @@ internal sealed class ArchipelagoClient
                                     $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
                             }
                         }
+                        MusicLabPointRandomization.SynchronizeHistory(
+                            generation,
+                            helper.AllItemsReceived.Select(
+                                (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
                     }
                     catch (Exception ex)
                     {
@@ -1482,6 +1488,7 @@ internal sealed class ArchipelagoClient
                         !ReferenceEquals(previousSession.Session, session))
                     {
                         GarageCartridgeAccess.EndServerSync(previousSession.Generation);
+                        MusicLabPointRandomization.OnDisconnected(previousSession.Generation);
                     }
                 }, out GenerationSession<ArchipelagoSession> replaced))
             {
@@ -1538,6 +1545,16 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
+                        MusicLabPointRandomization.ApplySlotData(
+                            loginSuccess.SlotData,
+                            Plugin.GameName,
+                            session.RoomState.Seed,
+                            _slot,
+                            generation);
+                        MusicLabPointRandomization.SynchronizeHistory(
+                            generation,
+                            session.Items.AllItemsReceived.Select(
+                                (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
@@ -1597,6 +1614,7 @@ internal sealed class ArchipelagoClient
         {
             _connected = false;
             _reconnectPolicy.OnDeliberateShutdown();
+            MusicLabPointRandomization.Reset();
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
@@ -1615,6 +1633,7 @@ internal sealed class ArchipelagoClient
         {
             _connected = false;
             GarageCartridgeAccess.EndServerSync(generation);
+            MusicLabPointRandomization.OnDisconnected(generation);
             terminal?.Invoke();
         });
     }

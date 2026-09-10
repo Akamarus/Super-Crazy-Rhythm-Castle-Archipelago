@@ -207,4 +207,63 @@ runtime.Reset();
 Equal(MusicLabPointRuntimeMode.Native, runtime.Snapshot.Mode, "reset returns to native");
 Equal(0, runtime.Snapshot.AcceptedInstances, "reset clears receipts");
 
-Console.WriteLine("Music Lab Point policy tests passed.");
+MusicLabPointRandomization.Configure();
+Equal(42, MusicLabPointRandomization.ResolveEffectiveScore(42, null), "adapter starts native");
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a", 1L);
+Equal(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, MusicLabPointRandomization.Snapshot.Mode, "adapter validates slot data before history");
+foreach (string name in new[] { "Music Lab Point", "Music Lab Point Bundle", "Music Lab Point Large Bundle" })
+{
+    Equal(true, MusicLabPointRandomization.TryHandleItemName(name), "exact point name is consumed");
+    Equal(0, MusicLabPointRandomization.Snapshot.Total, "item names cannot increment total");
+}
+Equal(false, MusicLabPointRandomization.TryHandleItemName("music lab point"), "item name matching is exact");
+Equal(false, MusicLabPointRandomization.TryHandleItemName("Stardust"), "unknown item is not consumed");
+
+MusicLabPointReceipt[] history = { new(0, 187256153), new(1, 187256155), new(2, 187256155), new(3, 999999999) };
+MusicLabPointRandomization.SynchronizeHistory(1L, history);
+Equal(41, MusicLabPointRandomization.Snapshot.Total, "authoritative history includes each permanent-ID instance");
+Equal(3, MusicLabPointRandomization.Snapshot.AcceptedInstances, "unknown IDs do not count");
+int logCount = Plugin.LoggerInstance.Messages.Count;
+MusicLabPointRandomization.SynchronizeHistory(1L, history);
+Equal(41, MusicLabPointRandomization.Snapshot.Total, "replayed history replaces rather than increments");
+Equal(logCount, Plugin.LoggerInstance.Messages.Count, "unchanged history does not log again");
+MusicLabPointRandomization.OnDisconnected(99L);
+Equal(MusicLabPointRuntimeMode.Synchronized, MusicLabPointRandomization.Snapshot.Mode, "stale disconnect is ignored");
+MusicLabPointRandomization.OnDisconnected(1L);
+Equal(MusicLabPointRuntimeMode.RetainedDisconnected, MusicLabPointRandomization.Snapshot.Mode, "disconnect retains synchronized matching identity");
+MusicLabPointRandomization.SynchronizeHistory(1L, Array.Empty<MusicLabPointReceipt>());
+Equal(41, MusicLabPointRandomization.Snapshot.Total, "ended generation cannot overwrite retained points");
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a", 2L);
+Equal(41, MusicLabPointRandomization.Snapshot.Total, "same identity reconnect retains points before history");
+MusicLabPointRandomization.SynchronizeHistory(1L, Array.Empty<MusicLabPointReceipt>());
+Equal(41, MusicLabPointRandomization.Snapshot.Total, "old callback cannot overwrite reconnect");
+MusicLabPointRandomization.SynchronizeHistory(2L, new[] { new MusicLabPointReceipt(0, 187256154) });
+Equal(10, MusicLabPointRandomization.ResolveEffectiveScore(99, 180), "adapter score uses refreshed history");
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-b", "slot-a", 3L);
+Equal(0, MusicLabPointRandomization.Snapshot.Total, "replacement identity cannot inherit an old total");
+MusicLabPointRandomization.SynchronizeHistory(2L, history);
+Equal(0, MusicLabPointRandomization.Snapshot.Total, "replacement rejects previous identity callback");
+MusicLabPointRandomization.SynchronizeHistory(3L, history);
+MusicLabPointRandomization.Reset();
+MusicLabPointRandomization.SynchronizeHistory(3L, history);
+Equal(MusicLabPointRuntimeMode.Native, MusicLabPointRandomization.Snapshot.Mode, "shutdown reset rejects late history");
+Equal(0, MusicLabPointRandomization.Snapshot.Total, "shutdown clears authoritative total");
+MusicLabPointRandomization.ApplySlotData(new Dictionary<string, object> { ["implementation_version"] = V023 }, "Super Crazy Rhythm Castle", "seed-a", "slot-a", 4L);
+MusicLabPointRandomization.SynchronizeHistory(4L, history);
+Equal(0, MusicLabPointRandomization.ResolveEffectiveScore(99, 180), "invalid contract fails closed in adapter");
+MusicLabPointRandomization.ApplySlotData(null, "Super Crazy Rhythm Castle", "legacy", "slot-a", 5L);
+Equal(99, MusicLabPointRandomization.ResolveEffectiveScore(99, null), "legacy adapter keeps native score");
+MusicLabPointRandomization.Reset();
+
+foreach (bool experimental in new[] { false, true })
+{
+    bool fallbackCalled = false;
+    Func<string, bool> miss = _ => false;
+    Func<string, bool> point = name => MusicLabPointRandomization.TryHandleItemName(name);
+    Action<string> fallback = _ => fallbackCalled = true;
+    Equal(true, ReceivedItemDispatch.TryApply("Music Lab Point Bundle", experimental, miss, miss, miss, miss, miss, miss, miss, point, fallback), "point dispatch always consumes point item");
+    Equal(false, fallbackCalled, "point dispatch suppresses experimental native fallback");
+    Equal(0, MusicLabPointRandomization.Snapshot.Total, "point dispatch never changes authoritative state");
+}
+
+Console.WriteLine("Music Lab Point policy and adapter tests passed.");

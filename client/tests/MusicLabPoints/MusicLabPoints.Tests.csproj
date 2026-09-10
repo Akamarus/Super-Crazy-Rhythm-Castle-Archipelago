@@ -7,5 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\MusicLabPointPolicy.cs" Link="MusicLabPointPolicy.cs" />
+    <Compile Include="..\..\MusicLabPointRandomization.cs" Link="MusicLabPointRandomization.cs" />
+    <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
   </ItemGroup>
 </Project>
