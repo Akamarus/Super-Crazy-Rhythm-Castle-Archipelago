@@ -4,7 +4,7 @@
 
 **Goal:** Replace native Music Lab medal-score chest currency with a strict, weighted, solver-aware Archipelago inventory for compatible v0.23 seeds while preserving native behavior for older seeds and non-AP play.
 
-**Architecture:** APWorld owns an immutable three-item point catalog, adds 20 progression items by replacing Stardust, and gates the nine existing chests with a weighted `CollectionState` total. The client validates an exact v0.23 slot-data contract, rebuilds its effective total from `AllItemsReceived`, and applies that total at the already identified `CurrentPlayerSaveEnquiries.GetMedalScore()` boundary only after a diagnostic checkpoint proves the boundary. Native medal storage is never written.
+**Architecture:** APWorld owns an immutable three-item point catalog, adds 20 progression items by replacing Stardust, and gates the nine existing chests with a weighted `CollectionState` total. The client validates an exact v0.23 slot-data contract, rebuilds its effective total from `AllItemsReceived`, and applies that total through the existing managed `CurrentPlayerSaveEnquiries.GetMedalScore()` postfix only inside `GameRoom_Hub6`. No chest/native detour is installed and native medal storage is never written.
 
 **Tech Stack:** Python 3.13, Archipelago 0.6.7 world APIs, `unittest`, C#/.NET 6 client, .NET 8 pure-policy console tests, Archipelago.MultiClient.Net 6.7.1, Harmony/BepInEx IL2CPP, PowerShell build and packaging scripts.
 
@@ -25,7 +25,7 @@
 - Recognized v0.22 and older seeds, plus non-AP play, must continue using native medal score.
 - A malformed seed claiming v0.23 must fail closed at zero with an explicit incompatibility result.
 - Never write AP points into native medal/save state, force a chest open, simulate its interaction, or enable the Shift+F4 cheat over a compatible AP point session.
-- Diagnose the native score boundary before enabling production replacement. If evidence contradicts the design, stop and revise the spec instead of guessing.
+- Restrict production score replacement to `GameRoom_Hub6`; install no chest/native detour and do not load the invalid generated `Hub06MedalScoreRewardChest` CLR wrapper.
 - Build without deployment first. Deploy only after explicit approval and only to `D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP`.
 - Do not merge, push, publish, package as a release, remove worktrees, or alter the unrelated `WordFactori/` directory without explicit approval.
 - Gameplay acceptance is required before the feature may be described as live-verified.
@@ -41,7 +41,7 @@
 - `client/MusicLabPointPolicy.cs` — pure strict-contract parser and identity-bound point state machine.
 - `client/MusicLabPointRandomization.cs` — thread-safe adapter between the pure state machine, network history, and score postfix.
 - `client/ReceivedItemDispatch.cs` — recognizes point items so they never fall through to experimental native progression.
-- `client/Plugin.cs` — connection lifecycle wiring, bounded diagnostic hook, and effective-score integration.
+- `client/Plugin.cs` — connection lifecycle wiring, Music Lab room gating, read-only chest observations, and effective-score integration.
 - `client/tests/MusicLabPoints/` — pure client contract/runtime and production-wiring regression project.
 - `docs/testing/2026-09-09-music-lab-points-acceptance.md` — hashes, versions, seed/save identity, diagnostic evidence, and live acceptance checklist.
 - `docs/IDS.md`, living docs, embedded APWorld docs, `CHANGELOG.md`, `client/build.ps1`, `apworld/scrc/archipelago.json`, and `tools/validate-repo.py` — permanent IDs, candidate versions, truthful status, build text, and independent validation.
@@ -541,26 +541,28 @@ git commit -m "feat(client): synchronize Music Lab Points from AP history"
 
 ---
 
-### Task 6: Prove the Native Score Boundary with a Diagnostic-Only Build
+### Task 6: Remove the Unsafe Native Diagnostic and Lock the Room-Scoped Design
 
 **Files:**
 - Modify: `client/Plugin.cs`
+- Modify: `client/RhythmCastleAP.csproj`
 - Modify: `client/tests/MusicLabPoints/Program.cs`
-- Create: `docs/testing/2026-09-09-music-lab-points-acceptance.md`
+- Delete: `client/tests/MusicLabPoints/NativeInteropProbe.cs`
+- Modify: `docs/testing/2026-09-09-music-lab-points-acceptance.md`
 
 **Interfaces:**
-- Consumes: the existing `CurrentPlayerSaveEnquiries.GetMedalScore()` patch and native `Hub06MedalScoreRewardChest` metadata.
-- Produces: bounded, read-only correlation evidence for the display and all nine chest instances. It does not yet return AP totals.
+- Consumes: the failed managed-wrapper diagnostic evidence, the rejected native-detour review, the existing loadable `CurrentPlayerSaveEnquiries.GetMedalScore()` Harmony patch, and the exact-path read-only chest metadata reader.
+- Produces: a clean no-native-detour baseline and an acceptance record for Task 7's `GameRoom_Hub6`-scoped effective score. It does not yet return AP totals.
 
-- [ ] **Step 1: Write failing diagnostic-safety tests**
+- [ ] **Step 1: Write failing architecture-safety tests**
 
-Source-level tests require a default-false `Developer.EnableMusicLabPointBoundaryDiagnostics` config key, bounded deduplication, exact owner/method validation, and no diagnostic assignment to `__result`, native fields, save state, or chest state.
+Require that the Music Lab Point production path contains no `INativeDetour`, `BuildState` callback, native method pointer resolution, generated chest-owner `Assembly.GetType`, or Music Lab boundary F5 interception. Require removal of the temporary `MonoMod.RuntimeDetour` reference and optional interop probe. Preserve tests proving the exact-path chest metadata reader performs no native write, forced interaction, or AP result replacement.
 
-- [ ] **Step 2: Add bounded read-only correlation diagnostics**
+- [ ] **Step 2: Remove the rejected diagnostic architecture**
 
-When the developer key is true, install diagnostic-only prefix/postfix hooks around the exact zero-argument state builder on `Hub06MedalScoreRewardChest`. Use a thread-static correlation scope so `GetMedalScorePostfix` can log which verified chest instance requested the score. Reuse the already proven chest metadata/path reader to emit threshold and native object path. Cap unique records at 64 and deduplicate by `(room, threshold, path, caller)`.
+Remove the native detour, its rooted delegates/trampoline, the temporary diagnostic config key and F5 dispatch, its `MonoMod.RuntimeDetour` project reference, and the installed-interop probe. Do not replace them with a process-lifetime hook or a different guessed chest callback.
 
-Outside a chest correlation scope, log one Hub6 display-reader observation. If the exact type/method/threshold cannot be read, emit an unavailable marker and do not install a guessed hook.
+Keep the existing managed `GetMedalScore()` Harmony postfix and exact read-only nine-chest metadata mapping. Update the acceptance record with the failed managed-wrapper evidence, rejected native-detour reasoning, and the approved room-scoped production/manual-validation route.
 
 - [ ] **Step 3: Run tests and build without deployment**
 
@@ -569,25 +571,14 @@ dotnet run --project .\client\tests\MusicLabPoints\MusicLabPoints.Tests.csproj -
 powershell -ExecutionPolicy Bypass -File .\client\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus" -SkipInstall
 ```
 
-Expected: tests and build PASS; no game/plugin directory changes occur.
+Expected: tests and build PASS; the client has no extra native-detour dependency or callback and no game/plugin directory changes occur.
 
-- [ ] **Step 4: Commit the diagnostic checkpoint**
+- [ ] **Step 4: Commit the architecture correction**
 
 ```powershell
-git add client/Plugin.cs client/tests/MusicLabPoints docs/testing/2026-09-09-music-lab-points-acceptance.md
-git commit -m "diag(client): trace Music Lab Point score consumers"
+git add client/Plugin.cs client/RhythmCastleAP.csproj client/tests/MusicLabPoints docs/testing/2026-09-09-music-lab-points-acceptance.md docs/superpowers/specs/2026-09-09-music-lab-points-design.md docs/superpowers/plans/2026-09-09-music-lab-points.md
+git commit -m "fix(client): retire unsafe Music Lab boundary diagnostic"
 ```
-
-- [ ] **Step 5: Stop for explicit deployment approval, then collect live evidence**
-
-After approval, verify the game is closed, install only the client build to the authorized plugin directory, launch normally, confirm BepInEx and the intended client hash/version, enter Music Lab, and trigger one F5 diagnostic scan. Record evidence that:
-
-- all nine paths/thresholds `5/10/20/32/46/64/89/111/140` correlate to the exact getter;
-- the Music Lab display reads the same effective getter;
-- native score before/after the read-only scan is identical; and
-- the log contains no diagnostic exception, native write, forced chest, or unrelated result mutation.
-
-Update the acceptance record with the focused log excerpt and hashes. If any item fails, stop before Task 7 and revise the design from the evidence.
 
 ---
 
@@ -599,14 +590,14 @@ Update the acceptance record with the focused log excerpt and hashes. If any ite
 - Modify: `client/tests/MusicLabPoints/Program.cs`
 
 **Interfaces:**
-- Consumes: accepted Task 6 boundary evidence and Task 5 synchronized snapshots.
-- Produces: production AP score replacement with native/legacy fallback and developer-cheat precedence enforced by `MusicLabPointRuntime.ResolveEffectiveScore`.
+- Consumes: Task 6's no-native-detour baseline, the existing managed getter postfix, and Task 5 synchronized snapshots.
+- Produces: `GameRoom_Hub6`-scoped production AP score replacement with native/legacy fallback and developer-cheat precedence enforced by `MusicLabPointRuntime.ResolveEffectiveScore`.
 
 - [ ] **Step 1: Write failing postfix-precedence and no-write tests**
 
-Cover these exact cases through the production adapter: native 37 remains 37 on v0.22; developer override 64 applies only in native mode; compatible awaiting returns 0; compatible synchronized returns AP total; retained disconnect returns retained total; malformed v0.23 returns 0; and a compatible AP session ignores developer override 140.
+Cover these exact cases through the production adapter: native 37 remains 37 on v0.22; developer override 64 applies only in native mode; compatible awaiting returns 0 in `GameRoom_Hub6`; compatible synchronized returns AP total in `GameRoom_Hub6`; retained disconnect returns retained total in `GameRoom_Hub6`; malformed v0.23 returns 0 in `GameRoom_Hub6`; a compatible AP session ignores developer override 140 in `GameRoom_Hub6`; and every mode returns native/developer behavior outside `GameRoom_Hub6`.
 
-Add source checks proving the AP production path calls no native field setter, save request, chest method, or reflection write.
+Add source checks proving the AP production path calls no native field setter, save request, chest method, reflection write, `INativeDetour`, or generated chest-owner lookup.
 
 - [ ] **Step 2: Run the client test and verify RED**
 
@@ -618,22 +609,23 @@ Expected: FAIL because the score postfix still applies only the developer overri
 
 - [ ] **Step 3: Route the exact postfix through the production adapter**
 
-Keep the original native result, record it for diagnostics, derive the optional developer value only when `DeveloperHarness.Enabled`, and assign exactly once:
+Keep the original native result, derive the optional developer value only when `DeveloperHarness.Enabled`, and assign exactly once. Route through the AP adapter only when `DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"`; otherwise preserve native/developer behavior:
 
 ```csharp
 int nativeScore = __result;
-MusicLabPointOverride.RecordNativeScore(nativeScore);
 int? developerScore = !SuppressOverride && DeveloperHarness.Enabled
     ? MusicLabPointOverride.OverrideScore
     : null;
-__result = MusicLabPointRandomization.ResolveEffectiveScore(nativeScore, developerScore);
+__result = DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"
+    ? MusicLabPointRandomization.ResolveEffectiveScore(nativeScore, developerScore)
+    : developerScore ?? nativeScore;
 ```
 
-The adapter must return native behavior in legacy/non-AP mode and must never call the patched getter recursively.
+The adapter must return native behavior in legacy/non-AP mode and must never call the patched getter recursively. The room gate must use the established room identity rather than a guessed scene, UI, or chest type.
 
 - [ ] **Step 4: Add bounded production state logs**
 
-Log contract accepted/rejected, awaiting history, synchronized instance count/total, retained disconnect, reconnect rebuild/correction, cap anomaly, unknown point ID, and getter unavailable. Emit each transition once per AP identity; do not log every getter call or full received history.
+Log contract accepted/rejected, awaiting history, synchronized instance count/total, retained disconnect, reconnect rebuild/correction, cap anomaly, unknown point ID, and getter unavailable. Emit each transition once per AP identity; do not log every getter call or full received history. Do not add a frame-polled or per-getter room-gate log.
 
 - [ ] **Step 5: Run focused and full client tests**
 

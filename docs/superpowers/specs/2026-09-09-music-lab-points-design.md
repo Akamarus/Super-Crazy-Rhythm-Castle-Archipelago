@@ -1,7 +1,7 @@
 # AP Music Lab Points Design
 
 **Date:** 2026-09-09  
-**Status:** Approved; not implemented  
+**Status:** Approved; implementation in progress
 **Target compatibility:** APWorld v0.23 and its matching client  
 **Related design:** `2026-08-20-randomizer-logic-design.md`, section 6
 
@@ -21,7 +21,7 @@ The approved randomizer design replaces that currency only for a compatible APWo
 - Preserve the last synchronized total during a temporary disconnect.
 - Leave native clean-medal results and saved medal score untouched.
 - Preserve native point behavior for older v0.22 seeds and non-AP play.
-- Diagnose and prove the native integration boundary before production behavior is enabled.
+- Restrict AP score replacement to the Music Lab hub and prove the existing display and all nine chest thresholds through gameplay acceptance.
 
 ## Non-goals
 
@@ -116,18 +116,13 @@ The synchronized state belongs to the full AP identity: game, seed/generation, p
 
 ## Native Integration
 
-The intended integration reuses the existing exact `CurrentPlayerSaveEnquiries.GetMedalScore()` postfix currently used by the developer-only Music Lab point override. Production behavior is not enabled merely because the method name appears correct.
+The integration reuses the existing exact, loadable `CurrentPlayerSaveEnquiries.GetMedalScore()` Harmony postfix currently used by the developer-only Music Lab point override. AP replacement is allowed only while the current room is the Music Lab hub (`GameRoom_Hub6`). Calls in every other room preserve the native result and existing developer behavior.
 
-Before implementation commits to this boundary, a diagnostic build must prove:
+The generated `Hub06MedalScoreRewardChest` CLR wrapper cannot be loaded because its generated generic hierarchy violates a CLR constraint. A diagnostic native detour was investigated and rejected: the installed BepInEx/Dobby interface does not provide sufficient evidence for safe partial-install cleanup or callback quiescence during unload. The client therefore must not install a native detour, patch the invalid chest wrapper, or retain a process-lifetime callback for this feature.
 
-- the native Music Lab point display reads this result;
-- all nine chest eligibility paths read this result or an equivalent value derived from it;
-- returning AP totals does not alter unrelated score, result, progression, or save behavior; and
-- no native save field changes when only the effective result is replaced.
+The existing exact-path chest metadata reader remains read-only evidence for the nine native thresholds. It may observe chest identity, threshold, collection flag, and availability, but it must not invoke a chest state builder, force an interaction, or write native score/save state.
 
-If diagnostics show unrelated consumers, implementation must narrow the override using a separately verified context or identify a narrower native boundary. It must not guess from type or object names.
-
-Once proven, one postfix records the original native value and applies this precedence:
+Inside `GameRoom_Hub6`, one postfix records the original native value and applies this precedence:
 
 1. suppress recursion while deliberately reading the original native value;
 2. if a compatible AP point session is awaiting synchronization or incompatible, return zero;
@@ -135,9 +130,11 @@ Once proven, one postfix records the original native value and applies this prec
 4. otherwise, permit the existing developer-only override when explicitly enabled; and
 5. otherwise, return the untouched native value.
 
+Outside `GameRoom_Hub6`, the postfix returns the native/developer result without consulting AP Music Lab Point state. This room gate limits the replacement to the interface being randomized and prevents an unrelated consumer in another room from receiving AP currency.
+
 The developer Shift+F4 point override is disabled while a compatible v0.23 AP point session owns the effective total. This prevents a testing cheat from affecting live AP chest eligibility.
 
-The client never writes the AP total into native medal storage. Native campaign, cassette, and Game Garage result processing continues normally. The Music Lab's existing display and chest interactions update because they consume the effective getter result; no chest is forced open and no interaction is simulated.
+The client never writes the AP total into native medal storage. Native campaign, cassette, and Game Garage result processing continues normally. The Music Lab's existing display and chest interactions are the live acceptance surface; no chest is forced open and no interaction is simulated. If either the display or any threshold does not respond to the scoped effective score, acceptance fails and the design must be revised from that evidence.
 
 ## Failure Handling
 
@@ -147,7 +144,7 @@ The client never writes the AP total into native medal storage. Native campaign,
 - **Malformed v0.23 contract:** keep the feature incompatible and the effective total at zero; log and display a concise reason without sensitive connection details.
 - **Unknown point item or invalid item ID:** ignore it for point arithmetic and report the contract/history mismatch once per connection identity.
 - **Arithmetic overflow or value above the contract maximum:** saturate at 180 and report the anomaly.
-- **Native getter or patch unavailable:** do not claim the economy active; fail the compatibility/diagnostic gate and leave production release blocked.
+- **Native getter or patch unavailable:** do not claim the economy active; fail the compatibility gate and leave production release blocked.
 - **Native chest read unavailable:** preserve the existing chest discovery/reconciliation retry behavior; never synthesize a collected check.
 - **Duplicate chest observation or AP receipt:** remain idempotent.
 
@@ -161,7 +158,7 @@ Normal logs record bounded state transitions rather than frame polling:
 - one weighted-total change per newly accepted receipt index;
 - disconnect with retained total;
 - reconnect rebuild result and any corrected mismatch; and
-- native effective-score boundary enabled or unavailable.
+- Music Lab-only effective-score replacement enabled or unavailable.
 
 The existing AP connection/incompatibility feedback should explain when the point contract prevents play. Logs must not expose credentials, private server data, or unbounded received-item history.
 
@@ -196,7 +193,7 @@ Client pure-policy and wiring tests must prove:
 8. AP identity changes clear the prior total;
 9. incompatible v0.23 stays at zero and cannot fall back to native medals;
 10. the developer point override cannot supersede a compatible AP session;
-11. production wiring uses only the diagnosed score boundary and performs no native score write; and
+11. production wiring uses only the existing managed getter, is gated to `GameRoom_Hub6`, installs no chest/native detour, and performs no native score write; and
 12. chest reconciliation remains exactly-once and queues checks while disconnected.
 
 The full APWorld suite, all client regression projects, repository validator, APWorld packaging, and a release-mode client build must pass before deployment is considered.
@@ -209,7 +206,7 @@ The first decisive live test uses a fresh v0.23 seed, matching client, and fresh
 2. Before item synchronization, confirm the effective total is zero and all nine chests remain locked.
 3. Complete synchronization with no point items and confirm the Music Lab display remains zero.
 4. Deliver a controlled mix of 1-, 10-, and 20-point items and confirm the display changes by the exact weighted amounts.
-5. Test immediately below and exactly at each threshold: `5`, `10`, `20`, `32`, `46`, `64`, `89`, `111`, and `140`.
+5. Test immediately below and exactly at each threshold: `5`, `10`, `20`, `32`, `46`, `64`, `89`, `111`, and `140`; confirm the existing Music Lab display matches each delivered AP total.
 6. Confirm a chest becomes interactable only when its threshold is met; the client does not force it open.
 7. Open representative early, middle, and final chests and confirm each sends its existing AP check exactly once.
 8. Confirm the five reused chest cassettes and two reused Garage cartridges still follow their normal AP receipt/use paths without duplicate checks.
@@ -219,6 +216,7 @@ The first decisive live test uses a fresh v0.23 seed, matching client, and fresh
 12. Close and relaunch the game, load the same AP identity, and confirm the rebuilt total is correct.
 13. Load a recognized v0.22 seed and confirm its native Music Lab medal-score economy is unchanged.
 14. Load a malformed v0.23 contract fixture and confirm the client explains the incompatibility and keeps the effective total at zero.
+15. Leave `GameRoom_Hub6` and confirm unrelated rooms continue to use native score behavior.
 
 ## Acceptance Boundary
 
