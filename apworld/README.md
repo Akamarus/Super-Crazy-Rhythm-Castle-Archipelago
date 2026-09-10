@@ -1,6 +1,12 @@
 # SCRC APWorld
 
-Current APWorld: **v0.22.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`) with client **v0.68.0**. It provides an experimental test implementation for all 30 Music Lab cassette items and sources; many individual routes still require manual verification. Generate a new v0.22 seed and use a fresh in-game save. Client v0.68 rejects older cassette schemas and preserves native behavior; historical APWorld v0.21 paired with historical Client v0.67.95 retains the Money-only pilot.
+Current APWorld: **v0.23.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23`) with client **v0.69.0**. This experimental v0.23 candidate adds AP Music Lab Points and requires manual acceptance with a fresh v0.23 seed and fresh native save. It retains all 30 cassette items and sources; many individual routes still require manual verification. Older cassette schemas preserve native cassette behavior; historical APWorld v0.21 paired with historical Client v0.67.95 retains the Money-only pilot.
+
+## Music Lab Points candidate
+
+The pool replaces 20 Stardust with 10 `Music Lab Point` items worth 1 each, 3 `Music Lab Point Bundle` items worth 10 each, and 7 `Music Lab Point Large Bundle` items worth 20 each. Their permanent IDs are `187256153..187256155`; the total is 180 points. The existing nine chests require 5/10/20/32/46/64/89/111/140 points, leaving 40 points of slack after the final threshold. Chests may contain progression when ordinary solver reachability proves a valid chain. No point milestone locations are added; five cassette and two cartridge sources reuse their existing chest checks.
+
+Slot-data schema 14 carries point schema 1 with exact IDs, names, values, counts, totals, cap, and threshold-to-location map. A compatible client returns zero before synchronization, rebuilds from authoritative receipts, caps at 180, and retains the synchronized total during a disconnect. Native medals contribute no AP points. Recognized v0.22 seeds and non-AP play retain native scoring; malformed v0.23 contracts fail closed at zero with an incompatibility error. The managed score getter applies AP points only in `GameRoom_Hub6`, with no native medal/save writes or chest/native detour. Display, all nine thresholds, reconnect/relaunch, and compatibility still require [live acceptance](../docs/testing/2026-09-09-music-lab-points-acceptance.md).
 
 The source package is `apworld/scrc/`. Use `tools/build-apworld.ps1` from the repository root to generate `dist/scrc.apworld`.
 
@@ -33,7 +39,7 @@ This deliberately supports entering Level 3, collecting the Frog/Hippo check, an
 | Expert | Add 3-Star | Add Gold | 166 |
 | Perfection | Same campaign tiers as Expert | Add Platinum | 202 |
 
-Inactive checks are absent from a generated seed, not replaced with filler. v0.22 retains the performance filters and adds the full cassette source set. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Inactive checks are absent from a generated seed, not replaced with filler. v0.23 retains the v0.22 full cassette source set and these active counts. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests now use weighted AP-point access rules and may hold solver-reachable progression.
 
 ## Generation-foundation previews
 
@@ -41,4 +47,4 @@ The v0.17 YAML retains the v0.16 `required_stars` and `starting_area` previews. 
 
 Stars are not placed in the live item pool; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
 
-The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.68.0** and generate a fresh v0.22 seed.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.69.0** and generate a fresh v0.23 seed.

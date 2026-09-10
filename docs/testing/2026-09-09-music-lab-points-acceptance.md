@@ -1,8 +1,10 @@
 # Music Lab Points acceptance record
 
-Status: architecture revised after the first diagnostic failed closed. The native chest detour candidate is rejected and must not be deployed. Production AP effective-score replacement remains disabled until Task 7 is implemented, reviewed, built, and explicitly approved for live testing.
+Status: **experimental Client v0.69.0 / APWorld v0.23.0 candidate requiring manual acceptance**, not a completed release. The room-scoped managed-getter implementation is reviewed and automated-test ready. The existing display, all nine chest thresholds, check reuse, persistence, and compatibility remain live-unverified. The native chest detour candidate is rejected and must not be deployed.
 
-Task 6 cleanup is complete: the rejected boundary class/callback, temporary configuration and F5 interception, native method resolver, temporary dependency, and optional installed-interop probe have been removed. The existing managed getter Harmony postfix and exact nine-chest metadata mapping are preserved. Task 7's room gate and AP result replacement are not implemented by this cleanup.
+Task 6 cleanup removed the rejected boundary class/callback, temporary configuration and F5 interception, native method resolver, temporary dependency, and optional installed-interop probe. Task 7 then implemented AP result replacement through the existing managed getter only in exact room `GameRoom_Hub6`. Review through commit `ba3d664d6d5fb60103efc1c4aedd588bf2981561` and offline verification passed all 19 client regression projects and a `-SkipInstall` build (0 errors, 7 existing nullable warnings). These checks do not prove live display/threshold behavior. The v0.69.0 candidate still requires final artifact verification and hash-specific live-test approval.
+
+The fresh v0.23 contract uses top-level schema 14 and point schema 1. Its 10/3/7 items at values 1/10/20 replace 20 Stardust and total 180 points; the final threshold is 140 with 40 slack. No point milestones or duplicate cassette/cartridge source checks are added. Exact names, IDs, values, counts, totals, cap, and threshold-to-location map must match. Before sync the effective hub score is zero; after sync it uses authoritative AP receipts, retains the total through disconnects, and rebuilds on reconnect/relaunch. Native medals contribute no AP points and receive no AP score/save writes. Recognized v0.22/non-AP sessions retain native scoring; malformed v0.23 sessions report incompatibility and stay at zero.
 
 ## Diagnostic evidence and decision
 
@@ -28,9 +30,53 @@ Approved correction: remove the native diagnostic and use only the existing load
 | Installed client from failed diagnostic attempt | `2E20DBAB30792E28E57D2C0C576C753CD0B8DADB5932F1644A12AFE4947601C6` | Unchanged; production AP score replacement disabled |
 | Rejected native-detour candidate | Not applicable | Must not be deployed |
 | Task 6 no-detour cleanup build, v0.68.0 | `03608FF06D49AF9FCE596168DB2157BC694A8735D05E0E1D4018A9BDC68D8B81` | Offline baseline only; not deployed; AP score replacement disabled |
-| Final Task 7 candidate | PENDING | Requires fresh build, review, and hash-specific approval |
+| Reviewed Task 7 offline candidate, v0.68.0 (`ba3d664`) | `A711B192599397302EFF44C64AFB6C432EA75909A0B9634F849785623A6A6C83` | Room-scoped AP replacement implemented; not deployed |
+| Final v0.69.0 candidate DLL | PENDING | Record after final verification; requires hash-specific live-test approval |
+| Final v0.23.0 APWorld package | PENDING | Record after final packaging/verification; no publication implied |
 
 Task 6 verification: `dotnet run --project .\client\tests\MusicLabPoints\MusicLabPoints.Tests.csproj -c Release` passed after an observed RED for the rejected `INativeDetour` path. The `client/build.ps1` release build with `-SkipInstall` passed with 0 errors and the same 7 existing nullable warnings. `Plugin.cs` and `RhythmCastleAP.csproj` match the pre-diagnostic Task 5 baseline (`51e1510`) exactly. Before/after snapshots of all game-file paths, sizes and last-write times matched, and the installed client SHA-256 remained unchanged. No game launch or deployment occurred during cleanup.
+
+The preceding Task 6 comparison describes that historical cleanup commit only. Task 7 subsequently changed the managed getter wiring; it did not restore any rejected detour.
+
+## Live-run identity and evidence template
+
+Complete a new copy for each candidate/run. Keep credentials out of this record; use non-secret local labels for private server/slot details.
+
+| Field | Recorded value / evidence |
+| --- | --- |
+| Test date and tester | PENDING |
+| Exact tested commit | PENDING |
+| Client version and DLL SHA-256 | PENDING — expected v0.69.0 |
+| APWorld version and package SHA-256 | PENDING — expected v0.23.0 |
+| Seed name, generation ID, and seed/archive reference | PENDING — fresh v0.23 required |
+| Server/room label and AP player slot/name | PENDING — no password or private address |
+| Native save slot and fresh-save confirmation | PENDING |
+| Game version/build and platform | PENDING |
+| BepInEx, Unity, and runtime versions | PENDING |
+| Final offline verification / review reference | PENDING |
+| Exact-artifact deployment approval | PENDING |
+| Diagnostic result and log/video reference | Original diagnostic failed closed; detour rejected. Candidate getter/display/threshold evidence PENDING |
+| Errors, exceptions, or mismatches | PENDING — record explicitly if none observed |
+
+## Live results template
+
+| Check | Result / evidence |
+| --- | --- |
+| Contract accepted; zero before history sync; all chests locked | PENDING |
+| Synchronized with zero receipts; existing display remains zero | PENDING |
+| Weighted 1/10/20 receipts and cap 180 | PENDING |
+| Outside `GameRoom_Hub6` native behavior / return to hub AP total | PENDING |
+| Five cassette and two cartridge source reuses; no duplicate check | PENDING |
+| Native campaign/cassette/Garage medal invariance | PENDING — record native result before/after and unchanged AP total |
+| Disconnect retained total and queued chest check ID | PENDING |
+| Reconnect history rebuild, same total, queued check sent once | PENDING |
+| Full relaunch with same AP identity | PENDING |
+| AP identity replacement clears prior point state | PENDING |
+| Recognized v0.22 regression / native scoring | PENDING |
+| Non-AP regression / native scoring | PENDING |
+| Malformed-v0.23 regression / incompatibility and zero | PENDING |
+| Errors and log/video references | PENDING |
+| Tester approval, date, and any remaining concerns | PENDING |
 
 ## Offline acceptance required before deployment
 
@@ -60,17 +106,17 @@ Do not use the developer Shift+F4 score override during compatible AP testing. I
 
 For every row, test one point below and exactly at the threshold. The chest must remain locked below the threshold and become interactable at the threshold. The client must not open it automatically.
 
-| AP total | Existing location | Below threshold | At threshold | Opens only by player | Check sends once |
-| ---: | --- | --- | --- | --- | --- |
-| 5 | Music Lab - 5 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 10 | Music Lab - 10 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 20 | Music Lab - 20 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 32 | Music Lab - 32 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 46 | Music Lab - 46 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 64 | Music Lab - 64 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 89 | Music Lab - 89 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 111 | Music Lab - 111 Point Chest | PENDING | PENDING | PENDING | PENDING |
-| 140 | Music Lab - 140 Point Chest | PENDING | PENDING | PENDING | PENDING |
+| Threshold | Existing location | Existing check ID | Below: display / locked | At: display / interactable | Opens only by player | Observed check ID / sends once |
+| ---: | --- | ---: | --- | --- | --- | --- |
+| 5 | Music Lab - 5 Point Chest | 187256169 | 4: PENDING | 5: PENDING | PENDING | PENDING |
+| 10 | Music Lab - 10 Point Chest | 187256170 | 9: PENDING | 10: PENDING | PENDING | PENDING |
+| 20 | Music Lab - 20 Point Chest | 187256171 | 19: PENDING | 20: PENDING | PENDING | PENDING |
+| 32 | Music Lab - 32 Point Chest | 187256172 | 31: PENDING | 32: PENDING | PENDING | PENDING |
+| 46 | Music Lab - 46 Point Chest | 187256173 | 45: PENDING | 46: PENDING | PENDING | PENDING |
+| 64 | Music Lab - 64 Point Chest | 187256045 | 63: PENDING | 64: PENDING | PENDING | PENDING |
+| 89 | Music Lab - 89 Point Chest | 187256166 | 88: PENDING | 89: PENDING | PENDING | PENDING |
+| 111 | Music Lab - 111 Point Chest | 187256167 | 110: PENDING | 111: PENDING | PENDING | PENDING |
+| 140 | Music Lab - 140 Point Chest | 187256168 | 139: PENDING | 140: PENDING | PENDING | PENDING |
 
 ### Persistence and compatibility
 

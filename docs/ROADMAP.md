@@ -1,6 +1,6 @@
 # Public Development Roadmap
 
-This is an unofficial, experimental development build rather than a release. The current boundary is Client v0.68.0 / APWorld v0.22.0. Testers should use matching builds and a fresh v0.22 seed/save.
+This is an unofficial, experimental development build rather than a release. The current candidate is Client v0.69.0 / APWorld v0.23.0. Music Lab Points requires manual acceptance with matching builds and a fresh v0.23 seed/save; automated readiness does not establish the live display or chest boundary.
 
 Before the next client/APWorld build is presented for gameplay testing, complete the release-blocking checklist in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md). Items may be announced as fixed only after their listed acceptance tests pass.
 
@@ -13,10 +13,11 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Design approved / not implemented | Approved direction that is not in the current public prototype. |
 | Discovery required | Native behavior or mappings must be confirmed before implementation. |
 | Deferred | Intentionally postponed beyond the current prototype. |
+| Experimental candidate / manual acceptance pending | Implemented and available for review; gameplay acceptance is still required. |
 
 ## Current implementation
 
-| Work | Status | Current v0.68.0 / v0.22.0 boundary |
+| Work | Status | Current v0.69.0 / v0.23.0 candidate boundary |
 | --- | --- | --- |
 | Hub6 home with Area Access phone routing | Implemented / needs more testing | New AP saves redirect directly to Music Lab; random start currently selects only validated Roots Access. The first Roots arrival cutscene still has a save-processor timing regression. |
 | Generation options and deterministic previews | Implemented | Required Stars (1–66, default 50) and starting area are exported with deterministic Level 1–22 requirements. |
@@ -30,7 +31,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Game Garage cartridges and sticker checks | Implemented / live entrance accepted | Vampire Killer remains a physical vanilla pickup; five cartridges are AP items. All six songs retain cumulative Bronze through Platinum checks. |
 | Music Lab cassette medal checks | Implemented / needs more testing | Thirty recognized cassette songs have cumulative medal checks. The four I Got Money medal checks require Money Cassette. |
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | The verified `Level_06 -> 110 -> I_GOT_MONEY` source sends `Level 2 - Money Cassette`; AP receipt reconciles `HAVE_IN_BAG` and normal Music Lab insertion deposits it. Fresh-save and save-switch IL2CPP acceptance remain pending. |
-| Music Lab reward chests | Implemented / needs more testing | Nine native point-threshold chests are AP checks and are reconciled from the save. Native medal score remains the current currency. |
+| Music Lab reward chests | Experimental candidate / manual acceptance pending | Nine existing checks now have weighted AP point rules. Only the managed getter in `GameRoom_Hub6` substitutes AP totals; recognized v0.22/non-AP sessions retain native score. Display and all thresholds need live acceptance. |
 | Current development completion condition | Implemented / needs more testing | The APWorld currently validates the Area Access routing milestone; it is not the approved Level 22 victory design. |
 
 ## Native-discovery gate
@@ -49,8 +50,8 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | --- | --- | --- |
 | Live individual AP Stars and enforced level requirements | Design approved / not implemented | The v0.16 planner and seed-stable preview exist; pool placement and client gates remain inactive until capacity and solver validation are complete. |
 | Hip Glasses, Bucket Minion trade, and Chicken Bucket | Implemented / needs gameplay acceptance | Hip Glasses are randomized at Level 4; the normal trade is the Chicken Bucket source check; normal Chicken Bucket use produces Combo Bucket. |
-| Music Lab Point AP inventory | Design approved / not implemented | Point items will be separate from native medal score, pending final location-count validation. |
-| Live difficulty-based performance location sets | Implemented | Normal, Hard, Expert, and Perfection filter existing campaign performance locations. Four real seeds passed count, tier, placement, reachability, and Victory-playthrough audits. Active Level-22 2/3-Star and Music Lab point chests remain filler-only. |
+| Music Lab Point AP inventory | Experimental candidate / manual acceptance pending | 10/3/7 items worth 1/10/20 replace 20 Stardust: 180 points, final threshold 140, slack 40. No milestones or new locations; solver-reachable point chests may hold progression. |
+| Live difficulty-based performance location sets | Implemented | Normal, Hard, Expert, and Perfection retain 92/129/166/202 locations. Historical four-seed filtering acceptance is retained. Active Level-22 2/3-Star checks stay filler-only; v0.23 models weighted point-chest reachability. |
 | Complete item pool and solver validation | Design approved / not implemented | Generation must prove opening spheres, item capacity, and no self-locks. |
 | Full campaign and meaningful-item logic | Design approved / not implemented | Every later area and level will combine Area Access, Stars, meaningful items, and vanilla story state. |
 
@@ -68,6 +69,7 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Work | Status | Acceptance boundary |
 | --- | --- | --- |
 | Difficulty-filtering generator matrix | Complete for v0.22 automated matrix | Normal, Hard, Expert, and Perfection pass the eight-option cassette/solver matrix at 92/129/166/202 addressed locations; representative gameplay remains pending. |
+| Music Lab Points native boundary | Experimental candidate / manual acceptance pending | Diagnostic-first review rejected the chest/native detour. Prove the existing display, all nine below/at thresholds, existing check reuse, native medal invariance, disconnect/reconnect, relaunch, v0.22 fallback, and malformed-v0.23 zero behavior using the acceptance record. |
 | Roots prototype smoke testing | Implemented / needs more testing | Test a fresh v0.20.0 seed/save through Weed Killer, Plant Pipes, Hip Glasses, Bucket Minion, Chicken Bucket, Lift Quest, and representative active campaign/Garage/Music Lab checks. |
 | Full generated-seed matrix | Design approved / not implemented | Validate every supported start, difficulty, Star goal, and optional-area route. |
 | Level 22 victory | Design approved / not implemented | Victory will require the synchronized AP Star goal and a subsequent Level 22 completion. |
@@ -84,3 +86,5 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 | Full release claim | Deferred | This project remains an experimental development build until the gates above are complete. |
 
 For detailed current behavior, see the [project overview](PROJECT_OVERVIEW.md), [progression reference](PROGRESSION.md), and [historical gameplay evidence](HISTORICAL_GAMEPLAY_EVIDENCE.md). The [approved randomizer design](superpowers/specs/2026-08-20-randomizer-logic-design.md) describes future architecture, not a claim that it is implemented.
+
+The [Music Lab Points acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) owns the v0.23 live gate. Exact compatibility is required; the hub total remains zero before sync or on malformed v0.23 data, retains its last synchronized value on a temporary disconnect, and never receives native medal contributions. Existing five cassette/two cartridge chest sources remain single checks. No native score/save writes or chest/native detours are part of this candidate.

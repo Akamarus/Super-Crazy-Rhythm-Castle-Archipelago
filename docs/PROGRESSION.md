@@ -2,11 +2,21 @@
 
 Historical gameplay and native mapping evidence from the full discovery playthrough is indexed in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Use that evidence as a starting point, while treating its former individual-level access design as superseded by this document's Area Access model.
 
-## Full Music Lab cassette contract (v0.22)
+## AP Music Lab Points candidate (v0.23)
+
+Client v0.69.0 / APWorld v0.23.0 is experimental and requires manual acceptance with a fresh v0.23 seed and fresh native save. The pool replaces 20 Stardust with 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points total. All three items are progression, at permanent IDs `187256153..187256155`. The existing nine chests require weighted totals of 5/10/20/32/46/64/89/111/140; the final threshold leaves 40 points of slack. Ordinary solver reachability permits progression behind earlier chests without self-locking. Active location totals remain 92/129/166/202, and active Level-22 2/3-Star checks remain filler-only.
+
+No point milestones or duplicate source checks are added. The five chest cassettes retain their 32/64/89/111/140-point checks; Gradius Remix and Bloody Tears retain the 10/46-point checks. Each physical chest sends only its existing location once.
+
+Only the exact schema-14/point-schema-1 contract enables AP points. In `GameRoom_Hub6`, the existing managed score getter returns zero before synchronization, then the weighted authoritative receipt total capped at 180; temporary disconnects retain the last synchronized total. Reconnect and relaunch rebuild history without double-counting; identity changes clear it. Native campaign/cassette/Garage medals never contribute AP points, and no native medal/save score is written. Recognized v0.22 seeds and non-AP play retain native scoring; malformed v0.23 contracts report incompatibility and remain zero. Other rooms preserve native/developer behavior; compatible AP points override the developer score cheat.
+
+Diagnostic-first investigation rejected the generated chest hook and native detour. Only the room-scoped managed getter and read-only chest metadata remain. Existing display, all nine below/at thresholds, check IDs, disconnect/reconnect, relaunch, and compatibility require [live acceptance](testing/2026-09-09-music-lab-points-acceptance.md); a failed native boundary requires design revision.
+
+## Full Music Lab cassette contract (retained from v0.22)
 
 Each of the 30 Music Lab songs has exactly one cassette item and one idempotent source. Twenty-five sources are earned from successful level results; aliases such as Bee/Devil variants resolve to the same AP location. Quicksand, Flamenco, Ten-Four Good Buddy, Zen, and Wiggle reuse the existing 32/64/89/111/140-point chest locations. An AP receipt requests native `HAVE_IN_BAG`; a native `HAVE_DEPOSITED` state is terminal and is never changed back, so players unlock songs by inserting cassettes normally.
 
-Client v0.68.0 enables this routing only when a fresh seed supplies cassette schema 1, count 30, and exact item/source/reused-location mappings. Any mismatch preserves native behavior. Secret Bunker Devil aliases are cataloged but conservatively inactive in solver reachability until Bunker access is implemented and validated. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending.
+Client v0.69.0 enables this routing only when a fresh seed supplies cassette schema 1, count 30, and exact item/source/reused-location mappings. Any cassette-contract mismatch preserves native cassette behavior. Secret Bunker Devil aliases are cataloged but conservatively inactive in solver reachability until Bunker access is implemented and validated. The 24 newly mapped songs and the I Got Money Bee alias remain manual verification pending.
 
 ## Hub model
 

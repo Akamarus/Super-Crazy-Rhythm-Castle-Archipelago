@@ -1,8 +1,16 @@
 # Super Crazy Rhythm Castle
 
-v0.22.0 uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. It provides experimental randomizer routing for all 30 Music Lab cassettes, with many individual routes still awaiting manual verification. Their source check sends once; the received cassette enters the native bag and must still be inserted normally. Five cassette rewards reuse the 32/64/89/111/140-point chest locations. A fresh v0.22 seed and Client v0.68.0 are required.
+The experimental v0.23.0 candidate uses the native Hub6 phone bank as the Archipelago navigation hub, and **Roots Access is forced as the precollected starter** during the current Roots development phase. It retains experimental routing for all 30 Music Lab cassettes, with many individual routes still awaiting manual verification. Their source check sends once; the received cassette enters the native bag and must still be inserted normally. Five cassette rewards reuse the 32/64/89/111/140-point chest locations. A fresh v0.23 seed, fresh native save, and Client v0.69.0 are required for manual acceptance; this is not a completed release.
 
 Five Game Garage cartridges remain randomized items and require their matching AP item. Vampire Killer is native and its Bronze/Silver/Gold/Platinum checks have no AP-item gate.
+
+## Music Lab Points candidate
+
+The pool contains 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points in 20 progression items replacing 20 Stardust. Nine existing chests require 5/10/20/32/46/64/89/111/140 AP points. The final threshold leaves 40 points of slack. No point milestone checks are added; existing cassette and Gradius Remix/Bloody Tears chest sources send only their existing location.
+
+The exact schema-14/point-schema-1 contract is required. Before authoritative history sync the Music Lab total is zero; afterwards it is the weighted AP total capped at 180, retained during a temporary disconnect and rebuilt on reconnect/relaunch. Native medal results never add AP points or receive AP score writes. Recognized v0.22 seeds and non-AP play keep native scoring; malformed v0.23 contracts report incompatibility and stay at zero.
+
+The existing managed getter substitutes AP points only in `GameRoom_Hub6`. No chest/native detour is installed and no chest is forced open. Live display, all nine below/at thresholds, exactly-once checks, persistence, compatibility, and native medal invariance remain required acceptance tests.
 
 ## AP performance difficulty
 
@@ -15,7 +23,7 @@ Five Game Garage cartridges remain randomized items and require their matching A
 | Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 166 |
 | Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 202 |
 
-Inactive checks are absent, not filler. This release filters only existing campaign performance locations. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Inactive checks are absent, not filler. This candidate retains the existing performance filters and location counts. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests may hold progression when weighted AP-point reachability proves a valid chain.
 
 ## Roots progression
 

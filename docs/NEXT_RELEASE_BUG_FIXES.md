@@ -2,11 +2,15 @@
 
 This checklist records release-blocking defects carried forward from focused fresh-save testing. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.
 
-The current public boundary is Client v0.68.0 / APWorld v0.22.0. Remaining boxes stay open until their applicable gameplay acceptance passes.
+The current experimental candidate is Client v0.69.0 / APWorld v0.23.0, requiring manual acceptance with a fresh v0.23 seed/save. Remaining boxes stay open until their applicable gameplay acceptance passes; preparing this candidate does not close prior issues.
 
 The failed regression seed is `AP_28223804408101432968`. It is useful for reproducing solver mistakes but must not be presented as playable.
 
 ## Open release blockers
+
+- [ ] **Accept AP Music Lab Points at the native boundary.** The 10/3/7 point distribution (values 1/10/20) replaces 20 Stardust and totals 180; the final threshold is 140 with 40 slack. The nine existing checks remain, with no milestones or duplicate cassette/cartridge sources. The diagnostic-first review rejected the chest/native detour; only the managed getter in `GameRoom_Hub6` substitutes AP totals, without native score/save writes. Complete the [acceptance record](testing/2026-09-09-music-lab-points-acceptance.md): display and every threshold below/at, native medal invariance, zero-before-sync, retained disconnect total, reconnect, relaunch, native v0.22/non-AP fallback, and malformed-v0.23 fail-closed zero behavior. The exact schema-14/point-schema-1 contract is required.
+
+Historical v0.19 point-chest filler restrictions below describe the accepted older boundary. In the v0.23 candidate, weighted AP-point rules permit solver-reachable progression in these same chests. Active Level-22 2/3-Star restrictions and every unrelated acceptance note remain in force.
 
 - [x] **Prevent BK'd seed generation within the v0.19 world boundary.** Progression is prohibited from native Music Lab point chests, inactive difficulty tiers, unsupported Level-22 tiers, and inaccurately modeled cartridge sources. Game Garage checks retain their matching-cartridge access rules, Royal Access exposes only the confirmed phone-side Level-22 route, and the client bypasses the Music Lab construction barriers. The retained failed-seed placements are rejected, the 100-seed/four-difficulty logical matrix passes, the previously failed seed regenerates with a valid progression playthrough, and five additional real Archipelago generator seeds place no progression in point chests or Normal-difficulty Platinum checks. Rerun both matrices whenever new regions, checks, or victory requirements become active.
 - [x] **Respect the native Game Garage entrance prerequisite.** Game Garage is not normally enterable with zero physical entrance cartridges, so the earlier zero-cartridge black-screen scenario was not a valid supported route. Live testing entered through the required cartridge, loaded and exited normally, and exposed only the matching AP-owned song. Do not force unsupported zero-cartridge entry.

@@ -7,7 +7,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Current development build: APWorld v0.22.0 and Client v0.68.0 provide an experimental test implementation for all 30 Music Lab cassette items and sources. Generate a new v0.22 seed and use a fresh in-game save. Many individual routes still require manual verification. Client v0.68 rejects older cassette schemas and preserves native cassette behavior; a historical v0.21 seed paired with its historical Client v0.67.95 retains the Money-only pilot.
+- Current development candidate: APWorld v0.23.0 and Client v0.69.0 add AP Music Lab Points while retaining all 30 cassette items and sources. This experimental v0.23 candidate requires manual acceptance with a fresh v0.23 seed and fresh in-game save. The existing Music Lab display, all nine thresholds, persistence, and compatibility remain live-unverified; many cassette routes also still require individual verification.
 - Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
 - Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and release packaging.
 - Testers currently build both components from source and must generate a fresh seed with the matching APWorld.
@@ -20,7 +20,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 1. Current playable prototype — Roots routing through Hip Glasses, the Bucket Minion trade, Chicken Bucket, and native Combo Bucket conversion, plus Garage/cassette/chest checks.
 2. Generation foundation — options, deterministic Star previews, active difficulty filtering, and the four-seed filtering generator matrix are complete; live Star placement and client Star gates still wait for broader location capacity and solver logic.
 3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
-4. Full randomizer logic — Stars, Music Lab Points, level requirements, item pool, Level 22 victory.
+4. Full randomizer logic — accept the Music Lab Points candidate, then continue Stars, level requirements, item pool, and Level 22 victory.
 5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
 
 See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
@@ -36,9 +36,13 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.68.0` | Full Music Lab cassette routing with strict v0.22 slot compatibility |
-| APWorld | `0.22.0` | Thirty cassette items and thirty idempotent cassette sources |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22` | Preserves every historical marker and adds the full-cassette contract |
+| Client | `0.69.0` | Room-scoped AP Music Lab Points candidate; manual acceptance pending |
+| APWorld | `0.23.0` | Strict schema 14 point contract; retains all 30 cassette sources |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23` | Preserves every historical marker and appends the point contract |
+
+Music Lab Points use 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 20 progression items worth 180 points replace 20 Stardust. The nine existing chests require 5/10/20/32/46/64/89/111/140 points; the final chest leaves 40 points of slack. Solver-reachable chests may hold progression. No point milestones or duplicate cassette/cartridge checks are added, and active location totals remain 92/129/166/202.
+
+Only an exact v0.23 point contract enables AP totals. In the Music Lab hub, the effective total is zero before history synchronization, then the weighted AP total; a temporary disconnect retains the last synchronized total. Native medals never contribute. Recognized v0.22 seeds and non-AP play retain native scoring; a malformed v0.23 contract reports incompatibility and stays at zero. The client uses the existing managed score getter only in `GameRoom_Hub6`, writes no native score/save state, and installs no chest/native detour. The diagnostic-first investigation and pending gameplay matrix are recorded in the [acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md).
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
 
@@ -57,10 +61,10 @@ From PowerShell:
 ```powershell
 cd .\client
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus"
+.\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus" -SkipInstall
 ```
 
-The script builds the plugin and installs it into:
+This builds the candidate without installing it. After review and explicit approval of the built artifact, omitting `-SkipInstall` installs it into:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
@@ -101,6 +105,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. The v0.22 test candidate routes all 30 Music Lab cassettes: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Broader manual source-route verification remains pending. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. APWorld v0.22.0 requires a fresh seed.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. The v0.23 test candidate retains all 30 Music Lab cassettes: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Broader manual source-route verification remains pending. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. Older cassette-schema mismatches preserve native cassette behavior; a historical v0.21 seed with historical Client v0.67.95 retains the Money-only pilot. APWorld v0.23.0 requires a fresh seed/save for acceptance.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

@@ -14,7 +14,7 @@ VALIDATOR = REPO_ROOT / "tools" / "validate-repo.py"
 
 
 class RepositoryContractTests(unittest.TestCase):
-    def test_public_apworld_docs_report_v022_location_totals(self):
+    def test_public_apworld_docs_report_v023_location_totals(self):
         expected_rows = (
             "| Normal | Completion / 1-Star | Bronze | 92 |",
             "| Hard | Add 2-Star | Add Silver | 129 |",
@@ -48,13 +48,16 @@ class RepositoryContractTests(unittest.TestCase):
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
-                shutil.copytree(source, destination)
+                shutil.copytree(
+                    source, destination,
+                    ignore=shutil.ignore_patterns("bin", "obj", "__pycache__"),
+                )
         return root
 
     def test_validator_reports_music_lab_point_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.68.0", result.stdout)
+        self.assertIn("Client:  v0.69.0", result.stdout)
         self.assertIn("APWorld: v0.23.0", result.stdout)
         self.assertIn('"world_version": "0.23.0"', result.stdout)
         self.assertIn(
@@ -94,6 +97,26 @@ class RepositoryContractTests(unittest.TestCase):
         )
         self.assertIn('"next_item_id": 187256156', result.stdout)
         self.assertIn('"next_location_id": 187256211', result.stdout)
+
+    def test_validator_rejects_changed_base_id(self):
+        for relative in (
+            "apworld/scrc/music_lab_points.py",
+            "apworld/scrc/items.py",
+            "apworld/scrc/__init__.py",
+        ):
+            with self.subTest(module=relative):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn("BASE_ID = 187256000", original)
+                path.write_text(
+                    original.replace("BASE_ID = 187256000", "BASE_ID = 187257000", 1),
+                    encoding="utf-8",
+                )
+                result = self.run_validator(root)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("BASE_ID changed", result.stdout + result.stderr)
+                self.assertIn(relative, result.stderr)
 
     def test_validator_rejects_changed_music_lab_point_contract(self):
         mutations = {

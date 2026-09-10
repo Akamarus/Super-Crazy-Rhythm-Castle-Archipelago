@@ -18,7 +18,7 @@ CLIENT = ROOT / "client" / "Plugin.cs"
 CASSETTE_POLICY = ROOT / "client" / "CassetteRandomizationPolicy.cs"
 IDS = ROOT / "docs" / "IDS.md"
 EXPECTED = {
-    "client_version": "0.68.0",
+    "client_version": "0.69.0",
     "world_version": "0.23.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
@@ -128,6 +128,18 @@ def static_int(node: ast.AST) -> int:
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return static_int(node.left) + static_int(node.right)
     fail("could not parse Music Lab Point integer contract value")
+
+
+# Check the assignments before using the fixed base to evaluate ID expressions.
+# Otherwise a changed module base could silently pass every offset check below.
+for base_path, base_text in ((POINTS, points_text), (ITEMS, items_text), (WORLD, world_text)):
+    base_node = assignment_value(ast.parse(base_text), "BASE_ID")
+    if not (
+        isinstance(base_node, ast.Constant)
+        and type(base_node.value) is int
+        and base_node.value == 187256000
+    ):
+        fail(f"BASE_ID changed in {repo_path(base_path)}: expected 187256000")
 
 
 def is_catalog_value_sum(node: ast.AST) -> bool:
@@ -428,6 +440,6 @@ print(json.dumps({
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
-print("v0.22 full Music Lab cassette routing is active; physical vanilla Vampire Killer Garage entry and earlier repair contracts remain enforced.")
+print("v0.23 Music Lab Points is an experimental candidate requiring manual acceptance; full cassette routing, physical vanilla Vampire Killer Garage entry, and earlier repair contracts remain enforced.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

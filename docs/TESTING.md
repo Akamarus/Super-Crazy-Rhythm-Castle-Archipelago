@@ -17,10 +17,20 @@ Known working baseline:
 ```powershell
 cd .\client
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus"
+.\build.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Titus" -SkipInstall
 ```
 
-Launch the game normally and verify `BepInEx\LogOutput.log` contains the expected client version.
+This builds without deployment. After review and explicit approval of the exact candidate artifact, install for live testing, launch normally, and verify `BepInEx\LogOutput.log` contains the expected client version.
+
+## Music Lab Points v0.23 candidate acceptance
+
+Client v0.69.0 / APWorld v0.23.0 is an experimental candidate requiring manual acceptance with a fresh v0.23 seed and fresh native save. Use the [complete acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) for artifact hashes, exact run identity, diagnostic evidence, all nine threshold rows, and tester approval. Existing automated policy/wiring evidence does not prove the live display or chest boundary.
+
+The expected pool is 10/3/7 items worth 1/10/20, totaling 180 and replacing 20 Stardust. The nine thresholds are 5/10/20/32/46/64/89/111/140, leaving 40 slack after the final chest. No point milestones are added; five cassette and two cartridge sources reuse their existing chest IDs.
+
+Verify zero before authoritative synchronization, correct weighted display, each threshold immediately below/at, player-driven opening, and one existing AP check per chest. Confirm native medals persist without contributing AP points, disconnect retains the synchronized total and queues checks, reconnect/relaunch rebuild history without double-counting, recognized v0.22/non-AP sessions retain native scoring, and malformed v0.23 contracts report incompatibility and stay at zero. The exact schema-14/point-schema-1 contract is required; do not use the developer Shift+F4 override to satisfy thresholds.
+
+The diagnostic-first review rejected the generated chest hook and native detour. The candidate uses only the existing managed getter in exact room `GameRoom_Hub6`, writes no native score/save state, and never invokes or forces a chest. Verify unrelated rooms preserve native behavior; failure of the display or any threshold fails acceptance and requires revising the design.
 
 ## APWorld changes
 
@@ -63,7 +73,7 @@ Before accepting a Roots milestone, confirm:
 
 ## Game Garage cartridge persistence checklist
 
-Use a compatible fresh v0.22 seed. Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09. Repeat the same matrix for the remaining randomized cartridges—Bloody Tears, Gradius Remix, Smooch, and Wag the Dog—before closing the broader blocker:
+Use a compatible fresh seed (v0.23 for the current candidate). Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09 with v0.22. Repeat the same matrix for the remaining randomized cartridges—Bloody Tears, Gradius Remix, Smooch, and Wag the Dog—before closing the broader blocker:
 
 - the AP receipt appears in the native inventory;
 - the matching cartridge is available for normal insertion in Game Garage;
