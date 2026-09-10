@@ -9,7 +9,7 @@ static void Equal<T>(T expected, T actual, string scenario) where T : notnull
 static void Contains(string expectedPart, string actual, string scenario)
 {
     if (!actual.Contains(expectedPart, StringComparison.Ordinal))
-        throw new InvalidOperationException($"{scenario}: expected detail containing '{expectedPart}', got '{actual}'");
+        throw new InvalidOperationException($"{scenario}: expected detail containing '{expectedPart}', got '{actual[..Math.Min(actual.Length, 160)]}'");
 }
 
 const string V023 =
@@ -347,4 +347,40 @@ Equal(false, callbackReadWhileLoginPaused, "history acquisition waits for prior 
 Equal(true, callbackAcquiredHistory.IsSet, "new callback acquires history after login publishes");
 MusicLabPointRandomization.Reset();
 Console.WriteLine("PASS: same_generation_login_callback_history_is_serialized");
+
+// The Unity/IL2CPP boundary cannot execute in this standalone test runner.
+// These checkpoint guards catch opt-in removal, guessed hooks, unbounded logs,
+// and result/native mutations; live correlation remains a separate acceptance gate.
+string pluginPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Plugin.cs"));
+string pluginSource = File.ReadAllText(pluginPath);
+Contains("Config.Bind(\"Developer\", \"EnableMusicLabPointBoundaryDiagnostics\", false", pluginSource,
+    "boundary diagnostics must default off");
+string boundarySource = pluginSource.Split("internal static class MusicLabPointBoundaryDiagnostics", StringSplitOptions.None)[1]
+    .Split("internal static class MusicLabPointDiagnostic", StringSplitOptions.None)[0];
+Contains("[ThreadStatic]", boundarySource, "chest scope must be thread-local");
+Contains("HashSet<(string Room, int Threshold, string Path, string Caller)>", boundarySource,
+    "diagnostic deduplication retains the complete correlation identity");
+Contains("Records.Count >= 64", boundarySource, "unique boundary records must be bounded");
+Contains("!Records.Add(", boundarySource, "duplicate observations must be suppressed");
+Contains("BindingFlags.DeclaredOnly", boundarySource, "inherited methods cannot become the hook");
+Contains("method.DeclaringType != owner", boundarySource, "hook owner must match exactly");
+Contains("method.GetParameters().Length != 0", boundarySource, "overloads with arguments cannot become the hook");
+Contains("method.ReturnType.FullName != \"Hub06MedalScoreRewardChestState\"", boundarySource,
+    "state builder return type must match native metadata");
+Contains("owner.GetProperty(\"unlockRequirement\"", boundarySource, "threshold metadata must be validated");
+Contains("if (!MusicLabDiscovery.TryReadPointBoundaryChests())", boundarySource,
+    "all live thresholds must validate before hook installation");
+Contains("MUSIC LAB POINT BOUNDARY UNAVAILABLE", boundarySource, "unavailable evidence must be explicit");
+Contains("finalizer:", boundarySource, "exceptions must clean up thread correlation");
+Contains("_scope = __state", boundarySource, "nested calls must restore their prior scope");
+Contains("displayCandidate-unverified", boundarySource, "an unscoped getter must not claim a proven display caller");
+foreach (string forbidden in new[] { "__result", "SetValue(", "WriteInt", "field_set", "QueueLocation", "SetPhase(", "ResolveEffectiveScore(" })
+    Equal(false, boundarySource.Contains(forbidden, StringComparison.Ordinal), "diagnostic boundary cannot mutate: " + forbidden);
+string getterPostfix = pluginSource.Split("public static void GetMedalScorePostfix(ref int __result)", StringSplitOptions.None)[1]
+    .Split("internal static class MusicLabPointBoundaryDiagnostics", StringSplitOptions.None)[0];
+Contains("MusicLabPointBoundaryDiagnostics.ObserveScore(__result);", getterPostfix,
+    "getter sends its native result by value to the observer");
+Equal(false, getterPostfix.Contains("ResolveEffectiveScore", StringComparison.Ordinal),
+    "production AP effective-score replacement stays disabled");
+Console.WriteLine("PASS: diagnostic_boundary_is_default_off_bounded_exact_and_read_only");
 Console.WriteLine("Music Lab Point policy and adapter tests passed.");
