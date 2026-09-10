@@ -10,6 +10,9 @@ internal static class MusicLabPointRandomization
     private static long? _activeGeneration;
     private static readonly HashSet<string> LoggedEvents = new(StringComparer.Ordinal);
     private static bool _getterAvailable;
+    private static bool _pointContractCompatible;
+    private static long? _getterRejectedGeneration;
+    private const string GetterUnavailableReason = "getter unavailable; AP Music Lab Points incompatible for this session";
 
     internal static void Configure() => Reset();
 
@@ -33,6 +36,12 @@ internal static class MusicLabPointRandomization
             MusicLabPointSnapshot previous = Runtime.Snapshot;
             _identity = identity;
             _activeGeneration = generation;
+            _pointContractCompatible = compatibility.Mode == MusicLabPointCompatibilityMode.Compatible;
+            if (_pointContractCompatible && (!_getterAvailable || _getterRejectedGeneration == generation))
+            {
+                _getterRejectedGeneration = generation;
+                compatibility = new(MusicLabPointCompatibilityMode.IncompatibleClaim, GetterUnavailableReason);
+            }
             Runtime.Configure(compatibility, identity);
             if (compatibility.Mode == MusicLabPointCompatibilityMode.Compatible)
             {
@@ -107,6 +116,8 @@ internal static class MusicLabPointRandomization
         {
             _activeGeneration = null;
             _identity = null;
+            _pointContractCompatible = false;
+            _getterRejectedGeneration = null;
             Runtime.Reset();
             LoggedEvents.Clear();
         }
@@ -136,6 +147,14 @@ internal static class MusicLabPointRandomization
         lock (Sync)
         {
             _getterAvailable = available;
+            if (!available && _pointContractCompatible && _identity.HasValue)
+            {
+                MusicLabPointSnapshot previous = Runtime.Snapshot;
+                _getterRejectedGeneration = _activeGeneration;
+                Runtime.Configure(new(MusicLabPointCompatibilityMode.IncompatibleClaim, GetterUnavailableReason), _identity.Value);
+                LogOnce("getter-incompatible", GetterUnavailableReason);
+                LogChange(previous);
+            }
             LogGetterAvailability();
         }
     }

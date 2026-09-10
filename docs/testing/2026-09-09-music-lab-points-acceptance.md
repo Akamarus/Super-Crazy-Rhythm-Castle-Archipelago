@@ -6,6 +6,8 @@ Task 6 cleanup removed the rejected boundary class/callback, temporary configura
 
 The fresh v0.23 contract uses top-level schema 14 and point schema 1. Its 10/3/7 items at values 1/10/20 replace 20 Stardust and total 180 points; the final threshold is 140 with 40 slack. No point milestones or duplicate cassette/cartridge source checks are added. Exact names, IDs, values, counts, totals, cap, and threshold-to-location map must match. Before sync the effective hub score is zero; after sync it uses authoritative AP receipts, retains the total through disconnects, and rebuilds on reconnect/relaunch. Native medals contribute no AP points and receive no AP score/save writes. Recognized v0.22/non-AP sessions retain native scoring; malformed v0.23 sessions report incompatibility and stay at zero.
 
+Final-review corrections require the actual server JSON contract to validate, and a complete index-zero received-item packet to establish history readiness, including an authoritative empty history. Login alone and partial replay cannot replace a retained total. Getter unavailability rejects a claimed v0.23 session with an explicit incompatibility reason and zero effective score; recovery requires a new session or identity boundary. Deliberate native-score reads bypass AP replacement, and Shift+F4 cycling does nothing while AP owns the effective score. These automated boundaries still require the live checks below.
+
 ## Diagnostic evidence and decision
 
 Read-only interop inspection confirmed the exact managed getter `System.Int32 CurrentPlayerSaveEnquiries.GetMedalScore()` and the nine `Hub06MedalScoreRewardChest` instances with native thresholds `5/10/20/32/46/64/89/111/140`.
@@ -70,6 +72,9 @@ Complete a new copy for each candidate/run. Keep credentials out of this record;
 | Native campaign/cassette/Garage medal invariance | PENDING — record native result before/after and unchanged AP total |
 | Disconnect retained total and queued chest check ID | PENDING |
 | Reconnect history rebuild, same total, queued check sent once | PENDING |
+| Delayed/partial reconnect retains total; authoritative empty history corrects to zero | PENDING |
+| Getter unavailable reports incompatibility; recovered getter needs new session/identity | PENDING |
+| Deliberate native read remains native; Shift+F4 does not change AP eligibility | PENDING |
 | Full relaunch with same AP identity | PENDING |
 | AP identity replacement clears prior point state | PENDING |
 | Recognized v0.22 regression / native scoring | PENDING |
@@ -85,14 +90,17 @@ Complete a new copy for each candidate/run. Keep credentials out of this record;
 - The release client build succeeds with `-SkipInstall`.
 - Source and project files contain no Music Lab Point `INativeDetour`, native `BuildState` callback, generated chest-owner lookup, or temporary `MonoMod.RuntimeDetour` dependency.
 - The postfix routes compatible AP totals only when the established current room is exactly `GameRoom_Hub6`.
-- Legacy/non-AP behavior remains native, malformed/awaiting compatible sessions remain zero inside the Music Lab, and compatible developer overrides cannot supersede AP points.
+- Legacy/non-AP behavior remains native, malformed/awaiting compatible sessions remain zero inside the Music Lab, and Shift+F4 cycling is a no-op while AP owns the score.
+- Real packet/login JSON scalar wrappers pass exact contract validation; invalid scalar kinds, values, and map entries fail closed.
+- Complete index-zero history, including an empty array, is required before first synchronization or reconnect correction; replay callbacks never publish prefixes.
+- Getter availability is an enforced compatibility prerequisite and deliberate native reads return the untouched getter result.
 - The production path contains no native field/save write, chest invocation, forced interaction, or recursive getter call.
 
 ## Live-run procedure — pending explicit approval
 
 Use a fresh v0.23 seed and fresh native save. Before replacing any installed file, verify the game is closed and record the exact approved client hash. Install only to `D:\SteamLibrary\steamapps\common\Titus\BepInEx\plugins\RhythmCastleAP`, launch normally, and confirm the intended BepInEx client version/hash in the log.
 
-Do not use the developer Shift+F4 score override during compatible AP testing. It must not supersede AP Music Lab Points.
+Verify Shift+F4 is a no-op during compatible AP testing; it must not change AP Music Lab Points or chest eligibility.
 
 ### Score and room-scope checks
 

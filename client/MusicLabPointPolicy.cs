@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using Newtonsoft.Json.Linq;
 
 namespace RhythmCastleAP;
 
@@ -80,7 +81,7 @@ internal static class MusicLabPointContract
     internal static MusicLabPointCompatibilityResult ValidateSlotData(Dictionary<string, object>? slotData)
     {
         if (slotData?.TryGetValue("implementation_version", out object? versionRaw) != true ||
-            versionRaw is not string version ||
+            UnwrapScalar(versionRaw) is not string version ||
             !version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
         {
             return new(MusicLabPointCompatibilityMode.LegacyNative, "pre-v0.23 implementation");
@@ -91,7 +92,7 @@ internal static class MusicLabPointContract
         if (schemaVersion != SchemaVersion)
             return Fail("schema_version", SchemaVersion, schemaVersion);
 
-        if (!slotData.TryGetValue("music_lab_points_enabled", out object? enabledRaw) || enabledRaw is not bool enabled)
+        if (!slotData.TryGetValue("music_lab_points_enabled", out object? enabledRaw) || UnwrapScalar(enabledRaw) is not bool enabled)
             return Fail("music_lab_points_enabled", true, Actual(slotData, "music_lab_points_enabled"));
         if (!enabled)
             return Fail("music_lab_points_enabled", true, false);
@@ -182,7 +183,7 @@ internal static class MusicLabPointContract
 
         foreach ((object? mapKey, object? mapValue) in entries)
         {
-            if (mapKey is not string textKey || !TryConvertInt(mapValue, out int value) || !result.TryAdd(textKey, value))
+            if (UnwrapScalar(mapKey) is not string textKey || !TryConvertInt(mapValue, out int value) || !result.TryAdd(textKey, value))
                 return false;
         }
         return true;
@@ -199,7 +200,7 @@ internal static class MusicLabPointContract
 
         foreach ((object? mapKey, object? mapValue) in entries)
         {
-            if (!TryConvertInt(mapKey, out int numericKey) || mapValue is not string textValue || !result.TryAdd(numericKey, textValue))
+            if (!TryConvertInt(mapKey, out int numericKey) || UnwrapScalar(mapValue) is not string textValue || !result.TryAdd(numericKey, textValue))
                 return false;
         }
         return true;
@@ -245,7 +246,7 @@ internal static class MusicLabPointContract
 
     private static bool TryConvertInt(object? raw, out int value)
     {
-        switch (raw)
+        switch (UnwrapScalar(raw))
         {
             case int integer:
                 value = integer;
@@ -260,6 +261,14 @@ internal static class MusicLabPointContract
                 return false;
         }
     }
+
+    // ConnectedPacket.SlotData retains nested JObject/JValue nodes in 6.7.1.
+    // Unwrap only JSON scalar kinds supported by the strict CLR validation;
+    // never stringify containers or coerce floating numbers and booleans.
+    private static object? UnwrapScalar(object? raw) => raw is JValue value &&
+        value.Type is JTokenType.Integer or JTokenType.String or JTokenType.Boolean or JTokenType.Null
+            ? value.Value
+            : raw;
 
     private static string Actual(Dictionary<string, object> data, string key) =>
         data.TryGetValue(key, out object? value) ? Display(value) : "<missing>";

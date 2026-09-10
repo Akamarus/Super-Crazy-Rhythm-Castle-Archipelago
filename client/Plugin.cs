@@ -1348,7 +1348,7 @@ internal sealed class ArchipelagoClient
     private int _reconnectWorkerActive;
     private readonly HashSet<int> _processedReceivedItemIndexes = new();
 
-    public bool Connected => _connected;
+    public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
     public ArchipelagoClient(string server, string slot, string password, bool applyReceivedProgression)
     {
@@ -1382,6 +1382,7 @@ internal sealed class ArchipelagoClient
 
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
             session = ArchipelagoSessionFactory.CreateSession(_server);
+            var pointHistory = new MusicLabPointSessionHistory(generation);
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=session-created");
 
             session.Socket.SocketOpened += () =>
@@ -1471,16 +1472,20 @@ internal sealed class ArchipelagoClient
                                     $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
                             }
                         }
-                        MusicLabPointRandomization.SynchronizeHistory(
-                            generation,
-                            () => helper.AllItemsReceived.Select(
-                                (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
                     }
                     catch (Exception ex)
                     {
                         Plugin.LoggerInstance?.LogError($"[SCRC-AP] Error while reading received item: {ex}");
                     }
                 }
+            };
+
+            session.Socket.PacketReceived += packet =>
+            {
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? packetLease))
+                    return;
+                using (packetLease)
+                    pointHistory.HandlePacket(packet);
             };
 
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
@@ -1547,16 +1552,13 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
-                        MusicLabPointRandomization.ApplySlotData(
+                        MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
                             loginSuccess.SlotData,
                             Plugin.GameName,
                             session.RoomState.Seed,
-                            _slot,
-                            generation);
-                        MusicLabPointRandomization.SynchronizeHistory(
-                            generation,
-                            () => session.Items.AllItemsReceived.Select(
-                                (item, index) => new MusicLabPointReceipt(index, item.ItemId)));
+                            _slot);
+                        if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
+                            throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
@@ -1572,7 +1574,7 @@ internal sealed class ArchipelagoClient
                     ClearCurrentSession(session, generation);
                     _ = session.Socket.DisconnectAsync();
                     Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] Failed to apply Area Access starter from slot data: {ex}");
+                        $"[SCRC-AP] Failed to configure AP session from slot data: {ex}");
                     return false;
                 }
             }
@@ -1707,13 +1709,13 @@ internal sealed class ArchipelagoClient
         _pendingChecks.Enqueue(locationName);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEUED CHECK '{locationName}'.");
 
-        if (_connected)
+        if (Connected)
             Task.Run(FlushPendingChecks);
     }
 
     private void FlushPendingChecks()
     {
-        if (!_connected ||
+        if (!Connected ||
             !ConnectionLifecycle.TryAcquireCurrent(
                 out ArchipelagoSession? session,
                 out long generation,
@@ -16127,6 +16129,8 @@ internal static class MusicLabPointOverride
 
     public static void CycleToNextRewardThreshold()
     {
+        if (MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Native)
+            return;
         int native = ReadNativeScore();
         int current = Math.Max(native, _overrideScore ?? native);
 
@@ -16191,9 +16195,11 @@ internal static class MusicLabPointOverridePatches
     public static void GetMedalScorePostfix(ref int __result)
     {
         MusicLabPointOverride.RecordNativeScore(__result);
+        if (SuppressOverride)
+            return;
 
         int nativeScore = __result;
-        int? developerScore = !SuppressOverride && DeveloperHarness.Enabled
+        int? developerScore = DeveloperHarness.Enabled
             ? MusicLabPointOverride.OverrideScore
             : null;
         __result = DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"

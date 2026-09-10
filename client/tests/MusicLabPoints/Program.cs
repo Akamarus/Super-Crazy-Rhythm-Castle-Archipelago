@@ -1,4 +1,9 @@
 using RhythmCastleAP;
+using Archipelago.MultiClient.Net;
+using Archipelago.MultiClient.Net.Converters;
+using Archipelago.MultiClient.Net.Packets;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 static void Equal<T>(T expected, T actual, string scenario) where T : notnull
 {
@@ -74,6 +79,46 @@ Equal(MusicLabPointCompatibilityMode.LegacyNative,
 Equal(MusicLabPointCompatibilityMode.Compatible,
     MusicLabPointContract.ValidateSlotData(CompatibleSlotData()).Mode,
     "complete v0.23 contract is compatible");
+
+static Dictionary<string, object> RoundTripSlotData(Dictionary<string, object> data)
+{
+    string json = JsonConvert.SerializeObject(new { cmd = "Connected", team = 0, slot = 1, slot_data = data });
+    var packet = (ConnectedPacket)JsonConvert.DeserializeObject<ArchipelagoPacketBase>(json, new ArchipelagoPacketConverter())!;
+    return new LoginSuccessful(packet).SlotData;
+}
+
+var wireData = RoundTripSlotData(CompatibleSlotData());
+Equal(true, wireData["music_lab_point_items"] is JObject, "real login contains a JSON object map");
+Equal(true, ((JObject)wireData["music_lab_point_items"])["Music Lab Point"] is JValue, "real login map contains JSON scalar wrappers");
+Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(wireData).Mode,
+    "complete contract through installed ConnectedPacket and LoginSuccessful is compatible");
+
+// The wrapper fix must not convert booleans, floating values or containers to integers.
+foreach (object bad in new object[] { true, 1.5, 1.0, (long)int.MaxValue + 1, (long)int.MinValue - 1,
+    long.MaxValue, "2147483648", "1.0", JValue.CreateNull(), new JObject(), new JArray(1) })
+{
+    var data = RoundTripSlotData(CompatibleSlotData());
+    ((JObject)data["music_lab_point_values"])["Music Lab Point"] = bad is JToken token ? token : JToken.FromObject(bad);
+    var rejected = MusicLabPointContract.ValidateSlotData(data);
+    Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, rejected.Mode, "invalid wrapped numeric scalar fails: " + bad);
+    Contains("music_lab_point_values", rejected.Detail, "numeric boundary failure identifies values");
+}
+foreach (object bad in new object[] { 5, true, JValue.CreateNull(), new JObject(), new JArray("Music Lab - 5 Point Chest"), "Renamed Chest" })
+{
+    var data = RoundTripSlotData(CompatibleSlotData());
+    ((JObject)data["music_lab_point_thresholds"])["5"] = bad is JToken token ? token : JToken.FromObject(bad);
+    Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(data).Mode,
+        "invalid wrapped threshold location fails: " + bad);
+}
+var genericMap = CompatibleSlotData();
+genericMap["music_lab_point_values"] = ((Dictionary<string, object>)genericMap["music_lab_point_values"])
+    .Select(entry => new KeyValuePair<string, object>(entry.Key, entry.Value)).ToArray();
+Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(genericMap).Mode,
+    "generic enumerable map entries remain supported");
+Console.WriteLine("PASS: installed_packet_login_json_contract_and_strict_scalar_boundaries");
+GetterAvailabilityTests.Run(CompatibleSlotData);
+PacketHistoryTests.Run(CompatibleSlotData);
+NativeOverrideTests.Run(CompatibleSlotData);
 
 MusicLabPointCompatibilityResult missing = Validate(data => data.Remove("music_lab_point_total_value"));
 Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, missing.Mode, "missing field fails closed");
@@ -400,15 +445,15 @@ foreach (string mode in new[] { "non-ap", "legacy", "awaiting", "synchronized", 
     {
         DeveloperHarness.CurrentRoomId = room;
         DeveloperHarness.Enabled = enabled;
-        MusicLabPointOverride.OverrideScore = cheat;
+        ScoreFixture.SetOverride(cheat);
         MusicLabPointOverridePatches.SuppressOverride = suppressed;
         int result = 37;
         MusicLabPointOverridePatches.GetMedalScorePostfix(ref result);
         int expected = enabled && !suppressed ? cheat ?? 37 : 37;
-        if (room == "GameRoom_Hub6" && mode is not ("non-ap" or "legacy"))
+        if (!suppressed && room == "GameRoom_Hub6" && mode is not ("non-ap" or "legacy"))
             expected = mode is "synchronized" or "retained" ? 30 : 0;
         Equal(expected, result, $"production postfix {mode}/{room}/developer={enabled}/suppressed={suppressed}/cheat={cheat}");
-        Equal(37, MusicLabPointOverride.LastNativeScore, "postfix records original score before replacement");
+        Equal(37, ScoreFixture.LastNativeScore, "postfix records original score before replacement");
     }
 }
 Console.WriteLine("PASS: production_postfix_room_scope_and_score_precedence");
