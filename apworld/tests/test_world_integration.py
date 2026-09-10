@@ -106,6 +106,9 @@ class WorldIntegrationTests(unittest.TestCase):
                     world.multiworld.get_location(location_name, world.player),
                     state,
                 )
+                and world.multiworld.get_location(location_name, world.player).item_rule(
+                    world.create_item(placements[location_name])
+                )
             ]
             if not newly_collected:
                 return len(collected) == len(placements)
@@ -954,7 +957,37 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertTrue(chest.item_rule(plant_pipes))
         self.assertFalse(chest.access_rule(State([])))
 
-        state = State(["Music Lab Point Large Bundle"] * 4)
+        state = State(item.name for item in world.multiworld.precollected)
+        self.assertEqual(
+            state.owned,
+            Counter(item.name for item in world.multiworld.precollected),
+        )
+        self.assertFalse(chest.access_rule(state))
+
+        prerequisite_points = {
+            "Level 1 - Completion": "Music Lab Point",
+            "Level 2 - Completion": "Music Lab Point",
+            self.module.ROOTS_GECKO_WEED_KILLER: "Music Lab Point",
+            "Cassette Source - Gold": "Music Lab Point",
+            self.module.LEVEL_2_MONEY_CASSETTE_SOURCE: "Music Lab Point",
+            "Music Lab - 5 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 10 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 20 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 32 Point Chest": "Music Lab Point Large Bundle",
+        }
+        self.assertTrue(
+            self.collect_placement_spheres(
+                world,
+                state,
+                prerequisite_points,
+            )
+        )
+        self.assertGreaterEqual(
+            self.module.weighted_music_lab_points(state, world.player),
+            64,
+        )
+        self.assertFalse(state.has("Plant Pipes", world.player))
+        self.assertTrue(chest.access_rule(state))
         self.assertTrue(
             self.collect_placement_spheres(
                 world,
