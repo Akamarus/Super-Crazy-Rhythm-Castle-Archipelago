@@ -17,6 +17,7 @@ from .cassettes import (
 )
 from .campaign_levels import (
     CAMPAIGN_LEVELS,
+    CAMPAIGN_LOCATION_NAMES,
     CAMPAIGN_LOCATION_NAME_TO_ID,
     CAMPAIGN_LOCATION_TIERS,
 )
@@ -821,10 +822,28 @@ class SCRCWorld(World):
             "active_location_names",
             default_active_location_names,
         )
+        multiworld = getattr(self, "multiworld", None)
+        if multiworld is None:
+            instantiated_addressed_names = set(active_location_names)
+        else:
+            instantiated_addressed_names = {
+                location.name
+                for region in multiworld.regions
+                for location in region.locations
+                if location.address is not None
+            }
+        active_campaign_locations = sorted(
+            instantiated_addressed_names.intersection(CAMPAIGN_LOCATION_NAMES)
+        )
+        active_campaign_location_tiers = [
+            tier
+            for tier in CAMPAIGN_LOCATION_TIERS
+            if any(name.endswith(f" - {tier}") for name in active_campaign_locations)
+        ]
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 14,
+            "schema_version": 15,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -842,7 +861,12 @@ class SCRCWorld(World):
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
             "difficulty_filtering_active": True,
-            "active_location_count": len(active_location_names),
+            "active_location_count": len(instantiated_addressed_names),
+            "campaign_level_mapping_schema": 1,
+            "active_campaign_locations": active_campaign_locations,
+            "active_campaign_location_tiers": active_campaign_location_tiers,
+            "special_variant_locations_active": False,
+            "special_variant_locations": [],
             "active_campaign_star_tiers": sorted(
                 getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)
             ),
@@ -860,6 +884,7 @@ class SCRCWorld(World):
             "area_access_items": list(AREA_ACCESS_ITEMS),
             "always_open_regions": ["Phone Hub", "Music Lab", "Game Garage"],
             "development_cache_count": 0,
+            "development_cache_ids_reserved": True,
             "development_caches_filler_only": False,
             "game_garage_song_count": len(GARAGE_SONGS),
             "randomize_game_garage_cartridges": True,

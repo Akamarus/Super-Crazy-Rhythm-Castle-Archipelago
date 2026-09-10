@@ -187,6 +187,38 @@ class WorldIntegrationTests(unittest.TestCase):
             len(self.addressed_names(world)),
         )
 
+    def test_slot_data_publishes_the_strict_campaign_mapping_contract(self):
+        expected_tiers = {
+            0: ["Completion", "1 Star"],
+            1: ["Completion", "1 Star", "2 Stars"],
+            2: ["Completion", "1 Star", "2 Stars", "3 Stars"],
+            3: ["Completion", "1 Star", "2 Stars", "3 Stars"],
+        }
+        for difficulty, tiers in expected_tiers.items():
+            with self.subTest(difficulty=difficulty):
+                world = self.build_world(difficulty=difficulty)
+                data = world.fill_slot_data()
+                expected_active_names = {
+                    name
+                    for name in self.addressed_names(world)
+                    if name in self.campaign.CAMPAIGN_LOCATION_NAMES
+                }
+
+                self.assertEqual(data["schema_version"], 15)
+                self.assertEqual(data["campaign_level_mapping_schema"], 1)
+                self.assertEqual(
+                    data["active_campaign_locations"],
+                    sorted(expected_active_names),
+                )
+                self.assertEqual(data["active_campaign_location_tiers"], tiers)
+                self.assertFalse(data["special_variant_locations_active"])
+                self.assertEqual(data["special_variant_locations"], [])
+                self.assertFalse(data["star_items_active"])
+                self.assertFalse(data["client_star_gate_enforcement_active"])
+                self.assertEqual(data["development_cache_count"], 0)
+                self.assertTrue(data["development_cache_ids_reserved"])
+                self.assertEqual(data["active_location_count"], len(self.addressed_names(world)))
+
     def test_full_campaign_catalog_is_active_and_development_caches_are_reserved_only(self):
         expected = {0: 121, 1: 179, 2: 237, 3: 273}
         for difficulty, count in expected.items():
@@ -658,10 +690,10 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 14)
+        self.assertEqual(data["schema_version"], 15)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -690,7 +722,7 @@ class WorldIntegrationTests(unittest.TestCase):
             data["cassette_reused_locations"]["Quicksand"],
             "Music Lab - 32 Point Chest",
         )
-        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
         self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
         self.assertEqual(
             data["vanilla_game_garage_cartridge_item"],
@@ -733,8 +765,8 @@ class WorldIntegrationTests(unittest.TestCase):
     def test_slot_data_publishes_the_strict_music_lab_point_contract(self):
         data = self.build_world().fill_slot_data()
 
-        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
-        self.assertEqual(data["schema_version"], 14)
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
+        self.assertEqual(data["schema_version"], 15)
         self.assertTrue(data["music_lab_points_enabled"])
         self.assertEqual(data["music_lab_points_schema"], 1)
         self.assertEqual(data["music_lab_point_items"], {
@@ -818,7 +850,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["active_location_count"], 179)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
-        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
 
     def test_vampire_killer_is_vanilla_but_permanent_ids_are_preserved(self):
         world = self.build_world(difficulty=0)

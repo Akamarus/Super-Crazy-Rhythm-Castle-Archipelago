@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current APWorld: **v0.23.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23`) with client **v0.69.0**. This experimental v0.23 candidate adds AP Music Lab Points and requires manual acceptance with a fresh v0.23 seed and fresh native save. It retains all 30 cassette items and sources; many individual routes still require manual verification. Older cassette schemas preserve native cassette behavior; historical APWorld v0.21 paired with historical Client v0.67.95 retains the Money-only pilot.
+Current APWorld: **v0.24.0** (`area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24`) with client **v0.69.0**. This experimental v0.24 candidate maps all 22 normal campaign checks, keeps Bee/Devil special variants diagnostic-only, and leaves AP Stars inactive. A new v0.24 seed and fresh native save are mandatory. It retains all 30 cassette items and sources; many individual routes still require manual verification. Older cassette schemas preserve native cassette behavior; historical APWorld v0.21 paired with historical Client v0.67.95 retains the Money-only pilot.
 
 ## Music Lab Points candidate
 
@@ -32,14 +32,14 @@ This deliberately supports entering Level 3, collecting the Frog/Hippo check, an
 
 `difficulty` filters only existing campaign performance locations. It does not add campaign checks or allocate IDs, and it does not change the player's native REG/PRO choice.
 
-| AP difficulty | Existing campaign tiers | Existing song medal tiers | Addressed locations |
+| AP difficulty | Campaign tiers | Existing song medal tiers | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 92 |
-| Hard | Add 2-Star | Add Silver | 129 |
-| Expert | Add 3-Star | Add Gold | 166 |
-| Perfection | Same campaign tiers as Expert | Add Platinum | 202 |
+| Normal | Completion / 1-Star | Bronze | 121 |
+| Hard | Add 2-Star | Add Silver | 179 |
+| Expert | Add 3-Star | Add Gold | 237 |
+| Perfection | Same campaign tiers as Expert | Add Platinum | 273 |
 
-Inactive checks are absent from a generated seed, not replaced with filler. v0.23 retains the v0.22 full cassette source set and these active counts. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests now use weighted AP-point access rules and may hold solver-reachable progression.
+Inactive checks are absent from a generated seed, not replaced with filler. v0.24 maps all 22 normal campaign checks, retains the v0.22 full cassette source set, and keeps Bee/Devil special variants diagnostic-only. AP Stars remain inactive. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests now use weighted AP-point access rules and may hold solver-reachable progression.
 
 ## Generation-foundation previews
 
@@ -47,4 +47,4 @@ The v0.17 YAML retains the v0.16 `required_stars` and `starting_area` previews. 
 
 Stars are not placed in the live item pool; the client does not enforce generated Star gates; and victory remains the Area Access development milestone. Activating 66 Stars now would exceed the current modeled location capacity once existing required items are included, so activation waits for more validated checks and solver-backed pool construction.
 
-The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.69.0** and generate a fresh v0.23 seed.
+The example generation YAML is [SCRC-AreaRouting-PlantPipes.yaml](examples/SCRC-AreaRouting-PlantPipes.yaml). Pair this APWorld with client **v0.69.0** and generate a new v0.24 seed.
