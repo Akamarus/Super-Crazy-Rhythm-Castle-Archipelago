@@ -50,7 +50,17 @@ EXPECTED = {
     "music_lab_point_total_value": 180,
     "music_lab_point_total_instances": 20,
     "music_lab_point_max_effective": 180,
-    "music_lab_point_thresholds": (5, 10, 20, 32, 46, 64, 89, 111, 140),
+    "music_lab_point_thresholds": (
+        (5, "Music Lab - 5 Point Chest"),
+        (10, "Music Lab - 10 Point Chest"),
+        (20, "Music Lab - 20 Point Chest"),
+        (32, "Music Lab - 32 Point Chest"),
+        (46, "Music Lab - 46 Point Chest"),
+        (64, "Music Lab - 64 Point Chest"),
+        (89, "Music Lab - 89 Point Chest"),
+        (111, "Music Lab - 111 Point Chest"),
+        (140, "Music Lab - 140 Point Chest"),
+    ),
     "next_item_id": 187256156,
     "next_location_id": 187256211,
 }
@@ -120,6 +130,50 @@ def static_int(node: ast.AST) -> int:
     fail("could not parse Music Lab Point integer contract value")
 
 
+def is_catalog_value_sum(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "sum"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.GeneratorExp)
+        and len(node.args[0].generators) == 1
+        and isinstance(node.args[0].elt, ast.BinOp)
+        and isinstance(node.args[0].elt.op, ast.Mult)
+        and isinstance(node.args[0].elt.left, ast.Attribute)
+        and isinstance(node.args[0].elt.right, ast.Attribute)
+        and isinstance(node.args[0].elt.left.value, ast.Name)
+        and isinstance(node.args[0].elt.right.value, ast.Name)
+        and node.args[0].elt.left.value.id == node.args[0].elt.right.value.id
+        and node.args[0].elt.left.attr == "value"
+        and node.args[0].elt.right.attr == "count"
+        and isinstance(node.args[0].generators[0].target, ast.Name)
+        and node.args[0].generators[0].target.id == node.args[0].elt.left.value.id
+        and isinstance(node.args[0].generators[0].iter, ast.Name)
+        and node.args[0].generators[0].iter.id == "MUSIC_LAB_POINT_ITEMS"
+    )
+
+
+def exported_point_total(name: str, expected: int) -> int:
+    node = assignment_value(points_tree, name)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "len"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "MUSIC_LAB_POINT_POOL"
+    ):
+        actual = sum(count for _, _, _, count in point_items)
+    elif is_catalog_value_sum(node):
+        actual = sum(value * count for _, _, value, count in point_items)
+    else:
+        actual = static_int(node)
+    if actual != expected:
+        fail(f"Music Lab Point exported {name.lower().replace('music_lab_point_', '').replace('_', ' ')} changed")
+    return actual
+
+
 points_tree = ast.parse(points_text, filename=str(POINTS))
 point_items_node = assignment_value(points_tree, "MUSIC_LAB_POINT_ITEMS")
 if not isinstance(point_items_node, (ast.Tuple, ast.List)):
@@ -166,9 +220,32 @@ if static_int(point_schema_node) != EXPECTED["music_lab_point_schema"]:
 thresholds_node = assignment_value(points_tree, "MUSIC_LAB_POINT_THRESHOLDS")
 if not isinstance(thresholds_node, ast.Dict):
     fail("could not parse Music Lab Point thresholds")
-point_thresholds = tuple(static_int(key) for key in thresholds_node.keys)
-if point_thresholds != EXPECTED["music_lab_point_thresholds"]:
+if any(not isinstance(value, ast.Constant) or not isinstance(value.value, str) for value in thresholds_node.values):
+    fail("could not parse Music Lab Point threshold locations")
+point_thresholds = tuple(
+    (static_int(key), value.value)
+    for key, value in zip(thresholds_node.keys, thresholds_node.values)
+)
+expected_point_thresholds = EXPECTED["music_lab_point_thresholds"]
+if tuple(threshold for threshold, _ in point_thresholds) != tuple(
+    threshold for threshold, _ in expected_point_thresholds
+):
     fail("Music Lab Point thresholds changed")
+if point_thresholds != expected_point_thresholds:
+    fail("Music Lab Point threshold locations changed")
+
+point_total_instances = exported_point_total(
+    "MUSIC_LAB_POINT_TOTAL_INSTANCES",
+    EXPECTED["music_lab_point_total_instances"],
+)
+point_total_value = exported_point_total(
+    "MUSIC_LAB_POINT_TOTAL_VALUE",
+    EXPECTED["music_lab_point_total_value"],
+)
+point_max_effective = exported_point_total(
+    "MUSIC_LAB_POINT_MAX_EFFECTIVE",
+    EXPECTED["music_lab_point_max_effective"],
+)
 
 try:
     metadata = json.loads(META.read_text(encoding="utf-8"))
@@ -251,7 +328,7 @@ for required_marker in (
     '"music_lab_point_total_instances": MUSIC_LAB_POINT_TOTAL_INSTANCES',
     '"music_lab_point_total_value": MUSIC_LAB_POINT_TOTAL_VALUE',
     '"music_lab_point_max_effective": MUSIC_LAB_POINT_MAX_EFFECTIVE',
-    '"music_lab_point_thresholds": list(MUSIC_LAB_POINT_THRESHOLDS)',
+    '"music_lab_point_thresholds": dict(MUSIC_LAB_POINT_THRESHOLDS)',
 ):
     if required_marker not in world_text:
         fail(f"missing required slot-data marker: {required_marker}")
@@ -316,20 +393,20 @@ print(json.dumps({
     "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "money_cassette_location_id": EXPECTED["money_cassette_location_id"],
-    "music_lab_point_schema": EXPECTED["music_lab_point_schema"],
+    "music_lab_point_schema": static_int(point_schema_node),
     "music_lab_point_item_ids": [
-        item_id for _, item_id, _, _ in EXPECTED["music_lab_point_items"]
+        item_id for _, item_id, _, _ in point_items
     ],
     "music_lab_point_values": [
-        value for _, _, value, _ in EXPECTED["music_lab_point_items"]
+        value for _, _, value, _ in point_items
     ],
     "music_lab_point_counts": [
-        count for _, _, _, count in EXPECTED["music_lab_point_items"]
+        count for _, _, _, count in point_items
     ],
-    "music_lab_point_total_instances": EXPECTED["music_lab_point_total_instances"],
-    "music_lab_point_total_value": EXPECTED["music_lab_point_total_value"],
-    "music_lab_point_max_effective": EXPECTED["music_lab_point_max_effective"],
-    "music_lab_point_thresholds": list(EXPECTED["music_lab_point_thresholds"]),
+    "music_lab_point_total_instances": point_total_instances,
+    "music_lab_point_total_value": point_total_value,
+    "music_lab_point_max_effective": point_max_effective,
+    "music_lab_point_thresholds": dict(point_thresholds),
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))

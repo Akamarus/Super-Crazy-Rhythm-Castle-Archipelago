@@ -78,7 +78,20 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('187256155', result.stdout)
         self.assertIn('"music_lab_point_counts": [', result.stdout)
         self.assertIn('"music_lab_point_total_value": 180', result.stdout)
-        self.assertIn('"music_lab_point_thresholds": [', result.stdout)
+        self.assertIn(
+            '"music_lab_point_thresholds": {\n'
+            '    "5": "Music Lab - 5 Point Chest",\n'
+            '    "10": "Music Lab - 10 Point Chest",\n'
+            '    "20": "Music Lab - 20 Point Chest",\n'
+            '    "32": "Music Lab - 32 Point Chest",\n'
+            '    "46": "Music Lab - 46 Point Chest",\n'
+            '    "64": "Music Lab - 64 Point Chest",\n'
+            '    "89": "Music Lab - 89 Point Chest",\n'
+            '    "111": "Music Lab - 111 Point Chest",\n'
+            '    "140": "Music Lab - 140 Point Chest"\n'
+            '  }',
+            result.stdout,
+        )
         self.assertIn('"next_item_id": 187256156', result.stdout)
         self.assertIn('"next_location_id": 187256211', result.stdout)
 
@@ -108,6 +121,30 @@ class RepositoryContractTests(unittest.TestCase):
                 "apworld/scrc/music_lab_points.py",
                 '    5: "Music Lab - 5 Point Chest",',
                 '    6: "Music Lab - 5 Point Chest",',
+            ),
+            "Music Lab Point threshold locations changed": (
+                "apworld/scrc/music_lab_points.py",
+                '    5: "Music Lab - 5 Point Chest",',
+                '    5: "Music Lab - 10 Point Chest",',
+            ),
+            "Music Lab Point exported total instances changed": (
+                "apworld/scrc/music_lab_points.py",
+                "MUSIC_LAB_POINT_TOTAL_INSTANCES = len(MUSIC_LAB_POINT_POOL)",
+                "MUSIC_LAB_POINT_TOTAL_INSTANCES = 19",
+            ),
+            "Music Lab Point exported total value changed": (
+                "apworld/scrc/music_lab_points.py",
+                "MUSIC_LAB_POINT_TOTAL_VALUE = sum(\n"
+                "    entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS\n"
+                ")",
+                "MUSIC_LAB_POINT_TOTAL_VALUE = 179",
+            ),
+            "Music Lab Point exported max effective changed": (
+                "apworld/scrc/music_lab_points.py",
+                "MUSIC_LAB_POINT_MAX_EFFECTIVE = sum(\n"
+                "    entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS\n"
+                ")",
+                "MUSIC_LAB_POINT_MAX_EFFECTIVE = 179",
             ),
         }
         for label, (relative, old, new) in mutations.items():

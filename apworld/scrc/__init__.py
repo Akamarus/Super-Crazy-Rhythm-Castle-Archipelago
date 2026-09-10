@@ -922,7 +922,7 @@ class SCRCWorld(World):
             "music_lab_point_total_instances": MUSIC_LAB_POINT_TOTAL_INSTANCES,
             "music_lab_point_total_value": MUSIC_LAB_POINT_TOTAL_VALUE,
             "music_lab_point_max_effective": MUSIC_LAB_POINT_MAX_EFFECTIVE,
-            "music_lab_point_thresholds": list(MUSIC_LAB_POINT_THRESHOLDS),
+            "music_lab_point_thresholds": dict(MUSIC_LAB_POINT_THRESHOLDS),
             "repair_schema_version": "next-release-repair-0.18",
             "consolidated_preview_version": "consolidated-preview-0.19",
             "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],

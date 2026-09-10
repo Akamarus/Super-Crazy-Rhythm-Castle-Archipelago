@@ -681,10 +681,17 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["music_lab_point_total_instances"], 20)
         self.assertEqual(data["music_lab_point_total_value"], 180)
         self.assertEqual(data["music_lab_point_max_effective"], 180)
-        self.assertEqual(
-            tuple(map(int, data["music_lab_point_thresholds"])),
-            (5, 10, 20, 32, 46, 64, 89, 111, 140),
-        )
+        self.assertEqual(data["music_lab_point_thresholds"], {
+            5: "Music Lab - 5 Point Chest",
+            10: "Music Lab - 10 Point Chest",
+            20: "Music Lab - 20 Point Chest",
+            32: "Music Lab - 32 Point Chest",
+            46: "Music Lab - 46 Point Chest",
+            64: "Music Lab - 64 Point Chest",
+            89: "Music Lab - 89 Point Chest",
+            111: "Music Lab - 111 Point Chest",
+            140: "Music Lab - 140 Point Chest",
+        })
 
     def test_slot_data_has_safe_defaults_for_direct_construction(self):
         world = object.__new__(self.module.SCRCWorld)
