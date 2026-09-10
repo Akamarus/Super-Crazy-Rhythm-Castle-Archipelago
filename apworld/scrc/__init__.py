@@ -18,6 +18,8 @@ from .cassettes import (
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
+    MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS,
+    MUSIC_LAB_POINT_ITEM_NAME_TO_ID,
     NEW_ITEM_CLASSIFICATIONS,
     NEW_ITEM_NAME_TO_ID,
 )
@@ -28,6 +30,11 @@ from .items import (
     VIOLANCE_ITEM_NAME,
 )
 from .options import SCRCOptions
+from .music_lab_points import (
+    MUSIC_LAB_POINT_POOL,
+    MUSIC_LAB_POINT_THRESHOLDS,
+    weighted_music_lab_points,
+)
 from .placement import filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
 from .starting_areas import (
@@ -284,6 +291,7 @@ ITEM_NAME_TO_ID = {
     "Chicken Bucket": BASE_ID + 120,
     **NEW_ITEM_NAME_TO_ID,
     **CASSETTE_ITEM_NAME_TO_ID,
+    **MUSIC_LAB_POINT_ITEM_NAME_TO_ID,
 }
 
 HIP_GLASSES_ITEM = "Hip Glasses"
@@ -301,6 +309,7 @@ ITEM_CLASSIFICATIONS = {
     CHICKEN_BUCKET_ITEM: ItemClassification.progression,
     **NEW_ITEM_CLASSIFICATIONS,
     **CASSETTE_ITEM_CLASSIFICATIONS,
+    **MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS,
 }
 
 
@@ -531,7 +540,7 @@ class SCRCWorld(World):
 
         # Hub6 side content is always logically reachable. v0.14 intentionally
         # permits Area Access items here so current-save networking can test
-        # real AP-driven area unlocks. Remaining cassette/point/full world
+        # real AP-driven area unlocks. Remaining cassette/full-world
         # prerequisites will be modeled in a later logic milestone.
         for chest_name in MUSIC_LAB_REWARD_CHEST_LOCATIONS:
             location = SCRCLocation(
@@ -742,6 +751,7 @@ class SCRCWorld(World):
         progression_items.append(HYPNO_PAN_ITEM_NAME)
         progression_items.append(VIOLANCE_ITEM_NAME)
         progression_items.extend(entry.item_name for entry in CASSETTES)
+        progression_items.extend(MUSIC_LAB_POINT_POOL)
 
         capacity = self._active_unfilled_location_capacity()
         required_count = len(progression_items)
@@ -786,6 +796,14 @@ class SCRCWorld(World):
         self.multiworld.completion_condition[self.player] = (
             lambda state: state.has("Victory", self.player)
         )
+
+        for threshold, location_name in MUSIC_LAB_POINT_THRESHOLDS.items():
+            set_rule(
+                self.multiworld.get_location(location_name, self.player),
+                lambda state, required=threshold: (
+                    weighted_music_lab_points(state, self.player) >= required
+                ),
+            )
 
     def fill_slot_data(self) -> dict:
         starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])

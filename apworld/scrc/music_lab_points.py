@@ -92,3 +92,10 @@ MUSIC_LAB_POINT_TOTAL_VALUE = sum(
 MUSIC_LAB_POINT_MAX_EFFECTIVE = sum(
     entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS
 )
+
+
+def weighted_music_lab_points(state, player: int) -> int:
+    return sum(
+        state.count(entry.name, player) * entry.value
+        for entry in MUSIC_LAB_POINT_ITEMS
+    )

@@ -87,6 +87,51 @@ class MusicLabPointCatalogTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, diagnostic):
                     self.points.validate_music_lab_point_catalog(catalog, thresholds)
 
+    def test_weighted_points_follow_item_values_for_the_requested_player(self):
+        class State:
+            def __init__(self, counts):
+                self.counts = counts
+
+            def count(self, name, player):
+                return self.counts.get((name, player), 0)
+
+        single = "Music Lab Point"
+        bundle = "Music Lab Point Bundle"
+        large_bundle = "Music Lab Point Large Bundle"
+        cases = (
+            ("zero", 0, 0, 0),
+            ("ten singles", 10, 0, 0),
+            ("one of each bundle", 0, 1, 1),
+            ("below 32", 1, 1, 1),
+            ("at 32", 2, 1, 1),
+            ("below 140", 9, 3, 5),
+            ("at 140", 10, 3, 5),
+        )
+
+        for label, singles, bundles, large_bundles in cases:
+            with self.subTest(label=label):
+                state = State({
+                    (single, 1): singles,
+                    (bundle, 1): bundles,
+                    (large_bundle, 1): large_bundles,
+                    (single, 2): 99,
+                    (bundle, 2): 99,
+                    (large_bundle, 2): 99,
+                })
+                self.assertEqual(
+                    self.points.weighted_music_lab_points(state, 1),
+                    singles * 1 + bundles * 10 + large_bundles * 20,
+                )
+
+    def test_weighted_points_ignore_counts_owned_by_a_different_player(self):
+        state = type(
+            "State",
+            (),
+            {"count": lambda _self, _name, player: 7 if player == 2 else 0},
+        )()
+
+        self.assertEqual(self.points.weighted_music_lab_points(state, 1), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
