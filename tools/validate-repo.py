@@ -138,6 +138,8 @@ def is_catalog_value_sum(node: ast.AST) -> bool:
         and len(node.args) == 1
         and isinstance(node.args[0], ast.GeneratorExp)
         and len(node.args[0].generators) == 1
+        and not node.args[0].generators[0].ifs
+        and node.args[0].generators[0].is_async == 0
         and isinstance(node.args[0].elt, ast.BinOp)
         and isinstance(node.args[0].elt.op, ast.Mult)
         and isinstance(node.args[0].elt.left, ast.Attribute)
@@ -154,6 +156,16 @@ def is_catalog_value_sum(node: ast.AST) -> bool:
     )
 
 
+def is_sum_generator(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "sum"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.GeneratorExp)
+    )
+
+
 def exported_point_total(name: str, expected: int) -> int:
     node = assignment_value(points_tree, name)
     if (
@@ -167,6 +179,12 @@ def exported_point_total(name: str, expected: int) -> int:
         actual = sum(count for _, _, _, count in point_items)
     elif is_catalog_value_sum(node):
         actual = sum(value * count for _, _, value, count in point_items)
+    elif is_sum_generator(node):
+        fail(
+            "Music Lab Point exported "
+            f"{name.lower().replace('music_lab_point_', '').replace('_', ' ')} "
+            "expression changed"
+        )
     else:
         actual = static_int(node)
     if actual != expected:

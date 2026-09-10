@@ -139,6 +139,16 @@ class RepositoryContractTests(unittest.TestCase):
                 ")",
                 "MUSIC_LAB_POINT_TOTAL_VALUE = 179",
             ),
+            "Music Lab Point exported total value expression changed": (
+                "apworld/scrc/music_lab_points.py",
+                "MUSIC_LAB_POINT_TOTAL_VALUE = sum(\n"
+                "    entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS\n"
+                ")",
+                "MUSIC_LAB_POINT_TOTAL_VALUE = sum(\n"
+                "    entry.value * entry.count\n"
+                "    for entry in MUSIC_LAB_POINT_ITEMS if entry.value > 1\n"
+                ")",
+            ),
             "Music Lab Point exported max effective changed": (
                 "apworld/scrc/music_lab_points.py",
                 "MUSIC_LAB_POINT_MAX_EFFECTIVE = sum(\n"
