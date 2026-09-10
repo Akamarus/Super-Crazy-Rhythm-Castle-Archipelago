@@ -213,6 +213,8 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertFalse(
                     any(name.startswith("Development Cache") for name in addressed)
                 )
+                self.assertEqual(world.fill_slot_data()["development_cache_count"], 0)
+                self.assertFalse(world.fill_slot_data()["development_caches_filler_only"])
 
         self.assertEqual(
             self.module.LOCATION_NAME_TO_ID["Development Cache 01"],
