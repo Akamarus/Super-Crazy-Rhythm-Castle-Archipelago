@@ -348,72 +348,56 @@ Equal(true, callbackAcquiredHistory.IsSet, "new callback acquires history after 
 MusicLabPointRandomization.Reset();
 Console.WriteLine("PASS: same_generation_login_callback_history_is_serialized");
 
-// The Unity/IL2CPP boundary cannot execute in this standalone test runner.
-// These checkpoint guards catch opt-in removal, guessed hooks, unbounded logs,
-// and result/native mutations; live correlation remains a separate acceptance gate.
+// Source-level architecture guards are required for this Unity/IL2CPP boundary.
+// Behavioral point-policy/history tests above remain independent of the game.
 string pluginPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Plugin.cs"));
 string pluginSource = File.ReadAllText(pluginPath);
-Contains("Config.Bind(\"Developer\", \"EnableMusicLabPointBoundaryDiagnostics\", false", pluginSource,
-    "boundary diagnostics must default off");
-string boundarySource = pluginSource.Split("internal static class MusicLabPointBoundaryDiagnostics", StringSplitOptions.None)[1]
+string pointScoreSource = pluginSource[pluginSource.IndexOf("internal static class MusicLabPointOverride", StringComparison.Ordinal)..]
     .Split("internal static class MusicLabPointDiagnostic", StringSplitOptions.None)[0];
-if (args.Length == 2 && args[0] == "--probe-interop")
-{
-    string failure = NativeInteropProbe.ReadChestOwnerFailure(args[1]);
-    Contains("Hub06MedalScoreRewardChestState", failure, "installed interop reproduces exact state constraint failure");
-    Contains("violates the constraint of type parameter 'StateClass'", failure, "installed interop owner cannot load in CLR");
-    Console.WriteLine("PASS: installed_interop_reproduces_chest_owner_TypeLoadException_at_Assembly_GetType");
-}
-Equal(false, boundarySource.Contains("assembly?.GetType(OwnerName", StringComparison.Ordinal),
-    "native boundary must not CLR-load the invalid generated chest owner hierarchy");
-Contains("[ThreadStatic]", boundarySource, "chest scope must be thread-local");
-Contains("HashSet<(string Room, int Threshold, string Path, string Caller)>", boundarySource,
-    "diagnostic deduplication retains the complete correlation identity");
-Contains("Records.Count >= 64", boundarySource, "unique boundary records must be bounded");
-Contains("!Records.Add(", boundarySource, "duplicate observations must be suppressed");
-string nativeBuilderSource = pluginSource.Split("internal static bool TryResolvePointBoundaryBuilder", StringSplitOptions.None)[1]
+string chestReaderSource = pluginSource.Split("private static bool TryDiscoverMusicLabRewardChestFlags()", StringSplitOptions.None)[1]
     .Split("private static int ParseTrailingNativeInt", StringSplitOptions.None)[0];
-Contains("NativeClassFullName(owner) != \"Hub06MedalScoreRewardChest\"", nativeBuilderSource, "exact native owner is required");
-Contains("il2cpp_method_get_class(candidate) != owner", nativeBuilderSource, "inherited native methods cannot become the hook");
-Contains("il2cpp_method_get_param_count(candidate) != 0", nativeBuilderSource, "overloads with arguments cannot become the hook");
-Contains("NativeTypeName(resultType) != \"Hub06MedalScoreRewardChestState\"", nativeBuilderSource, "exact return type is required");
-Contains("il2cpp_class_is_valuetype(resultClass)", nativeBuilderSource, "native ABI must return an object pointer, not a value type");
-Contains("il2cpp_class_get_field_from_name(owner, \"unlockRequirement\")", nativeBuilderSource, "native threshold metadata is validated");
-Contains("!= \"DefinedInt\"", nativeBuilderSource, "threshold type must match native metadata");
-Contains("method != IntPtr.Zero ||", nativeBuilderSource, "duplicate BuildState candidates fail closed");
-Contains("if (!MusicLabDiscovery.TryReadPointBoundaryChests(out IntPtr owner))", boundarySource,
-    "all live thresholds must validate before hook installation");
-Contains("MUSIC LAB POINT BOUNDARY UNAVAILABLE", boundarySource, "unavailable evidence must be explicit");
-Contains("finally { BuildStatePostfix(previous); }", boundarySource, "native-call completion must clean up thread correlation");
-Contains("return _original!(instance, methodInfo);", boundarySource, "native hook must return the original pointer unchanged");
-Contains("INativeDetour.CreateAndApply(code, Hook, out _original)", boundarySource, "native hook must retain its original trampoline");
-Contains("_scope = __state", boundarySource, "nested calls must restore their prior scope");
-Contains("displayCandidate-unverified", boundarySource, "an unscoped getter must not claim a proven display caller");
-foreach (string forbidden in new[] { "__result", "SetValue(", "WriteInt", "field_set", "QueueLocation", "SetPhase(", "ResolveEffectiveScore(" })
-    Equal(false, boundarySource.Contains(forbidden, StringComparison.Ordinal), "diagnostic boundary cannot mutate: " + forbidden);
-string getterPostfix = pluginSource.Split("public static void GetMedalScorePostfix(ref int __result)", StringSplitOptions.None)[1]
-    .Split("internal static class MusicLabPointBoundaryDiagnostics", StringSplitOptions.None)[0];
-Contains("MusicLabPointBoundaryDiagnostics.ObserveScore(__result);", getterPostfix,
-    "getter sends its native result by value to the observer");
-Equal(false, getterPostfix.Contains("ResolveEffectiveScore", StringComparison.Ordinal),
-    "production AP effective-score replacement stays disabled");
-Console.WriteLine("PASS: diagnostic_boundary_is_default_off_bounded_exact_and_read_only");
-
-// Catch late interception: the complete plain-F5 entry must consume enabled
-// diagnostics before either the legacy identity scan or the room-specific scan.
+foreach (string forbidden in new[] { "INativeDetour", "BuildState", "il2cpp_method_get_pointer", "TryResolvePointBoundary", "TryReadPointBoundary", "GetType(OwnerName" })
+    Equal(false, (pointScoreSource + chestReaderSource).Contains(forbidden, StringComparison.Ordinal),
+        "approved Music Lab score/metadata path cannot contain rejected native architecture: " + forbidden);
+Equal(false, pluginSource.Contains("EnableMusicLabPointBoundaryDiagnostics", StringComparison.Ordinal),
+    "temporary boundary diagnostic config must be removed");
+Equal(false, pluginSource.Contains("MusicLabPointBoundaryDiagnostics", StringComparison.Ordinal),
+    "temporary boundary class and all load/getter/F5 integrations must be removed");
 string f5Source = pluginSource.Split("if (Input.GetKeyDown(KeyCode.F5))", StringSplitOptions.None)[1]
     .Split("if (Input.GetKeyDown(KeyCode.F6))", StringSplitOptions.None)[0];
-var interception = System.Text.RegularExpressions.Regex.Match(f5Source,
-    @"if\s*\(\s*!control\s*&&\s*!alt\s*&&\s*!shift\s*&&\s*MusicLabPointBoundaryDiagnostics\.TryScan\(\)\s*\)\s*return;");
-Equal(true, interception.Success, "plain F5 must consume enabled boundary diagnostics at the hotkey entry");
-foreach (string legacyAction in new[] { "MusicLabDiscovery.ScanNativeIdentityCandidates()", "Level5Discovery.ScanCurrentScene()", "DeveloperHarness.ScanPostAct1RouteObjects()" })
-    Equal(true, f5Source.IndexOf(legacyAction, StringComparison.Ordinal) > interception.Index + interception.Length,
-        "boundary interception must precede legacy F5 work: " + legacyAction);
-string tryScanSource = boundarySource.Split("public static bool TryScan()", StringSplitOptions.None)[1]
-    .Split("private static int ReadProbe", StringSplitOptions.None)[0];
-Contains("if (!_enabled) return false;", tryScanSource, "only disabled diagnostics may fall through F5");
-Equal(1, System.Text.RegularExpressions.Regex.Matches(tryScanSource, @"return\s+false\s*;").Count,
-    "enabled first, repeated and unavailable scan attempts must never fall through");
-Contains("if (_scanAttempted) return true;", tryScanSource, "repeated F5 is consumed without legacy work");
-Console.WriteLine("PASS: plain_f5_boundary_intercepts_all_legacy_work_without_enabled_fallthrough");
+Equal(false, f5Source.Contains("Boundary", StringComparison.Ordinal), "plain F5 has no Music Lab boundary interception");
+Equal(false, pluginSource.Contains("GetType(\"Hub06MedalScoreRewardChest\"", StringComparison.Ordinal),
+    "the invalid generated chest owner must not be CLR-loaded");
+var clientProject = System.Xml.Linq.XDocument.Load(Path.Combine(Path.GetDirectoryName(pluginPath)!, "RhythmCastleAP.csproj"));
+Equal(false, clientProject.Descendants("Reference").Any(reference =>
+    ((string?)reference.Attribute("Include"))?.StartsWith("MonoMod.RuntimeDetour", StringComparison.Ordinal) == true),
+    "temporary native-detour project dependency must be removed");
+Equal(false, File.Exists(Path.Combine(Path.GetDirectoryName(pluginPath)!, "tests/MusicLabPoints/NativeInteropProbe.cs")),
+    "the rejected installed-interop probe must be removed");
+Contains("nameof(MusicLabPointOverridePatches.GetMedalScorePostfix)", pluginSource,
+    "existing managed getter Harmony hook must be preserved");
+Contains("MusicLabPointOverride.RecordNativeScore(__result);", pointScoreSource,
+    "existing native-score recording must be preserved");
+Equal(false, pointScoreSource.Contains("ResolveEffectiveScore", StringComparison.Ordinal),
+    "Task 6 must not activate Task 7 AP effective-score replacement");
+
+string chestCatalog = pluginSource.Split("private static readonly (int Threshold, string ChestName)[] MusicLabRewardChests", StringSplitOptions.None)[1]
+    .Split("private static readonly Dictionary<int, int>", StringSplitOptions.None)[0];
+foreach (string chest in new[]
+{
+    "(5, \"ManiacMemoryCardChest\")", "(10, \"GarageCartridgeChest_Gradius\")",
+    "(20, \"CatBatteryChest\")", "(32, \"SongChest_QuickSand\")",
+    "(46, \"GarageCartridgeChest_BloodyTears\")", "(64, \"SongChest_Flamenco\")",
+    "(89, \"SongChest_TenFourGoodBuddy\")", "(111, \"SongChest_Zen\")", "(140, \"SongChest_Wiggle\")",
+})
+    Contains(chest, chestCatalog, "existing native chest threshold/path mapping is preserved");
+Contains("Root/GameRoom_Hub6_Logic/Objects/RewardChests/{chestName}/Interaction", chestReaderSource,
+    "chest discovery must retain its exact native paths");
+Contains("threshold != expectedThreshold", chestReaderSource, "native threshold mismatches must be rejected");
+Contains("NativeFieldValue(field, obj, NativeTypeName(fieldType))", chestReaderSource,
+    "chest thresholds must come from the established native field reader");
+foreach (string forbidden in new[] { "SetValue(", "Marshal.Write", "field_set", "QueueLocation", "SetPhase(", "__result", "ResolveEffectiveScore(", ".Invoke(", "BuildState" })
+    Equal(false, chestReaderSource.Contains(forbidden, StringComparison.Ordinal),
+        "chest metadata mapping cannot write, invoke a chest, or replace score: " + forbidden);
+Console.WriteLine("PASS: approved_room_scoped_baseline_has_no_native_boundary_hook_and_preserves_read_only_chests");
 Console.WriteLine("Music Lab Point policy and adapter tests passed.");

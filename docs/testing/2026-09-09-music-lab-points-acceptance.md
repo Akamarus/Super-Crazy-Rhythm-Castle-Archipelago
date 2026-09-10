@@ -2,6 +2,8 @@
 
 Status: architecture revised after the first diagnostic failed closed. The native chest detour candidate is rejected and must not be deployed. Production AP effective-score replacement remains disabled until Task 7 is implemented, reviewed, built, and explicitly approved for live testing.
 
+Task 6 cleanup is complete: the rejected boundary class/callback, temporary configuration and F5 interception, native method resolver, temporary dependency, and optional installed-interop probe have been removed. The existing managed getter Harmony postfix and exact nine-chest metadata mapping are preserved. Task 7's room gate and AP result replacement are not implemented by this cleanup.
+
 ## Diagnostic evidence and decision
 
 Read-only interop inspection confirmed the exact managed getter `System.Int32 CurrentPlayerSaveEnquiries.GetMedalScore()` and the nine `Hub06MedalScoreRewardChest` instances with native thresholds `5/10/20/32/46/64/89/111/140`.
@@ -25,7 +27,10 @@ Approved correction: remove the native diagnostic and use only the existing load
 | Inspected `BepInEx/interop/Assembly-CSharp.dll` | `5FE14AAAA2599BFBC775A3E2ACC06E0994049C901A96F5124CEE57264DA16FD9` | Read-only evidence |
 | Installed client from failed diagnostic attempt | `2E20DBAB30792E28E57D2C0C576C753CD0B8DADB5932F1644A12AFE4947601C6` | Unchanged; production AP score replacement disabled |
 | Rejected native-detour candidate | Not applicable | Must not be deployed |
+| Task 6 no-detour cleanup build, v0.68.0 | `03608FF06D49AF9FCE596168DB2157BC694A8735D05E0E1D4018A9BDC68D8B81` | Offline baseline only; not deployed; AP score replacement disabled |
 | Final Task 7 candidate | PENDING | Requires fresh build, review, and hash-specific approval |
+
+Task 6 verification: `dotnet run --project .\client\tests\MusicLabPoints\MusicLabPoints.Tests.csproj -c Release` passed after an observed RED for the rejected `INativeDetour` path. The `client/build.ps1` release build with `-SkipInstall` passed with 0 errors and the same 7 existing nullable warnings. `Plugin.cs` and `RhythmCastleAP.csproj` match the pre-diagnostic Task 5 baseline (`51e1510`) exactly. Before/after snapshots of all game-file paths, sizes and last-write times matched, and the installed client SHA-256 remained unchanged. No game launch or deployment occurred during cleanup.
 
 ## Offline acceptance required before deployment
 

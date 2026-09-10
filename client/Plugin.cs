@@ -11,7 +11,6 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using UnityEngine;
-using NativeIl2Cpp = Il2CppInterop.Runtime.IL2CPP;
 
 namespace RhythmCastleAP;
 
@@ -52,9 +51,6 @@ public sealed class Plugin : BasePlugin
             "Star requirement for the final Secret Bunker Star Eater. Vanilla is 66. This changes only that Star Eater threshold and does not alter saved level star ratings.");
         var developerHarness = Config.Bind("Developer", "EnableTestHarness", true,
             "Enable F7 Level 4 scene discovery plus F8/F9/F10/F11 progression test hotkeys.");
-        var musicLabPointBoundaryDiagnostics = Config.Bind("Developer", "EnableMusicLabPointBoundaryDiagnostics", false,
-            "DIAGNOSTICS ONLY: plain F5 in Hub6 validates and traces native Music Lab score consumers. Read-only, bounded, disabled by default; restart after changing.");
-        MusicLabPointBoundaryDiagnostics.Configure(musicLabPointBoundaryDiagnostics.Value);
         var cassettePointerBoundPersistenceAcceptance = Config.Bind(
             "Developer",
             "EnableCassettePointerBoundPersistenceAcceptance", false,
@@ -554,7 +550,6 @@ public sealed class Plugin : BasePlugin
         {
             _harmony!.Patch(method, postfix: new HarmonyMethod(postfix));
             MusicLabPointOverride.BindNativeGetter(method);
-            MusicLabPointBoundaryDiagnostics.Bind(method);
             Log.LogWarning(
                 "[SCRC-AP] MUSIC LAB POINT OVERRIDE READY: patched CurrentPlayerSaveEnquiries.GetMedalScore(). Shift+F4 cycles the temporary effective total through native-next-threshold -> 111 -> 140 -> OFF without changing saved medals.");
             return 1;
@@ -16194,182 +16189,12 @@ internal static class MusicLabPointOverridePatches
     public static void GetMedalScorePostfix(ref int __result)
     {
         MusicLabPointOverride.RecordNativeScore(__result);
-        MusicLabPointBoundaryDiagnostics.ObserveScore(__result);
 
         if (SuppressOverride || !DeveloperHarness.Enabled)
             return;
 
         if (MusicLabPointOverride.OverrideScore is int forced)
             __result = forced;
-    }
-}
-
-internal static class MusicLabPointBoundaryDiagnostics
-{
-    private const string CallerName = "Hub06MedalScoreRewardChest.BuildState()";
-    private static readonly object Sync = new();
-    private static readonly HashSet<(string Room, int Threshold, string Path, string Caller)> Records = new();
-    private static bool _enabled;
-    private static bool _installed;
-    private static bool _scanAttempted;
-    private static MethodInfo? _getter;
-    private static BepInEx.Unity.IL2CPP.Hook.INativeDetour? _detour;
-    private static BuildStateNative? _original;
-    private static readonly BuildStateNative Hook = BuildStateDetour;
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate IntPtr BuildStateNative(IntPtr instance, IntPtr methodInfo);
-    [ThreadStatic] private static Scope? _scope;
-    [ThreadStatic] private static bool _readingProbe;
-
-    internal sealed record Scope(int Threshold, string Path);
-
-    public static void Configure(bool enabled) => _enabled = enabled;
-
-    public static void Bind(MethodInfo getter)
-    {
-        if (!_enabled) return;
-        _getter = getter;
-    }
-
-    // F5 is deliberately a separate read-only checkpoint when opted in. Do not
-    // invoke the ordinary scan, which can queue AP checks for collected chests.
-    public static bool TryScan()
-    {
-        if (!_enabled) return false;
-        if (_scanAttempted) return true;
-        if (DeveloperHarness.CurrentRoomId != MusicLabDiscovery.Hub6RoomId)
-        {
-            Unavailable("scan requires live Hub6");
-            return true;
-        }
-        _scanAttempted = true;
-        try
-        {
-            MethodInfo? getter = _getter;
-            if (getter == null ||
-                getter.DeclaringType?.FullName != "CurrentPlayerSaveEnquiries" ||
-                getter.Name != "GetMedalScore" || !getter.IsStatic ||
-                getter.ReturnType != typeof(int) || getter.GetParameters().Length != 0)
-            {
-                Unavailable("exact native getter unavailable");
-                return true;
-            }
-            if (MusicLabPointOverride.OverrideScore.HasValue)
-            {
-                Unavailable("developer score override must be OFF; restart diagnostic run");
-                return true;
-            }
-            int before = ReadProbe(getter);
-            if (!MusicLabDiscovery.TryReadPointBoundaryChests(out IntPtr owner))
-            {
-                Unavailable("all nine exact native chest paths/thresholds must validate; no hook installed");
-                return true;
-            }
-            // The generated chest CLR hierarchy violates an interop generic
-            // constraint. Resolve only from verified live native metadata.
-            if (!MusicLabDiscovery.TryResolvePointBoundaryBuilder(owner, out IntPtr method))
-            {
-                Unavailable("exact native chest owner/BuildState()/unlockRequirement metadata unavailable");
-                return true;
-            }
-            IntPtr code;
-            try { code = il2cpp_method_get_pointer(method); }
-            catch (EntryPointNotFoundException)
-            {
-                // Same verified Unity 2021 MethodInfo pointer layout already used
-                // by NativeLevel6DoorBridge; no generated chest type is loaded.
-                code = Marshal.ReadIntPtr(method);
-            }
-            if (code == IntPtr.Zero)
-            {
-                Unavailable("exact native BuildState code pointer unavailable");
-                return true;
-            }
-            _detour = BepInEx.Unity.IL2CPP.Hook.INativeDetour.CreateAndApply(code, Hook, out _original);
-            _installed = true;
-            int after = ReadProbe(getter);
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB POINT BOUNDARY SCAN nativeBefore={before} nativeAfter={after} unchanged={before == after} " +
-                "validatedChests=9 readOnly=True APReplacement=False. Observe natural chest/display refresh; no BuildState invocation or interaction was forced.");
-        }
-        catch (Exception ex)
-        {
-            Unavailable("scan/hook failed: " + ex.GetBaseException().Message);
-        }
-        return true;
-    }
-
-    private static int ReadProbe(MethodInfo getter)
-    {
-        bool previous = _readingProbe;
-        try
-        {
-            _readingProbe = true;
-            return (int)getter.Invoke(null, null)!;
-        }
-        finally { _readingProbe = previous; }
-    }
-
-    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_method_get_pointer(IntPtr method);
-
-    private static IntPtr BuildStateDetour(IntPtr instance, IntPtr methodInfo)
-    {
-        BuildStatePrefix(instance, out Scope? previous);
-        try { return _original!(instance, methodInfo); }
-        finally { BuildStatePostfix(previous); }
-    }
-
-    public static void BuildStatePrefix(IntPtr __instance, out Scope? __state)
-    {
-        __state = _scope;
-        // Invalid scopes also mask a valid outer scope, preventing false attribution.
-        _scope = new Scope(-1, "<unavailable>");
-        if (!_enabled || !_installed) return;
-        try
-        {
-            if (MusicLabDiscovery.TryReadPointBoundaryChest(new Component(__instance), out int threshold, out string path))
-                _scope = new Scope(threshold, path);
-            else
-                Unavailable("chest instance/threshold/path unavailable");
-        }
-        catch (Exception ex) { Unavailable("chest read failed: " + ex.GetBaseException().Message); }
-    }
-
-    public static void BuildStatePostfix(Scope? __state) => _scope = __state;
-
-    public static void ObserveScore(int nativeScore)
-    {
-        if (!_enabled || !_installed || _readingProbe ||
-            DeveloperHarness.CurrentRoomId != MusicLabDiscovery.Hub6RoomId) return;
-        try
-        {
-            Scope? scope = _scope;
-            if (scope != null && scope.Threshold <= 0) return;
-            Record(scope?.Threshold ?? 0, scope?.Path ?? "<unscoped>",
-                scope == null ? "displayCandidate-unverified" : CallerName,
-                $"nativeScore={nativeScore} getter=CurrentPlayerSaveEnquiries.GetMedalScore() " +
-                $"developerOverrideActive={MusicLabPointOverride.OverrideScore.HasValue} readOnly=True");
-        }
-        catch { /* Diagnostics must never affect the original getter. */ }
-    }
-
-    internal static void Unavailable(string reason)
-    {
-        // A single unavailable record bounds repeated metadata/exception failures.
-        Record(-1, "<unavailable>", "unavailable", "MUSIC LAB POINT BOUNDARY UNAVAILABLE reason='" + reason + "'");
-    }
-
-    private static void Record(int threshold, string path, string caller, string detail)
-    {
-        if (!_enabled) return;
-        string room = DeveloperHarness.CurrentRoomId;
-        lock (Sync)
-        {
-            if (Records.Count >= 64 || !Records.Add((room, threshold, path, caller))) return;
-        }
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB POINT BOUNDARY room='{room}' threshold={threshold} path='{path}' caller='{caller}' {detail}");
     }
 }
 
@@ -22620,11 +22445,6 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
-            // Consume the complete plain-F5 dispatch before any legacy scan,
-            // including repeated or unavailable boundary-checkpoint attempts.
-            if (!control && !alt && !shift && MusicLabPointBoundaryDiagnostics.TryScan())
-                return;
-
             if (!control && !alt && !shift)
                 MusicLabDiscovery.ScanNativeIdentityCandidates();
 
@@ -23420,8 +23240,7 @@ internal static class MusicLabDiscovery
     private static bool TryReadNativeMusicLabRewardChestMetadata(
         GameObject interaction,
         out int threshold,
-        out int progressionFlag,
-        IntPtr expectedObject = default)
+        out int progressionFlag)
     {
         threshold = 0;
         progressionFlag = 0;
@@ -23438,8 +23257,6 @@ internal static class MusicLabDiscovery
             IntPtr obj = GetNativePointer(component);
             if (obj == IntPtr.Zero)
                 continue;
-            if (expectedObject != IntPtr.Zero && obj != expectedObject)
-                continue;
 
             IntPtr klass = IntPtr.Zero;
             try { klass = ml_il2cpp_object_get_class(obj); }
@@ -23448,8 +23265,6 @@ internal static class MusicLabDiscovery
                 continue;
 
             string className = NativeClassFullName(klass);
-            if (expectedObject != IntPtr.Zero && className != "Hub06MedalScoreRewardChest")
-                continue;
             if (!className.EndsWith("Hub06MedalScoreRewardChest", StringComparison.Ordinal))
                 continue;
 
@@ -23492,81 +23307,6 @@ internal static class MusicLabDiscovery
             return threshold > 0 && progressionFlag > 0;
         }
 
-        return false;
-    }
-
-    internal static bool TryReadPointBoundaryChest(object instance, out int threshold, out string path)
-    {
-        threshold = 0;
-        path = string.Empty;
-        if (DeveloperHarness.CurrentRoomId != Hub6RoomId || instance is not Component component)
-            return false;
-        IntPtr pointer = GetNativePointer(component);
-        if (pointer == IntPtr.Zero || NativeClassFullName(ml_il2cpp_object_get_class(pointer)) != "Hub06MedalScoreRewardChest")
-            return false;
-        path = BuildHierarchy(component.transform);
-        foreach ((int expectedThreshold, string chestName) in MusicLabRewardChests)
-        {
-            if (path != $"Root/GameRoom_Hub6_Logic/Objects/RewardChests/{chestName}/Interaction")
-                continue;
-            return TryReadNativeMusicLabRewardChestMetadata(component.gameObject, out threshold, out _, pointer) &&
-                threshold == expectedThreshold;
-        }
-        return false;
-    }
-
-    internal static bool TryReadPointBoundaryChests(out IntPtr owner)
-    {
-        owner = IntPtr.Zero;
-        if (DeveloperHarness.CurrentRoomId != Hub6RoomId) return false;
-        foreach ((int expectedThreshold, string chestName) in MusicLabRewardChests)
-        {
-            GameObject? interaction = GameObject.Find(
-                $"Root/GameRoom_Hub6_Logic/Objects/RewardChests/{chestName}/Interaction");
-            if (interaction == null) return false;
-            int matches = 0;
-            foreach (Component component in interaction.GetComponents<Component>())
-                if (component != null && TryReadPointBoundaryChest(component, out int threshold, out _) &&
-                    threshold == expectedThreshold)
-                {
-                    IntPtr candidate = ml_il2cpp_object_get_class(GetNativePointer(component));
-                    if (owner != IntPtr.Zero && owner != candidate) return false;
-                    owner = candidate;
-                    matches++;
-                }
-            if (matches != 1) return false;
-        }
-        return true;
-    }
-
-    internal static bool TryResolvePointBoundaryBuilder(IntPtr owner, out IntPtr method)
-    {
-        method = IntPtr.Zero;
-        if (owner == IntPtr.Zero || NativeClassFullName(owner) != "Hub06MedalScoreRewardChest" ||
-            NativeAnsi(() => NativeIl2Cpp.il2cpp_image_get_name(NativeIl2Cpp.il2cpp_class_get_image(owner))) != "Assembly-CSharp.dll")
-            return false;
-        IntPtr requirement = NativeIl2Cpp.il2cpp_class_get_field_from_name(owner, "unlockRequirement");
-        if (requirement == IntPtr.Zero || NativeIl2Cpp.il2cpp_field_get_parent(requirement) != owner ||
-            NativeTypeName(ml_il2cpp_field_get_type(requirement)) != "DefinedInt")
-            return false;
-        IntPtr iterator = IntPtr.Zero;
-        for (int count = 0; count < 128; count++)
-        {
-            IntPtr candidate = NativeIl2Cpp.il2cpp_class_get_methods(owner, ref iterator);
-            if (candidate == IntPtr.Zero) return method != IntPtr.Zero;
-            if (NativeAnsi(() => NativeIl2Cpp.il2cpp_method_get_name(candidate)) != "BuildState") continue;
-            if (method != IntPtr.Zero || NativeIl2Cpp.il2cpp_method_get_class(candidate) != owner ||
-                !NativeIl2Cpp.il2cpp_method_is_instance(candidate) ||
-                NativeIl2Cpp.il2cpp_method_is_generic(candidate) || NativeIl2Cpp.il2cpp_method_is_inflated(candidate) ||
-                NativeIl2Cpp.il2cpp_method_get_param_count(candidate) != 0)
-                return false;
-            IntPtr resultType = NativeIl2Cpp.il2cpp_method_get_return_type(candidate);
-            IntPtr resultClass = NativeIl2Cpp.il2cpp_class_from_type(resultType);
-            if (NativeTypeName(resultType) != "Hub06MedalScoreRewardChestState" ||
-                resultClass == IntPtr.Zero || NativeIl2Cpp.il2cpp_class_is_valuetype(resultClass))
-                return false;
-            method = candidate;
-        }
         return false;
     }
 
