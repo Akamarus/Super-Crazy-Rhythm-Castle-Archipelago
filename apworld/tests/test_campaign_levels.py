@@ -7,6 +7,7 @@ from support import load_scrc_module
 class CampaignLevelCatalogTests(unittest.TestCase):
     def setUp(self):
         self.campaign = load_scrc_module("campaign_levels")
+        self.difficulty = load_scrc_module("difficulty")
 
     def test_catalog_locks_all_native_campaign_identities_and_location_tiers(self):
         expected = (
@@ -91,6 +92,47 @@ class CampaignLevelCatalogTests(unittest.TestCase):
         self.assertEqual(
             len(set(self.campaign.CAMPAIGN_LOCATION_NAME_TO_ID.values())),
             88,
+        )
+
+    def test_campaign_locations_activate_only_the_catalog_tiers_for_each_difficulty(self):
+        expected_campaign_counts = {0: 44, 1: 66, 2: 88, 3: 88}
+        for difficulty_value, expected in expected_campaign_counts.items():
+            with self.subTest(difficulty=difficulty_value):
+                active = self.difficulty.active_location_names(
+                    self.campaign.CAMPAIGN_LOCATION_NAMES,
+                    difficulty_value,
+                )
+                self.assertEqual(len(active), expected)
+
+        normal = self.difficulty.active_location_names(
+            self.campaign.CAMPAIGN_LOCATION_NAMES,
+            0,
+        )
+        hard = self.difficulty.active_location_names(
+            self.campaign.CAMPAIGN_LOCATION_NAMES,
+            1,
+        )
+        expert = self.difficulty.active_location_names(
+            self.campaign.CAMPAIGN_LOCATION_NAMES,
+            2,
+        )
+        perfection = self.difficulty.active_location_names(
+            self.campaign.CAMPAIGN_LOCATION_NAMES,
+            3,
+        )
+
+        for level in self.campaign.CAMPAIGN_LEVELS:
+            self.assertIn(level.location_name("Completion"), normal)
+            self.assertIn(level.location_name("1 Star"), normal)
+            self.assertNotIn(level.location_name("2 Stars"), normal)
+            self.assertIn(level.location_name("2 Stars"), hard)
+            self.assertNotIn(level.location_name("3 Stars"), hard)
+            self.assertIn(level.location_name("3 Stars"), expert)
+        self.assertEqual(expert, perfection)
+
+        self.assertTrue(
+            self.difficulty.is_location_active("Other - 2 Stars", 0),
+            "only catalog-owned campaign names may receive campaign tier filtering",
         )
 
     def test_validation_rejects_catalog_and_permanent_id_drift(self):

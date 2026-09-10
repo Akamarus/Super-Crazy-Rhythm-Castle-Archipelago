@@ -16,9 +16,9 @@ from .cassettes import (
     validate_cassette_catalog,
 )
 from .campaign_levels import (
-    CAMPAIGN_LOCATION_NAMES,
+    CAMPAIGN_LEVELS,
     CAMPAIGN_LOCATION_NAME_TO_ID,
-    NEW_CAMPAIGN_LOCATION_NAMES,
+    CAMPAIGN_LOCATION_TIERS,
 )
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
@@ -234,10 +234,6 @@ ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
 LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
 
-LEVEL_22_ORDINARY_LOCATIONS = tuple(
-    name for name in CAMPAIGN_LOCATION_NAMES if name.startswith("Level 22 - ")
-)
-
 LEVEL_2_MONEY_CASSETTE_SOURCE = "Level 2 - Money Cassette"
 LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
 
@@ -383,7 +379,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
-                and name not in NEW_CAMPAIGN_LOCATION_NAMES
+                and not name.startswith("Development Cache ")
             )
         )
         self.active_campaign_star_tiers = active_campaign_star_tiers
@@ -411,21 +407,6 @@ class SCRCWorld(World):
         cell = Region("Cell Tower", self.player, self.multiworld)
         tower = Region("Tower of Fear", self.player, self.multiworld)
         royal = Region("Royal Corridor", self.player, self.multiworld)
-
-        # Existing live level checks belong to Roots. Level 3 is intentionally
-        # split into entrance/source reachability and completion: Weed Killer
-        # gets the player into Level 3, while Plant Pipes is required to finish it.
-        for name in ("Level 1 - Completion", "Level 2 - Completion", "Level 3 - Completion"):
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], roots)
-            if name == "Level 3 - Completion":
-                set_rule(
-                    location,
-                    lambda state: (
-                        state.has("Weed Killer", self.player)
-                        and state.has("Plant Pipes", self.player)
-                    ),
-                )
-            roots.locations.append(location)
 
         # Gecko is reachable from the Roots hub once Roots Access is owned.
         # Weed Killer is NOT required to reach this source; it is the reward
@@ -525,15 +506,6 @@ class SCRCWorld(World):
         )
         roots.locations.append(combo_bucket_event)
 
-        # Preserve historical location IDs/datapackage names, but keep the
-        # old synthetic caches filler-only so progression can never be placed
-        # on a location the game client cannot actually report.
-        for index in range(1, 11):
-            name = f"Development Cache {index:02d}"
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
-            location.item_rule = lambda item: item.name == "Stardust"
-            phone_hub.locations.append(location)
-
         # v0.14 keeps the four cartridge sources that are not already
         # represented by Music Lab reward chests. Their exact physical-region
         # logic is intentionally not modeled yet, so keep these checks filler-only:
@@ -567,6 +539,30 @@ class SCRCWorld(World):
             "Royal Corridor": royal,
             "Tower of Fear": tower,
         }
+
+        for level in CAMPAIGN_LEVELS:
+            for tier in CAMPAIGN_LOCATION_TIERS:
+                name = level.location_name(tier)
+                if not is_active(name):
+                    continue
+                location = SCRCLocation(
+                    self.player,
+                    name,
+                    LOCATION_NAME_TO_ID[name],
+                    concrete_regions[level.area],
+                )
+                set_rule(
+                    location,
+                    lambda state, requirements=level.required_items: all(
+                        state.has(item, self.player) for item in requirements
+                    ),
+                )
+                safe = level.progression_safe and not (
+                    level.number == 22 and tier in {"2 Stars", "3 Stars"}
+                )
+                location.item_rule = lambda item, safe=safe: filler_or_safe_required(item, safe)
+                concrete_regions[level.area].locations.append(location)
+
         cassette_source_regions = {}
 
         def route_is_open(state, triggers):
@@ -659,17 +655,6 @@ class SCRCWorld(World):
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
-
-        # Royal Access lands on the phone-side Level 22 route. Completion and
-        # one Star are confirmed ability-free. Two/three-Star requirements are
-        # still under investigation, so those tiers remain filler-only.
-        for name in LEVEL_22_ORDINARY_LOCATIONS:
-            if not is_active(name):
-                continue
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], royal)
-            if name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}:
-                location.item_rule = lambda item: filler_or_safe_required(item, False)
-            royal.locations.append(location)
 
         # AP core root -> in-game home base. This connection is always free.
         menu.connect(phone_hub, "Menu -> Phone Hub")
@@ -822,7 +807,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
-                and name not in NEW_CAMPAIGN_LOCATION_NAMES
+                and not name.startswith("Development Cache ")
             )
         )
         default_campaign_star_tiers = campaign_star_tiers(difficulty_value)

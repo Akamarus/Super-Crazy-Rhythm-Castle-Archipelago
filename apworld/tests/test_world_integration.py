@@ -28,6 +28,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.addCleanup(cleanup)
         self.catalog = load_scrc_module("cassettes")
         self.campaign = load_scrc_module("campaign_levels")
+        self.difficulty = load_scrc_module("difficulty")
         self.points = load_scrc_module("music_lab_points")
 
     def make_world(
@@ -94,6 +95,25 @@ class WorldIntegrationTests(unittest.TestCase):
             and location.access_rule(state)
         )
 
+    def assert_requires(self, location_name, *required_items):
+        world = self.build_world(difficulty=2)
+        location = world.multiworld.get_location(location_name, world.player)
+        self.assertTrue(location.access_rule(State(required_items)))
+        for missing_item in required_items:
+            with self.subTest(location=location_name, missing=missing_item):
+                remaining = tuple(item for item in required_items if item != missing_item)
+                self.assertFalse(location.access_rule(State(remaining)))
+
+    def assert_allows_required_progression(self, location_name):
+        world = self.build_world(difficulty=2)
+        location = world.multiworld.get_location(location_name, world.player)
+        self.assertTrue(location.item_rule(world.create_item("Plant Pipes")))
+
+    def assert_rejects_required_progression(self, location_name, difficulty=0):
+        world = self.build_world(difficulty=difficulty)
+        location = world.multiworld.get_location(location_name, world.player)
+        self.assertFalse(location.item_rule(world.create_item("Plant Pipes")))
+
     @classmethod
     def collect_placement_spheres(cls, world, state, placements):
         collected = set()
@@ -154,7 +174,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
     def test_active_location_counts_are_exact(self):
-        expected = {0: 92, 1: 129, 2: 166, 3: 202}
+        expected = {0: 121, 1: 179, 2: 237, 3: 273}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
@@ -167,8 +187,8 @@ class WorldIntegrationTests(unittest.TestCase):
             len(self.addressed_names(world)),
         )
 
-    def test_registered_uninstantiated_campaign_locations_stay_out_of_active_seed_counts(self):
-        expected = {0: 92, 1: 129, 2: 166, 3: 202}
+    def test_full_campaign_catalog_is_active_and_development_caches_are_reserved_only(self):
+        expected = {0: 121, 1: 179, 2: 237, 3: 273}
         for difficulty, count in expected.items():
             with self.subTest(difficulty=difficulty):
                 world = self.build_world(difficulty=difficulty)
@@ -177,14 +197,49 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertEqual(len(addressed), count)
                 self.assertEqual(world.fill_slot_data()["active_location_count"], count)
                 self.assertEqual(world.fill_slot_data()["active_location_count"], len(addressed))
-                self.assertTrue(
-                    set(self.campaign.NEW_CAMPAIGN_LOCATION_NAMES).isdisjoint(
-                        world.active_location_names
+                self.assertEqual(
+                    {
+                        name
+                        for name in addressed
+                        if name in self.campaign.CAMPAIGN_LOCATION_NAMES
+                    },
+                    set(
+                        self.difficulty.active_location_names(
+                            self.campaign.CAMPAIGN_LOCATION_NAMES,
+                            difficulty,
+                        )
                     )
                 )
+                self.assertFalse(
+                    any(name.startswith("Development Cache") for name in addressed)
+                )
+
+        self.assertEqual(
+            self.module.LOCATION_NAME_TO_ID["Development Cache 01"],
+            187256011,
+        )
+
+    def test_campaign_locations_use_catalog_regions_and_verified_placement_rules(self):
+        world = self.build_world(difficulty=2)
+        for level in self.campaign.CAMPAIGN_LEVELS:
+            for tier in self.campaign.CAMPAIGN_LOCATION_TIERS:
+                name = level.location_name(tier)
+                with self.subTest(location=name):
+                    self.assertEqual(
+                        world.multiworld.get_location(name, world.player).parent_region.name,
+                        level.area,
+                    )
+
+        self.assert_requires("Level 3 - Completion", "Weed Killer", "Plant Pipes")
+        self.assert_requires("Level 18 - Completion", "Plant Pipes")
+        self.assert_requires("Level 20 - Completion", "Hypno Pan")
+        self.assert_requires("Level 21 - Completion", "Plant Pipes")
+        self.assert_allows_required_progression("Level 22 - 1 Star")
+        self.assert_rejects_required_progression("Level 22 - 2 Stars", difficulty=2)
+        self.assert_rejects_required_progression("Level 6 - Completion")
 
     def test_item_pool_matches_active_unfilled_capacity(self):
-        expected = {0: 92, 1: 129, 2: 166, 3: 202}
+        expected = {0: 121, 1: 179, 2: 237, 3: 273}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 world = self.build_world(difficulty=value)
@@ -380,7 +435,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(len(chest_objects), 7)
         self.assertEqual(len({id(chest) for chest in chest_objects}), 7)
 
-        expected_counts = {0: 92, 1: 129, 2: 166, 3: 202}
+        expected_counts = {0: 121, 1: 179, 2: 237, 3: 273}
         for difficulty, count in expected_counts.items():
             with self.subTest(difficulty=difficulty):
                 self.assertEqual(len(self.addressed_names(self.build_world(difficulty))), count)
@@ -437,7 +492,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(
             [world._active_unfilled_location_capacity() for world in worlds],
-            [92, 92],
+            [121, 121],
         )
 
         for world in worlds:
@@ -448,7 +503,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [92, 92],
+            [121, 121],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
@@ -594,7 +649,7 @@ class WorldIntegrationTests(unittest.TestCase):
             Counter(name for name in names if name.startswith("Music Lab Point")),
             Counter(self.module.MUSIC_LAB_POINT_POOL),
         )
-        self.assertEqual(names.count("Stardust"), 26)
+        self.assertEqual(names.count("Stardust"), 55)
 
     def test_slot_data_labels_active_difficulty_filtering(self):
         world = self.make_world()
@@ -718,7 +773,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 92)
+        self.assertEqual(data["active_location_count"], 121)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -758,7 +813,7 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 129)
+        self.assertEqual(data["active_location_count"], 179)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
         self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
@@ -817,13 +872,14 @@ class WorldIntegrationTests(unittest.TestCase):
 
         world = self.build_world()
         royal = next(region for region in world.multiworld.regions if region.name == "Royal Corridor")
-        self.assertEqual(
-            {location.name for location in royal.locations},
+        self.assertTrue(
             {
+                "Level 21 - Completion",
+                "Level 21 - 1 Star",
                 "Level 22 - Completion",
                 "Level 22 - 1 Star",
                 "Cassette Source - Another Day In Paradise",
-            },
+            }.issubset({location.name for location in royal.locations})
         )
         self.assertNotIn("Victory", {location.name for location in royal.locations})
 
@@ -838,7 +894,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertFalse(two_stars.item_rule(progression))
         self.assertTrue(two_stars.item_rule(filler))
 
-    def test_royal_access_reaches_only_phone_side_level_22_route(self):
+    def test_royal_access_reaches_phone_side_royal_campaign_routes(self):
         world = self.build_world()
         world.set_rules()
         state = State(["Royal Corridor Access"])
@@ -856,7 +912,8 @@ class WorldIntegrationTests(unittest.TestCase):
             if region.name in reachable
             for location in region.locations
         }
-        self.assertFalse(any(name.startswith("Level 21 -") for name in exposed_names))
+        self.assertIn("Level 21 - Completion", exposed_names)
+        self.assertIn("Level 21 - 1 Star", exposed_names)
         self.assertNotIn("Royal Corridor - Star Eater", exposed_names)
         self.assertNotIn("Royal Corridor - Bridge Complete", exposed_names)
 
