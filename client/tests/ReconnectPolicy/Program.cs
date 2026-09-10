@@ -30,9 +30,9 @@ policy.OnUnexpectedDisconnect();
 Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextDelay(), "first retry");
 Equal<TimeSpan?>(TimeSpan.FromSeconds(2), policy.NextDelay(), "second retry");
 Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "third retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(10), policy.NextDelay(), "fourth retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(30), policy.NextDelay(), "fifth retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(30), policy.NextDelay(), "bounded repeated retry");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fourth retry stays responsive");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fifth retry stays responsive");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "bounded repeated retry stays responsive");
 
 policy.OnConnected();
 Equal<TimeSpan?>(null, policy.NextDelay(), "successful login resets retries");

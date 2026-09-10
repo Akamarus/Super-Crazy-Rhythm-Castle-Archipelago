@@ -68,7 +68,9 @@ internal static class GarageAvailabilityPolicy
         }
 
         bool apOwned = apOwnedSongs?.Contains(cartridge.Song, StringComparer.OrdinalIgnoreCase) == true;
-        bool effectiveOwned = nativeOwned || (enabled && compatible && apOwned);
+        bool effectiveOwned = enabled && compatible
+            ? apOwned
+            : nativeOwned;
         ownership = new GarageEntrancePreviewOwnership(
             cartridge.Song,
             cartridge.NativeCartridgeType,

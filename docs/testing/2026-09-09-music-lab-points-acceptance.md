@@ -1,8 +1,8 @@
 # Music Lab Points acceptance record
 
-Status: **experimental Client v0.69.0 / APWorld v0.23.0 candidate requiring manual acceptance**, not a completed release. The room-scoped managed-getter implementation is reviewed and automated-test ready. The existing display, all nine chest thresholds, check reuse, persistence, and compatibility remain live-unverified. The native chest detour candidate is rejected and must not be deployed.
+Status: **experimental Client v0.69.0 / APWorld v0.23.0 candidate partially live-verified but not accepted for release**. Offline verification and scoped final review passed. Live testing verified weighted receipts, the 180-point cap, the upper four chest thresholds, all nine one-time chest checks, medal invariance, retained disconnected display, full-relaunch restoration, and automatic reconnect/history rebuild. A repeat diagnostic showed that the earlier reconnect failure was a 30-second backoff delay rather than a stopped worker. A responsiveness change and a fix for the separate Game Garage entrance-preview false positive now pass offline regression tests but have not been reviewed, deployed, or live-tested. The lower five threshold pairs, offline queued-check recovery, and compatibility regressions remain incomplete. The native chest detour candidate is rejected and must not be deployed.
 
-Task 6 cleanup removed the rejected boundary class/callback, temporary configuration and F5 interception, native method resolver, temporary dependency, and optional installed-interop probe. Task 7 then implemented AP result replacement through the existing managed getter only in exact room `GameRoom_Hub6`. Review through commit `ba3d664d6d5fb60103efc1c4aedd588bf2981561` and offline verification passed all 19 client regression projects and a `-SkipInstall` build (0 errors, 7 existing nullable warnings). These checks do not prove live display/threshold behavior. The v0.69.0 candidate still requires final artifact verification and hash-specific live-test approval.
+Task 6 cleanup removed the rejected boundary class/callback, temporary configuration and F5 interception, native method resolver, temporary dependency, and optional installed-interop probe. Task 7 then implemented AP result replacement through the existing managed getter only in exact room `GameRoom_Hub6`. Final review through commit `9e8c89bb61d7b79778f2d4cf899be2fcbdc42e50` and offline verification passed all 19 client regression projects and a `-SkipInstall` build (0 errors, 7 existing nullable warnings). The final artifact hashes were recorded and explicitly approved for this live run; the partial live results below do not constitute release acceptance.
 
 The fresh v0.23 contract uses top-level schema 14 and point schema 1. Its 10/3/7 items at values 1/10/20 replace 20 Stardust and total 180 points; the final threshold is 140 with 40 slack. No point milestones or duplicate cassette/cartridge source checks are added. Exact names, IDs, values, counts, totals, cap, and threshold-to-location map must match. Before sync the effective hub score is zero; after sync it uses authoritative AP receipts, retains the total through disconnects, and rebuilds on reconnect/relaunch. Native medals contribute no AP points and receive no AP score/save writes. Recognized v0.22/non-AP sessions retain native scoring; malformed v0.23 sessions report incompatibility and stay at zero.
 
@@ -33,8 +33,9 @@ Approved correction: remove the native diagnostic and use only the existing load
 | Rejected native-detour candidate | Not applicable | Must not be deployed |
 | Task 6 no-detour cleanup build, v0.68.0 | `03608FF06D49AF9FCE596168DB2157BC694A8735D05E0E1D4018A9BDC68D8B81` | Offline baseline only; not deployed; AP score replacement disabled |
 | Reviewed Task 7 offline candidate, v0.68.0 (`ba3d664`) | `A711B192599397302EFF44C64AFB6C432EA75909A0B9634F849785623A6A6C83` | Room-scoped AP replacement implemented; not deployed |
-| Final v0.69.0 candidate DLL | PENDING | Record after final verification; requires hash-specific live-test approval |
-| Final v0.23.0 APWorld package | PENDING | Record after final packaging/verification; no publication implied |
+| Final v0.69.0 candidate DLL | `8D3DD7EB64130CB08D877F4DF17CD5E98DDF15E396E29FF77BC776E16790D695` | Reviewed and explicitly approved for this live test; installed only in the restricted RhythmCastleAP plugin directory |
+| Post-run reconnect/preview fix candidate DLL | `99F3755D28917E9BF02E1296D4BA8468CF46845A499D04006490440B63233967` | Offline only; all 19 client test projects and `-SkipInstall` build passed; not reviewed, approved, or deployed |
+| Final v0.23.0 APWorld package | `2651D261276BEA5416476D2376FB4F6F7C31A8A86EB9DC1D165817F9AEEF41DF` | Reviewed and explicitly approved for this live test; installed as the local custom world |
 
 Task 6 verification: `dotnet run --project .\client\tests\MusicLabPoints\MusicLabPoints.Tests.csproj -c Release` passed after an observed RED for the rejected `INativeDetour` path. The `client/build.ps1` release build with `-SkipInstall` passed with 0 errors and the same 7 existing nullable warnings. `Plugin.cs` and `RhythmCastleAP.csproj` match the pre-diagnostic Task 5 baseline (`51e1510`) exactly. Before/after snapshots of all game-file paths, sizes and last-write times matched, and the installed client SHA-256 remained unchanged. No game launch or deployment occurred during cleanup.
 
@@ -46,42 +47,42 @@ Complete a new copy for each candidate/run. Keep credentials out of this record;
 
 | Field | Recorded value / evidence |
 | --- | --- |
-| Test date and tester | PENDING |
-| Exact tested commit | PENDING |
-| Client version and DLL SHA-256 | PENDING — expected v0.69.0 |
-| APWorld version and package SHA-256 | PENDING — expected v0.23.0 |
-| Seed name, generation ID, and seed/archive reference | PENDING — fresh v0.23 required |
-| Server/room label and AP player slot/name | PENDING — no password or private address |
-| Native save slot and fresh-save confirmation | PENDING |
-| Game version/build and platform | PENDING |
-| BepInEx, Unity, and runtime versions | PENDING |
-| Final offline verification / review reference | PENDING |
-| Exact-artifact deployment approval | PENDING |
-| Diagnostic result and log/video reference | Original diagnostic failed closed; detour rejected. Candidate getter/display/threshold evidence PENDING |
-| Errors, exceptions, or mismatches | PENDING — record explicitly if none observed |
+| Test date and tester | 2026-09-10; Jack |
+| Exact tested commit | `9e8c89bb61d7b79778f2d4cf899be2fcbdc42e50` |
+| Client version and DLL SHA-256 | v0.69.0; `8D3DD7EB64130CB08D877F4DF17CD5E98DDF15E396E29FF77BC776E16790D695` |
+| APWorld version and package SHA-256 | v0.23.0; `2651D261276BEA5416476D2376FB4F6F7C31A8A86EB9DC1D165817F9AEEF41DF` |
+| Seed name, generation ID, and seed/archive reference | Seed input `91023`; generated archive `AP_46374822206579019479.zip`; SHA-256 `63C26AE9B0B1D25528EE76B9896CACF32F3D64016871A0C15163477E7E70B4B2` |
+| Server/room label and AP player slot/name | Local test server `127.0.0.1:38281`; slot `Jack`; no password |
+| Native save slot and fresh-save confirmation | UI save slot 4; created fresh for this run |
+| Game version/build and platform | Steam on Windows 10 x64; exact game build number not recorded |
+| BepInEx, Unity, and runtime versions | BepInEx 6.0.0-be.785; Unity 2021.3.26f1; .NET runtime 6.0.7 |
+| Final offline verification / review reference | Scoped final review through `9e8c89b` passed; APWorld 93/93 tests, all 19 client test projects, repository validator, APWorld packaging, and client `-SkipInstall` build passed |
+| Exact-artifact deployment approval | Explicitly approved by Jack before deployment; installed hashes matched the reviewed artifacts |
+| Diagnostic result and log/video reference | `D:\SteamLibrary\steamapps\common\Titus\BepInEx\LogOutput.log`; live screenshots and tester observations recorded in the 2026-09-10 development task |
+| Errors, exceptions, or mismatches | Initial reconnect observation ended during the 30-second backoff; a repeat diagnostic confirmed automatic recovery and exact history rebuild to 180. Game Garage entrance preview showed Bloody Tears and Gradius despite neither being AP-owned or playable. |
 
 ## Live results template
 
 | Check | Result / evidence |
 | --- | --- |
-| Contract accepted; zero before history sync; all chests locked | PENDING |
-| Synchronized with zero receipts; existing display remains zero | PENDING |
-| Weighted 1/10/20 receipts and cap 180 | PENDING |
-| Outside `GameRoom_Hub6` native behavior / return to hub AP total | PENDING |
-| Five cassette and two cartridge source reuses; no duplicate check | PENDING |
-| Native campaign/cassette/Garage medal invariance | PENDING — record native result before/after and unchanged AP total |
-| Disconnect retained total and queued chest check ID | PENDING |
-| Reconnect history rebuild, same total, queued check sent once | PENDING |
+| Contract accepted; zero before history sync; all chests locked | PARTIAL PASS — contract accepted and awaiting-history display logged as zero; a complete all-chests-locked visual sweep was not recorded before receipts began |
+| Synchronized with zero receipts; existing display remains zero | PASS — synchronized empty history remained zero |
+| Weighted 1/10/20 receipts and cap 180 | PASS — controlled 0→1→11→31; later 141→161→180, with one cap-anomaly diagnostic and no value above 180 |
+| Outside `GameRoom_Hub6` native behavior / return to hub AP total | PARTIAL PASS — leaving/returning and relaunch restoration were observed; a controlled native-score comparison outside Hub6 remains pending |
+| Five cassette and two cartridge source reuses; no duplicate check | PARTIAL PASS — all nine chest sources sent their existing check IDs once and duplicate native events were ignored; the full five-cassette/two-cartridge use-path matrix remains incomplete |
+| Native campaign/cassette/Garage medal invariance | PASS — Party Non Stop Silver and Vampire Killer Gold sent their normal medal checks while AP total remained 141 |
+| Disconnect retained total and queued chest check ID | PARTIAL PASS — disconnected display retained 141; queued-check behavior could not be tested because all nine chests had already been opened |
+| Reconnect history rebuild, same total, queued check sent once | PARTIAL PASS — a repeat diagnostic kept the game running, stopped/restarted the same server, automatically reconnected on the next 30-second attempt, and rebuilt 180 without double-counting; queued-check recovery remains untested |
 | Delayed/partial reconnect retains total; authoritative empty history corrects to zero | PENDING |
 | Getter unavailable reports incompatibility; recovered getter needs new session/identity | PENDING |
 | Deliberate native read remains native; Shift+F4 does not change AP eligibility | PENDING |
-| Full relaunch with same AP identity | PENDING |
+| Full relaunch with same AP identity | PASS — relaunch connected to the same server/save, rebuilt 141 from complete history, and preserved opened chests |
 | AP identity replacement clears prior point state | PENDING |
 | Recognized v0.22 regression / native scoring | PENDING |
 | Non-AP regression / native scoring | PENDING |
 | Malformed-v0.23 regression / incompatibility and zero | PENDING |
-| Errors and log/video references | PENDING |
-| Tester approval, date, and any remaining concerns | PENDING |
+| Errors and log/video references | Client log above. Reconnect correctness passed on repeat, but the 30-second maximum wait was too easy to mistake for a stopped worker. The adjacent Garage entrance-preview false positive remains live-unfixed. No crash or point-total corruption observed during this run. |
+| Tester approval, date, and any remaining concerns | NOT YET APPROVED — 2026-09-10 run remains partial pending fixes and targeted regression |
 
 ## Offline acceptance required before deployment
 
@@ -116,15 +117,15 @@ For every row, test one point below and exactly at the threshold. The chest must
 
 | Threshold | Existing location | Existing check ID | Below: display / locked | At: display / interactable | Opens only by player | Observed check ID / sends once |
 | ---: | --- | ---: | --- | --- | --- | --- |
-| 5 | Music Lab - 5 Point Chest | 187256169 | 4: PENDING | 5: PENDING | PENDING | PENDING |
-| 10 | Music Lab - 10 Point Chest | 187256170 | 9: PENDING | 10: PENDING | PENDING | PENDING |
-| 20 | Music Lab - 20 Point Chest | 187256171 | 19: PENDING | 20: PENDING | PENDING | PENDING |
-| 32 | Music Lab - 32 Point Chest | 187256172 | 31: PENDING | 32: PENDING | PENDING | PENDING |
-| 46 | Music Lab - 46 Point Chest | 187256173 | 45: PENDING | 46: PENDING | PENDING | PENDING |
-| 64 | Music Lab - 64 Point Chest | 187256045 | 63: PENDING | 64: PENDING | PENDING | PENDING |
-| 89 | Music Lab - 89 Point Chest | 187256166 | 88: PENDING | 89: PENDING | PENDING | PENDING |
-| 111 | Music Lab - 111 Point Chest | 187256167 | 110: PENDING | 111: PENDING | PENDING | PENDING |
-| 140 | Music Lab - 140 Point Chest | 187256168 | 139: PENDING | 140: PENDING | PENDING | PENDING |
+| 5 | Music Lab - 5 Point Chest | 187256169 | Not controlled | Not controlled | PASS | `187256169`; once |
+| 10 | Music Lab - 10 Point Chest | 187256170 | Not controlled | Not controlled | PASS | `187256170`; once |
+| 20 | Music Lab - 20 Point Chest | 187256171 | Not controlled | Not controlled | PASS | `187256171`; once |
+| 32 | Music Lab - 32 Point Chest | 187256172 | Not controlled | Not controlled | PASS | `187256172`; once |
+| 46 | Music Lab - 46 Point Chest | 187256173 | Not controlled | Not controlled | PASS | `187256173`; once |
+| 64 | Music Lab - 64 Point Chest | 187256045 | 63: PASS | 64: PASS | PASS | `187256045`; once |
+| 89 | Music Lab - 89 Point Chest | 187256166 | 88: PASS | 89: PASS | PASS | `187256166`; once |
+| 111 | Music Lab - 111 Point Chest | 187256167 | 110: PASS | 111: PASS | PASS | `187256167`; once |
+| 140 | Music Lab - 140 Point Chest | 187256168 | 139: PASS | 140: PASS | PASS | `187256168`; once |
 
 ### Persistence and compatibility
 
@@ -138,4 +139,6 @@ For every row, test one point below and exactly at the threshold. The chest must
 
 ## Acceptance decision
 
-PENDING. The native-detour diagnostic is rejected. The feature becomes live-verified only after the room-scoped candidate passes the complete offline and gameplay matrix above.
+**NOT ACCEPTED — targeted review and regression required.** The reviewed room-scoped implementation passed offline verification and the core weighted-point, cap, upper-threshold, one-time-check, medal-invariance, disconnected-display, automatic-reconnect/history-rebuild, and full-relaunch tests. The repeat reconnect diagnostic proved that the worker had not stopped; it was waiting at its 30-second maximum backoff. The post-run candidate reduces that maximum wait to five seconds while preserving infinite retries and stale-worker protection, but the new artifact is not yet reviewed or live-tested. Queued-check recovery, the lower five exact threshold pairs, and the v0.22/non-AP/malformed-v0.23 compatibility matrix remain unverified.
+
+An adjacent defect was discovered during the same run: the Game Garage entrance preview treated native source-collected flags as ownership for randomized cartridges. Bloody Tears and Gradius appeared in the entrance preview even though the player had not received them through AP and the actual Garage correctly kept them unplayable. The post-run candidate makes AP ownership authoritative for the five randomized preview entries while retaining native behavior for disabled/incompatible sessions and Vampire Killer. This fix requires review and focused live regression before acceptance.

@@ -9,8 +9,6 @@ internal sealed class ReconnectPolicy
         TimeSpan.FromSeconds(1),
         TimeSpan.FromSeconds(2),
         TimeSpan.FromSeconds(5),
-        TimeSpan.FromSeconds(10),
-        TimeSpan.FromSeconds(30),
     };
 
     private readonly object _sync = new();
