@@ -1,5 +1,6 @@
 import random
 import json
+from collections import Counter
 from pathlib import Path
 import types
 import unittest
@@ -9,10 +10,16 @@ from support import FakeMultiWorld, OptionValue, load_scrc_module, load_scrc_wor
 
 class State:
     def __init__(self, owned):
-        self.owned = set(owned)
+        self.owned = Counter(owned)
 
     def has(self, name, player):
-        return name in self.owned
+        return self.count(name, player) > 0
+
+    def count(self, name, player):
+        return self.owned[name]
+
+    def collect(self, name):
+        self.owned[name] += 1
 
 
 class WorldIntegrationTests(unittest.TestCase):
@@ -20,6 +27,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.module, cleanup = load_scrc_world()
         self.addCleanup(cleanup)
         self.catalog = load_scrc_module("cassettes")
+        self.points = load_scrc_module("music_lab_points")
 
     def make_world(
         self,
@@ -84,6 +92,29 @@ class WorldIntegrationTests(unittest.TestCase):
             location.parent_region.name in cls.reachable_regions(world, state)
             and location.access_rule(state)
         )
+
+    @classmethod
+    def collect_placement_spheres(cls, world, state, placements):
+        collected = set()
+        while True:
+            newly_collected = [
+                location_name
+                for location_name in placements
+                if location_name not in collected
+                and cls.location_is_reachable(
+                    world,
+                    world.multiworld.get_location(location_name, world.player),
+                    state,
+                )
+                and world.multiworld.get_location(location_name, world.player).item_rule(
+                    world.create_item(placements[location_name])
+                )
+            ]
+            if not newly_collected:
+                return len(collected) == len(placements)
+            for location_name in newly_collected:
+                state.collect(placements[location_name])
+                collected.add(location_name)
 
     def test_generate_early_resolves_start_and_builds_previews(self):
         world = self.make_world()
@@ -280,15 +311,62 @@ class WorldIntegrationTests(unittest.TestCase):
                     )
                 )
 
-    def test_all_music_lab_point_chests_reject_required_progression(self):
+    def test_music_lab_point_chests_accept_progression_and_gate_by_weighted_thresholds(self):
         world = self.build_world(difficulty=3)
+        world.set_rules()
         required = world.create_item(self.catalog.CASSETTES[0].item_name)
 
         self.assertEqual(len(self.module.MUSIC_LAB_REWARD_CHEST_LOCATIONS), 9)
-        for chest_name in self.module.MUSIC_LAB_REWARD_CHEST_LOCATIONS:
-            with self.subTest(chest=chest_name):
+        for threshold, chest_name in self.module.MUSIC_LAB_POINT_THRESHOLDS.items():
+            with self.subTest(chest=chest_name, threshold=threshold):
                 chest = world.multiworld.get_location(chest_name, world.player)
-                self.assertFalse(chest.item_rule(required))
+                self.assertTrue(chest.item_rule(required))
+                below = State(["Music Lab Point"] * (threshold - 1))
+                at_threshold = State(["Music Lab Point"] * threshold)
+                self.assertFalse(chest.access_rule(below))
+                self.assertTrue(chest.access_rule(at_threshold))
+
+    def test_music_lab_point_chest_aliases_and_location_counts_remain_stable(self):
+        world = self.build_world(difficulty=3)
+        cassette_sources = {
+            "Quicksand": "Music Lab - 32 Point Chest",
+            "Flamenco": "Music Lab - 64 Point Chest",
+            "Ten-Four Good Buddy": "Music Lab - 89 Point Chest",
+            "Zen": "Music Lab - 111 Point Chest",
+            "Wiggle": "Music Lab - 140 Point Chest",
+        }
+        garage_sources = {
+            "Gradius Remix": "Music Lab - 10 Point Chest",
+            "Bloody Tears": "Music Lab - 46 Point Chest",
+        }
+
+        source_names = []
+        for song, chest_name in cassette_sources.items():
+            source_name = next(
+                entry.source_name
+                for entry in self.catalog.CASSETTES
+                if entry.display_song == song
+            )
+            self.assertEqual(source_name, chest_name)
+            source_names.append(source_name)
+        for song, chest_name in garage_sources.items():
+            self.assertEqual(
+                self.module.GARAGE_CARTRIDGE_ITEMS[song],
+                f"{song} Cartridge",
+            )
+            source_names.append(chest_name)
+
+        chest_objects = [
+            world.multiworld.get_location(source_name, world.player)
+            for source_name in source_names
+        ]
+        self.assertEqual(len(chest_objects), 7)
+        self.assertEqual(len({id(chest) for chest in chest_objects}), 7)
+
+        expected_counts = {0: 92, 1: 129, 2: 166, 3: 202}
+        for difficulty, count in expected_counts.items():
+            with self.subTest(difficulty=difficulty):
+                self.assertEqual(len(self.addressed_names(self.build_world(difficulty))), count)
 
     def test_eight_option_matrix_has_no_cassette_self_lock(self):
         for difficulty in range(4):
@@ -308,26 +386,27 @@ class WorldIntegrationTests(unittest.TestCase):
                     for entry in self.catalog.CASSETTES:
                         self.assertEqual(item_names.count(entry.item_name), 1)
 
-                    generated_progression = {
+                    generated_progression = [
                         item.name
                         for item in world.multiworld.itempool
                         if item.classification == "progression"
-                    }
-                    generated_progression.update(
+                    ]
+                    generated_progression.extend(
                         item.name for item in world.multiworld.precollected
                     )
                     for entry in self.catalog.CASSETTES:
-                        all_but_self = generated_progression - {entry.item_name}
+                        all_but_self = State(generated_progression)
+                        all_but_self.owned[entry.item_name] -= 1
                         source = world.multiworld.get_location(entry.source_name, world.player)
                         self.assertTrue(
-                            self.location_is_reachable(world, source, State(all_but_self)),
+                            self.location_is_reachable(world, source, all_but_self),
                             entry.source_name,
                         )
                         bronze = world.multiworld.get_location(
                             f"Music Lab Cassette - {entry.display_song} - Bronze",
                             world.player,
                         )
-                        self.assertFalse(bronze.access_rule(State(all_but_self)), entry.item_name)
+                        self.assertFalse(bronze.access_rule(all_but_self), entry.item_name)
 
     def test_shared_multiworld_capacity_and_pool_are_scoped_per_player(self):
         multiworld = FakeMultiWorld()
@@ -489,15 +568,26 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(names.count("Chicken Bucket"), 1)
         self.assertEqual(len(names), len(self.addressed_names(world)))
 
+    def test_live_pool_contains_the_exact_twenty_music_lab_point_instances(self):
+        world = self.build_world(difficulty=0)
+        world.create_items()
+        names = [item.name for item in world.multiworld.itempool]
+
+        self.assertEqual(
+            Counter(name for name in names if name.startswith("Music Lab Point")),
+            Counter(self.module.MUSIC_LAB_POINT_POOL),
+        )
+        self.assertEqual(names.count("Stardust"), 26)
+
     def test_slot_data_labels_active_difficulty_filtering(self):
         world = self.make_world()
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 13)
+        self.assertEqual(data["schema_version"], 14)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -526,7 +616,7 @@ class WorldIntegrationTests(unittest.TestCase):
             data["cassette_reused_locations"]["Quicksand"],
             "Music Lab - 32 Point Chest",
         )
-        self.assertTrue(data["implementation_version"].endswith("full-cassettes-0.22"))
+        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
         self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
         self.assertEqual(
             data["vanilla_game_garage_cartridge_item"],
@@ -565,6 +655,43 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertIn("v0.21.0", data["routing_logic_note"])
         self.assertIn("Difficulty filtering is active", data["routing_logic_note"])
         self.assertIn("preview", data["routing_logic_note"])
+
+    def test_slot_data_publishes_the_strict_music_lab_point_contract(self):
+        data = self.build_world().fill_slot_data()
+
+        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
+        self.assertEqual(data["schema_version"], 14)
+        self.assertTrue(data["music_lab_points_enabled"])
+        self.assertEqual(data["music_lab_points_schema"], 1)
+        self.assertEqual(data["music_lab_point_items"], {
+            "Music Lab Point": 187256153,
+            "Music Lab Point Bundle": 187256154,
+            "Music Lab Point Large Bundle": 187256155,
+        })
+        self.assertEqual(data["music_lab_point_values"], {
+            "Music Lab Point": 1,
+            "Music Lab Point Bundle": 10,
+            "Music Lab Point Large Bundle": 20,
+        })
+        self.assertEqual(data["music_lab_point_counts"], {
+            "Music Lab Point": 10,
+            "Music Lab Point Bundle": 3,
+            "Music Lab Point Large Bundle": 7,
+        })
+        self.assertEqual(data["music_lab_point_total_instances"], 20)
+        self.assertEqual(data["music_lab_point_total_value"], 180)
+        self.assertEqual(data["music_lab_point_max_effective"], 180)
+        self.assertEqual(data["music_lab_point_thresholds"], {
+            5: "Music Lab - 5 Point Chest",
+            10: "Music Lab - 10 Point Chest",
+            20: "Music Lab - 20 Point Chest",
+            32: "Music Lab - 32 Point Chest",
+            46: "Music Lab - 46 Point Chest",
+            64: "Music Lab - 64 Point Chest",
+            89: "Music Lab - 89 Point Chest",
+            111: "Music Lab - 111 Point Chest",
+            140: "Music Lab - 140 Point Chest",
+        })
 
     def test_slot_data_has_safe_defaults_for_direct_construction(self):
         world = object.__new__(self.module.SCRCWorld)
@@ -617,7 +744,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["active_location_count"], 129)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
-        self.assertTrue(data["implementation_version"].endswith("full-cassettes-0.22"))
+        self.assertTrue(data["implementation_version"].endswith("music-lab-points-0.23"))
 
     def test_vampire_killer_is_vanilla_but_permanent_ids_are_preserved(self):
         world = self.build_world(difficulty=0)
@@ -740,13 +867,17 @@ class WorldIntegrationTests(unittest.TestCase):
                             for item in world.multiworld.itempool
                             if item.classification == "progression"
                         ]
-                        world.random.shuffle(required)
+                        point_names = {entry.name for entry in self.points.MUSIC_LAB_POINT_ITEMS}
+                        point_chest_names = set(self.module.MUSIC_LAB_POINT_THRESHOLDS.values())
+                        normal_required = [item for item in required if item.name not in point_names]
+                        point_required = [item for item in required if item.name in point_names]
+                        world.random.shuffle(normal_required)
                         used_locations = set()
 
-                        while required:
+                        while normal_required:
                             reachable = self.reachable_regions(world, state)
                             selected = None
-                            for item in required:
+                            for item in normal_required:
                                 safe_location = next(
                                     (
                                         location
@@ -755,6 +886,7 @@ class WorldIntegrationTests(unittest.TestCase):
                                         for location in region.locations
                                         if location.address is not None
                                         and location.name not in used_locations
+                                        and location.name not in point_chest_names
                                         and location.access_rule(state)
                                         and location.item_rule(item)
                                     ),
@@ -764,18 +896,71 @@ class WorldIntegrationTests(unittest.TestCase):
                                     selected = (item, safe_location)
                                     break
 
-                            self.assertIsNotNone(selected, f"stranded required items: {[item.name for item in required]}")
+                            self.assertIsNotNone(
+                                selected,
+                                f"stranded required items: {[item.name for item in normal_required]}",
+                            )
                             item, location = selected
                             used_locations.add(location.name)
-                            state.owned.add(item.name)
-                            required.remove(item)
+                            state.collect(item.name)
+                            normal_required.remove(item)
+
+                        def place_point(item_name, location_name=None):
+                            item = next(item for item in point_required if item.name == item_name)
+                            reachable = self.reachable_regions(world, state)
+                            if location_name is None:
+                                location = next(
+                                    location
+                                    for region in world.multiworld.regions
+                                    if region.name in reachable
+                                    for location in region.locations
+                                    if (
+                                        location.address is not None
+                                        and location.name not in used_locations
+                                        and location.name not in point_chest_names
+                                        and location.access_rule(state)
+                                        and location.item_rule(item)
+                                    )
+                                )
+                            else:
+                                location = world.multiworld.get_location(location_name, world.player)
+                                self.assertNotIn(location.name, used_locations)
+                                self.assertIn(location.parent_region.name, reachable)
+                                self.assertTrue(location.access_rule(state))
+                                self.assertTrue(location.item_rule(item))
+                            used_locations.add(location.name)
+                            state.collect(item.name)
+                            point_required.remove(item)
+
+                        for _ in range(5):
+                            place_point("Music Lab Point")
+
+                        for chest_name, item_name in (
+                            ("Music Lab - 5 Point Chest", "Music Lab Point Bundle"),
+                            ("Music Lab - 10 Point Chest", "Music Lab Point Bundle"),
+                            ("Music Lab - 20 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 32 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 46 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 64 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 89 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 111 Point Chest", "Music Lab Point Large Bundle"),
+                            ("Music Lab - 140 Point Chest", "Music Lab Point Large Bundle"),
+                        ):
+                            place_point(item_name, chest_name)
+
+                        while point_required:
+                            place_point(point_required[0].name)
+
+                        self.assertEqual(
+                            self.module.weighted_music_lab_points(state, world.player),
+                            180,
+                        )
 
                         progression_probe = world.create_item("Plant Pipes")
                         for region in world.multiworld.regions:
                             for location in region.locations:
                                 unsafe = (
-                                    (location.name.startswith("Music Lab - ") and location.name.endswith(" Point Chest"))
-                                    or (
+                                    (
                                         location.name.startswith(("Game Garage - ", "Music Lab Cassette - "))
                                         and location.name not in world.active_location_names
                                     )
@@ -791,13 +976,94 @@ class WorldIntegrationTests(unittest.TestCase):
         world.generate_early()
         active = world.active_location_names
 
-        for placement in facts["unsafe_placements"]:
+        platinum_placements = [
+            placement
+            for placement in facts["unsafe_placements"]
+            if placement["location"].endswith("Platinum")
+        ]
+        for placement in platinum_placements:
             with self.subTest(**placement):
                 self.assertFalse(
                     self.module.required_progression_allowed(placement["location"], active)
                 )
 
-    def test_safe_location_rules_allow_filler_but_reject_progression(self):
+        world.create_regions()
+        world.set_rules()
+        chest = world.multiworld.get_location("Music Lab - 64 Point Chest", world.player)
+        plant_pipes = world.create_item("Plant Pipes")
+        self.assertTrue(chest.item_rule(plant_pipes))
+        self.assertFalse(chest.access_rule(State([])))
+
+        state = State(item.name for item in world.multiworld.precollected)
+        self.assertEqual(
+            state.owned,
+            Counter(item.name for item in world.multiworld.precollected),
+        )
+        self.assertFalse(chest.access_rule(state))
+
+        prerequisite_points = {
+            "Level 1 - Completion": "Music Lab Point",
+            "Level 2 - Completion": "Music Lab Point",
+            self.module.ROOTS_GECKO_WEED_KILLER: "Music Lab Point",
+            "Cassette Source - Gold": "Music Lab Point",
+            self.module.LEVEL_2_MONEY_CASSETTE_SOURCE: "Music Lab Point",
+            "Music Lab - 5 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 10 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 20 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 32 Point Chest": "Music Lab Point Large Bundle",
+        }
+        self.assertTrue(
+            self.collect_placement_spheres(
+                world,
+                state,
+                prerequisite_points,
+            )
+        )
+        self.assertGreaterEqual(
+            self.module.weighted_music_lab_points(state, world.player),
+            64,
+        )
+        self.assertFalse(state.has("Plant Pipes", world.player))
+        self.assertTrue(chest.access_rule(state))
+        self.assertTrue(
+            self.collect_placement_spheres(
+                world,
+                state,
+                {"Music Lab - 64 Point Chest": "Plant Pipes"},
+            )
+        )
+        self.assertTrue(state.has("Plant Pipes", world.player))
+
+    def test_music_lab_point_sphere_fixtures_accept_a_chain_and_reject_a_deadlock(self):
+        world = self.build_world(difficulty=3)
+        world.set_rules()
+        valid_state = State(["Music Lab Point"] * 5)
+        valid_chain = {
+            "Music Lab - 5 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 10 Point Chest": "Music Lab Point Bundle",
+            "Music Lab - 20 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 32 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 46 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 64 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 89 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 111 Point Chest": "Music Lab Point Large Bundle",
+        }
+        self.assertTrue(self.collect_placement_spheres(world, valid_state, valid_chain))
+        self.assertGreaterEqual(
+            self.module.weighted_music_lab_points(valid_state, world.player),
+            140,
+        )
+
+        impossible_state = State([])
+        impossible_chain = {
+            "Music Lab - 5 Point Chest": "Music Lab Point Large Bundle",
+            "Music Lab - 10 Point Chest": "Music Lab Point Large Bundle",
+        }
+        self.assertFalse(
+            self.collect_placement_spheres(world, impossible_state, impossible_chain)
+        )
+
+    def test_safe_location_rules_allow_filler_and_point_chests_allow_progression(self):
         world = self.build_world(difficulty=0)
         progression = world.create_item("Plant Pipes")
         filler = world.create_item("Stardust")
@@ -805,7 +1071,7 @@ class WorldIntegrationTests(unittest.TestCase):
         chest = world.multiworld.get_location("Music Lab - 64 Point Chest", 1)
         bronze = world.multiworld.get_location("Music Lab Cassette - Lets Go - Bronze", 1)
 
-        self.assertFalse(chest.item_rule(progression))
+        self.assertTrue(chest.item_rule(progression))
         self.assertTrue(chest.item_rule(filler))
         self.assertTrue(bronze.item_rule(progression))
         with self.assertRaises(KeyError):

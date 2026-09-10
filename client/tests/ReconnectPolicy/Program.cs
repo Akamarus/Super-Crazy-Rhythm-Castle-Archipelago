@@ -23,6 +23,28 @@ static void WaitUntilBlocked(Thread thread, string scenario)
     throw new InvalidOperationException($"{scenario}: thread did not block within the timeout");
 }
 
+var preLoginSocketStateReads = 0;
+Equal(
+    ConnectionErrorDisposition.IgnoreUntilLoginReturns,
+    ConnectionErrorDispositionPolicy.Decide(
+        loginEstablished: false,
+        socketConnected: () =>
+        {
+            preLoginSocketStateReads++;
+            return false;
+        }),
+    "connection-refused error before login returns to the active attempt");
+Equal(0, preLoginSocketStateReads,
+    "pre-login error disposition does not touch the socket state");
+Equal(
+    ConnectionErrorDisposition.ObserveOnly,
+    ConnectionErrorDispositionPolicy.Decide(loginEstablished: true, socketConnected: () => true),
+    "non-terminal error on an established open socket is observed only");
+Equal(
+    ConnectionErrorDisposition.EndSessionAndReconnect,
+    ConnectionErrorDispositionPolicy.Decide(loginEstablished: true, socketConnected: () => false),
+    "closed socket after login ends the established session and reconnects");
+
 var policy = new ReconnectPolicy();
 Equal<TimeSpan?>(null, policy.NextDelay(), "connected startup has no retry");
 
@@ -30,9 +52,9 @@ policy.OnUnexpectedDisconnect();
 Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextDelay(), "first retry");
 Equal<TimeSpan?>(TimeSpan.FromSeconds(2), policy.NextDelay(), "second retry");
 Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "third retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(10), policy.NextDelay(), "fourth retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(30), policy.NextDelay(), "fifth retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(30), policy.NextDelay(), "bounded repeated retry");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fourth retry stays responsive");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fifth retry stays responsive");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "bounded repeated retry stays responsive");
 
 policy.OnConnected();
 Equal<TimeSpan?>(null, policy.NextDelay(), "successful login resets retries");
@@ -255,3 +277,26 @@ Equal(true, pluginSource.Contains("ReconnectAttemptAdmission.TryExecute(", Strin
     "deferred retry revalidates intent under connection-attempt admission");
 
 Console.WriteLine("Reconnect policy tests passed.");
+
+string loginWiring = pluginSource[pluginSource.IndexOf("if (result is LoginSuccessful loginSuccess)", StringComparison.Ordinal)..];
+int pointConfig = loginWiring.IndexOf("pointHistory.ApplySlotData(", StringComparison.Ordinal);
+int pointGate = loginWiring.IndexOf("if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)", StringComparison.Ordinal);
+int connectedWiring = loginWiring.IndexOf("_connected = true;", StringComparison.Ordinal);
+True(pointConfig >= 0 && pointGate > pointConfig && connectedWiring > pointGate,
+    "login configures packet-complete history and rejects incompatibility before advertising connected");
+False(loginWiring[..connectedWiring].Contains("AllItemsReceived", StringComparison.Ordinal),
+    "login cannot publish the unready received-item cache");
+string itemWiring = pluginSource[pluginSource.IndexOf("session.Items.ItemReceived += helper =>", StringComparison.Ordinal)..pluginSource.IndexOf("if (!ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal)];
+False(itemWiring.Contains("MusicLabPointRandomization.SynchronizeHistory(", StringComparison.Ordinal),
+    "individual replay callbacks cannot publish partial point history");
+True(itemWiring.Contains("session.Socket.PacketReceived += packet =>", StringComparison.Ordinal) &&
+    itemWiring.Contains("using (packetLease)", StringComparison.Ordinal) &&
+    itemWiring.Contains("pointHistory.HandlePacket(packet)", StringComparison.Ordinal),
+    "complete packets are processed under the current session generation lease");
+True(itemWiring.Contains("MusicLabPointRandomization.TryHandleItemName,", StringComparison.Ordinal), "point names are consumed by item dispatch");
+string ending = pluginSource[pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)..pluginSource.IndexOf("private void RequestReconnect(", StringComparison.Ordinal)];
+True(ending.Contains("MusicLabPointRandomization.OnDisconnected(generation)", StringComparison.Ordinal), "accepted session ending retains synchronized points");
+string shutdown = pluginSource[pluginSource.IndexOf("public void Shutdown()", StringComparison.Ordinal)..pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)];
+True(shutdown.Contains("MusicLabPointRandomization.Reset()", StringComparison.Ordinal), "deliberate shutdown clears point state");
+True(pluginSource.Contains("MusicLabPointRandomization.OnDisconnected(previousSession.Generation)", StringComparison.Ordinal), "replacement revokes previous point generation");
+Console.WriteLine("Music Lab Point lifecycle wiring tests passed.");

@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.68.0";
+    public const string PluginVersion = "0.69.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -143,7 +143,9 @@ public sealed class Plugin : BasePlugin
         patched += PatchIntroRoomToHubRedirect();
         patched += PatchDifficultyAssignmentRequest();
         patched += PatchEarlyUnlockSequenceSteps();
-        patched += PatchMusicLabMedalScoreOverride();
+        int musicLabScorePatches = PatchMusicLabMedalScoreOverride();
+        patched += musicLabScorePatches;
+        MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0);
         patched += PatchHub6AreaPhoneProgressionConditions();
         patched += PatchRootsOwnerDiagnostic();
         patched += PatchRootsComputerNormalization();
@@ -162,6 +164,7 @@ public sealed class Plugin : BasePlugin
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
+        MusicLabPointRandomization.Configure();
         CassetteReceiptRandomization.Configure(
             acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value);
         cassettePointerBoundPersistenceAcceptance.SettingChanged += (_, _) =>
@@ -1345,7 +1348,7 @@ internal sealed class ArchipelagoClient
     private int _reconnectWorkerActive;
     private readonly HashSet<int> _processedReceivedItemIndexes = new();
 
-    public bool Connected => _connected;
+    public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
     public ArchipelagoClient(string server, string slot, string password, bool applyReceivedProgression)
     {
@@ -1379,6 +1382,8 @@ internal sealed class ArchipelagoClient
 
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
             session = ArchipelagoSessionFactory.CreateSession(_server);
+            var pointHistory = new MusicLabPointSessionHistory(generation);
+            int loginEstablished = 0;
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=session-created");
 
             session.Socket.SocketOpened += () =>
@@ -1400,7 +1405,12 @@ internal sealed class ArchipelagoClient
 
             session.Socket.ErrorReceived += (exception, message) =>
             {
-                if (!session.Socket.Connected)
+                ConnectionErrorDisposition disposition = ConnectionErrorDispositionPolicy.Decide(
+                    Volatile.Read(ref loginEstablished) != 0,
+                    () => session.Socket.Connected);
+                if (disposition == ConnectionErrorDisposition.IgnoreUntilLoginReturns)
+                    return;
+                if (disposition == ConnectionErrorDisposition.EndSessionAndReconnect)
                 {
                     ClearCurrentSession(session, generation, () =>
                     {
@@ -1457,6 +1467,7 @@ internal sealed class ArchipelagoClient
                                     PreviewAbilityRandomization.TryApplyItem,
                                     RootsBucketRandomization.TryApplyItem,
                                     CassetteReceiptRandomization.TryApplyItem,
+                                    MusicLabPointRandomization.TryHandleItemName,
                                     NativeProgression.ApplyArchipelagoItem);
                             }
                             catch (Exception ex)
@@ -1475,6 +1486,14 @@ internal sealed class ArchipelagoClient
                 }
             };
 
+            session.Socket.PacketReceived += packet =>
+            {
+                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? packetLease))
+                    return;
+                using (packetLease)
+                    pointHistory.HandlePacket(packet);
+            };
+
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     _connected = false;
@@ -1482,6 +1501,7 @@ internal sealed class ArchipelagoClient
                         !ReferenceEquals(previousSession.Session, session))
                     {
                         GarageCartridgeAccess.EndServerSync(previousSession.Generation);
+                        MusicLabPointRandomization.OnDisconnected(previousSession.Generation);
                     }
                 }, out GenerationSession<ArchipelagoSession> replaced))
             {
@@ -1506,6 +1526,9 @@ internal sealed class ArchipelagoClient
 
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] NET stage=login-returned successful={result.Successful} resultType={result.GetType().FullName}");
+
+            if (result.Successful)
+                Interlocked.Exchange(ref loginEstablished, 1);
 
             if (!result.Successful)
             {
@@ -1538,6 +1561,13 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
+                        MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
+                            loginSuccess.SlotData,
+                            Plugin.GameName,
+                            session.RoomState.Seed,
+                            _slot);
+                        if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
+                            throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
@@ -1553,7 +1583,7 @@ internal sealed class ArchipelagoClient
                     ClearCurrentSession(session, generation);
                     _ = session.Socket.DisconnectAsync();
                     Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] Failed to apply Area Access starter from slot data: {ex}");
+                        $"[SCRC-AP] Failed to configure AP session from slot data: {ex}");
                     return false;
                 }
             }
@@ -1597,6 +1627,7 @@ internal sealed class ArchipelagoClient
         {
             _connected = false;
             _reconnectPolicy.OnDeliberateShutdown();
+            MusicLabPointRandomization.Reset();
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
@@ -1615,6 +1646,7 @@ internal sealed class ArchipelagoClient
         {
             _connected = false;
             GarageCartridgeAccess.EndServerSync(generation);
+            MusicLabPointRandomization.OnDisconnected(generation);
             terminal?.Invoke();
         });
     }
@@ -1686,13 +1718,13 @@ internal sealed class ArchipelagoClient
         _pendingChecks.Enqueue(locationName);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEUED CHECK '{locationName}'.");
 
-        if (_connected)
+        if (Connected)
             Task.Run(FlushPendingChecks);
     }
 
     private void FlushPendingChecks()
     {
-        if (!_connected ||
+        if (!Connected ||
             !ConnectionLifecycle.TryAcquireCurrent(
                 out ArchipelagoSession? session,
                 out long generation,
@@ -16106,6 +16138,8 @@ internal static class MusicLabPointOverride
 
     public static void CycleToNextRewardThreshold()
     {
+        if (MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Native)
+            return;
         int native = ReadNativeScore();
         int current = Math.Max(native, _overrideScore ?? native);
 
@@ -16170,12 +16204,16 @@ internal static class MusicLabPointOverridePatches
     public static void GetMedalScorePostfix(ref int __result)
     {
         MusicLabPointOverride.RecordNativeScore(__result);
-
-        if (SuppressOverride || !DeveloperHarness.Enabled)
+        if (SuppressOverride)
             return;
 
-        if (MusicLabPointOverride.OverrideScore is int forced)
-            __result = forced;
+        int nativeScore = __result;
+        int? developerScore = DeveloperHarness.Enabled
+            ? MusicLabPointOverride.OverrideScore
+            : null;
+        __result = DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"
+            ? MusicLabPointRandomization.ResolveEffectiveScore(nativeScore, developerScore)
+            : developerScore ?? nativeScore;
     }
 }
 

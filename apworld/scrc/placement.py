@@ -12,8 +12,6 @@ def required_progression_allowed(
     location_name: str,
     active_tier_locations: Collection[str],
 ) -> bool:
-    if location_name.startswith("Music Lab - ") and location_name.endswith(" Point Chest"):
-        return False
     if location_name.startswith(TIERED_PREFIXES):
         return location_name in active_tier_locations
     return True

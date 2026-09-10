@@ -45,6 +45,7 @@ Equal(true, ReceivedItemDispatch.TryApply(
     },
     rootsBucketHandler: _ => false,
     cassetteHandler: _ => false,
+    musicLabPointHandler: _ => false,
     experimentalFallback: _ => previewFallbackCalled = true),
     "received item dispatch handles preview abilities without experimental progression");
 Equal(true, previewHandlerCalled, "received item dispatch invokes the preview reconciler");

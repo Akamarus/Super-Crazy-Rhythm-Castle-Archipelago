@@ -51,6 +51,7 @@ bool cassetteHandledWithExperimentalProgressionDisabled = ReceivedItemDispatch.T
         cassetteHandlerCalled = itemName == "Heavy Metal Cassette";
         return true;
     },
+    musicLabPointHandler: _ => false,
     experimentalFallback: _ => experimentalFallbackCalled = true);
 Equal(true, cassetteHandledWithExperimentalProgressionDisabled, "cassette dispatch is handled when experimental progression is disabled");
 Equal(true, cassetteHandlerCalled, "cassette dispatch invokes the always-on cassette handler");

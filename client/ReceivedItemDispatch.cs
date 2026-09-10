@@ -12,6 +12,7 @@ internal static class ReceivedItemDispatch
         Func<string, bool> previewAbilityHandler,
         Func<string, bool> rootsBucketHandler,
         Func<string, bool> cassetteHandler,
+        Func<string, bool> musicLabPointHandler,
         Action<string> experimentalFallback)
     {
         bool handled =
@@ -21,7 +22,8 @@ internal static class ReceivedItemDispatch
             plantPipesHandler(itemName) ||
             previewAbilityHandler(itemName) ||
             rootsBucketHandler(itemName) ||
-            cassetteHandler(itemName);
+            cassetteHandler(itemName) ||
+            musicLabPointHandler(itemName);
 
         if (handled)
             return true;

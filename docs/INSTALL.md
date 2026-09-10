@@ -5,6 +5,8 @@
 
 This is the canonical installation guide for public development testing. The component guides keep their developer details: [client notes](../client/README.md), [APWorld notes](../apworld/README.md), and the [APWorld setup page](../apworld/scrc/docs/setup_en.md).
 
+Current candidate: **Client v0.69.0 / APWorld v0.23.0**. Music Lab Points is experimental and requires manual acceptance with a fresh v0.23 seed and fresh native save. Build without installation first; live testing follows review and explicit approval of the exact candidate artifacts. The [acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) records that boundary.
+
 ## Before you begin
 
 You need:
@@ -24,10 +26,10 @@ Clone the repository and run the client build script with the directory that con
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
 cd .\Super-Crazy-Rhythm-Castle-Archipelago\client
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus"
+.\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
 ```
 
-The build script installs the client and its runtime dependencies only to:
+The command above builds without installation. After artifact review and live-test approval, rerun it without `-SkipInstall`. The build script then installs the client and its runtime dependencies only to:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
@@ -38,12 +40,12 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.68.0 loading.
+[SCRC-AP] v0.69.0 loading.
 ```
 
 ## Configure the current development client
 
-After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.22 development flow, use these values and replace the server and slot placeholders with the room's connection values.
+After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.23 development flow, use these values and replace the server and slot placeholders with the room's connection values.
 
 ```ini
 [Archipelago]
@@ -81,11 +83,15 @@ Use one of these YAML starting points: click **Generate Template Options** in Ar
 
 In Archipelago Launcher, click **Generate**. On success, take the generated archive from `<Archipelago>\output\AP_XXXXX.zip`. Custom worlds generate locally, and the resulting zip can be uploaded to a compatible hosting website afterward.
 
-Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.22.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`; it forces Roots as the starter area, provides experimental routing for all 30 Music Lab cassette mappings, and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
+Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.23.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23`; it forces Roots as the starter area, adds AP Music Lab Points, retains all 30 experimental cassette mappings, and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
 
-Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. In v0.22, Normal addresses 92 locations; Hard 129; Expert 166; Perfection 202. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
+Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter existing AP performance locations. In v0.23, Normal still addresses 92 locations; Hard 129; Expert 166; Perfection 202. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
-Install APWorld v0.22, generate a newly created v0.22 seed, and start a fresh in-game save for cassette testing. Client v0.68.0 rejects incomplete, older, or mismatched cassette slot data and preserves vanilla cassette awards; it never partially enables the feature. Many individual v0.22 routes remain manual verification pending. A historical v0.21 seed used with historical Client v0.67.95 retains the Money-only pilot. Receiving a cassette puts it in the native bag, but the player must use its Music Lab machine to deposit/unlock the song.
+Install APWorld v0.23, generate a newly created v0.23 seed, and start a fresh in-game save for acceptance. Replacing the world does not upgrade an old seed or make an old save an acceptance baseline. Client v0.69.0 requires the exact schema-14/point-schema-1 contract, including IDs, values, counts, totals, cap, and threshold-to-location map. Recognized v0.22 seeds retain native Music Lab scoring; malformed v0.23 data reports incompatibility and keeps the effective total at zero.
+
+The 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles total 180 points. They replace 20 Stardust; the last chest costs 140, leaving 40 slack. Thresholds are 5/10/20/32/46/64/89/111/140, with no milestone or duplicate cassette/cartridge checks. AP totals apply only through the existing managed getter in `GameRoom_Hub6`, remain zero before synchronization, and retain the last synchronized total during a temporary disconnect. Native medals add no points. The diagnostic-first investigation rejected chest/native detours; no native score/save write or forced chest interaction is used. The existing display, all thresholds, and persistence still need live acceptance; the developer Shift+F4 override cannot supersede compatible AP points.
+
+Incomplete, older, or mismatched cassette slot data separately preserves vanilla cassette awards. Many individual cassette routes remain manual verification pending. A historical v0.21 seed used with historical Client v0.67.95 retains the Money-only pilot. Receiving a cassette puts it in the native bag, but the player must use its Music Lab machine to deposit/unlock the song.
 
 ## Updating or uninstalling
 

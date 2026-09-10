@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+    <Compile Include="..\..\MusicLabPointPolicy.cs" Link="MusicLabPointPolicy.cs" />
+    <Compile Include="..\..\MusicLabPointRandomization.cs" Link="MusicLabPointRandomization.cs" />
+    <Compile Include="..\..\MusicLabPointSessionHistory.cs" Link="MusicLabPointSessionHistory.cs" />
+    <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
+    <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionScorePostfix" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <ScoreSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</ScoreSource>
+      <ScorePostfix>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', '(?s)internal static class MusicLabPointOverride.*?(?=internal static class MusicLabPointDiagnostic)').Value)</ScorePostfix>
+      <ConnectionStatus>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', 'public bool Connected =&gt;[^%3B]+%3B').Value)</ConnectionStatus>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionScorePostfix.cs" Lines="using System.Reflection%3B namespace RhythmCastleAP%3B $(ScorePostfix)" Overwrite="true" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionConnectionStatus.cs" Lines="namespace RhythmCastleAP%3B internal sealed class ConnectionStatusProbe { private readonly bool _connected%3B internal ConnectionStatusProbe(bool connected) { _connected = connected%3B } $(ConnectionStatus) }" Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)ProductionScorePostfix.cs" />
+      <Compile Include="$(IntermediateOutputPath)ProductionConnectionStatus.cs" />
+    </ItemGroup>
+  </Target>
+</Project>

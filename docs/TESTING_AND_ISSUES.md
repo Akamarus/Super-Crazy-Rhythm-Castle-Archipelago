@@ -7,15 +7,15 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-Client v0.68.0 / APWorld v0.22.0 provides an experimental test implementation for all 30 Music Lab cassette items and sources while preserving the physical vanilla Vampire Killer pickup and normal Game Garage entrance. Many individual routes remain manual verification pending. Use a fresh v0.22 seed.
+Client v0.69.0 / APWorld v0.23.0 is an experimental Music Lab Points candidate requiring manual acceptance. It retains all 30 cassette items and sources, the physical vanilla Vampire Killer pickup, and normal Game Garage entrance. Many individual cassette routes remain manual verification pending. Use a fresh v0.23 seed and fresh native save.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.68.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.68.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.22.0`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22`.
+- Client: `0.69.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.69.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- APWorld: `0.23.0`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
 - Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 92/129/166/202 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
@@ -28,14 +28,14 @@ Follow the [installation guide](INSTALL.md) to build and install both components
 Run these steps in order where the seed allows. A received progression item may belong to a different player or be placed later in your own world, so a source check need not deliver its matching item immediately. Record the exact step, level, or song at which a result differs from the expectation.
 
 1. **Start and connect.** Launch the game with the new save and connect to the room. Confirm the client version line above, normal connection/login lines, and the `area-routing-plant-pipes-0.15` slot-data implementation in `LogOutput.log`.
-2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.22.0 random currently selects only validated Roots Access.
+2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.23.0 random currently selects only validated Roots Access.
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
 6. **Test the Level 3 partial route.** Enter Level 3 and reach Frog/Hippo. Their interaction should send `Roots - Level 3 - Frog and Hippo`, without directly granting Plant Pipes. If `Plant Pipes` has not arrived yet, use the normal menu exit: leaving the level at this point is intentional and is the expected partial-level behavior.
 7. **Test Plant Pipes and Level 3 completion.** After the room delivers `Plant Pipes`, verify `ROOTS PLANT PIPES NATIVE GRANT APPLIED`, return to Level 3, and complete it. This confirms that Plant Pipes is required for completion, not for reaching the Frog/Hippo source.
 8. **Test one randomized Game Garage cartridge.** When you own one of the five AP cartridge items, insert its matching cartridge in Game Garage and complete that song at least at Bronze. Vampire Killer is native and not one of these five items. Confirm the matching `Game Garage - {song} - Bronze` check; a higher sticker should also satisfy its lower cumulative tiers.
-9. **Verify the live I Got Money source baseline.** On the fresh v0.22 save, clear default Level 2 once. Confirm the source check `Level 2 - Money Cassette` is sent and the native cassette award is suppressed. This proves the **source location**, not ownership of the cassette item placed there. Replay default Level 2 and confirm the source does not send again. The Bee Mode alias remains manual verification pending and is not part of this baseline.
+9. **Verify the live I Got Money source baseline.** On the fresh candidate save, clear default Level 2 once. Confirm the source check `Level 2 - Money Cassette` is sent and the native cassette award is suppressed. This proves the **source location**, not ownership of the cassette item placed there. Replay default Level 2 and confirm the source does not send again. The Bee Mode alias remains manual verification pending and is not part of this baseline.
 10. **Verify a second ordinary cassette source.** Clear one mapped non-I-Got-Money level route listed in the per-song table below. Confirm its `Cassette Source - {song}` check sends once, its native cassette award is suppressed, and replaying the same route sends no duplicate. Record the exact level/variant and song; do not claim untested aliases from this one result.
 11. **Verify a reused point-chest cassette source.** Open one of the 32/64/89/111/140-point chests. Confirm only its existing `Music Lab - {threshold} Point Chest` location sends—there must be no second `Cassette Source` location—and confirm other chest rewards/collected state remain native. Re-enter Hub6 or reconnect and confirm reconciliation does not resend the check.
 12. **Verify AP receipt and native bag state separately.** When the multiworld delivers a cassette item (which need not match the source just completed), confirm the AP receipt is logged and the corresponding cassette appears as native `HAVE_IN_BAG`. Repeat after a room reload, save reload, reconnect, and full game restart. This is an **item receipt/lifecycle** test, not a source or medal test. A previously deposited cassette must remain `HAVE_DEPOSITED`, never return to the bag.
@@ -43,6 +43,14 @@ Run these steps in order where the seed allows. A received progression item may 
 14. **Verify the medal check after insertion.** Play the newly deposited song and earn a medal. Confirm the matching cumulative `Music Lab Cassette - {song} - {tier}` check and `MUSIC LAB CASSETTE MEDAL` log line. A higher medal may send lower cumulative tiers; it must not create another cassette source or item receipt.
 
 If a step cannot be attempted because the seed has not delivered the needed item, report the completed steps and the item/slot state instead of editing save data or using an untrusted workaround.
+
+## Music Lab Points acceptance — pending
+
+The pool has 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points in 20 progression instances replacing 20 Stardust. The nine existing thresholds are 5/10/20/32/46/64/89/111/140; the final chest leaves 40 slack. Solver-reachable chests may hold progression. No point milestones or duplicate cassette/cartridge locations are added.
+
+Use the [acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) after offline verification, artifact review, and explicit live-test approval. Record the commit, DLL/APWorld hashes, seed/archive, non-secret server/slot identity, native save slot, game/BepInEx versions, and diagnostic result. Test the existing display and each chest one point below/at its threshold, player-driven opening, and exactly one existing check ID. Also record native medal invariance, retained disconnect total and queued check, reconnect, relaunch, v0.22 fallback, malformed-contract regression, errors, and tester approval.
+
+The exact schema-14/point-schema-1 contract is required. Compatible Music Lab sessions show zero before history sync, then the weighted AP total capped at 180. Native medals never add AP points; recognized v0.22/non-AP sessions use native scoring, while malformed v0.23 contracts explain incompatibility and stay zero. The diagnostic-first investigation rejected the chest/native detour. Only the existing managed getter in `GameRoom_Hub6` applies AP totals, with no native medal/save write or forced interaction. Other rooms must preserve native behavior. Do not use Shift+F4; the developer override cannot supersede compatible AP point state.
 
 ## Confirmed blocking bugs
 
@@ -118,20 +126,22 @@ Use this optional report block in addition to the general issue template below:
 
 ## Known limitations
 
-- APWorld v0.22.0 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
+- APWorld v0.23.0 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
 - Royal Corridor routing is incomplete. The Hub6 phone lands on the Level 22 side; fresh-save testing confirmed the player cannot approach the Royal Star Eater from that spawn to feed Stars and complete the bridge back toward Level 21. Until the bridge route and logic are implemented, `Royal Corridor Access` exposes only the phone-side Level 22 route and must not make Level 21 or the Royal Star Eater check logically reachable.
 - Full-game logic and the final victory condition are incomplete. The approved 66-Star / Level 22 victory design is not implemented.
-- Generated AP Stars and randomized Music Lab Point inventory are design-only. Current Music Lab reward chests use the game's native medal-score currency.
+- Generated AP Stars remain design-only. AP Music Lab Point inventory and room-scoped score replacement are implemented as a v0.23 candidate; existing display, nine thresholds, persistence, and compatibility remain manual acceptance pending.
 - Music Lab construction barriers are bypassed in compatible AP sessions, but most full-cassette source routes still require individual manual verification.
 - The 24 newly mapped cassette songs and the I Got Money Bee alias are manual-verification pending. Secret Bunker Devil aliases remain conservatively inactive in solver reachability.
 - The separate Game Garage cartridge native-inventory blocker remains open; Music Lab cassette receipt reconciliation does not fix it.
-- AP performance difficulty filtering is active in APWorld v0.22.0; it filters existing performance locations and does not change native REG/PRO. The eight-option cassette/solver matrix is complete. Manual gameplay remains part of the broader prototype smoke test; inactive Star previews and live Star gates are separate, unfinished systems.
+- AP performance difficulty filtering is retained in APWorld v0.23.0; it filters existing performance locations and does not change native REG/PRO. The historical eight-option cassette/solver matrix is complete. Manual gameplay remains part of the broader prototype smoke test; inactive Star previews and live Star gates are separate, unfinished systems.
 - Local co-op is unverified. Online co-op, DeathLink, and an integrated overlay/text client are deferred.
 - Developer diagnostics and hotkeys may exist in development builds. Do not rely on them for normal play, and say exactly which one you used in a report.
 
 ## Full cassette manual status (v0.22)
 
 “Live verified” is reserved for a song with its own recorded gameplay evidence. Point-chest routes use the previously established chest interaction as a representative path. I Got Money's default Level 2 route is live verified; its Bee alias is still manual verification pending.
+
+These retained v0.22 source statuses do not establish v0.23 AP-point display or threshold acceptance; every point threshold must still be tested with the new economy.
 
 | Song | Source type | Source location | Status |
 | --- | --- | --- | --- |

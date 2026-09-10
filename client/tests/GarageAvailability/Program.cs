@@ -95,8 +95,8 @@ var entrancePreviewCases = new[]
         ApOwnedSongs: Array.Empty<string>(), Expected: (true, false),
         Scenario: "unowned Superstar remains false"),
     (Enabled: true, Compatible: true, NativeType: "SUPERSTAR", NativeOwned: true,
-        ApOwnedSongs: Array.Empty<string>(), Expected: (true, true),
-        Scenario: "native-owned Superstar remains true"),
+        ApOwnedSongs: Array.Empty<string>(), Expected: (true, false),
+        Scenario: "native source flag cannot expose AP-unowned Superstar"),
     (Enabled: true, Compatible: true, NativeType: "VAMPIRE_KILLER", NativeOwned: false,
         ApOwnedSongs: new[] { "Vampire Killer" }, Expected: (false, false),
         Scenario: "physical Vampire Killer remains fully native"),
@@ -162,20 +162,20 @@ Equal(0, liveShape.PreviousGarageResults.Take(5).Sum(result => result.WriteCount
 
 foreach (var scenario in new[]
 {
-    (Enabled: true, Compatible: true, NativeOwned: false, ApOwned: Array.Empty<string>(), Expected: false,
+    (Enabled: true, Compatible: true, NativeOwned: false, ApOwned: Array.Empty<string>(), Expected: false, ExpectedWrites: 0,
         Name: "unowned randomized cartridge remains native false"),
-    (Enabled: true, Compatible: true, NativeOwned: true, ApOwned: Array.Empty<string>(), Expected: true,
-        Name: "native true remains true without a redundant write"),
-    (Enabled: false, Compatible: true, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false,
+    (Enabled: true, Compatible: true, NativeOwned: true, ApOwned: Array.Empty<string>(), Expected: false, ExpectedWrites: 1,
+        Name: "native source flag is hidden without AP ownership"),
+    (Enabled: false, Compatible: true, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false, ExpectedWrites: 0,
         Name: "disabled routing preserves native false"),
-    (Enabled: true, Compatible: false, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false,
+    (Enabled: true, Compatible: false, NativeOwned: false, ApOwned: new[] { "Superstar" }, Expected: false, ExpectedWrites: 0,
         Name: "incompatible routing preserves native false"),
 })
 {
     var data = new FakeGaragePreviewData(new FakeGarageResult("SUPERSTAR", scenario.NativeOwned));
-    Equal((true, 0), ApplyEntrancePreview(data, scenario.Enabled, scenario.Compatible, scenario.ApOwned), scenario.Name);
+    Equal((true, scenario.ExpectedWrites), ApplyEntrancePreview(data, scenario.Enabled, scenario.Compatible, scenario.ApOwned), scenario.Name);
     Equal(scenario.Expected, data.PreviousGarageResults[0].cartridgeOwned, scenario.Name);
-    Equal(0, data.PreviousGarageResults[0].WriteCount, scenario.Name);
+    Equal(scenario.ExpectedWrites, data.PreviousGarageResults[0].WriteCount, scenario.Name);
 }
 
 var nativeVampire = new FakeGaragePreviewData(new FakeGarageResult("VAMPIRE_KILLER", false));

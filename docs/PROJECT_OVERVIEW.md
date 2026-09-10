@@ -4,6 +4,8 @@ This document is the living technical/design overview for the **Super Crazy Rhyt
 
 > **Status:** Work in progress. The implementation is being developed incrementally, with gameplay testing used to confirm native progression flags and source behavior before those systems are committed to Archipelago logic.
 
+Current candidate: **Client v0.69.0 / APWorld v0.23.0**, with slot-data schema 14 and point schema 1. Music Lab Points is an experimental candidate requiring manual acceptance on a fresh v0.23 seed and fresh native save. It is not a completed release.
+
 ## 1. Project goals
 
 The project integrates **Super Crazy Rhythm Castle** with the Archipelago multiworld randomizer using two cooperating components:
@@ -92,6 +94,9 @@ This table lists the item names currently known to the APWorld. Permanent networ
 | **Weed Killer** | Progression | Native consumable quest item from Gecko. AP delivery grants `WEED_KILLER_BAG_ITEM`; vanilla later consumes it to reveal/access Level 3. |
 | **Plant Pipes** | Progression | Permanent usable ability obtained from Frog and Hippo in Level 3. AP delivery grants `WEED_KILLER_ABILITY`. Required to complete Level 3. |
 | **30 Music Lab Cassettes** | Progression | v0.22 maps every recognized cassette to one item and one idempotent source. AP delivery grants native `HAVE_IN_BAG`; the player still inserts it in Music Lab normally. |
+| **Music Lab Point** | Progression | 10 instances worth 1 each; permanent ID `187256153`. |
+| **Music Lab Point Bundle** | Progression | 3 instances worth 10 each; permanent ID `187256154`. |
+| **Music Lab Point Large Bundle** | Progression | 7 instances worth 20 each; permanent ID `187256155`. |
 
 ### Historical item IDs retained for compatibility
 
@@ -379,7 +384,15 @@ When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG
 
 Nine Hub6 Music Lab reward chests are tracked from their live native metadata. The client does not create fake startup chest components; it waits until Hub6 loads and reads the actual chest unlock requirement and native collection flag.
 
-Music Lab Points currently remain the game's native medal-score currency, read through `CurrentPlayerSaveEnquiries.GetMedalScore()`. The nine reward chests are AP locations; Music Lab Points are not currently generated AP inventory items. Separate AP Music Lab Point inventory is approved future design, not implemented; its final item distribution remains provisional until the location count is validated.
+The v0.23 candidate replaces the Music Lab medal-score currency with AP inventory for an exact compatible point contract. Ten 1-point items, three 10-point bundles, and seven 20-point large bundles replace 20 Stardust, for 180 points in 20 progression instances. The final chest costs 140, leaving 40 points of slack. No point milestone locations are added; the nine existing checks and their five cassette/two cartridge source reuses are unchanged. Weighted solver rules allow progression in point chests when a reachable chain exists.
+
+The v0.23 candidate rebuilds AP point totals from complete received-item packets, using permanent item IDs and receipt indexes. An index-zero packet establishes authoritative history, including an empty history; login alone and individual replay callbacks cannot replace the retained total. Matching reconnects retain their last synchronized value until that complete packet arrives. Its existing managed score postfix substitutes the total only in `GameRoom_Hub6`: awaiting or incompatible sessions return zero, synchronized and retained disconnects return AP points. Deliberate native reads bypass replacement, and Shift+F4 cycling is a no-op while AP owns the score. Other rooms and legacy/non-AP sessions keep native/developer score behavior. Identity replacement and shutdown clear AP totals. This candidate performs no native score/save writes and installs no native detour. The existing display and all nine chest thresholds remain pending live gameplay acceptance.
+
+The point contract validates exact names, IDs, values, counts, totals, maximum 180, and threshold-to-location mapping. Recognized v0.22 seeds retain native Music Lab scoring. A malformed v0.23 contract reports incompatibility and stays at zero instead of substituting native medals. Campaign, cassette, and Game Garage medals never add AP points, and their native results remain untouched.
+
+The managed getter patch must also be available before a v0.23 session is usable. A missing or failed getter makes the point state incompatible with effective score zero and prevents usable connection status. Restoring availability can only enable points at a new session or identity boundary; it does not revive a rejected session.
+
+The diagnostic-first investigation confirmed the managed `CurrentPlayerSaveEnquiries.GetMedalScore()` getter and read-only chest metadata. The generated chest wrapper failed to load, and a native detour was rejected because cleanup/quiescence guarantees could not be established. The accepted candidate uses only the room-scoped managed getter; if the live display or any chest threshold does not respond, acceptance fails and requires a design revision. See the [diagnostic evidence and acceptance matrix](testing/2026-09-09-music-lab-points-acceptance.md).
 
 | Point threshold | Native chest |
 | ---: | --- |
@@ -395,7 +408,7 @@ Music Lab Points currently remain the game's native medal-score currency, read t
 
 Already-collected rewards are reconciled idempotently against the save when Hub6 is available.
 
-A developer-only Music Lab point override exists for testing reward thresholds without modifying saved medal totals.
+A developer-only Music Lab point override exists for legacy/non-AP testing without modifying saved medal totals. It cannot supersede compatible AP point state.
 
 ---
 
@@ -415,7 +428,7 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The implemented APWorld v0.22.0 difficulty choices are:
+The implemented APWorld v0.23.0 difficulty choices are:
 
 - **Normal**
 - **Hard**
@@ -435,7 +448,7 @@ A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.22.0 retains difficulty filtering while adding 24 new cassette source locations, producing 92/129/166/202 addressed locations. Existing v0.21 seeds do not contain the full cassette schema and therefore retain native cassette behavior with Client v0.68.0. Active Level-22 2/3-Star checks and Music Lab point chests remain filler-only.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.23.0 retains the v0.22 cassette source set and 92/129/166/202 addressed locations. Existing v0.21 seeds do not contain the full cassette schema and therefore retain native cassette behavior with Client v0.69.0. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests now permit solver-reachable progression behind their weighted AP thresholds.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -562,6 +575,7 @@ The client follows several implementation rules developed through testing:
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | `Level_06 -> 110 -> I_GOT_MONEY` is randomized through `Level 2 - Money Cassette`; fresh-save and save-switch IL2CPP acceptance remain pending. |
 | Music Lab cassette-item randomization | Experimental test candidate / manual verification pending | All 30 mappings are present in v0.22. The 24 newly mapped songs and I Got Money Bee alias require individual gameplay evidence. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
+| AP Music Lab Points | Experimental v0.23 candidate / manual acceptance pending | 10/3/7 items worth 180 points; room-scoped effective score, strict compatibility, and history rebuilds implemented. Display, nine thresholds, persistence, and compatibility require live acceptance. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
 | Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing performance locations at 92/129/166/202 addressed locations; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
@@ -613,11 +627,11 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.22.0:
+Current frontier at APWorld v0.23.0 (no new location allocations):
 
 ```text
-Next safe item ID:     187256123
-Next safe location ID: 187256186
+Next safe item ID:     187256156
+Next safe location ID: 187256211
 ```
 
 ---
