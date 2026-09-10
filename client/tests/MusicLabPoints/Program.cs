@@ -383,4 +383,22 @@ Contains("MusicLabPointBoundaryDiagnostics.ObserveScore(__result);", getterPostf
 Equal(false, getterPostfix.Contains("ResolveEffectiveScore", StringComparison.Ordinal),
     "production AP effective-score replacement stays disabled");
 Console.WriteLine("PASS: diagnostic_boundary_is_default_off_bounded_exact_and_read_only");
+
+// Catch late interception: the complete plain-F5 entry must consume enabled
+// diagnostics before either the legacy identity scan or the room-specific scan.
+string f5Source = pluginSource.Split("if (Input.GetKeyDown(KeyCode.F5))", StringSplitOptions.None)[1]
+    .Split("if (Input.GetKeyDown(KeyCode.F6))", StringSplitOptions.None)[0];
+var interception = System.Text.RegularExpressions.Regex.Match(f5Source,
+    @"if\s*\(\s*!control\s*&&\s*!alt\s*&&\s*!shift\s*&&\s*MusicLabPointBoundaryDiagnostics\.TryScan\(\)\s*\)\s*return;");
+Equal(true, interception.Success, "plain F5 must consume enabled boundary diagnostics at the hotkey entry");
+foreach (string legacyAction in new[] { "MusicLabDiscovery.ScanNativeIdentityCandidates()", "Level5Discovery.ScanCurrentScene()", "DeveloperHarness.ScanPostAct1RouteObjects()" })
+    Equal(true, f5Source.IndexOf(legacyAction, StringComparison.Ordinal) > interception.Index + interception.Length,
+        "boundary interception must precede legacy F5 work: " + legacyAction);
+string tryScanSource = boundarySource.Split("public static bool TryScan()", StringSplitOptions.None)[1]
+    .Split("private static int ReadProbe", StringSplitOptions.None)[0];
+Contains("if (!_enabled) return false;", tryScanSource, "only disabled diagnostics may fall through F5");
+Equal(1, System.Text.RegularExpressions.Regex.Matches(tryScanSource, @"return\s+false\s*;").Count,
+    "enabled first, repeated and unavailable scan attempts must never fall through");
+Contains("if (_scanAttempted) return true;", tryScanSource, "repeated F5 is consumed without legacy work");
+Console.WriteLine("PASS: plain_f5_boundary_intercepts_all_legacy_work_without_enabled_fallthrough");
 Console.WriteLine("Music Lab Point policy and adapter tests passed.");

@@ -22607,6 +22607,11 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.LeftShift) ||
                 Input.GetKey(KeyCode.RightShift);
 
+            // Consume the complete plain-F5 dispatch before any legacy scan,
+            // including repeated or unavailable boundary-checkpoint attempts.
+            if (!control && !alt && !shift && MusicLabPointBoundaryDiagnostics.TryScan())
+                return;
+
             if (!control && !alt && !shift)
                 MusicLabDiscovery.ScanNativeIdentityCandidates();
 
@@ -24789,9 +24794,6 @@ internal static class MusicLabDiscovery
     public static void ScanCurrentScene()
     {
         if (!DeveloperHarness.Enabled)
-            return;
-
-        if (MusicLabPointBoundaryDiagnostics.TryScan())
             return;
 
         string room = DeveloperHarness.CurrentRoomId;
