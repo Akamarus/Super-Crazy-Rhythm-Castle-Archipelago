@@ -24,9 +24,10 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+182..+185` | `187256182..187256185` | Level 22 Completion / 1 Star / 2 Stars / 3 Stars |
 | `+186` | `187256186` | Level 2 - Money Cassette |
 | `+187..+210` | `187256187..187256210` | 24 new full-cassette source checks |
+| `+211..+291` | `187256211..187256291` | Full normal-campaign location catalog (81 newly allocated checks) |
 
-**Next safe location offset:** `+211`
-**Next safe location ID:** `187256211`
+**Next safe location offset:** `+292`
+**Next safe location ID:** `187256292`
 
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
@@ -60,6 +61,97 @@ The current allocation contains **203** network locations.
 | `+208` | `187256208` | Cassette Source - Party Non Stop |
 | `+209` | `187256209` | Cassette Source - Keep On Hustlin |
 | `+210` | `187256210` | Cassette Source - Another Day In Paradise |
+
+### Full normal-campaign location IDs
+
+The normal-campaign catalog has four cumulative locations per level: Completion,
+1 Star, 2 Stars, and 3 Stars. Existing Level 1–3 Completion and all Level 22
+locations retain their historical IDs. The remaining entries are allocated in
+ascending level number and tier order.
+
+| Offset | Absolute ID | Campaign location |
+| ---: | ---: | --- |
+| `+211` | `187256211` | Level 1 - 1 Star |
+| `+212` | `187256212` | Level 1 - 2 Stars |
+| `+213` | `187256213` | Level 1 - 3 Stars |
+| `+214` | `187256214` | Level 2 - 1 Star |
+| `+215` | `187256215` | Level 2 - 2 Stars |
+| `+216` | `187256216` | Level 2 - 3 Stars |
+| `+217` | `187256217` | Level 3 - 1 Star |
+| `+218` | `187256218` | Level 3 - 2 Stars |
+| `+219` | `187256219` | Level 3 - 3 Stars |
+| `+220` | `187256220` | Level 4 - Completion |
+| `+221` | `187256221` | Level 4 - 1 Star |
+| `+222` | `187256222` | Level 4 - 2 Stars |
+| `+223` | `187256223` | Level 4 - 3 Stars |
+| `+224` | `187256224` | Level 5 - Completion |
+| `+225` | `187256225` | Level 5 - 1 Star |
+| `+226` | `187256226` | Level 5 - 2 Stars |
+| `+227` | `187256227` | Level 5 - 3 Stars |
+| `+228` | `187256228` | Level 6 - Completion |
+| `+229` | `187256229` | Level 6 - 1 Star |
+| `+230` | `187256230` | Level 6 - 2 Stars |
+| `+231` | `187256231` | Level 6 - 3 Stars |
+| `+232` | `187256232` | Level 7 - Completion |
+| `+233` | `187256233` | Level 7 - 1 Star |
+| `+234` | `187256234` | Level 7 - 2 Stars |
+| `+235` | `187256235` | Level 7 - 3 Stars |
+| `+236` | `187256236` | Level 8 - Completion |
+| `+237` | `187256237` | Level 8 - 1 Star |
+| `+238` | `187256238` | Level 8 - 2 Stars |
+| `+239` | `187256239` | Level 8 - 3 Stars |
+| `+240` | `187256240` | Level 9 - Completion |
+| `+241` | `187256241` | Level 9 - 1 Star |
+| `+242` | `187256242` | Level 9 - 2 Stars |
+| `+243` | `187256243` | Level 9 - 3 Stars |
+| `+244` | `187256244` | Level 10 - Completion |
+| `+245` | `187256245` | Level 10 - 1 Star |
+| `+246` | `187256246` | Level 10 - 2 Stars |
+| `+247` | `187256247` | Level 10 - 3 Stars |
+| `+248` | `187256248` | Level 11 - Completion |
+| `+249` | `187256249` | Level 11 - 1 Star |
+| `+250` | `187256250` | Level 11 - 2 Stars |
+| `+251` | `187256251` | Level 11 - 3 Stars |
+| `+252` | `187256252` | Level 12 - Completion |
+| `+253` | `187256253` | Level 12 - 1 Star |
+| `+254` | `187256254` | Level 12 - 2 Stars |
+| `+255` | `187256255` | Level 12 - 3 Stars |
+| `+256` | `187256256` | Level 13 - Completion |
+| `+257` | `187256257` | Level 13 - 1 Star |
+| `+258` | `187256258` | Level 13 - 2 Stars |
+| `+259` | `187256259` | Level 13 - 3 Stars |
+| `+260` | `187256260` | Level 14 - Completion |
+| `+261` | `187256261` | Level 14 - 1 Star |
+| `+262` | `187256262` | Level 14 - 2 Stars |
+| `+263` | `187256263` | Level 14 - 3 Stars |
+| `+264` | `187256264` | Level 15 - Completion |
+| `+265` | `187256265` | Level 15 - 1 Star |
+| `+266` | `187256266` | Level 15 - 2 Stars |
+| `+267` | `187256267` | Level 15 - 3 Stars |
+| `+268` | `187256268` | Level 16 - Completion |
+| `+269` | `187256269` | Level 16 - 1 Star |
+| `+270` | `187256270` | Level 16 - 2 Stars |
+| `+271` | `187256271` | Level 16 - 3 Stars |
+| `+272` | `187256272` | Level 17 - Completion |
+| `+273` | `187256273` | Level 17 - 1 Star |
+| `+274` | `187256274` | Level 17 - 2 Stars |
+| `+275` | `187256275` | Level 17 - 3 Stars |
+| `+276` | `187256276` | Level 18 - Completion |
+| `+277` | `187256277` | Level 18 - 1 Star |
+| `+278` | `187256278` | Level 18 - 2 Stars |
+| `+279` | `187256279` | Level 18 - 3 Stars |
+| `+280` | `187256280` | Level 19 - Completion |
+| `+281` | `187256281` | Level 19 - 1 Star |
+| `+282` | `187256282` | Level 19 - 2 Stars |
+| `+283` | `187256283` | Level 19 - 3 Stars |
+| `+284` | `187256284` | Level 20 - Completion |
+| `+285` | `187256285` | Level 20 - 1 Star |
+| `+286` | `187256286` | Level 20 - 2 Stars |
+| `+287` | `187256287` | Level 20 - 3 Stars |
+| `+288` | `187256288` | Level 21 - Completion |
+| `+289` | `187256289` | Level 21 - 1 Star |
+| `+290` | `187256290` | Level 21 - 2 Stars |
+| `+291` | `187256291` | Level 21 - 3 Stars |
 
 ### Reused cassette source events
 

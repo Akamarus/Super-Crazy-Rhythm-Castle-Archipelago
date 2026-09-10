@@ -15,6 +15,7 @@ from .cassettes import (
     NEW_CASSETTE_SOURCE_IDS,
     validate_cassette_catalog,
 )
+from .campaign_levels import CAMPAIGN_LOCATION_NAMES, CAMPAIGN_LOCATION_NAME_TO_ID
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
@@ -146,10 +147,6 @@ AREA_ITEM_TO_REGION = {
 # Preserve every ID from GateTest v0.2. New Music Lab checks start at +21,
 # leaving the historical +4..+10 gap untouched.
 LOCATION_NAME_TO_ID = {
-    "Level 1 - Completion": BASE_ID + 1,
-    "Level 2 - Completion": BASE_ID + 2,
-    "Level 3 - Completion": BASE_ID + 3,
-
     "Development Cache 01": BASE_ID + 11,
     "Development Cache 02": BASE_ID + 12,
     "Development Cache 03": BASE_ID + 13,
@@ -161,6 +158,7 @@ LOCATION_NAME_TO_ID = {
     "Development Cache 09": BASE_ID + 19,
     "Development Cache 10": BASE_ID + 20,
 }
+LOCATION_NAME_TO_ID.update(CAMPAIGN_LOCATION_NAME_TO_ID)
 
 GARAGE_LOCATION_START = BASE_ID + 21
 for song_index, song in enumerate(GARAGE_SONGS):
@@ -232,14 +230,9 @@ ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
 LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
 
-LEVEL_22_ORDINARY_LOCATIONS = (
-    "Level 22 - Completion",
-    "Level 22 - 1 Star",
-    "Level 22 - 2 Stars",
-    "Level 22 - 3 Stars",
+LEVEL_22_ORDINARY_LOCATIONS = tuple(
+    name for name in CAMPAIGN_LOCATION_NAMES if name.startswith("Level 22 - ")
 )
-for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
-    LOCATION_NAME_TO_ID[name] = BASE_ID + 182 + index
 
 LEVEL_2_MONEY_CASSETTE_SOURCE = "Level 2 - Money Cassette"
 LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
