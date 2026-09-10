@@ -22,6 +22,7 @@ class MusicLabPointCatalogTests(unittest.TestCase):
             ),
             expected,
         )
+        self.assertEqual(self.points.MUSIC_LAB_POINT_TOTAL_INSTANCES, 20)
         self.assertEqual(len(self.points.MUSIC_LAB_POINT_POOL), 20)
         self.assertEqual(
             sum(
@@ -30,6 +31,7 @@ class MusicLabPointCatalogTests(unittest.TestCase):
             ),
             180,
         )
+        self.assertEqual(self.points.MUSIC_LAB_POINT_TOTAL_VALUE, 180)
         self.assertEqual(self.points.MUSIC_LAB_POINT_MAX_EFFECTIVE, 180)
         self.assertEqual(
             tuple(self.points.MUSIC_LAB_POINT_THRESHOLDS),

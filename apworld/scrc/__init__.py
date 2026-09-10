@@ -31,7 +31,12 @@ from .items import (
 )
 from .options import SCRCOptions
 from .music_lab_points import (
+    MUSIC_LAB_POINT_ITEMS,
     MUSIC_LAB_POINT_POOL,
+    MUSIC_LAB_POINT_SCHEMA,
+    MUSIC_LAB_POINT_MAX_EFFECTIVE,
+    MUSIC_LAB_POINT_TOTAL_INSTANCES,
+    MUSIC_LAB_POINT_TOTAL_VALUE,
     MUSIC_LAB_POINT_THRESHOLDS,
     weighted_music_lab_points,
 )
@@ -829,9 +834,9 @@ class SCRCWorld(World):
             default_active_location_names,
         )
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 13,
+            "schema_version": 14,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -903,6 +908,21 @@ class SCRCWorld(World):
                 for cassette in CASSETTES
                 if cassette.reused_location
             },
+            "music_lab_points_enabled": True,
+            "music_lab_points_schema": MUSIC_LAB_POINT_SCHEMA,
+            "music_lab_point_items": {
+                entry.name: entry.item_id for entry in MUSIC_LAB_POINT_ITEMS
+            },
+            "music_lab_point_values": {
+                entry.name: entry.value for entry in MUSIC_LAB_POINT_ITEMS
+            },
+            "music_lab_point_counts": {
+                entry.name: entry.count for entry in MUSIC_LAB_POINT_ITEMS
+            },
+            "music_lab_point_total_instances": MUSIC_LAB_POINT_TOTAL_INSTANCES,
+            "music_lab_point_total_value": MUSIC_LAB_POINT_TOTAL_VALUE,
+            "music_lab_point_max_effective": MUSIC_LAB_POINT_MAX_EFFECTIVE,
+            "music_lab_point_thresholds": list(MUSIC_LAB_POINT_THRESHOLDS),
             "repair_schema_version": "next-release-repair-0.18",
             "consolidated_preview_version": "consolidated-preview-0.19",
             "preview_ability_items_registered": [HYPNO_PAN_ITEM_NAME, VIOLANCE_ITEM_NAME],

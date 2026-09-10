@@ -51,14 +51,14 @@ class RepositoryContractTests(unittest.TestCase):
                 shutil.copytree(source, destination)
         return root
 
-    def test_validator_reports_roots_bucket_contract(self):
+    def test_validator_reports_music_lab_point_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Client:  v0.68.0", result.stdout)
-        self.assertIn("APWorld: v0.22.0", result.stdout)
-        self.assertIn('"world_version": "0.22.0"', result.stdout)
+        self.assertIn("APWorld: v0.23.0", result.stdout)
+        self.assertIn('"world_version": "0.23.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
@@ -71,8 +71,57 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('"hip_glasses_location_id": 187256180', result.stdout)
         self.assertIn('"bucket_trade_location_id": 187256181', result.stdout)
         self.assertIn('"money_cassette_location_id": 187256186', result.stdout)
-        self.assertIn('"next_item_id": 187256153', result.stdout)
+        self.assertIn('"music_lab_point_schema": 1', result.stdout)
+        self.assertIn('"music_lab_point_item_ids": [', result.stdout)
+        self.assertIn('187256153', result.stdout)
+        self.assertIn('187256154', result.stdout)
+        self.assertIn('187256155', result.stdout)
+        self.assertIn('"music_lab_point_counts": [', result.stdout)
+        self.assertIn('"music_lab_point_total_value": 180', result.stdout)
+        self.assertIn('"music_lab_point_thresholds": [', result.stdout)
+        self.assertIn('"next_item_id": 187256156', result.stdout)
         self.assertIn('"next_location_id": 187256211', result.stdout)
+
+    def test_validator_rejects_changed_music_lab_point_contract(self):
+        mutations = {
+            "Music Lab Point ID changed": (
+                "apworld/scrc/music_lab_points.py",
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 153, 1, 10)',
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 156, 1, 10)',
+            ),
+            "Music Lab Point value changed": (
+                "apworld/scrc/music_lab_points.py",
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 153, 1, 10)',
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 153, 2, 10)',
+            ),
+            "Music Lab Point count changed": (
+                "apworld/scrc/music_lab_points.py",
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 153, 1, 10)',
+                'MusicLabPointItem("Music Lab Point", BASE_ID + 153, 1, 9)',
+            ),
+            "Music Lab Point total changed": (
+                "apworld/scrc/music_lab_points.py",
+                "_EXPECTED_MUSIC_LAB_POINT_TOTAL_VALUE = 180",
+                "_EXPECTED_MUSIC_LAB_POINT_TOTAL_VALUE = 179",
+            ),
+            "Music Lab Point thresholds changed": (
+                "apworld/scrc/music_lab_points.py",
+                '    5: "Music Lab - 5 Point Chest",',
+                '    6: "Music Lab - 5 Point Chest",',
+            ),
+        }
+        for label, (relative, old, new) in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new, 1), encoding="utf-8")
+
+                result = self.run_validator(root)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(label, result.stdout + result.stderr)
     def test_validator_rejects_changed_roots_bucket_contract(self):
         mutations = {
             "Hip Glasses item ID": (
@@ -168,7 +217,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.22.0")
+        self.assertEqual(manifest["world_version"], "0.23.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

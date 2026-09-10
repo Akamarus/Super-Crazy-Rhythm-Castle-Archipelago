@@ -12,18 +12,20 @@ ROOT = Path(os.environ.get("SCRC_REPO_ROOT", Path(__file__).resolve().parents[1]
 WORLD = ROOT / "apworld" / "scrc" / "__init__.py"
 WORLD_DIR = WORLD.parent
 ITEMS = WORLD_DIR / "items.py"
+POINTS = WORLD_DIR / "music_lab_points.py"
 META = ROOT / "apworld" / "scrc" / "archipelago.json"
 CLIENT = ROOT / "client" / "Plugin.cs"
 CASSETTE_POLICY = ROOT / "client" / "CassetteRandomizationPolicy.cs"
 IDS = ROOT / "docs" / "IDS.md"
 EXPECTED = {
     "client_version": "0.68.0",
-    "world_version": "0.22.0",
+    "world_version": "0.23.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
         "consolidated-preview-0.19-difficulty-filtering-0.20-"
-        "vanilla-vampire-garage-0.21-full-cassettes-0.22"
+        "vanilla-vampire-garage-0.21-full-cassettes-0.22-"
+        "music-lab-points-0.23"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -39,7 +41,17 @@ EXPECTED = {
     "hip_glasses_location_id": 187256180,
     "bucket_trade_location_id": 187256181,
     "money_cassette_location_id": 187256186,
-    "next_item_id": 187256153,
+    "music_lab_point_schema": 1,
+    "music_lab_point_items": (
+        ("Music Lab Point", 187256153, 1, 10),
+        ("Music Lab Point Bundle", 187256154, 10, 3),
+        ("Music Lab Point Large Bundle", 187256155, 20, 7),
+    ),
+    "music_lab_point_total_value": 180,
+    "music_lab_point_total_instances": 20,
+    "music_lab_point_max_effective": 180,
+    "music_lab_point_thresholds": (5, 10, 20, 32, 46, 64, 89, 111, 140),
+    "next_item_id": 187256156,
     "next_location_id": 187256211,
 }
 
@@ -56,6 +68,7 @@ def repo_path(path: Path) -> str:
 for path in (
     WORLD,
     ITEMS,
+    POINTS,
     META,
     CLIENT,
     CASSETTE_POLICY,
@@ -69,6 +82,7 @@ client_text = CLIENT.read_text(encoding="utf-8")
 cassette_policy_text = CASSETTE_POLICY.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
 items_text = ITEMS.read_text(encoding="utf-8")
+points_text = POINTS.read_text(encoding="utf-8")
 
 
 def load_json(path: Path, label: str):
@@ -84,6 +98,77 @@ for python_source in sorted(WORLD_DIR.glob("*.py")):
         ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
     except SyntaxError as exc:
         fail(f"APWorld Python syntax error in {repo_path(python_source)}: {exc}")
+
+
+def assignment_value(tree: ast.AST, name: str) -> ast.AST:
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            return node.value
+    fail(f"could not locate Music Lab Point {name} assignment")
+
+
+def static_int(node: ast.AST) -> int:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.Name) and node.id == "BASE_ID":
+        return 187256000
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return static_int(node.left) + static_int(node.right)
+    fail("could not parse Music Lab Point integer contract value")
+
+
+points_tree = ast.parse(points_text, filename=str(POINTS))
+point_items_node = assignment_value(points_tree, "MUSIC_LAB_POINT_ITEMS")
+if not isinstance(point_items_node, (ast.Tuple, ast.List)):
+    fail("could not parse Music Lab Point item catalog")
+
+point_items = []
+for entry in point_items_node.elts:
+    if not (
+        isinstance(entry, ast.Call)
+        and isinstance(entry.func, ast.Name)
+        and entry.func.id == "MusicLabPointItem"
+        and len(entry.args) == 4
+        and isinstance(entry.args[0], ast.Constant)
+        and isinstance(entry.args[0].value, str)
+    ):
+        fail("could not parse Music Lab Point item catalog entry")
+    point_items.append((
+        entry.args[0].value,
+        static_int(entry.args[1]),
+        static_int(entry.args[2]),
+        static_int(entry.args[3]),
+    ))
+point_items = tuple(point_items)
+expected_point_items = EXPECTED["music_lab_point_items"]
+if tuple(entry[0] for entry in point_items) != tuple(entry[0] for entry in expected_point_items):
+    fail("Music Lab Point item names changed")
+if tuple(entry[1] for entry in point_items) != tuple(entry[1] for entry in expected_point_items):
+    fail("Music Lab Point ID changed")
+if tuple(entry[2] for entry in point_items) != tuple(entry[2] for entry in expected_point_items):
+    fail("Music Lab Point value changed")
+if tuple(entry[3] for entry in point_items) != tuple(entry[3] for entry in expected_point_items):
+    fail("Music Lab Point count changed")
+
+point_total_node = assignment_value(points_tree, "_EXPECTED_MUSIC_LAB_POINT_TOTAL_VALUE")
+if static_int(point_total_node) != EXPECTED["music_lab_point_total_value"]:
+    fail("Music Lab Point total changed")
+if sum(value * count for _, _, value, count in point_items) != EXPECTED["music_lab_point_total_value"]:
+    fail("Music Lab Point total changed")
+
+point_schema_node = assignment_value(points_tree, "MUSIC_LAB_POINT_SCHEMA")
+if static_int(point_schema_node) != EXPECTED["music_lab_point_schema"]:
+    fail("Music Lab Point schema changed")
+
+thresholds_node = assignment_value(points_tree, "MUSIC_LAB_POINT_THRESHOLDS")
+if not isinstance(thresholds_node, ast.Dict):
+    fail("could not parse Music Lab Point thresholds")
+point_thresholds = tuple(static_int(key) for key in thresholds_node.keys)
+if point_thresholds != EXPECTED["music_lab_point_thresholds"]:
+    fail("Music Lab Point thresholds changed")
 
 try:
     metadata = json.loads(META.read_text(encoding="utf-8"))
@@ -147,6 +232,8 @@ if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
+if '"schema_version": 14' not in world_text:
+    fail("Music Lab Point slot-data schema changed")
 if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
     fail("generation_foundation_version changed without updating validator/baseline docs")
 
@@ -156,6 +243,15 @@ for required_marker in (
     '"cassette_schema": 1',
     '"full_cassette_randomization": True',
     '"cassette_count": len(CASSETTES)',
+    '"music_lab_points_enabled": True',
+    '"music_lab_points_schema": MUSIC_LAB_POINT_SCHEMA',
+    '"music_lab_point_items": {',
+    '"music_lab_point_values": {',
+    '"music_lab_point_counts": {',
+    '"music_lab_point_total_instances": MUSIC_LAB_POINT_TOTAL_INSTANCES',
+    '"music_lab_point_total_value": MUSIC_LAB_POINT_TOTAL_VALUE',
+    '"music_lab_point_max_effective": MUSIC_LAB_POINT_MAX_EFFECTIVE',
+    '"music_lab_point_thresholds": list(MUSIC_LAB_POINT_THRESHOLDS)',
 ):
     if required_marker not in world_text:
         fail(f"missing required slot-data marker: {required_marker}")
@@ -220,6 +316,20 @@ print(json.dumps({
     "hip_glasses_location_id": EXPECTED["hip_glasses_location_id"],
     "bucket_trade_location_id": EXPECTED["bucket_trade_location_id"],
     "money_cassette_location_id": EXPECTED["money_cassette_location_id"],
+    "music_lab_point_schema": EXPECTED["music_lab_point_schema"],
+    "music_lab_point_item_ids": [
+        item_id for _, item_id, _, _ in EXPECTED["music_lab_point_items"]
+    ],
+    "music_lab_point_values": [
+        value for _, _, value, _ in EXPECTED["music_lab_point_items"]
+    ],
+    "music_lab_point_counts": [
+        count for _, _, _, count in EXPECTED["music_lab_point_items"]
+    ],
+    "music_lab_point_total_instances": EXPECTED["music_lab_point_total_instances"],
+    "music_lab_point_total_value": EXPECTED["music_lab_point_total_value"],
+    "music_lab_point_max_effective": EXPECTED["music_lab_point_max_effective"],
+    "music_lab_point_thresholds": list(EXPECTED["music_lab_point_thresholds"]),
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
