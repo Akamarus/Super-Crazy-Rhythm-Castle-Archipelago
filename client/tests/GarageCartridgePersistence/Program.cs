@@ -8,6 +8,8 @@ static void Equal<T>(T expected, T actual, string scenario)
 }
 static void True(bool value, string scenario) => Equal(true, value, scenario);
 static void False(bool value, string scenario) => Equal(false, value, scenario);
+static string ReadNormalizedSource(string path) =>
+    File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
 static string MethodBody(string source, string signature, string nextSignature)
 {
     int start = source.IndexOf(signature, StringComparison.Ordinal);
@@ -94,8 +96,8 @@ Equal(GarageNativeGrantDecision.AlreadyHeld, GarageCartridgeInsertionPolicy.Deci
 Equal(GarageNativeGrantDecision.None, GarageCartridgeInsertionPolicy.DecideGrant(true, true, true, GarageInsertionServerValue.NotInserted, true, false), "physical vanilla cartridge");
 Equal(GarageNativeGrantDecision.WaitForServer, GarageCartridgeInsertionPolicy.DecideGrant(true, true, false, (GarageInsertionServerValue)99, true, false), "unrecognized server state fails closed");
 
-string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
-string storageSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "GarageCartridgeInsertionStorage.cs"));
+string pluginSource = ReadNormalizedSource(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+string storageSource = ReadNormalizedSource(Path.Combine(Directory.GetCurrentDirectory(), "client", "GarageCartridgeInsertionStorage.cs"));
 string connectMethod = MethodBody(pluginSource, "private bool TryConnectOnce()", "public void Shutdown()");
 string shutdownMethod = MethodBody(pluginSource, "public void Shutdown()", "private bool ClearCurrentSession(");
 string clearCurrentSessionMethod = MethodBody(pluginSource, "private bool ClearCurrentSession(", "private void RequestReconnect(");
