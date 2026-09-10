@@ -122,8 +122,17 @@ Equal(MusicLabPointCompatibilityMode.IncompatibleClaim,
     Validate(data => data["music_lab_point_total_value"] = true).Mode,
     "boolean is not accepted as a numeric value");
 Equal(MusicLabPointCompatibilityMode.IncompatibleClaim,
-    Validate(data => ((Dictionary<object, object>)data["music_lab_point_thresholds"])[5] = "Music Lab - Changed Chest").Mode,
+    Validate(data => ((Dictionary<object, object>)data["music_lab_point_thresholds"])["5"] = "Music Lab - Changed Chest").Mode,
     "changed threshold location fails");
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim,
+    Validate(data =>
+    {
+        Dictionary<object, object> thresholds = (Dictionary<object, object>)data["music_lab_point_thresholds"];
+        object location = thresholds[10];
+        thresholds.Remove(10);
+        thresholds[11] = location;
+    }).Mode,
+    "changed threshold key fails");
 Equal(MusicLabPointCompatibilityMode.IncompatibleClaim,
     Validate(data => ((Dictionary<string, object>)data["music_lab_point_items"])["Music Lab Point Bundle"] = 187256153).Mode,
     "duplicate permanent ID fails");
