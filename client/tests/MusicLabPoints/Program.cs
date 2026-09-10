@@ -378,8 +378,90 @@ Contains("nameof(MusicLabPointOverridePatches.GetMedalScorePostfix)", pluginSour
     "existing managed getter Harmony hook must be preserved");
 Contains("MusicLabPointOverride.RecordNativeScore(__result);", pointScoreSource,
     "existing native-score recording must be preserved");
-Equal(false, pointScoreSource.Contains("ResolveEffectiveScore", StringComparison.Ordinal),
-    "Task 6 must not activate Task 7 AP effective-score replacement");
+// A missing AP branch, loose room match, or early developer return must fail.
+foreach (string mode in new[] { "non-ap", "legacy", "awaiting", "synchronized", "retained", "incompatible" })
+{
+    MusicLabPointRandomization.Reset();
+    if (mode == "legacy")
+        MusicLabPointRandomization.ApplySlotData(new() { ["implementation_version"] = V022 }, "game", "score-test", "slot", 50);
+    else if (mode != "non-ap")
+    {
+        var data = CompatibleSlotData();
+        if (mode == "incompatible") data.Remove("music_lab_point_total_value");
+        MusicLabPointRandomization.ApplySlotData(data, "game", "score-test", "slot", 50);
+        if (mode is "synchronized" or "retained")
+            MusicLabPointRandomization.SynchronizeHistory(50, new[] { new MusicLabPointReceipt(0, 187256154), new MusicLabPointReceipt(1, 187256155) });
+        if (mode == "retained") MusicLabPointRandomization.OnDisconnected(50);
+    }
+    foreach (string room in new[] { "GameRoom_Hub6", "GameRoom_Hub2", "GameRoom_Hub6_Logic", "", "GameRoom_Level27" })
+    foreach (bool enabled in new[] { false, true })
+    foreach (bool suppressed in new[] { false, true })
+    foreach (int? cheat in new int?[] { null, 64, 140 })
+    {
+        DeveloperHarness.CurrentRoomId = room;
+        DeveloperHarness.Enabled = enabled;
+        MusicLabPointOverride.OverrideScore = cheat;
+        MusicLabPointOverridePatches.SuppressOverride = suppressed;
+        int result = 37;
+        MusicLabPointOverridePatches.GetMedalScorePostfix(ref result);
+        int expected = enabled && !suppressed ? cheat ?? 37 : 37;
+        if (room == "GameRoom_Hub6" && mode is not ("non-ap" or "legacy"))
+            expected = mode is "synchronized" or "retained" ? 30 : 0;
+        Equal(expected, result, $"production postfix {mode}/{room}/developer={enabled}/suppressed={suppressed}/cheat={cheat}");
+        Equal(37, MusicLabPointOverride.LastNativeScore, "postfix records original score before replacement");
+    }
+}
+Console.WriteLine("PASS: production_postfix_room_scope_and_score_precedence");
+
+string postfixSource = pointScoreSource.Split("internal static class MusicLabPointOverridePatches", StringSplitOptions.None)[1];
+string adapterSource = File.ReadAllText(Path.Combine(Path.GetDirectoryName(pluginPath)!, "MusicLabPointRandomization.cs"));
+foreach (string forbidden in new[] { "SetValue(", "Marshal.Write", "field_set", "SaveRequest", "SetPhase(", ".Invoke(", "BuildState", "INativeDetour", "Hub06MedalScoreRewardChest", "GetMedalScore(" })
+    Equal(false, (postfixSource + adapterSource).Contains(forbidden, StringComparison.Ordinal), "AP score path must not write or invoke native state: " + forbidden);
+Contains("DeveloperHarness.CurrentRoomId == \"GameRoom_Hub6\"", postfixSource, "only established exact room identity can enable AP score");
+Equal(1, System.Text.RegularExpressions.Regex.Matches(postfixSource, @"__result\s*=").Count, "postfix assigns effective score once");
+Equal(false, postfixSource.Contains("Log", StringComparison.Ordinal), "getter calls do not emit logs");
+
+MusicLabPointRandomization.Reset();
+Plugin.LoggerInstance.Messages.Clear();
+MusicLabPointRandomization.ReportGetterAvailability(false);
+Contains("getter unavailable", string.Join('\n', Plugin.LoggerInstance.Messages), "missing getter blocks release with clear log");
+int unavailableLogCount = Plugin.LoggerInstance.Messages.Count;
+MusicLabPointRandomization.ReportGetterAvailability(false);
+Equal(unavailableLogCount, Plugin.LoggerInstance.Messages.Count, "unavailable getter log is bounded");
+MusicLabPointRandomization.ReportGetterAvailability(true);
+Contains("MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0)", pluginSource,
+    "production patch outcome reports getter availability");
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 60);
+Contains("contract accepted", string.Join('\n', Plugin.LoggerInstance.Messages), "accepted contract is observable");
+Contains("awaiting", string.Join('\n', Plugin.LoggerInstance.Messages), "awaiting history is observable");
+int acceptedLogCount = Plugin.LoggerInstance.Messages.Count;
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 60);
+Equal(acceptedLogCount, Plugin.LoggerInstance.Messages.Count, "repeated contract does not repeat logs");
+MusicLabPointRandomization.SynchronizeHistory(60, new[] { new MusicLabPointReceipt(0, 187256155) });
+Contains("instances=1", string.Join('\n', Plugin.LoggerInstance.Messages), "synchronization includes instance count");
+MusicLabPointRandomization.OnDisconnected(60);
+Contains("retained", string.Join('\n', Plugin.LoggerInstance.Messages), "disconnect retention is observable");
+MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 61);
+MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256154) });
+Contains("reconnect rebuild", string.Join('\n', Plugin.LoggerInstance.Messages), "reconnect rebuild is observable");
+Contains("previous=20 total=10", string.Join('\n', Plugin.LoggerInstance.Messages), "reconnect correction reports old and rebuilt totals");
+var excessHistory = Enumerable.Range(0, 10).Select(i => new MusicLabPointReceipt(i, 187256155)).ToArray();
+MusicLabPointRandomization.SynchronizeHistory(61, excessHistory);
+Contains("cap anomaly", string.Join('\n', Plugin.LoggerInstance.Messages), "overflow beyond cap is observable");
+int anomalyLogCount = Plugin.LoggerInstance.Messages.Count;
+MusicLabPointRandomization.SynchronizeHistory(61, excessHistory);
+Equal(anomalyLogCount, Plugin.LoggerInstance.Messages.Count, "replayed anomaly and state remain quiet");
+MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256103), new MusicLabPointReceipt(1, 187256152) });
+Equal(false, Plugin.LoggerInstance.Messages.Any(m => m.Contains("unknown received item ID", StringComparison.Ordinal)), "valid unrelated SCRC IDs are quiet");
+MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 999999999) });
+Contains("unknown received item ID ignored for Music Lab Points", string.Join('\n', Plugin.LoggerInstance.Messages), "unrecognized received ID is observable");
+int unknownLogCount = Plugin.LoggerInstance.Messages.Count;
+MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 999999998) });
+Equal(unknownLogCount, Plugin.LoggerInstance.Messages.Count, "unknown IDs log once per AP identity");
+MusicLabPointRandomization.ApplySlotData(new() { ["implementation_version"] = V023 }, "game", "invalid", "slot", 62);
+Contains("contract rejected", string.Join('\n', Plugin.LoggerInstance.Messages), "incompatibility is observable");
+MusicLabPointRandomization.Reset();
+Console.WriteLine("PASS: bounded_contract_history_reconnect_anomaly_and_getter_logs");
 
 string chestCatalog = pluginSource.Split("private static readonly (int Threshold, string ChestName)[] MusicLabRewardChests", StringSplitOptions.None)[1]
     .Split("private static readonly Dictionary<int, int>", StringSplitOptions.None)[0];

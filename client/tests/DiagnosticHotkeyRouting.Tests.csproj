@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <DefaultItemExcludes>$(DefaultItemExcludes);RootsBucketRandomization\**;RepairCompatibility\**;PlantPipesReconciler\**;NewSaveDirectStart\**;NativeIdentityDiagnostic\**;RootsPresentation\**;DifficultyAvailability\**;StarHud\**;MusicLabBarrier\**;GarageAvailability\**;GarageCartridgePersistence\**;LevelCompletion\**;PreviewAbilities\**;ReconnectPolicy\**;BottomHudDiagnostic\**;Level2MoneyCassette\**;CassetteRandomization\**;CassetteCatalogDiagnostic\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);RootsBucketRandomization\**;RepairCompatibility\**;PlantPipesReconciler\**;NewSaveDirectStart\**;NativeIdentityDiagnostic\**;RootsPresentation\**;DifficultyAvailability\**;StarHud\**;MusicLabBarrier\**;MusicLabPoints\**;GarageAvailability\**;GarageCartridgePersistence\**;LevelCompletion\**;PreviewAbilities\**;ReconnectPolicy\**;BottomHudDiagnostic\**;Level2MoneyCassette\**;CassetteRandomization\**;CassetteCatalogDiagnostic\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\DiagnosticHotkeyRouting.cs" Link="DiagnosticHotkeyRouting.cs" />

@@ -11,4 +11,14 @@
     <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
     <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
   </ItemGroup>
+  <Target Name="ExtractProductionScorePostfix" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <ScoreSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</ScoreSource>
+      <ScorePostfix>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', '(?s)internal static class MusicLabPointOverridePatches.*?(?=internal static class MusicLabPointDiagnostic)').Value)</ScorePostfix>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionScorePostfix.cs" Lines="namespace RhythmCastleAP%3B $(ScorePostfix)" Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)ProductionScorePostfix.cs" />
+    </ItemGroup>
+  </Target>
 </Project>

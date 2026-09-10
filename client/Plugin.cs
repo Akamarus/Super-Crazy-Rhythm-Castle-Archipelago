@@ -143,7 +143,9 @@ public sealed class Plugin : BasePlugin
         patched += PatchIntroRoomToHubRedirect();
         patched += PatchDifficultyAssignmentRequest();
         patched += PatchEarlyUnlockSequenceSteps();
-        patched += PatchMusicLabMedalScoreOverride();
+        int musicLabScorePatches = PatchMusicLabMedalScoreOverride();
+        patched += musicLabScorePatches;
+        MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0);
         patched += PatchHub6AreaPhoneProgressionConditions();
         patched += PatchRootsOwnerDiagnostic();
         patched += PatchRootsComputerNormalization();
@@ -16190,11 +16192,13 @@ internal static class MusicLabPointOverridePatches
     {
         MusicLabPointOverride.RecordNativeScore(__result);
 
-        if (SuppressOverride || !DeveloperHarness.Enabled)
-            return;
-
-        if (MusicLabPointOverride.OverrideScore is int forced)
-            __result = forced;
+        int nativeScore = __result;
+        int? developerScore = !SuppressOverride && DeveloperHarness.Enabled
+            ? MusicLabPointOverride.OverrideScore
+            : null;
+        __result = DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"
+            ? MusicLabPointRandomization.ResolveEffectiveScore(nativeScore, developerScore)
+            : developerScore ?? nativeScore;
     }
 }
 
