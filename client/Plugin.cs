@@ -11,6 +11,7 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 using UnityEngine;
+using NativeIl2Cpp = Il2CppInterop.Runtime.IL2CPP;
 
 namespace RhythmCastleAP;
 
@@ -553,7 +554,7 @@ public sealed class Plugin : BasePlugin
         {
             _harmony!.Patch(method, postfix: new HarmonyMethod(postfix));
             MusicLabPointOverride.BindNativeGetter(method);
-            MusicLabPointBoundaryDiagnostics.Bind(_harmony, method);
+            MusicLabPointBoundaryDiagnostics.Bind(method);
             Log.LogWarning(
                 "[SCRC-AP] MUSIC LAB POINT OVERRIDE READY: patched CurrentPlayerSaveEnquiries.GetMedalScore(). Shift+F4 cycles the temporary effective total through native-next-threshold -> 111 -> 140 -> OFF without changing saved medals.");
             return 1;
@@ -16205,15 +16206,18 @@ internal static class MusicLabPointOverridePatches
 
 internal static class MusicLabPointBoundaryDiagnostics
 {
-    private const string OwnerName = "Hub06MedalScoreRewardChest";
     private const string CallerName = "Hub06MedalScoreRewardChest.BuildState()";
     private static readonly object Sync = new();
     private static readonly HashSet<(string Room, int Threshold, string Path, string Caller)> Records = new();
     private static bool _enabled;
     private static bool _installed;
     private static bool _scanAttempted;
-    private static Harmony? _harmony;
     private static MethodInfo? _getter;
+    private static BepInEx.Unity.IL2CPP.Hook.INativeDetour? _detour;
+    private static BuildStateNative? _original;
+    private static readonly BuildStateNative Hook = BuildStateDetour;
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate IntPtr BuildStateNative(IntPtr instance, IntPtr methodInfo);
     [ThreadStatic] private static Scope? _scope;
     [ThreadStatic] private static bool _readingProbe;
 
@@ -16221,10 +16225,9 @@ internal static class MusicLabPointBoundaryDiagnostics
 
     public static void Configure(bool enabled) => _enabled = enabled;
 
-    public static void Bind(Harmony harmony, MethodInfo getter)
+    public static void Bind(MethodInfo getter)
     {
         if (!_enabled) return;
-        _harmony = harmony;
         _getter = getter;
     }
 
@@ -16243,7 +16246,7 @@ internal static class MusicLabPointBoundaryDiagnostics
         try
         {
             MethodInfo? getter = _getter;
-            if (_harmony == null || getter == null ||
+            if (getter == null ||
                 getter.DeclaringType?.FullName != "CurrentPlayerSaveEnquiries" ||
                 getter.Name != "GetMedalScore" || !getter.IsStatic ||
                 getter.ReturnType != typeof(int) || getter.GetParameters().Length != 0)
@@ -16256,30 +16259,33 @@ internal static class MusicLabPointBoundaryDiagnostics
                 Unavailable("developer score override must be OFF; restart diagnostic run");
                 return true;
             }
-            Assembly? assembly = ReflectionUtil.GameAssembly;
-            Type? owner = assembly?.GetType(OwnerName, false, false);
-            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
-                BindingFlags.Instance | BindingFlags.DeclaredOnly;
-            MethodInfo? method = owner?.GetMethod("BuildState", flags, null, Type.EmptyTypes, null);
-            if (owner == null || method == null || method.DeclaringType != owner ||
-                method.IsStatic || method.IsGenericMethod || method.GetParameters().Length != 0 ||
-                method.ReturnType.FullName != "Hub06MedalScoreRewardChestState" ||
-                owner.GetProperty("unlockRequirement", flags)?.PropertyType.FullName != "DefinedInt")
-            {
-                Unavailable("exact chest owner/BuildState()/unlockRequirement metadata unavailable");
-                return true;
-            }
-
             int before = ReadProbe(getter);
-            if (!MusicLabDiscovery.TryReadPointBoundaryChests())
+            if (!MusicLabDiscovery.TryReadPointBoundaryChests(out IntPtr owner))
             {
                 Unavailable("all nine exact native chest paths/thresholds must validate; no hook installed");
                 return true;
             }
-            _harmony.Patch(method,
-                prefix: new HarmonyMethod(typeof(MusicLabPointBoundaryDiagnostics), nameof(BuildStatePrefix)),
-                postfix: new HarmonyMethod(typeof(MusicLabPointBoundaryDiagnostics), nameof(BuildStatePostfix)),
-                finalizer: new HarmonyMethod(typeof(MusicLabPointBoundaryDiagnostics), nameof(BuildStateFinalizer)));
+            // The generated chest CLR hierarchy violates an interop generic
+            // constraint. Resolve only from verified live native metadata.
+            if (!MusicLabDiscovery.TryResolvePointBoundaryBuilder(owner, out IntPtr method))
+            {
+                Unavailable("exact native chest owner/BuildState()/unlockRequirement metadata unavailable");
+                return true;
+            }
+            IntPtr code;
+            try { code = il2cpp_method_get_pointer(method); }
+            catch (EntryPointNotFoundException)
+            {
+                // Same verified Unity 2021 MethodInfo pointer layout already used
+                // by NativeLevel6DoorBridge; no generated chest type is loaded.
+                code = Marshal.ReadIntPtr(method);
+            }
+            if (code == IntPtr.Zero)
+            {
+                Unavailable("exact native BuildState code pointer unavailable");
+                return true;
+            }
+            _detour = BepInEx.Unity.IL2CPP.Hook.INativeDetour.CreateAndApply(code, Hook, out _original);
             _installed = true;
             int after = ReadProbe(getter);
             Plugin.LoggerInstance?.LogWarning(
@@ -16304,7 +16310,17 @@ internal static class MusicLabPointBoundaryDiagnostics
         finally { _readingProbe = previous; }
     }
 
-    public static void BuildStatePrefix(object __instance, out Scope? __state)
+    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr il2cpp_method_get_pointer(IntPtr method);
+
+    private static IntPtr BuildStateDetour(IntPtr instance, IntPtr methodInfo)
+    {
+        BuildStatePrefix(instance, out Scope? previous);
+        try { return _original!(instance, methodInfo); }
+        finally { BuildStatePostfix(previous); }
+    }
+
+    public static void BuildStatePrefix(IntPtr __instance, out Scope? __state)
     {
         __state = _scope;
         // Invalid scopes also mask a valid outer scope, preventing false attribution.
@@ -16312,7 +16328,7 @@ internal static class MusicLabPointBoundaryDiagnostics
         if (!_enabled || !_installed) return;
         try
         {
-            if (MusicLabDiscovery.TryReadPointBoundaryChest(__instance, out int threshold, out string path))
+            if (MusicLabDiscovery.TryReadPointBoundaryChest(new Component(__instance), out int threshold, out string path))
                 _scope = new Scope(threshold, path);
             else
                 Unavailable("chest instance/threshold/path unavailable");
@@ -16321,9 +16337,6 @@ internal static class MusicLabPointBoundaryDiagnostics
     }
 
     public static void BuildStatePostfix(Scope? __state) => _scope = __state;
-
-    // Preserve native exceptions; only restore our own correlation scope.
-    public static void BuildStateFinalizer(Scope? __state) => _scope = __state;
 
     public static void ObserveScore(int nativeScore)
     {
@@ -23502,8 +23515,9 @@ internal static class MusicLabDiscovery
         return false;
     }
 
-    internal static bool TryReadPointBoundaryChests()
+    internal static bool TryReadPointBoundaryChests(out IntPtr owner)
     {
+        owner = IntPtr.Zero;
         if (DeveloperHarness.CurrentRoomId != Hub6RoomId) return false;
         foreach ((int expectedThreshold, string chestName) in MusicLabRewardChests)
         {
@@ -23514,10 +23528,46 @@ internal static class MusicLabDiscovery
             foreach (Component component in interaction.GetComponents<Component>())
                 if (component != null && TryReadPointBoundaryChest(component, out int threshold, out _) &&
                     threshold == expectedThreshold)
+                {
+                    IntPtr candidate = ml_il2cpp_object_get_class(GetNativePointer(component));
+                    if (owner != IntPtr.Zero && owner != candidate) return false;
+                    owner = candidate;
                     matches++;
+                }
             if (matches != 1) return false;
         }
         return true;
+    }
+
+    internal static bool TryResolvePointBoundaryBuilder(IntPtr owner, out IntPtr method)
+    {
+        method = IntPtr.Zero;
+        if (owner == IntPtr.Zero || NativeClassFullName(owner) != "Hub06MedalScoreRewardChest" ||
+            NativeAnsi(() => NativeIl2Cpp.il2cpp_image_get_name(NativeIl2Cpp.il2cpp_class_get_image(owner))) != "Assembly-CSharp.dll")
+            return false;
+        IntPtr requirement = NativeIl2Cpp.il2cpp_class_get_field_from_name(owner, "unlockRequirement");
+        if (requirement == IntPtr.Zero || NativeIl2Cpp.il2cpp_field_get_parent(requirement) != owner ||
+            NativeTypeName(ml_il2cpp_field_get_type(requirement)) != "DefinedInt")
+            return false;
+        IntPtr iterator = IntPtr.Zero;
+        for (int count = 0; count < 128; count++)
+        {
+            IntPtr candidate = NativeIl2Cpp.il2cpp_class_get_methods(owner, ref iterator);
+            if (candidate == IntPtr.Zero) return method != IntPtr.Zero;
+            if (NativeAnsi(() => NativeIl2Cpp.il2cpp_method_get_name(candidate)) != "BuildState") continue;
+            if (method != IntPtr.Zero || NativeIl2Cpp.il2cpp_method_get_class(candidate) != owner ||
+                !NativeIl2Cpp.il2cpp_method_is_instance(candidate) ||
+                NativeIl2Cpp.il2cpp_method_is_generic(candidate) || NativeIl2Cpp.il2cpp_method_is_inflated(candidate) ||
+                NativeIl2Cpp.il2cpp_method_get_param_count(candidate) != 0)
+                return false;
+            IntPtr resultType = NativeIl2Cpp.il2cpp_method_get_return_type(candidate);
+            IntPtr resultClass = NativeIl2Cpp.il2cpp_class_from_type(resultType);
+            if (NativeTypeName(resultType) != "Hub06MedalScoreRewardChestState" ||
+                resultClass == IntPtr.Zero || NativeIl2Cpp.il2cpp_class_is_valuetype(resultClass))
+                return false;
+            method = candidate;
+        }
+        return false;
     }
 
     private static int ParseTrailingNativeInt(string text)

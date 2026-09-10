@@ -357,21 +357,36 @@ Contains("Config.Bind(\"Developer\", \"EnableMusicLabPointBoundaryDiagnostics\",
     "boundary diagnostics must default off");
 string boundarySource = pluginSource.Split("internal static class MusicLabPointBoundaryDiagnostics", StringSplitOptions.None)[1]
     .Split("internal static class MusicLabPointDiagnostic", StringSplitOptions.None)[0];
+if (args.Length == 2 && args[0] == "--probe-interop")
+{
+    string failure = NativeInteropProbe.ReadChestOwnerFailure(args[1]);
+    Contains("Hub06MedalScoreRewardChestState", failure, "installed interop reproduces exact state constraint failure");
+    Contains("violates the constraint of type parameter 'StateClass'", failure, "installed interop owner cannot load in CLR");
+    Console.WriteLine("PASS: installed_interop_reproduces_chest_owner_TypeLoadException_at_Assembly_GetType");
+}
+Equal(false, boundarySource.Contains("assembly?.GetType(OwnerName", StringComparison.Ordinal),
+    "native boundary must not CLR-load the invalid generated chest owner hierarchy");
 Contains("[ThreadStatic]", boundarySource, "chest scope must be thread-local");
 Contains("HashSet<(string Room, int Threshold, string Path, string Caller)>", boundarySource,
     "diagnostic deduplication retains the complete correlation identity");
 Contains("Records.Count >= 64", boundarySource, "unique boundary records must be bounded");
 Contains("!Records.Add(", boundarySource, "duplicate observations must be suppressed");
-Contains("BindingFlags.DeclaredOnly", boundarySource, "inherited methods cannot become the hook");
-Contains("method.DeclaringType != owner", boundarySource, "hook owner must match exactly");
-Contains("method.GetParameters().Length != 0", boundarySource, "overloads with arguments cannot become the hook");
-Contains("method.ReturnType.FullName != \"Hub06MedalScoreRewardChestState\"", boundarySource,
-    "state builder return type must match native metadata");
-Contains("owner.GetProperty(\"unlockRequirement\"", boundarySource, "threshold metadata must be validated");
-Contains("if (!MusicLabDiscovery.TryReadPointBoundaryChests())", boundarySource,
+string nativeBuilderSource = pluginSource.Split("internal static bool TryResolvePointBoundaryBuilder", StringSplitOptions.None)[1]
+    .Split("private static int ParseTrailingNativeInt", StringSplitOptions.None)[0];
+Contains("NativeClassFullName(owner) != \"Hub06MedalScoreRewardChest\"", nativeBuilderSource, "exact native owner is required");
+Contains("il2cpp_method_get_class(candidate) != owner", nativeBuilderSource, "inherited native methods cannot become the hook");
+Contains("il2cpp_method_get_param_count(candidate) != 0", nativeBuilderSource, "overloads with arguments cannot become the hook");
+Contains("NativeTypeName(resultType) != \"Hub06MedalScoreRewardChestState\"", nativeBuilderSource, "exact return type is required");
+Contains("il2cpp_class_is_valuetype(resultClass)", nativeBuilderSource, "native ABI must return an object pointer, not a value type");
+Contains("il2cpp_class_get_field_from_name(owner, \"unlockRequirement\")", nativeBuilderSource, "native threshold metadata is validated");
+Contains("!= \"DefinedInt\"", nativeBuilderSource, "threshold type must match native metadata");
+Contains("method != IntPtr.Zero ||", nativeBuilderSource, "duplicate BuildState candidates fail closed");
+Contains("if (!MusicLabDiscovery.TryReadPointBoundaryChests(out IntPtr owner))", boundarySource,
     "all live thresholds must validate before hook installation");
 Contains("MUSIC LAB POINT BOUNDARY UNAVAILABLE", boundarySource, "unavailable evidence must be explicit");
-Contains("finalizer:", boundarySource, "exceptions must clean up thread correlation");
+Contains("finally { BuildStatePostfix(previous); }", boundarySource, "native-call completion must clean up thread correlation");
+Contains("return _original!(instance, methodInfo);", boundarySource, "native hook must return the original pointer unchanged");
+Contains("INativeDetour.CreateAndApply(code, Hook, out _original)", boundarySource, "native hook must retain its original trampoline");
 Contains("_scope = __state", boundarySource, "nested calls must restore their prior scope");
 Contains("displayCandidate-unverified", boundarySource, "an unscoped getter must not claim a proven display caller");
 foreach (string forbidden in new[] { "__result", "SetValue(", "WriteInt", "field_set", "QueueLocation", "SetPhase(", "ResolveEffectiveScore(" })
