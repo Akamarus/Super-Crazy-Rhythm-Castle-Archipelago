@@ -230,7 +230,10 @@ internal class NativeSubsystem
     internal static bool BeginServerSync(ArchipelagoSession session, long generation) => true;
     internal static void RequestUnityReconciliation(string reason) { }
 }
-internal sealed class AreaAccessPrototype : NativeSubsystem { }
+internal sealed class AreaAccessPrototype : NativeSubsystem
+{
+    internal static void EndAuthenticatedSession() { }
+}
 internal sealed class IntroHubSkip : NativeSubsystem { }
 internal sealed class RootsStartupBootstrap : NativeSubsystem { }
 internal sealed class GarageCartridgeAccess : NativeSubsystem { }

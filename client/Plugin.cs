@@ -1499,6 +1499,7 @@ internal sealed class ArchipelagoClient
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     _connected = false;
+                    AreaAccessPrototype.EndAuthenticatedSession();
                     CampaignLevelRandomization.OnDisconnected();
                     if (previousSession.Session != null &&
                         !ReferenceEquals(previousSession.Session, session))
@@ -1646,6 +1647,7 @@ internal sealed class ArchipelagoClient
         GenerationSession<ArchipelagoSession> current = ConnectionLifecycle.Shutdown(current =>
         {
             _connected = false;
+            AreaAccessPrototype.EndAuthenticatedSession();
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
             lock (_lock)
@@ -1672,6 +1674,7 @@ internal sealed class ArchipelagoClient
         return ConnectionLifecycle.TryEnd(session, generation, () =>
         {
             _connected = false;
+            AreaAccessPrototype.EndAuthenticatedSession();
             GarageCartridgeAccess.EndServerSync(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
             CampaignLevelRandomization.OnDisconnected();
@@ -22203,7 +22206,7 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 
         if (!MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
                 AreaAccessPrototype.Enabled,
-                Plugin.AP?.Connected == true,
+                AreaAccessPrototype.AuthenticatedCompatibleSession,
                 AreaAccessPrototype.HasArea("Meat Dimension"),
                 room,
                 MeatAreaPresentationPolicy.FirstAreaGatePath))
@@ -22295,10 +22298,19 @@ internal static class AreaAccessPrototype
     private static readonly object Sync = new();
     private static readonly HashSet<string> UnlockedAreas =
         new(StringComparer.OrdinalIgnoreCase);
+    private static bool _authenticatedCompatibleSession;
 
     public static bool Enabled { get; private set; }
     public static bool APDrivenStartingArea { get; private set; }
     public static string StartingArea { get; private set; } = "AP precollected item";
+    public static bool AuthenticatedCompatibleSession
+    {
+        get
+        {
+            lock (Sync)
+                return _authenticatedCompatibleSession;
+        }
+    }
 
     public static void Configure(bool enabled, string requestedStartingArea)
     {
@@ -22316,6 +22328,7 @@ internal static class AreaAccessPrototype
 
         lock (Sync)
         {
+            _authenticatedCompatibleSession = false;
             UnlockedAreas.Clear();
             if (Enabled && !APDrivenStartingArea)
                 UnlockedAreas.Add(StartingArea);
@@ -22344,11 +22357,12 @@ internal static class AreaAccessPrototype
 
     public static void ApplySlotDataStarter(Dictionary<string, object>? slotData)
     {
-        if (!Enabled || !APDrivenStartingArea)
+        if (!Enabled)
             return;
 
         if (slotData == null || slotData.Count == 0)
         {
+            EndAuthenticatedSession();
             Plugin.LoggerInstance?.LogWarning(
                 "[SCRC-AP] AREA ACCESS SLOT DATA missing/empty; all major-area phones remain locked until a normal Area Access item is received.");
             return;
@@ -22357,6 +22371,12 @@ internal static class AreaAccessPrototype
         string implementationVersion = slotData.TryGetValue("implementation_version", out object? rawVersion)
             ? rawVersion?.ToString() ?? string.Empty
             : string.Empty;
+
+        bool compatible = AreaAccessSessionPolicy.IsAuthenticatedCompatible(
+            Enabled,
+            implementationVersion);
+        lock (Sync)
+            _authenticatedCompatibleSession = compatible;
 
         string starterItem = slotData.TryGetValue("starting_area_item", out object? rawStarter)
             ? rawStarter?.ToString() ?? string.Empty
@@ -22369,12 +22389,15 @@ internal static class AreaAccessPrototype
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] AREA ACCESS SLOT DATA implementation='{implementationVersion}' startingAreaItem='{starterItem}' startingArea='{starterArea}'.");
 
-        if (!implementationVersion.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase))
+        if (!compatible)
         {
             Plugin.LoggerInstance?.LogError(
                 $"[SCRC-AP] AREA ACCESS SEED INCOMPATIBLE: server slot data implementation='{implementationVersion}'. Generate AND HOST a NEW seed with APWorld v0.13; replacing the installed .apworld does not change an already-generated seed. All major-area phones remain locked for safety.");
             return;
         }
+
+        if (!APDrivenStartingArea)
+            return;
 
         if (!string.IsNullOrWhiteSpace(starterItem) && TryApplyItem(starterItem))
         {
@@ -22398,6 +22421,12 @@ internal static class AreaAccessPrototype
 
         Plugin.LoggerInstance?.LogError(
             $"[SCRC-AP] AREA ACCESS SLOT DATA did not contain a recognized starter: starting_area_item='{starterItem}' starting_area='{starterArea}'.");
+    }
+
+    public static void EndAuthenticatedSession()
+    {
+        lock (Sync)
+            _authenticatedCompatibleSession = false;
     }
 
     public static bool HasArea(string areaName)

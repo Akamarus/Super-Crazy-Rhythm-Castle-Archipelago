@@ -109,6 +109,20 @@ Equal(true, RootsComputerPolicy.ShouldNormalizeState(true, true, true, "GameRoom
 const string meatFirstAreaGatePath =
     "Root/GameRoom_Hub4_Logic/Objects/Doors/FirstAreaGate";
 Equal(true,
+    AreaAccessSessionPolicy.IsAuthenticatedCompatible(
+        true, "area-routing-plant-pipes-0.15"),
+    "authenticated Area Access slot data enables area presentation");
+Equal(false,
+    AreaAccessSessionPolicy.IsAuthenticatedCompatible(
+        false, "area-routing-plant-pipes-0.15"),
+    "disabled Area Access rejects otherwise compatible slot data");
+Equal(false,
+    AreaAccessSessionPolicy.IsAuthenticatedCompatible(true, null),
+    "missing slot implementation is not Area Access compatible");
+Equal(false,
+    AreaAccessSessionPolicy.IsAuthenticatedCompatible(true, "music-lab-points-0.23"),
+    "generic compatible session features cannot authorize Area Access");
+Equal(true,
     MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
         true, true, true, "GameRoom_Hub4", meatFirstAreaGatePath),
     "owned Meat Dimension AP route suppresses the exact first gate");
@@ -141,9 +155,25 @@ Equal(true, meatKeeperStart >= 0 && areaAccessStart > meatKeeperStart,
     "Meat Area baseline keeper has a bounded production source region");
 string meatKeeperSource = pluginSource[meatKeeperStart..areaAccessStart];
 Equal(true,
-    meatKeeperSource.Contains("Plugin.AP?.Connected == true", StringComparison.Ordinal),
-    "default-off direct start still uses the authenticated AP session for Meat gate suppression");
+    meatKeeperSource.Contains(
+        "AreaAccessPrototype.AuthenticatedCompatibleSession", StringComparison.Ordinal),
+    "Meat gate suppression uses explicit authenticated Area Access compatibility");
+Equal(false,
+    meatKeeperSource.Contains("Plugin.AP?.Connected", StringComparison.Ordinal),
+    "generic connection and Music Lab compatibility cannot authorize the Meat gate");
 Equal(false,
     meatKeeperSource.Contains("IntroHubSkip", StringComparison.Ordinal),
     "Meat gate suppression is independent of direct-start compatibility");
+int phoneKeeperStart = pluginSource.IndexOf(
+    "internal sealed class AreaPhoneAccessKeeper", areaAccessStart, StringComparison.Ordinal);
+Equal(true, phoneKeeperStart > areaAccessStart,
+    "Area Access prototype has a bounded production source region");
+string areaAccessSource = pluginSource[areaAccessStart..phoneKeeperStart];
+Equal(true,
+    areaAccessSource.Contains(
+        "AreaAccessSessionPolicy.IsAuthenticatedCompatible", StringComparison.Ordinal),
+    "authenticated Area Access state is derived from Area Access slot compatibility");
+Equal(true,
+    pluginSource.Contains("AreaAccessPrototype.EndAuthenticatedSession();", StringComparison.Ordinal),
+    "session teardown clears authenticated Area Access compatibility");
 Console.WriteLine("Roots presentation policy tests passed.");
