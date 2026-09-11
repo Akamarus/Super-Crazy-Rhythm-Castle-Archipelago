@@ -1,7 +1,9 @@
 # Star Victory and Quest-Capacity Design
 
-**Date:** 2026-09-11  
-**Status:** Approved design; implementation planning pending  
+**Date:** 2026-09-11
+
+**Status:** Approved design; implementation planning pending
+
 **Target:** First solver-valid single-player playthrough with active AP Stars, generated campaign gates, and post-threshold Level 22 Victory
 
 ## 1. Purpose and authority
