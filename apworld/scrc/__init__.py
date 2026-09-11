@@ -830,7 +830,7 @@ class SCRCWorld(World):
                 location.name
                 for region in multiworld.regions
                 for location in region.locations
-                if location.address is not None
+                if location.player == self.player and location.address is not None
             }
         active_campaign_locations = sorted(
             instantiated_addressed_names.intersection(CAMPAIGN_LOCATION_NAMES)

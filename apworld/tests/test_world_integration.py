@@ -219,6 +219,36 @@ class WorldIntegrationTests(unittest.TestCase):
                 self.assertTrue(data["development_cache_ids_reserved"])
                 self.assertEqual(data["active_location_count"], len(self.addressed_names(world)))
 
+    def test_slot_data_scopes_campaign_mapping_to_its_player_in_shared_multiworld(self):
+        multiworld = FakeMultiWorld()
+        worlds = [
+            self.make_world(player=1, difficulty=0, multiworld=multiworld),
+            self.make_world(player=2, difficulty=1, multiworld=multiworld),
+        ]
+        expected = {
+            1: (121, ["Completion", "1 Star"], 0),
+            2: (179, ["Completion", "1 Star", "2 Stars"], 1),
+        }
+        for world in worlds:
+            world.generate_early()
+            world.create_regions()
+
+        for world in worlds:
+            expected_count, expected_tiers, difficulty = expected[world.player]
+            with self.subTest(player=world.player):
+                data = world.fill_slot_data()
+                self.assertEqual(data["active_location_count"], expected_count)
+                self.assertEqual(data["active_campaign_location_tiers"], expected_tiers)
+                self.assertEqual(
+                    data["active_campaign_locations"],
+                    sorted(
+                        self.difficulty.active_location_names(
+                            self.campaign.CAMPAIGN_LOCATION_NAMES,
+                            difficulty,
+                        )
+                    ),
+                )
+
     def test_full_campaign_catalog_is_active_and_development_caches_are_reserved_only(self):
         expected = {0: 121, 1: 179, 2: 237, 3: 273}
         for difficulty, count in expected.items():
