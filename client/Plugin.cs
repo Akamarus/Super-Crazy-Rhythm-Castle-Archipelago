@@ -204,10 +204,11 @@ public sealed class Plugin : BasePlugin
             AddComponent<AreaPhoneAccessKeeper>();
             AddComponent<RootsAreaBaselineKeeper>();
             AddComponent<MeatAreaBaselineKeeper>();
+            AddComponent<MeatMouseEscortRecoveryKeeper>();
             Log.LogWarning(
                 $"[SCRC-AP] AREA ACCESS ROUTING ENABLED: startingSource='{AreaAccessPrototype.StartingArea}'. Hub6/Music Lab + Game Garage remain available. With PrototypeStartingArea=AP, all six major-area phones begin locked until the AP server supplies the seed starter. Locked PhoneBox interactions are disabled; known Hub6 cloth covers follow Area Access; unlocked late-area phones bypass only their local vanilla visited/open condition without changing its save flag; Hub6->area TransitionToGameRoomRequest calls remain safety-gated. PAGE UP remains a developer grant; PAGE DOWN is disabled in AP-driven mode; END prints status.");
             Log.LogWarning(
-                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. Meat Dimension Access suppresses only the exact Hub4 FirstAreaGate root. HOME in Hub2 prints compact status only.");
+                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. Meat Dimension Access suppresses only the exact Hub4 FirstAreaGate root. Interrupted Act 4 mouse escorts may reset and trigger only Hub4's exact native SpawnMouseLeader component when its native flags and Character state prove recovery is needed. HOME in Hub2 prints compact status only.");
         }
 
         Log.LogWarning(
@@ -22274,6 +22275,161 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
     }
 }
 
+internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
+{
+    private string _boundRoom = string.Empty;
+    private int _initialiseDelayFrames;
+    private bool _attemptedThisRoom;
+
+    public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void LateUpdate()
+    {
+        string room = DeveloperHarness.CurrentRoomId;
+        if (!string.Equals(room, MeatMouseEscortRecoveryPolicy.RoomId, StringComparison.Ordinal))
+        {
+            ResetForRoomExit();
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_boundRoom))
+        {
+            _boundRoom = MeatMouseEscortRecoveryPolicy.RoomId;
+            _initialiseDelayFrames = 12;
+            _attemptedThisRoom = false;
+            return;
+        }
+
+        if (_initialiseDelayFrames > 0)
+        {
+            _initialiseDelayFrames--;
+            return;
+        }
+
+        if (_attemptedThisRoom)
+            return;
+
+        bool attemptedBefore = _attemptedThisRoom;
+        _attemptedThisRoom = true;
+
+        GameObject? spawnerObject = null;
+        object? nativeSpawner = null;
+        MethodInfo? resetSpawnCount = null;
+        MethodInfo? triggerSpawner = null;
+        try
+        {
+            spawnerObject = GameObject.Find(MeatMouseEscortRecoveryPolicy.NativeSpawnerPath);
+            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+            Type? nativeSpawnerType = gameAssembly == null
+                ? null
+                : ReflectionUtil.SafeGetTypes(gameAssembly)
+                    .FirstOrDefault(type => string.Equals(
+                        type.FullName, "SpawnMeatAnimalCharacterOnDemand", StringComparison.Ordinal));
+            nativeSpawner = spawnerObject != null && nativeSpawnerType != null
+                ? spawnerObject.GetComponent(Il2CppInterop.Runtime.Il2CppType.From(nativeSpawnerType))
+                : null;
+            resetSpawnCount = nativeSpawnerType?.GetMethod(
+                "SetSpawnCount",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(int) },
+                modifiers: null);
+            triggerSpawner = nativeSpawnerType?.GetMethod(
+                "OnTrigger",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+        }
+        catch
+        {
+            spawnerObject = null;
+            nativeSpawner = null;
+            resetSpawnCount = null;
+            triggerSpawner = null;
+        }
+
+        bool requirementReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            MeatMouseEscortRecoveryPolicy.RequirementStatedFlag, out bool requirementStated);
+        bool revolutionReadable = RootsBucketRandomization.TryReadProgressionFlag(
+            MeatMouseEscortRecoveryPolicy.RevolutionTriggeredFlag, out bool revolutionTriggered);
+
+        bool leaderReadable = false;
+        bool leaderPresent = false;
+        if (nativeSpawner != null)
+        {
+            try
+            {
+                object? character = ReflectionUtil.ReadMember(nativeSpawner, "Character");
+                bool? hasValue = character == null
+                    ? null
+                    : ReflectionUtil.ReadBool(character, "HasValue");
+                if (hasValue.HasValue)
+                {
+                    leaderPresent = hasValue.Value;
+                    leaderReadable = true;
+                }
+            }
+            catch
+            {
+                leaderReadable = false;
+            }
+        }
+
+        MeatMouseEscortRecoverySnapshot snapshot = new(
+            AreaAccessPrototype.AuthenticatedCompatibleSession,
+            room,
+            requirementReadable,
+            requirementStated,
+            revolutionReadable,
+            revolutionTriggered,
+            spawnerObject != null && nativeSpawner != null &&
+            resetSpawnCount != null && triggerSpawner != null,
+            leaderReadable,
+            leaderPresent,
+            attemptedBefore);
+
+        MeatMouseEscortRecoveryDecision decision =
+            MeatMouseEscortRecoveryPolicy.Decide(snapshot);
+        if (decision != MeatMouseEscortRecoveryDecision.ReevaluateNativeSpawner)
+        {
+            string outcome = spawnerObject == null || nativeSpawner == null ||
+                             resetSpawnCount == null || triggerSpawner == null ||
+                             !requirementReadable || !revolutionReadable || !leaderReadable
+                ? "failed"
+                : "skipped";
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY {outcome} room='{room}' authenticatedCompatible={snapshot.AuthenticatedCompatible} requirementReadable={requirementReadable} requirementStated={requirementStated} revolutionReadable={revolutionReadable} revolutionTriggered={revolutionTriggered} exactSpawnerBound={nativeSpawner != null} leaderReadable={leaderReadable} leaderPresent={leaderPresent} attemptedThisRoom={attemptedBefore}. No progression flags or AP checks changed.");
+            return;
+        }
+
+        try
+        {
+            resetSpawnCount!.Invoke(nativeSpawner, new object[] { 0 });
+            triggerSpawner!.Invoke(nativeSpawner, Array.Empty<object>());
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY applied room='{room}' path='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' boundary='SpawnMeatAnimalCharacterOnDemand.SetSpawnCount(0)+OnTrigger()'. Native flags, bouncer state, and AP checks remain unchanged; this room lifetime will not retry.");
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogError(
+                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY failed room='{room}' path='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' error='{ex.GetType().Name}'. No fallback spawn, progression write, or AP check was attempted.");
+        }
+    }
+
+    private void ResetForRoomExit()
+    {
+        if (string.IsNullOrEmpty(_boundRoom))
+            return;
+
+        _boundRoom = string.Empty;
+        _initialiseDelayFrames = 0;
+        _attemptedThisRoom = false;
+    }
+}
+
 internal static class AreaAccessPrototype
 {
     internal readonly record struct AreaDefinition(
@@ -23107,21 +23263,46 @@ internal static class IntroRoomToHubRedirectPatches
             ? null
             : ReflectionUtil.ExtractIdentifier(room) ?? room.ToString();
 
-        // The Hub6 phone prefab can still produce its transition request even
-        // when the child OnTrigger reactor is inactive. Treat this request
-        // boundary as the authoritative Area Access gate. Only departures
-        // from Hub6 are filtered; world booths returning to Hub6 and all
-        // normal intra-area room transitions remain untouched.
         string originRoom = DeveloperHarness.CurrentRoomId;
-        if (AreaAccessPrototype.Enabled &&
-            string.Equals(originRoom, "GameRoom_Hub6", StringComparison.Ordinal) &&
-            roomId != null &&
-            AreaAccessPrototype.TryGetAreaForHubRoom(roomId, out AreaAccessPrototype.AreaDefinition destinationArea) &&
-            !AreaAccessPrototype.HasArea(destinationArea.AreaName))
+        AreaAccessPrototype.AreaDefinition destinationArea = default;
+        bool isMajorAreaHub = roomId != null &&
+                              AreaAccessPrototype.TryGetAreaForHubRoom(
+                                  roomId, out destinationArea);
+        bool ownsDestination = !isMajorAreaHub || AreaAccessPrototype.HasArea(destinationArea.AreaName);
+        AreaAccessDestinationDecision destinationDecision = AreaAccessDestinationPolicy.Decide(
+            AreaAccessPrototype.Enabled,
+            roomId,
+            isMajorAreaHub,
+            ownsDestination);
+        if (destinationDecision == AreaAccessDestinationDecision.RedirectToMusicLab)
         {
+            string lockedDestination = roomId!;
+            object? musicLabRoom = BuildIdentifier(room!.GetType(), AreaAccessDestinationPolicy.MusicLabRoomId);
+            bool rewrote = musicLabRoom != null &&
+                           (WriteMember(request, "RoomToGoTo", musicLabRoom) ||
+                            WriteMember(request, "_RoomToGoTo_k__BackingField", musicLabRoom));
+            if (!rewrote)
+            {
+                Plugin.LoggerInstance?.LogError(
+                    $"[SCRC-AP] AREA DESTINATION GUARD FAILED CLOSED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' reason='could not rewrite locked destination to Music Lab'.");
+                return false;
+            }
+
+            WriteMember(request, "PartOfLoadLevel", false);
+            WriteMember(request, "_PartOfLoadLevel_k__BackingField", false);
+            roomId = AreaAccessDestinationPolicy.MusicLabRoomId;
+
+            // Preserve the existing Hub6 phone hard guard. World exits and
+            // save restoration instead continue safely into Hub6.
+            if (string.Equals(originRoom, AreaAccessDestinationPolicy.MusicLabRoomId, StringComparison.Ordinal))
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] AREA PHONE TRANSITION BLOCKED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' reason='Area Access locked'; request target rewritten to '{roomId}'.");
+                return false;
+            }
+
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] AREA PHONE TRANSITION BLOCKED area='{destinationArea.AreaName}' destination='{roomId}' origin='{originRoom}' reason='Area Access locked'.");
-            return false;
+                $"[SCRC-AP] AREA DESTINATION REDIRECTED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' redirect='{roomId}' reason='Area Access locked'. Native save, progression, visited, and story flags remain unchanged.");
         }
 
         if (__instance != null &&

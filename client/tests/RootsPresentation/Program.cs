@@ -147,6 +147,74 @@ Equal(false,
         true, true, true, "GameRoom_Hub4", meatFirstAreaGatePath + "/Collision"),
     "only the exact Meat first gate root is suppressed");
 
+Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
+    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub4", true, false),
+    "an unowned major-area destination is redirected to Music Lab");
+Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
+    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub2", true, false),
+    "destination guarding is independent of the transition origin");
+Equal(AreaAccessDestinationDecision.Preserve,
+    AreaAccessDestinationPolicy.Decide(false, "GameRoom_Hub4", true, false),
+    "disabled Area Access preserves native transitions");
+Equal(AreaAccessDestinationDecision.Preserve,
+    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub4", true, true),
+    "owned major-area destinations are preserved");
+Equal(AreaAccessDestinationDecision.Preserve,
+    AreaAccessDestinationPolicy.Decide(true, "GameRoom_27", false, false),
+    "non-area destinations are preserved");
+Equal(AreaAccessDestinationDecision.Preserve,
+    AreaAccessDestinationPolicy.Decide(true, AreaAccessDestinationPolicy.MusicLabRoomId, false, false),
+    "return travel to Music Lab is never redirected");
+
+static MeatMouseEscortRecoverySnapshot MouseRecovery(
+    bool authenticatedCompatible = true,
+    string roomId = "GameRoom_Hub4",
+    bool requirementReadable = true,
+    bool requirementStated = true,
+    bool revolutionReadable = true,
+    bool revolutionTriggered = false,
+    bool nativeSpawnerIdentityKnown = true,
+    bool leaderReadable = true,
+    bool leaderPresent = false,
+    bool attemptedThisRoom = false) =>
+    new(authenticatedCompatible, roomId, requirementReadable, requirementStated,
+        revolutionReadable, revolutionTriggered, nativeSpawnerIdentityKnown,
+        leaderReadable, leaderPresent, attemptedThisRoom);
+
+Equal(MeatMouseEscortRecoveryDecision.ReevaluateNativeSpawner,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery()),
+    "interrupted Act 4 escort re-evaluates the exact native mouse spawner");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(authenticatedCompatible: false)),
+    "unauthenticated Area Access session fails closed");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(roomId: "GameRoom_Hub40")),
+    "mouse recovery is exact-room scoped");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(requirementReadable: false)),
+    "unreadable Act 4 requirement fails closed");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(requirementStated: false)),
+    "unstated Act 4 requirement preserves native state");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(revolutionReadable: false)),
+    "unreadable revolution state fails closed");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(revolutionTriggered: true)),
+    "completed revolution is never repaired");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(nativeSpawnerIdentityKnown: false)),
+    "unknown native spawner identity fails closed");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(leaderReadable: false)),
+    "unreadable native Character state fails closed");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(leaderPresent: true)),
+    "present mouse leader is never duplicated");
+Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(attemptedThisRoom: true)),
+    "mouse recovery is bounded to one attempt per room lifetime");
+
 int meatKeeperStart = pluginSource.IndexOf(
     "internal sealed class MeatAreaBaselineKeeper", StringComparison.Ordinal);
 int areaAccessStart = pluginSource.IndexOf(
@@ -176,4 +244,47 @@ Equal(true,
 Equal(true,
     pluginSource.Contains("AreaAccessPrototype.EndAuthenticatedSession();", StringComparison.Ordinal),
     "session teardown clears authenticated Area Access compatibility");
+
+int transitionPatchStart = pluginSource.IndexOf(
+    "internal static class IntroRoomToHubRedirectPatches", StringComparison.Ordinal);
+int transitionPatchEnd = pluginSource.IndexOf(
+    "internal static class ProgressionPatches", transitionPatchStart, StringComparison.Ordinal);
+Equal(true, transitionPatchStart >= 0 && transitionPatchEnd > transitionPatchStart,
+    "transition patch has a bounded production source region");
+string transitionPatchSource = pluginSource[transitionPatchStart..transitionPatchEnd];
+Equal(true,
+    transitionPatchSource.Contains("AreaAccessDestinationPolicy.Decide(", StringComparison.Ordinal) &&
+    transitionPatchSource.Contains("AreaAccessDestinationPolicy.MusicLabRoomId", StringComparison.Ordinal) &&
+    transitionPatchSource.Contains("AreaAccessPrototype.TryGetAreaForHubRoom(", StringComparison.Ordinal),
+    "every unowned major-area destination is rewritten through the pure guard policy");
+Equal(true,
+    transitionPatchSource.Contains(
+        "string.Equals(originRoom, AreaAccessDestinationPolicy.MusicLabRoomId", StringComparison.Ordinal),
+    "existing Hub6 phone-origin hard guard remains explicit");
+
+int mouseKeeperStart = pluginSource.IndexOf(
+    "internal sealed class MeatMouseEscortRecoveryKeeper", StringComparison.Ordinal);
+int mouseKeeperEnd = pluginSource.IndexOf(
+    "internal static class AreaAccessPrototype", mouseKeeperStart, StringComparison.Ordinal);
+Equal(true, mouseKeeperStart >= 0 && mouseKeeperEnd > mouseKeeperStart,
+    "mouse escort recovery has a bounded production source region");
+string mouseKeeperSource = pluginSource[mouseKeeperStart..mouseKeeperEnd];
+Equal(true,
+    mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.Decide(", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("\"SpawnMeatAnimalCharacterOnDemand\"", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("\"SetSpawnCount\"", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("\"OnTrigger\"", StringComparison.Ordinal),
+    "mouse recovery uses the exact existing native spawner reset and trigger boundary");
+Equal(true,
+    mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.RequirementStatedFlag", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.RevolutionTriggeredFlag", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("AreaAccessPrototype.AuthenticatedCompatibleSession", StringComparison.Ordinal),
+    "mouse recovery requires readable native quest state and authenticated Area Access");
+Equal(false,
+    mouseKeeperSource.Contains("QueueLocation", StringComparison.Ordinal) ||
+    mouseKeeperSource.Contains("TrySubmitProgressionFlag", StringComparison.Ordinal) ||
+    mouseKeeperSource.Contains("Instantiate", StringComparison.Ordinal) ||
+    mouseKeeperSource.Contains("Clone", StringComparison.Ordinal) ||
+    mouseKeeperSource.Contains("SpawnRoom23MouseCharacterRequest", StringComparison.Ordinal),
+    "mouse recovery dispatches no checks, writes no progression, and creates no synthetic NPC");
 Console.WriteLine("Roots presentation policy tests passed.");
