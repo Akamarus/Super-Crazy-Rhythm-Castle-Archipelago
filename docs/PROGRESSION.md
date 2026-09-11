@@ -2,9 +2,13 @@
 
 Historical gameplay and native mapping evidence from the full discovery playthrough is indexed in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Use that evidence as a starting point, while treating its former individual-level access design as superseded by this document's Area Access model.
 
-## AP Music Lab Points candidate (v0.23)
+## Full normal-campaign mapping candidate (v0.24)
 
-Client v0.69.0 / APWorld v0.23.0 is experimental and requires manual acceptance with a fresh v0.23 seed and fresh native save. The pool replaces 20 Stardust with 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points total. All three items are progression, at permanent IDs `187256153..187256155`. The existing nine chests require weighted totals of 5/10/20/32/46/64/89/111/140; the final threshold leaves 40 points of slack. Ordinary solver reachability permits progression behind earlier chests without self-locking. Active location totals remain 92/129/166/202, and active Level-22 2/3-Star checks remain filler-only.
+Client v0.70.0 / APWorld v0.24.0 is experimental and requires manual acceptance with a fresh v0.24 seed and fresh native save. All 22 normal campaign identities are mapped to separate Completion and cumulative Star checks. The exact addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273. Development Caches are retired from new seeds but their historical IDs remain reserved; the safe item/location frontiers are `187256156` / `187256292`.
+
+Normal results send Completion and every newly earned enabled cumulative Star tier. A first 2-Star result therefore sends Completion, 1 Star, and 2 Stars when those checks are present; an improvement sends only the remaining unchecked tier. Bee and Devil variants are diagnostic-only and cannot send normal checks or special locations. All 66 AP Stars, generated Star gates, and final Victory remain inactive. The candidate does not claim gameplay verification for every mapped level: broad replay is deferred and unplayed mappings remain manual-testing pending.
+
+The retained Music Lab Point pool replaces 20 Stardust with 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points total. All three items are progression, at permanent IDs `187256153..187256155`. The existing nine chests require weighted totals of 5/10/20/32/46/64/89/111/140; the final threshold leaves 40 points of slack. Ordinary solver reachability permits progression behind earlier chests without self-locking.
 
 No point milestones or duplicate source checks are added. The five chest cassettes retain their 32/64/89/111/140-point checks; Gradius Remix and Bloody Tears retain the 10/46-point checks. Each physical chest sends only its existing location once.
 

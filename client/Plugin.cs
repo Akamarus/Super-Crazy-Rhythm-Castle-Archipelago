@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.69.0";
+    public const string PluginVersion = "0.70.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -1347,6 +1347,7 @@ internal sealed class ArchipelagoClient
     private volatile bool _connected;
     private int _reconnectWorkerActive;
     private readonly HashSet<int> _processedReceivedItemIndexes = new();
+    private (string Game, string Seed, int Team, int Slot)? _authenticatedIdentity;
 
     public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
@@ -1497,6 +1498,7 @@ internal sealed class ArchipelagoClient
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     _connected = false;
+                    CampaignLevelRandomization.OnDisconnected();
                     if (previousSession.Session != null &&
                         !ReferenceEquals(previousSession.Session, session))
                     {
@@ -1561,6 +1563,23 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
+                        lock (_lock)
+                        {
+                            var identity = (Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
+                            if (_authenticatedIdentity != identity)
+                            {
+                                _pendingChecks.Clear();
+                                _queuedOrSent.Clear();
+                                _processedReceivedItemIndexes.Clear();
+                                CampaignLevelRandomization.OnIdentityReplaced();
+                            }
+                            _authenticatedIdentity = identity;
+                            CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
+                            CampaignLevelRandomizationSnapshot campaignState = CampaignLevelRandomization.Snapshot;
+                            if (campaignState.Mode == CampaignLocationCompatibilityMode.IncompatibleClaim)
+                                Plugin.LoggerInstance?.LogError(
+                                    $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
+                        }
                         MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
                             loginSuccess.SlotData,
                             Plugin.GameName,
@@ -1628,6 +1647,13 @@ internal sealed class ArchipelagoClient
             _connected = false;
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
+            lock (_lock)
+            {
+                _authenticatedIdentity = null;
+                _pendingChecks.Clear();
+                _queuedOrSent.Clear();
+                CampaignLevelRandomization.Shutdown();
+            }
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
@@ -1647,6 +1673,7 @@ internal sealed class ArchipelagoClient
             _connected = false;
             GarageCartridgeAccess.EndServerSync(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
+            CampaignLevelRandomization.OnDisconnected();
             terminal?.Invoke();
         });
     }
@@ -1704,6 +1731,23 @@ internal sealed class ArchipelagoClient
         }
     }
 
+    public void QueueCampaignResult(string? level, string? variant, int? starsEarned)
+    {
+        // Evaluation and queue admission share the login identity boundary.
+        // A result cannot be evaluated for one seed and queued for its replacement.
+        lock (_lock)
+        {
+            if (!_authenticatedIdentity.HasValue)
+                return;
+            IReadOnlyList<string> locations = CampaignLevelRandomization.EvaluatePersistedResult(level, variant, starsEarned);
+            if (locations.Count == 0)
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={starsEarned?.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
+            foreach (string location in locations)
+                QueueLocation(location);
+        }
+    }
+
     public void QueueLocation(string locationName)
     {
         lock (_lock)
@@ -1713,9 +1757,8 @@ internal sealed class ArchipelagoClient
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Duplicate local check ignored: {locationName}");
                 return;
             }
+            _pendingChecks.Enqueue(locationName);
         }
-
-        _pendingChecks.Enqueue(locationName);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEUED CHECK '{locationName}'.");
 
         if (Connected)
@@ -1735,6 +1778,10 @@ internal sealed class ArchipelagoClient
         bool sendFailed = false;
         using (sessionLease)
         {
+            // The initial Connected read can precede a transport replacement.
+            // Recheck under its lease before delivering identity-bound results.
+            if (!Connected)
+                return;
             while (_pendingChecks.TryDequeue(out string? locationName))
             {
                 try
@@ -11896,6 +11943,8 @@ internal static class GamePatches
 {
     private static readonly Dictionary<string, PendingResult> Pending = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> PersistedThisSession = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> RepeatedPersistedLogs = new(StringComparer.OrdinalIgnoreCase);
+    private const int PersistedEventLogCapacity = 128;
 
     public static void PersistResultPostfix(object[]? __args)
     {
@@ -11969,6 +12018,7 @@ internal static class GamePatches
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] RESULT DATA internal={level} variant={variant} score={score?.ToString() ?? "?"} players={players?.ToString() ?? "?"} difficulty={difficulty}");
 
+        SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
         Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned);
@@ -11999,23 +12049,15 @@ internal static class GamePatches
         string persistedKey =
             $"{level}|{variant}";
 
-        bool repeatedPersistedKey = !PersistedThisSession.Add(persistedKey);
-        bool garageResult = string.Equals(level, "Level_27", StringComparison.OrdinalIgnoreCase);
-
-        if (repeatedPersistedKey && !garageResult)
+        bool repeatedPersistedKey = ShouldLogRepeatedPersistedKey(persistedKey);
+        if (repeatedPersistedKey)
         {
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] Duplicate persisted event ignored for {level} variant={variant}.");
-            return;
-        }
-
-        if (repeatedPersistedKey && garageResult)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                "[SCRC-AP] Repeated Level_27 persisted event retained for Game Garage song diagnostics.");
+                $"[SCRC-AP] Repeated persisted event retained for result evaluation: {level} variant={variant}.");
         }
 
         MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
+        SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? "<unknown>");
 
         Level5Discovery.RecordLevelPersisted(level);
         Level6Discovery.RecordLevelPersisted(level);
@@ -12051,8 +12093,6 @@ internal static class GamePatches
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] NON-DEFAULT VARIANT COMPLETION internal={level} variant={variant}: base-level AP location check suppressed.");
-
-            return;
         }
 
         try
@@ -12065,33 +12105,30 @@ internal static class GamePatches
                 $"[SCRC-AP] SAVE PROBE failed for {level}: {ex.GetBaseException().Message}");
         }
 
-        bool level22 = string.Equals(level, "Level_28", StringComparison.OrdinalIgnoreCase);
-        if (level22)
+        if (CampaignLevelCatalog.TryGet(level, out _))
         {
-            IReadOnlyList<string> locations = LevelCompletionPolicy.LocationsForPersistedResult(
-                level,
-                result?.StarsEarned);
-            if (locations.Count == 0)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] LEVEL 22 RESULT SUPPRESSED: persisted event had no verified successful Star result (stars={result?.StarsEarned.ToString() ?? "<missing>"}).");
-            }
-
-            foreach (string location in locations)
-            {
-                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{location}'.");
-                Plugin.AP?.QueueLocation(location);
-            }
+            Plugin.AP?.QueueCampaignResult(level, variant, result?.StarsEarned);
         }
-        else if (LocationMap.InternalToLocationName.TryGetValue(level, out string? locationName))
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{locationName}'.");
-            Plugin.AP?.QueueLocation(locationName);
-        }
-        else
+        else if (!explicitlyNonDefaultVariant)
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] Unmapped internal level '{level}'. It will not be sent to Archipelago yet.");
+        }
+    }
+
+    private static bool ShouldLogRepeatedPersistedKey(string persistedKey)
+    {
+        lock (PersistedThisSession)
+        {
+            if (!PersistedThisSession.Contains(persistedKey))
+            {
+                if (PersistedThisSession.Count < PersistedEventLogCapacity)
+                    PersistedThisSession.Add(persistedKey);
+                return false;
+            }
+
+            return RepeatedPersistedLogs.Count < PersistedEventLogCapacity &&
+                   RepeatedPersistedLogs.Add(persistedKey);
         }
     }
 
@@ -14960,6 +14997,205 @@ internal sealed class Level4EntranceProxy : MonoBehaviour
             for (int i = 0; i < 24 && current != null; i++)
             {
                 names.Add(current.name ?? "<unnamed>");
+                current = current.parent;
+            }
+
+            names.Reverse();
+            return string.Join("/", names);
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+}
+
+
+internal static class SpecialModeDiscovery
+{
+    private const int ProgressionFlagCapacity = 256;
+    private const int SceneObjectCapacity = 100;
+
+    private static readonly object Sync = new();
+    private static readonly HashSet<string> ObservedProgressionFlags =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static bool _progressionCapacityLogged;
+
+    public static void RecordProgressionFlagUpdated(object evt, string flag)
+    {
+        if (!SpecialVariantDiagnosticPolicy.IsRelevantProgressionFlag(flag))
+            return;
+
+        string room = DeveloperHarness.CurrentRoomId;
+        string key = $"{room}\0{flag}";
+        bool capacityReached = false;
+
+        lock (Sync)
+        {
+            if (ObservedProgressionFlags.Contains(key))
+                return;
+
+            if (ObservedProgressionFlags.Count >= ProgressionFlagCapacity)
+            {
+                if (_progressionCapacityLogged)
+                    return;
+
+                _progressionCapacityLogged = true;
+                capacityReached = true;
+            }
+            else
+            {
+                ObservedProgressionFlags.Add(key);
+            }
+        }
+
+        if (capacityReached)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
+                $"flag='<capacity reached>' eventType='{evt.GetType().FullName}' " +
+                $"emitted={ProgressionFlagCapacity} truncated=1.");
+            return;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
+            $"flag='{flag}' eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void RecordResultApplied(
+        object request,
+        string level,
+        string variant,
+        int? score,
+        string difficulty)
+    {
+        SpecialVariantKind identity =
+            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
+        if (identity == SpecialVariantKind.None)
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT APPLIED readOnly=True " +
+            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
+            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
+            $"eventType='{request.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void RecordResultPersisted(
+        object evt,
+        string level,
+        string variant,
+        int? score,
+        string difficulty)
+    {
+        SpecialVariantKind identity =
+            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
+        if (identity == SpecialVariantKind.None)
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT PERSISTED readOnly=True " +
+            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
+            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
+            $"eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void ScanCurrentScene()
+    {
+        string room = DeveloperHarness.CurrentRoomId;
+        if (string.Equals(room, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(room, "GameRoom_27", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        int emitted = 0;
+        int truncated = 0;
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN BEGIN readOnly=True " +
+            $"room='{room}' emitted=0 truncated=0.");
+
+        try
+        {
+            foreach (Transform transform in Resources.FindObjectsOfTypeAll<Transform>())
+            {
+                if (transform == null || transform.gameObject == null)
+                    continue;
+
+                GameObject gameObject = transform.gameObject;
+                bool activeSelf;
+                bool activeInHierarchy;
+                try
+                {
+                    activeSelf = gameObject.activeSelf;
+                    activeInHierarchy = gameObject.activeInHierarchy;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!activeInHierarchy)
+                    continue;
+
+                string path = BuildHierarchy(transform);
+                string[] componentTypes = ReadComponentTypes(gameObject);
+                if (!SpecialVariantDiagnosticPolicy.IsRelevantSceneObject(path, componentTypes))
+                    continue;
+
+                if (emitted >= SceneObjectCapacity)
+                {
+                    truncated++;
+                    continue;
+                }
+
+                emitted++;
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE OBJECT readOnly=True " +
+                    $"room='{room}' path='{path}' activeSelf={activeSelf} " +
+                    $"activeInHierarchy={activeInHierarchy} " +
+                    $"componentTypes='{string.Join("|", componentTypes)}'.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN ERROR readOnly=True " +
+                $"room='{room}' error='{ex.GetBaseException().Message}'.");
+        }
+        finally
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN END readOnly=True " +
+                $"room='{room}' emitted={emitted} truncated={truncated}.");
+        }
+    }
+
+    private static string[] ReadComponentTypes(GameObject gameObject)
+    {
+        try
+        {
+            return gameObject.GetComponents<Component>()
+                .Where(component => component != null)
+                .Select(component => component.GetType().FullName ?? component.GetType().Name)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static string BuildHierarchy(Transform transform)
+    {
+        try
+        {
+            var names = new List<string>();
+            Transform? current = transform;
+            while (current != null)
+            {
+                names.Add(current.name);
                 current = current.parent;
             }
 
@@ -22465,7 +22701,10 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.RightShift);
 
             if (!control && !alt && !shift)
+            {
                 MusicLabDiscovery.ScanNativeIdentityCandidates();
+                SpecialModeDiscovery.ScanCurrentScene();
+            }
 
             if (control)
                 DeveloperHarness.GrantLevel12Locally();
@@ -26621,6 +26860,7 @@ internal static class ProgressionPatches
         Level6Discovery.RecordProgressionFlagUpdated(flag);
         Level8Discovery.RecordProgressionFlagUpdated(flag);
         MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag);
+        SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
 
         bool interesting = GateKeywords.Any(k =>
             flag.Contains(k, StringComparison.OrdinalIgnoreCase));

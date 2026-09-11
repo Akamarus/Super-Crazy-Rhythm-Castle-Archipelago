@@ -14,22 +14,44 @@ VALIDATOR = REPO_ROOT / "tools" / "validate-repo.py"
 
 
 class RepositoryContractTests(unittest.TestCase):
-    def test_public_apworld_docs_report_v023_location_totals(self):
-        expected_rows = (
-            "| Normal | Completion / 1-Star | Bronze | 92 |",
-            "| Hard | Add 2-Star | Add Silver | 129 |",
-            "| Expert | Add 3-Star | Add Gold | 166 |",
-            "| Perfection | Same campaign tiers as Expert | Add Platinum | 202 |",
-        )
+    def assert_public_counts(self, normal, hard, expert, perfection):
+        expected = f"Normal {normal} / Hard {hard} / Expert {expert} / Perfection {perfection}"
+        for relative in (
+            "docs/PROJECT_OVERVIEW.md",
+            "docs/PROGRESSION.md",
+            "docs/TESTING.md",
+            "README.md",
+        ):
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(document=relative):
+                self.assertIn(expected, text)
+
+    def test_public_docs_report_full_level_mapping_candidate_status(self):
+        self.assert_public_counts("121", "179", "237", "273")
+        overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
+        self.assertIn("Client v0.70.0 / APWorld v0.24.0", overview)
+        self.assertIn("special variants are diagnostic-only", overview.lower())
+        self.assertIn("66 AP Stars remain inactive", overview)
+
         for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
-                for row in expected_rows:
-                    self.assertIn(row, text)
+                self.assertIn("Client v0.70.0 / APWorld v0.24.0", text)
+                self.assertIn("schema 15", text.lower())
+                self.assertIn("campaign-mapping schema 1", text.lower())
+                self.assertIn("fresh v0.24 seed", text.lower())
 
-    def run_validator(self, root=REPO_ROOT):
+        testing = (REPO_ROOT / "docs/TESTING.md").read_text(encoding="utf-8")
+        self.assertIn("schema 15 / campaign-mapping schema 1", testing.lower())
+        self.assertNotIn("The exact schema-14/point-schema-1 contract is required", testing)
+
+    def run_validator(self, root=REPO_ROOT, *, validate_live=None):
         environment = os.environ.copy()
         environment["SCRC_REPO_ROOT"] = str(root)
+        if validate_live is None:
+            validate_live = root == REPO_ROOT
+        if not validate_live:
+            environment["SCRC_VALIDATE_LIVE_WORLD"] = "0"
         return subprocess.run(
             [sys.executable, str(VALIDATOR)],
             cwd=REPO_ROOT,
@@ -52,16 +74,20 @@ class RepositoryContractTests(unittest.TestCase):
                     source, destination,
                     ignore=shutil.ignore_patterns("bin", "obj", "__pycache__"),
                 )
+        support_source = REPO_ROOT / "apworld" / "tests" / "support.py"
+        support_destination = root / "apworld" / "tests" / "support.py"
+        support_destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(support_source, support_destination)
         return root
 
-    def test_validator_reports_music_lab_point_slot_contract(self):
+    def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.69.0", result.stdout)
-        self.assertIn("APWorld: v0.23.0", result.stdout)
-        self.assertIn('"world_version": "0.23.0"', result.stdout)
+        self.assertIn("Client:  v0.70.0", result.stdout)
+        self.assertIn("APWorld: v0.24.0", result.stdout)
+        self.assertIn('"world_version": "0.24.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
@@ -96,7 +122,13 @@ class RepositoryContractTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn('"next_item_id": 187256156', result.stdout)
-        self.assertIn('"next_location_id": 187256211', result.stdout)
+        self.assertIn('"next_location_id": 187256292', result.stdout)
+        self.assertIn('"campaign_location_count": 88', result.stdout)
+        self.assertIn('"new_campaign_location_count": 81', result.stdout)
+        self.assertIn('"active_location_totals": {', result.stdout)
+        self.assertIn('"live_world_structure_checked": true', result.stdout)
+        self.assertIn('"Normal": 121', result.stdout)
+        self.assertIn('"Perfection": 273', result.stdout)
 
     def test_validator_rejects_changed_base_id(self):
         for relative in (
@@ -253,6 +285,56 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Star ID changed", result.stdout + result.stderr)
 
+    def test_validator_rejects_live_world_structure_regressions(self):
+        mutations = {
+            "active location total": (
+                "apworld/scrc/difficulty.py",
+                '0: frozenset(("Completion", "1 Star")),',
+                '0: frozenset(("Completion",)),',
+                "live active-location count changed for Normal",
+            ),
+            "duplicate addressed location instance": (
+                "apworld/scrc/__init__.py",
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n',
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n'
+                '        phone_hub.locations.append(\n'
+                '            SCRCLocation(\n'
+                '                self.player,\n'
+                '                ROOTS_GECKO_WEED_KILLER,\n'
+                '                LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER],\n'
+                '                phone_hub,\n'
+                '            )\n'
+                '        )\n',
+                "live active-location count changed for Normal",
+            ),
+            "unaddressed Development Cache": (
+                "apworld/scrc/__init__.py",
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n',
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n'
+                '        phone_hub.locations.append(\n'
+                '            SCRCLocation(\n'
+                '                self.player,\n'
+                '                "Development Cache 01",\n'
+                '                None,\n'
+                '                phone_hub,\n'
+                '            )\n'
+                '        )\n',
+                "instantiated Development Cache",
+            ),
+        }
+        for label, (relative, old, new, expected_error) in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new, 1), encoding="utf-8")
+
+                result = self.run_validator(root, validate_live=True)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(expected_error, result.stdout + result.stderr)
+
     def test_packaged_world_contains_only_distribution_sources(self):
         with tempfile.TemporaryDirectory() as output_dir:
             result = subprocess.run(
@@ -287,7 +369,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.23.0")
+        self.assertEqual(manifest["world_version"], "0.24.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

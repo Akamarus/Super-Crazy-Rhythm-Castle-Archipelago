@@ -15,6 +15,12 @@ from .cassettes import (
     NEW_CASSETTE_SOURCE_IDS,
     validate_cassette_catalog,
 )
+from .campaign_levels import (
+    CAMPAIGN_LEVELS,
+    CAMPAIGN_LOCATION_NAMES,
+    CAMPAIGN_LOCATION_NAME_TO_ID,
+    CAMPAIGN_LOCATION_TIERS,
+)
 from .items import (
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
@@ -146,10 +152,6 @@ AREA_ITEM_TO_REGION = {
 # Preserve every ID from GateTest v0.2. New Music Lab checks start at +21,
 # leaving the historical +4..+10 gap untouched.
 LOCATION_NAME_TO_ID = {
-    "Level 1 - Completion": BASE_ID + 1,
-    "Level 2 - Completion": BASE_ID + 2,
-    "Level 3 - Completion": BASE_ID + 3,
-
     "Development Cache 01": BASE_ID + 11,
     "Development Cache 02": BASE_ID + 12,
     "Development Cache 03": BASE_ID + 13,
@@ -161,6 +163,7 @@ LOCATION_NAME_TO_ID = {
     "Development Cache 09": BASE_ID + 19,
     "Development Cache 10": BASE_ID + 20,
 }
+LOCATION_NAME_TO_ID.update(CAMPAIGN_LOCATION_NAME_TO_ID)
 
 GARAGE_LOCATION_START = BASE_ID + 21
 for song_index, song in enumerate(GARAGE_SONGS):
@@ -231,15 +234,6 @@ ROOTS_LEVEL4_HIP_GLASSES = "Roots - Level 4 - Hip Glasses"
 ROOTS_BUCKET_MINION_TRADE = "Roots - Bucket Minion Trade"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL4_HIP_GLASSES] = BASE_ID + 180
 LOCATION_NAME_TO_ID[ROOTS_BUCKET_MINION_TRADE] = BASE_ID + 181
-
-LEVEL_22_ORDINARY_LOCATIONS = (
-    "Level 22 - Completion",
-    "Level 22 - 1 Star",
-    "Level 22 - 2 Stars",
-    "Level 22 - 3 Stars",
-)
-for index, name in enumerate(LEVEL_22_ORDINARY_LOCATIONS):
-    LOCATION_NAME_TO_ID[name] = BASE_ID + 182 + index
 
 LEVEL_2_MONEY_CASSETTE_SOURCE = "Level 2 - Money Cassette"
 LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
@@ -384,7 +378,10 @@ class SCRCWorld(World):
         self.active_location_names = frozenset(
             name
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
-            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+            if (
+                name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and not name.startswith("Development Cache ")
+            )
         )
         self.active_campaign_star_tiers = active_campaign_star_tiers
         self.active_medal_tiers = active_medal_tiers
@@ -411,21 +408,6 @@ class SCRCWorld(World):
         cell = Region("Cell Tower", self.player, self.multiworld)
         tower = Region("Tower of Fear", self.player, self.multiworld)
         royal = Region("Royal Corridor", self.player, self.multiworld)
-
-        # Existing live level checks belong to Roots. Level 3 is intentionally
-        # split into entrance/source reachability and completion: Weed Killer
-        # gets the player into Level 3, while Plant Pipes is required to finish it.
-        for name in ("Level 1 - Completion", "Level 2 - Completion", "Level 3 - Completion"):
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], roots)
-            if name == "Level 3 - Completion":
-                set_rule(
-                    location,
-                    lambda state: (
-                        state.has("Weed Killer", self.player)
-                        and state.has("Plant Pipes", self.player)
-                    ),
-                )
-            roots.locations.append(location)
 
         # Gecko is reachable from the Roots hub once Roots Access is owned.
         # Weed Killer is NOT required to reach this source; it is the reward
@@ -525,15 +507,6 @@ class SCRCWorld(World):
         )
         roots.locations.append(combo_bucket_event)
 
-        # Preserve historical location IDs/datapackage names, but keep the
-        # old synthetic caches filler-only so progression can never be placed
-        # on a location the game client cannot actually report.
-        for index in range(1, 11):
-            name = f"Development Cache {index:02d}"
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
-            location.item_rule = lambda item: item.name == "Stardust"
-            phone_hub.locations.append(location)
-
         # v0.14 keeps the four cartridge sources that are not already
         # represented by Music Lab reward chests. Their exact physical-region
         # logic is intentionally not modeled yet, so keep these checks filler-only:
@@ -567,6 +540,30 @@ class SCRCWorld(World):
             "Royal Corridor": royal,
             "Tower of Fear": tower,
         }
+
+        for level in CAMPAIGN_LEVELS:
+            for tier in CAMPAIGN_LOCATION_TIERS:
+                name = level.location_name(tier)
+                if not is_active(name):
+                    continue
+                location = SCRCLocation(
+                    self.player,
+                    name,
+                    LOCATION_NAME_TO_ID[name],
+                    concrete_regions[level.area],
+                )
+                set_rule(
+                    location,
+                    lambda state, requirements=level.required_items: all(
+                        state.has(item, self.player) for item in requirements
+                    ),
+                )
+                safe = level.progression_safe and not (
+                    level.number == 22 and tier in {"2 Stars", "3 Stars"}
+                )
+                location.item_rule = lambda item, safe=safe: filler_or_safe_required(item, safe)
+                concrete_regions[level.area].locations.append(location)
+
         cassette_source_regions = {}
 
         def route_is_open(state, triggers):
@@ -659,17 +656,6 @@ class SCRCWorld(World):
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
                 game_garage.locations.append(location)
-
-        # Royal Access lands on the phone-side Level 22 route. Completion and
-        # one Star are confirmed ability-free. Two/three-Star requirements are
-        # still under investigation, so those tiers remain filler-only.
-        for name in LEVEL_22_ORDINARY_LOCATIONS:
-            if not is_active(name):
-                continue
-            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], royal)
-            if name in {"Level 22 - 2 Stars", "Level 22 - 3 Stars"}:
-                location.item_rule = lambda item: filler_or_safe_required(item, False)
-            royal.locations.append(location)
 
         # AP core root -> in-game home base. This connection is always free.
         menu.connect(phone_hub, "Menu -> Phone Hub")
@@ -820,7 +806,10 @@ class SCRCWorld(World):
         default_active_location_names = frozenset(
             name
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
-            if name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+            if (
+                name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and not name.startswith("Development Cache ")
+            )
         )
         default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
         default_medal_tiers = medal_tiers(difficulty_value)
@@ -833,10 +822,28 @@ class SCRCWorld(World):
             "active_location_names",
             default_active_location_names,
         )
+        multiworld = getattr(self, "multiworld", None)
+        if multiworld is None:
+            instantiated_addressed_names = set(active_location_names)
+        else:
+            instantiated_addressed_names = {
+                location.name
+                for region in multiworld.regions
+                for location in region.locations
+                if location.player == self.player and location.address is not None
+            }
+        active_campaign_locations = sorted(
+            instantiated_addressed_names.intersection(CAMPAIGN_LOCATION_NAMES)
+        )
+        active_campaign_location_tiers = [
+            tier
+            for tier in CAMPAIGN_LOCATION_TIERS
+            if any(name.endswith(f" - {tier}") for name in active_campaign_locations)
+        ]
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 14,
+            "schema_version": 15,
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -854,7 +861,12 @@ class SCRCWorld(World):
             "generated_star_requirements_depth_model": "provisional-linear-level-order",
             "client_star_gate_enforcement_active": False,
             "difficulty_filtering_active": True,
-            "active_location_count": len(active_location_names),
+            "active_location_count": len(instantiated_addressed_names),
+            "campaign_level_mapping_schema": 1,
+            "active_campaign_locations": active_campaign_locations,
+            "active_campaign_location_tiers": active_campaign_location_tiers,
+            "special_variant_locations_active": False,
+            "special_variant_locations": [],
             "active_campaign_star_tiers": sorted(
                 getattr(self, "active_campaign_star_tiers", default_campaign_star_tiers)
             ),
@@ -871,8 +883,9 @@ class SCRCWorld(World):
             "starting_area_forced": False,
             "area_access_items": list(AREA_ACCESS_ITEMS),
             "always_open_regions": ["Phone Hub", "Music Lab", "Game Garage"],
-            "development_cache_count": 10,
-            "development_caches_filler_only": True,
+            "development_cache_count": 0,
+            "development_cache_ids_reserved": True,
+            "development_caches_filler_only": False,
             "game_garage_song_count": len(GARAGE_SONGS),
             "randomize_game_garage_cartridges": True,
             "game_garage_cartridge_items": dict(RANDOMIZED_GARAGE_CARTRIDGE_ITEMS),

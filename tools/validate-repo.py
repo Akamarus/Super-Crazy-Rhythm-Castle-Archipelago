@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import ast
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
+import random
 import re
+import runpy
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(os.environ.get("SCRC_REPO_ROOT", Path(__file__).resolve().parents[1])).resolve()
@@ -13,19 +17,23 @@ WORLD = ROOT / "apworld" / "scrc" / "__init__.py"
 WORLD_DIR = WORLD.parent
 ITEMS = WORLD_DIR / "items.py"
 POINTS = WORLD_DIR / "music_lab_points.py"
+CAMPAIGN = WORLD_DIR / "campaign_levels.py"
 META = ROOT / "apworld" / "scrc" / "archipelago.json"
 CLIENT = ROOT / "client" / "Plugin.cs"
+CLIENT_BUILD = ROOT / "client" / "build.ps1"
 CASSETTE_POLICY = ROOT / "client" / "CassetteRandomizationPolicy.cs"
 IDS = ROOT / "docs" / "IDS.md"
+OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
+TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.69.0",
-    "world_version": "0.23.0",
+    "client_version": "0.70.0",
+    "world_version": "0.24.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
         "consolidated-preview-0.19-difficulty-filtering-0.20-"
         "vanilla-vampire-garage-0.21-full-cassettes-0.22-"
-        "music-lab-points-0.23"
+        "music-lab-points-0.23-full-level-mapping-0.24"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -62,7 +70,17 @@ EXPECTED = {
         (140, "Music Lab - 140 Point Chest"),
     ),
     "next_item_id": 187256156,
-    "next_location_id": 187256211,
+    "next_location_id": 187256292,
+    "campaign_location_count": 88,
+    "new_campaign_location_count": 81,
+    "new_campaign_location_start": 187256211,
+    "new_campaign_location_end": 187256291,
+    "active_location_totals": {
+        "Normal": 121,
+        "Hard": 179,
+        "Expert": 237,
+        "Perfection": 273,
+    },
 }
 
 
@@ -79,18 +97,24 @@ for path in (
     WORLD,
     ITEMS,
     POINTS,
+    CAMPAIGN,
     META,
     CLIENT,
+    CLIENT_BUILD,
     CASSETTE_POLICY,
     IDS,
+    OVERVIEW,
+    TEST_SUPPORT,
 ):
     if not path.exists():
         fail(f"missing required file: {repo_path(path)}")
 
 world_text = WORLD.read_text(encoding="utf-8")
 client_text = CLIENT.read_text(encoding="utf-8")
+client_build_text = CLIENT_BUILD.read_text(encoding="utf-8")
 cassette_policy_text = CASSETTE_POLICY.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
+overview_text = OVERVIEW.read_text(encoding="utf-8")
 items_text = ITEMS.read_text(encoding="utf-8")
 points_text = POINTS.read_text(encoding="utf-8")
 
@@ -108,6 +132,123 @@ for python_source in sorted(WORLD_DIR.glob("*.py")):
         ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
     except SyntaxError as exc:
         fail(f"APWorld Python syntax error in {repo_path(python_source)}: {exc}")
+
+
+campaign_namespace = runpy.run_path(str(CAMPAIGN))
+campaign_location_names = tuple(campaign_namespace["CAMPAIGN_LOCATION_NAMES"])
+campaign_location_name_to_id = dict(campaign_namespace["CAMPAIGN_LOCATION_NAME_TO_ID"])
+new_campaign_location_names = tuple(campaign_namespace["NEW_CAMPAIGN_LOCATION_NAMES"])
+new_campaign_location_name_to_id = dict(campaign_namespace["NEW_CAMPAIGN_LOCATION_NAME_TO_ID"])
+
+if len(campaign_namespace["CAMPAIGN_LEVELS"]) != 22:
+    fail("campaign level count changed: expected 22")
+if len(campaign_location_names) != EXPECTED["campaign_location_count"]:
+    fail("campaign location name count changed")
+if len(campaign_location_name_to_id) != EXPECTED["campaign_location_count"]:
+    fail("campaign location ID count changed")
+if set(campaign_location_names) != set(campaign_location_name_to_id):
+    fail("campaign location names and IDs differ")
+if len(new_campaign_location_names) != EXPECTED["new_campaign_location_count"]:
+    fail("new campaign location count changed")
+if set(new_campaign_location_names) != set(new_campaign_location_name_to_id):
+    fail("new campaign location IDs do not match the new-name block")
+expected_new_campaign_ids = list(
+    range(
+        EXPECTED["new_campaign_location_start"],
+        EXPECTED["new_campaign_location_end"] + 1,
+    )
+)
+if list(new_campaign_location_name_to_id.values()) != expected_new_campaign_ids:
+    fail("new campaign location ID range changed")
+if len(set(campaign_location_name_to_id.values())) != EXPECTED["campaign_location_count"]:
+    fail("campaign location IDs are not unique")
+
+for number in range(1, 11):
+    marker = f'"Development Cache {number:02d}": BASE_ID + {number + 10}'
+    if marker not in world_text:
+        fail("Development Cache ID reservation changed")
+
+for marker in (
+    'and not name.startswith("Development Cache ")',
+    '"development_cache_count": 0',
+    '"development_cache_ids_reserved": True',
+    '"development_caches_filler_only": False',
+):
+    if marker not in world_text:
+        fail("Development Caches are no longer reserved-only")
+
+
+support_spec = spec_from_file_location("scrc_validator_support", TEST_SUPPORT)
+if support_spec is None or support_spec.loader is None:
+    fail("could not load APWorld validation support")
+support = module_from_spec(support_spec)
+support_spec.loader.exec_module(support)
+
+
+def validate_live_world_structure() -> dict[str, int]:
+    """Build the real world at each supported difficulty without AP installed."""
+    campaign_tiers_by_difficulty = (
+        frozenset(("Completion", "1 Star")),
+        frozenset(("Completion", "1 Star", "2 Stars")),
+        frozenset(("Completion", "1 Star", "2 Stars", "3 Stars")),
+        frozenset(("Completion", "1 Star", "2 Stars", "3 Stars")),
+    )
+    world_module, cleanup = support.load_scrc_world()
+    try:
+        totals: dict[str, int] = {}
+        for difficulty, (label, expected_count) in enumerate(
+            EXPECTED["active_location_totals"].items()
+        ):
+            world = object.__new__(world_module.SCRCWorld)
+            world.player = 1
+            world.random = random.Random(22)
+            world.multiworld = support.FakeMultiWorld()
+            world.options = types.SimpleNamespace(
+                required_stars=support.OptionValue(50),
+                difficulty=support.OptionValue(difficulty),
+                starting_area=support.OptionValue(0),
+            )
+            world.generate_early()
+            world.create_regions()
+            instantiated_locations = [
+                location
+                for region in world.multiworld.regions
+                for location in region.locations
+                if location.player == world.player
+            ]
+            cache_name = next(
+                (
+                    location.name
+                    for location in instantiated_locations
+                    if location.name.startswith("Development Cache")
+                ),
+                None,
+            )
+            if cache_name is not None:
+                fail(f"instantiated Development Cache: {cache_name}")
+            addressed_locations = [
+                location
+                for location in instantiated_locations
+                if location.address is not None
+            ]
+            actual_count = len(addressed_locations)
+            if actual_count != expected_count:
+                fail(
+                    f"live active-location count changed for {label}: "
+                    f"expected {expected_count}, got {actual_count}"
+                )
+            addressed_names = {location.name for location in addressed_locations}
+            expected_campaign_names = {
+                name
+                for name in campaign_location_names
+                if name.rsplit(" - ", 1)[-1] in campaign_tiers_by_difficulty[difficulty]
+            }
+            if addressed_names.intersection(campaign_location_names) != expected_campaign_names:
+                fail(f"live campaign location names changed for {label}")
+            totals[label] = actual_count
+        return totals
+    finally:
+        cleanup()
 
 
 def assignment_value(tree: ast.AST, name: str) -> ast.AST:
@@ -287,6 +428,8 @@ if metadata.get("world_version") != EXPECTED["world_version"]:
 
 if f'PluginVersion = "{EXPECTED["client_version"]}"' not in client_text:
     fail(f"client PluginVersion is not {EXPECTED['client_version']}")
+if f"RhythmCastleAP v{EXPECTED['client_version']}" not in client_build_text:
+    fail(f"client build script version is not {EXPECTED['client_version']}")
 
 for label, expected_id, pattern in (
     ("Weed Killer", EXPECTED["weed_killer_item_id"], r'"Weed Killer"\s*:\s*BASE_ID\s*\+\s*(\d+)'),
@@ -339,13 +482,18 @@ if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
-if '"schema_version": 14' not in world_text:
-    fail("Music Lab Point slot-data schema changed")
+if '"schema_version": 15' not in world_text:
+    fail("full-level-mapping slot-data schema changed")
+if '"campaign_level_mapping_schema": 1' not in world_text:
+    fail("campaign level mapping schema changed")
 if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
     fail("generation_foundation_version changed without updating validator/baseline docs")
 
 for required_marker in (
     '"star_items_active": False',
+    '"client_star_gate_enforcement_active": False',
+    '"special_variant_locations_active": False',
+    '"special_variant_locations": []',
     '"difficulty_filtering_active": True',
     '"cassette_schema": 1',
     '"full_cassette_randomization": True',
@@ -407,6 +555,19 @@ for expected in (str(EXPECTED["next_item_id"]), str(EXPECTED["next_location_id"]
     if expected not in ids_text:
         fail(f"ID registry is missing expected marker: {expected}")
 
+live_world_validation_enabled = os.environ.get("SCRC_VALIDATE_LIVE_WORLD", "1") != "0"
+live_active_location_totals = (
+    validate_live_world_structure()
+    if live_world_validation_enabled
+    else dict(EXPECTED["active_location_totals"])
+)
+
+expected_totals = EXPECTED["active_location_totals"]
+if (
+    f"Normal {expected_totals['Normal']} / Hard {expected_totals['Hard']} / Expert {expected_totals['Expert']} / Perfection {expected_totals['Perfection']}" not in overview_text
+):
+    fail("active location totals changed")
+
 print("Repository validation passed.")
 print(f"Client:  v{EXPECTED['client_version']}")
 print(f"APWorld: v{EXPECTED['world_version']} ({EXPECTED['implementation_version']})")
@@ -437,9 +598,21 @@ print(json.dumps({
     "music_lab_point_total_value": point_total_value,
     "music_lab_point_max_effective": point_max_effective,
     "music_lab_point_thresholds": dict(point_thresholds),
+    "campaign_location_count": len(campaign_location_names),
+    "new_campaign_location_count": len(new_campaign_location_names),
+    "new_campaign_location_id_range": [
+        EXPECTED["new_campaign_location_start"],
+        EXPECTED["new_campaign_location_end"],
+    ],
+    "campaign_level_mapping_schema": 1,
+    "active_location_totals": live_active_location_totals,
+    "live_world_structure_checked": live_world_validation_enabled,
+    "star_items_active": False,
+    "client_star_gate_enforcement_active": False,
+    "special_variant_locations_active": False,
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
-print("v0.23 Music Lab Points is an experimental candidate requiring manual acceptance; full cassette routing, physical vanilla Vampire Killer Garage entry, and earlier repair contracts remain enforced.")
+print("v0.24 full campaign mapping is an experimental candidate requiring manual acceptance; special variants are diagnostic-only, 66 AP Stars, Star gates, and Victory remain inactive.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

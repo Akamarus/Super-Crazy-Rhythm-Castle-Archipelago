@@ -7,24 +7,22 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Latest development prerelease: APWorld v0.23.0 and Client v0.69.0 add AP Music Lab Points while retaining all 30 cassette items and sources. Use the two matching components together with a fresh v0.23 seed and fresh in-game save.
-- Active now: configurable Star goal, AP performance difficulty, and conservative starting-area options; deterministic Level 1–22 Star-requirement previews; a registered 66-Star inventory plan; difficulty-filtered existing campaign performance locations; and completed four-seed real-generator acceptance for the filtering matrix.
-- Not active yet: live AP Stars, client Star gates, final Level 22 victory, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
+- Latest development candidate: APWorld v0.24.0 and Client v0.70.0 map all 22 normal campaign identities. Use the matching components only with a fresh v0.24 seed and fresh in-game save.
+- Active normal checks are separate Completion and cumulative 1-Star/2-Star/3-Star locations: Normal 121 / Hard 179 / Expert 237 / Perfection 273 addressed locations.
+- Not active yet: all 66 AP Stars, generated Star gates, final Victory, production special-mode locations, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
 - Testers can download both matching components from the latest GitHub prerelease or build them from source, then generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
-[Latest development release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.23.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Approved randomizer design](docs/superpowers/specs/2026-08-20-randomizer-logic-design.md)
+[Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
 
-## Latest development release — v0.23.0-dev
+## Current candidate — v0.24.0 / v0.70.0
 
-- Added **AP Music Lab Points** as 20 progression items worth 180 total points: ten 1-point items, three 10-point bundles, and seven 20-point large bundles.
-- The nine existing Music Lab chests now use AP totals at 5/10/20/32/46/64/89/111/140 points. The final chest leaves 40 points of routing slack, and solver-reachable chests may contain progression.
-- Retained all 30 randomized cassette items and sources from v0.22, including normal player insertion at the matching Music Lab machines.
-- Kept native medals separate from AP points. Compatible v0.23 sessions rebuild the authoritative total on reconnect or relaunch without writing native score/save state.
-- Fixed a pre-login connection-refused callback stall so normal reconnect retries remain responsive when the server is temporarily unavailable.
-- Core point totals, the cap, all nine one-time chest checks, native-medal isolation, disconnect retention, reconnect, and relaunch have live-test evidence. Queued-check recovery and the v0.22/non-AP/malformed-v0.23 compatibility matrix remain pending, so this stays an experimental prerelease.
+- Added the complete normal campaign map: all 22 identities, four permanent candidate location names per level, and active difficulty filtering.
+- Development Caches are retired from new seeds; their historical IDs remain reserved. The next safe item/location frontiers are `187256156` / `187256292`.
+- Bee/Devil variants are diagnostic-only observation paths. They cannot queue normal campaign checks, AP Stars, Star gates, Victory, or special-mode locations.
+- Automated coverage proves the mapping contract and client queue behavior; individual campaign mappings have not had a broad gameplay replay. Manual acceptance remains required.
 
-See the full [changelog](CHANGELOG.md) and [Music Lab Points acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md) for detailed status and remaining test cases.
+See the full [changelog](CHANGELOG.md) and [full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md) for detailed status and remaining test cases.
 
 ## Simplified roadmap
 
@@ -47,11 +45,11 @@ This repository contains both halves of the implementation:
 
 | Component | Version | Status |
 | --- | --- | --- |
-| Client | `0.69.0` | Room-scoped AP Music Lab Points candidate; manual acceptance pending |
-| APWorld | `0.23.0` | Strict schema 14 point contract; retains all 30 cassette sources |
-| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23` | Preserves every historical marker and appends the point contract |
+| Client | `0.70.0` | Full normal-campaign mapping candidate; manual acceptance pending |
+| APWorld | `0.24.0` | Schema 15 / campaign-mapping schema 1; special locations inactive |
+| Archipelago implementation tag | `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24` | Preserves every historical marker and appends the campaign mapping contract |
 
-Music Lab Points use 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 20 progression items worth 180 points replace 20 Stardust. The nine existing chests require 5/10/20/32/46/64/89/111/140 points; the final chest leaves 40 points of slack. Solver-reachable chests may hold progression. No point milestones or duplicate cassette/cartridge checks are added, and active location totals remain 92/129/166/202.
+Music Lab Points retain their prior exact contract. The v0.24 candidate adds normal campaign checks while keeping normal Completion separate from 1 Star. Addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273; inactive checks are absent from a seed, not filler.
 
 Only an exact v0.23 point contract enables AP totals. In the Music Lab hub, the effective total is zero before history synchronization, then the weighted AP total; a temporary disconnect retains the last synchronized total. Native medals never contribute. Recognized v0.22 seeds and non-AP play retain native scoring; a malformed v0.23 contract reports incompatibility and stays at zero. The client uses the existing managed score getter only in `GameRoom_Hub6`, writes no native score/save state, and installs no chest/native detour. The diagnostic-first investigation and pending gameplay matrix are recorded in the [acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md).
 
@@ -116,6 +114,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls which existing campaign performance locations are addressed: Normal has 92, Hard 129, Expert 166, and Perfection 202. Inactive checks are absent from the seed, not filler. The v0.23 test candidate retains all 30 Music Lab cassettes: completing a mapped source sends one AP check, receiving its cassette persists `HAVE_IN_BAG`, and the player inserts it normally. Five point-chest cassettes reuse their existing chest locations. Broader manual source-route verification remains pending. Vampire Killer remains a physical vanilla pickup for Game Garage; its separate native-inventory blocker is still open. Older cassette-schema mismatches preserve native cassette behavior; a historical v0.21 seed with historical Client v0.67.95 retains the Money-only pilot. APWorld v0.23.0 requires a fresh seed/save for acceptance.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls the normal campaign map: Normal 121 / Hard 179 / Expert 237 / Perfection 273. All 22 normal identities are mapped, but broad campaign replay is deferred and unplayed mappings remain manual-testing pending. Bee/Devil diagnostics are observation-only. APWorld v0.24.0 requires a fresh seed/save for acceptance.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.

@@ -35,7 +35,9 @@ internal readonly record struct MusicLabPointSnapshot(
 internal static class MusicLabPointContract
 {
     private const string ClaimSuffix = "music-lab-points-0.23";
-    private const int SchemaVersion = 14;
+    private const string CampaignClaimSuffix = "full-level-mapping-0.24";
+    private const string LegacyImplementation =
+        "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22";
     private const int PointSchema = 1;
     private const int TotalInstances = 20;
     private const int TotalValue = 180;
@@ -80,17 +82,25 @@ internal static class MusicLabPointContract
 
     internal static MusicLabPointCompatibilityResult ValidateSlotData(Dictionary<string, object>? slotData)
     {
-        if (slotData?.TryGetValue("implementation_version", out object? versionRaw) != true ||
-            UnwrapScalar(versionRaw) is not string version ||
-            !version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
-        {
-            return new(MusicLabPointCompatibilityMode.LegacyNative, "pre-v0.23 implementation");
-        }
+        if (slotData is null)
+            return new(MusicLabPointCompatibilityMode.LegacyNative, "non-AP session");
+        if (!slotData.TryGetValue("implementation_version", out object? versionRaw) ||
+            UnwrapScalar(versionRaw) is not string version)
+            return Fail("implementation_version", "recognized implementation", Actual(slotData, "implementation_version"));
+        bool recognizedLegacy = version == LegacyImplementation ||
+            (LegacyImplementation.StartsWith(version + "-", StringComparison.Ordinal) &&
+             Enumerable.Range(15, 7).Any(release => version.EndsWith($"-0.{release}", StringComparison.Ordinal)));
+        if (recognizedLegacy)
+            return new(MusicLabPointCompatibilityMode.LegacyNative, "recognized pre-v0.23 implementation");
+        if (!(version.EndsWith(ClaimSuffix, StringComparison.Ordinal) ||
+              version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal)))
+            return Fail("implementation_version", "supported point implementation", version);
 
+        int expectedSchema = version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion))
-            return Fail("schema_version", SchemaVersion, Actual(slotData, "schema_version"));
-        if (schemaVersion != SchemaVersion)
-            return Fail("schema_version", SchemaVersion, schemaVersion);
+            return Fail("schema_version", expectedSchema, Actual(slotData, "schema_version"));
+        if (schemaVersion != expectedSchema)
+            return Fail("schema_version", expectedSchema, schemaVersion);
 
         if (!slotData.TryGetValue("music_lab_points_enabled", out object? enabledRaw) || UnwrapScalar(enabledRaw) is not bool enabled)
             return Fail("music_lab_points_enabled", true, Actual(slotData, "music_lab_points_enabled"));
