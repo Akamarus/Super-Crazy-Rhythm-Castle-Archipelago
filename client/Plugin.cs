@@ -22203,7 +22203,7 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 
         if (!MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
                 AreaAccessPrototype.Enabled,
-                IntroHubSkip.Compatible,
+                Plugin.AP?.Connected == true,
                 AreaAccessPrototype.HasArea("Meat Dimension"),
                 room,
                 MeatAreaPresentationPolicy.FirstAreaGatePath))

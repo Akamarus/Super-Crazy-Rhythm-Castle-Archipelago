@@ -132,4 +132,18 @@ Equal(false,
     MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
         true, true, true, "GameRoom_Hub4", meatFirstAreaGatePath + "/Collision"),
     "only the exact Meat first gate root is suppressed");
+
+int meatKeeperStart = pluginSource.IndexOf(
+    "internal sealed class MeatAreaBaselineKeeper", StringComparison.Ordinal);
+int areaAccessStart = pluginSource.IndexOf(
+    "internal static class AreaAccessPrototype", meatKeeperStart, StringComparison.Ordinal);
+Equal(true, meatKeeperStart >= 0 && areaAccessStart > meatKeeperStart,
+    "Meat Area baseline keeper has a bounded production source region");
+string meatKeeperSource = pluginSource[meatKeeperStart..areaAccessStart];
+Equal(true,
+    meatKeeperSource.Contains("Plugin.AP?.Connected == true", StringComparison.Ordinal),
+    "default-off direct start still uses the authenticated AP session for Meat gate suppression");
+Equal(false,
+    meatKeeperSource.Contains("IntroHubSkip", StringComparison.Ordinal),
+    "Meat gate suppression is independent of direct-start compatibility");
 Console.WriteLine("Roots presentation policy tests passed.");

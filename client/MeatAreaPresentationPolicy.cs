@@ -8,11 +8,11 @@ internal static class MeatAreaPresentationPolicy
 
     internal static bool ShouldSuppressFirstAreaGate(
         bool enabled,
-        bool compatible,
+        bool authenticatedCompatibleSession,
         bool ownsMeatAccess,
         string? roomId,
         string? rootPath) =>
-        enabled && compatible && ownsMeatAccess &&
+        enabled && authenticatedCompatibleSession && ownsMeatAccess &&
         string.Equals(roomId, RoomId, StringComparison.Ordinal) &&
         string.Equals(rootPath, FirstAreaGatePath, StringComparison.Ordinal);
 }
