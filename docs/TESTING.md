@@ -22,9 +22,11 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 This builds without deployment. After review and explicit approval of the exact candidate artifact, install for live testing, launch normally, and verify `BepInEx\LogOutput.log` contains the expected client version.
 
-## Music Lab Points v0.23 candidate acceptance
+## Full level mapping v0.24 candidate acceptance
 
-Client v0.69.0 / APWorld v0.23.0 is an experimental candidate requiring manual acceptance with a fresh v0.23 seed and fresh native save. Use the [complete acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) for artifact hashes, exact run identity, diagnostic evidence, all nine threshold rows, and tester approval. Existing automated policy/wiring evidence does not prove the live display or chest boundary.
+Client v0.70.0 / APWorld v0.24.0 is an experimental candidate requiring manual acceptance with a fresh v0.24 seed and fresh native save. The expected addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273. Use the [full-level-mapping acceptance record](testing/2026-09-10-full-level-mapping-acceptance.md) for artifact hashes, exact run identity, first-clear and improved-result checks, reconnect evidence, diagnostics, unplayed mappings, and tester verdict. Existing automated coverage does not prove every native level identity in live gameplay.
+
+Verify one normal first clear, one improved Star result, and an offline/reconnect result. Capture Bee and Devil diagnostic logs only; special variants are observation-only and must not queue checks. All 66 AP Stars, generated Star gates, and final Victory remain inactive. Broad campaign replay is deferred, so manual evidence fields must stay unchecked until a tester supplies them.
 
 The expected pool is 10/3/7 items worth 1/10/20, totaling 180 and replacing 20 Stardust. The nine thresholds are 5/10/20/32/46/64/89/111/140, leaving 40 slack after the final chest. No point milestones are added; five cassette and two cartridge sources reuse their existing chest IDs.
 

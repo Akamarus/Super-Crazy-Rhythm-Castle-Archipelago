@@ -4,7 +4,38 @@ This document is the living technical/design overview for the **Super Crazy Rhyt
 
 > **Status:** Work in progress. The implementation is being developed incrementally, with gameplay testing used to confirm native progression flags and source behavior before those systems are committed to Archipelago logic.
 
-Current candidate: **Client v0.69.0 / APWorld v0.23.0**, with slot-data schema 14 and point schema 1. Music Lab Points is an experimental candidate requiring manual acceptance on a fresh v0.23 seed and fresh native save. It is not a completed release.
+Current candidate: **Client v0.70.0 / APWorld v0.24.0**, with slot-data schema 15 and campaign-mapping schema 1. It requires a fresh v0.24 seed and fresh native save. It is not a completed release.
+
+## Full normal-campaign mapping candidate
+
+All 22 normal campaign identities are mapped. Each has separate `Completion` and `1 Star` checks, plus cumulative `2 Stars` and `3 Stars` checks on the difficulties that enable them. The exact addressed-location totals are **Normal 121 / Hard 179 / Expert 237 / Perfection 273**. Development Caches are retired from new seeds while their permanent IDs remain reserved.
+
+| # | Normal campaign identity | Internal ID |
+| ---: | --- | --- |
+| 1 | The Little Things | `Level_05` |
+| 2 | Pop Party | `Level_06` |
+| 3 | Jolt City | `Level_07` |
+| 4 | Quieres Bailar | `Level_08` |
+| 5 | Lift Quest | `Level_09` |
+| 6 | Boring Room | `Level_02` |
+| 7 | Demolition Training | `Level_19` |
+| 8 | Minim Tower | `Level_11` |
+| 9 | School Trip | `Level_20` |
+| 10 | The Vault | `Level_01` |
+| 11 | Act 1: Flavor | `Level_12` |
+| 12 | Act 2 | `Level_15` |
+| 13 | Act 3 | `Level_22` |
+| 14 | Act 4 | `Level_23` |
+| 15 | Central Mainframe | `Level_16` |
+| 16 | Thief Prince | `Level_24` |
+| 17 | Cold Storage | `Level_21` |
+| 18 | Darkness | `Level_03` |
+| 19 | Escape | `Level_13` |
+| 20 | Loneliness | `Level_25` |
+| 21 | Locker Room | `Level_14` |
+| 22 | King Ferdinand I | `Level_28` |
+
+Bee and Devil special variants are diagnostic-only: they are read-only observations, do not emit normal campaign checks, and have no active AP locations. **66 AP Stars remain inactive**; generated Star gates and final Victory remain inactive as well. A normal first clear, an improved result, offline/reconnect handling, and the diagnostic logs still need targeted manual acceptance. The broad campaign replay is deferred, so unplayed mappings remain manual-testing pending.
 
 ## 1. Project goals
 
@@ -428,7 +459,7 @@ Completion logic will become more detailed as Star requirements and meaningful i
 
 ## 10. Difficulty and performance-check design
 
-The implemented APWorld v0.23.0 difficulty choices are:
+The implemented APWorld v0.24.0 difficulty choices are:
 
 - **Normal**
 - **Hard**
@@ -439,16 +470,16 @@ This controls which existing performance-based checks a seed contains without ch
 
 | AP difficulty | Campaign levels | Music Lab and Game Garage | Addressed locations |
 | --- | --- | --- | ---: |
-| Normal | Completion / 1-Star | Bronze | 92 |
-| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 129 |
-| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 166 |
-| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 202 |
+| Normal | Completion / 1-Star | Bronze | 121 |
+| Hard | Completion / 1-Star + 2-Star | Bronze + Silver | 179 |
+| Expert | Completion / 1-Star + 2-Star + 3-Star | Bronze + Silver + Gold | 237 |
+| Perfection | Same campaign tiers as Expert | Bronze + Silver + Gold + Platinum | 273 |
 
 A key current design rule is:
 
 > **Normal difficulty does not create 2-star or 3-star performance checks.**
 
-Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.23.0 retains the v0.22 cassette source set and 92/129/166/202 addressed locations. Existing v0.21 seeds do not contain the full cassette schema and therefore retain native cassette behavior with Client v0.69.0. Active Level-22 2/3-Star checks remain filler-only; Music Lab point chests now permit solver-reachable progression behind their weighted AP thresholds.
+Higher difficulty modes expose progressively stricter performance checks. Inactive checks are absent from the generated seed, not filler. APWorld v0.24.0 retains the cassette source set and has Normal 121 / Hard 179 / Expert 237 / Perfection 273 addressed locations. Existing seeds do not contain the full campaign-mapping contract and must retain their compatible behavior. Level 22 follows the normal map; its 2/3-Star checks remain filler-only for placement safety. Music Lab point chests still permit solver-reachable progression behind their weighted AP thresholds.
 
 This is distinct from AP **Star requirements** used to open progression. Performance checks are locations earned for playing levels well; Star requirements are planned gate values that will be generated according to logical depth.
 
@@ -494,9 +525,7 @@ The approved future design uses a meaningful **Bunker Keycard** as the Secret Bu
 
 ## 13. Development Cache locations
 
-The APWorld retains ten `Development Cache` location IDs. These are historical/development allocations and should not be casually repurposed.
-
-They are useful during implementation phases but are not intended to define the final player-facing progression structure.
+The APWorld retains ten `Development Cache` location IDs as historical reservations. They are not instantiated in new seeds, are not filler, and must not be repurposed.
 
 See [`IDS.md`](IDS.md) before changing any network allocation.
 
@@ -577,7 +606,7 @@ The client follows several implementation rules developed through testing:
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
 | AP Music Lab Points | Experimental v0.23 candidate / manual acceptance pending | 10/3/7 items worth 180 points; room-scoped effective score, strict compatibility, and history rebuilds implemented. Display, nine thresholds, persistence, and compatibility require live acceptance. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
-| Difficulty options | Implemented | Normal/Hard/Expert/Perfection filter existing performance locations at 92/129/166/202 addressed locations; native REG/PRO remains player-controlled. |
+| Difficulty options | Implemented / manual acceptance pending | Normal/Hard/Expert/Perfection produce 121/179/237/273 addressed locations for the full normal map; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
 | Other five areas | Implemented / needs more testing | Area Access phone routing exists, while starter safety and native progression audits remain required. |
 
@@ -627,11 +656,11 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.23.0 (no new location allocations):
+Current frontier at APWorld v0.24.0:
 
 ```text
 Next safe item ID:     187256156
-Next safe location ID: 187256211
+Next safe location ID: 187256292
 ```
 
 ---

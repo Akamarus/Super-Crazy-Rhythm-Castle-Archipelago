@@ -1,5 +1,13 @@
 # Changelog
 
+## APWorld v0.24.0 / Client v0.70.0 — Full normal-campaign mapping candidate
+
+- Added all 22 normal campaign identities with separate Completion and cumulative 1-Star/2-Star/3-Star checks. Addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273.
+- Allocated the 81 new normal-campaign IDs in `187256211..187256291`; the next safe item/location IDs are `187256156` / `187256292`. Historical Development Cache IDs remain reserved but are no longer instantiated.
+- Published the schema-15 / campaign-mapping-schema-1 contract and matching client candidate. A fresh v0.24 seed and fresh native save are required.
+- Bee/Devil handling is diagnostic-only and read-only. Special-mode locations, all 66 AP Stars, generated Star gates, and final Victory remain inactive.
+- Automated mapping and validator coverage passed; no broad gameplay replay is claimed. Normal first-clear, improved-result, offline/reconnect, diagnostic, and unplayed-mapping evidence remain manual acceptance work.
+
 ## APWorld v0.23.0 / Client v0.69.0 — Experimental Music Lab Points testing
 
 - Added 10 Music Lab Point items worth 1 each, 3 bundles worth 10 each, and 7 large bundles worth 20 each: 180 points in 20 progression instances replacing 20 Stardust. The existing nine thresholds are 5/10/20/32/46/64/89/111/140; the final threshold leaves 40 slack.

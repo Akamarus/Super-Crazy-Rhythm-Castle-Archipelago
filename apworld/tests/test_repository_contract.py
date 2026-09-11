@@ -14,18 +14,24 @@ VALIDATOR = REPO_ROOT / "tools" / "validate-repo.py"
 
 
 class RepositoryContractTests(unittest.TestCase):
-    def test_public_apworld_docs_report_v023_location_totals(self):
-        expected_rows = (
-            "| Normal | Completion / 1-Star | Bronze | 92 |",
-            "| Hard | Add 2-Star | Add Silver | 129 |",
-            "| Expert | Add 3-Star | Add Gold | 166 |",
-            "| Perfection | Same campaign tiers as Expert | Add Platinum | 202 |",
-        )
-        for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
+    def assert_public_counts(self, normal, hard, expert, perfection):
+        expected = f"Normal {normal} / Hard {hard} / Expert {expert} / Perfection {perfection}"
+        for relative in (
+            "docs/PROJECT_OVERVIEW.md",
+            "docs/PROGRESSION.md",
+            "docs/TESTING.md",
+            "README.md",
+        ):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
-                for row in expected_rows:
-                    self.assertIn(row, text)
+                self.assertIn(expected, text)
+
+    def test_public_docs_report_full_level_mapping_candidate_status(self):
+        self.assert_public_counts("121", "179", "237", "273")
+        overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
+        self.assertIn("Client v0.70.0 / APWorld v0.24.0", overview)
+        self.assertIn("special variants are diagnostic-only", overview.lower())
+        self.assertIn("66 AP Stars remain inactive", overview)
 
     def run_validator(self, root=REPO_ROOT):
         environment = os.environ.copy()
@@ -54,14 +60,14 @@ class RepositoryContractTests(unittest.TestCase):
                 )
         return root
 
-    def test_validator_reports_music_lab_point_slot_contract(self):
+    def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.69.0", result.stdout)
-        self.assertIn("APWorld: v0.23.0", result.stdout)
-        self.assertIn('"world_version": "0.23.0"', result.stdout)
+        self.assertIn("Client:  v0.70.0", result.stdout)
+        self.assertIn("APWorld: v0.24.0", result.stdout)
+        self.assertIn('"world_version": "0.24.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
@@ -96,7 +102,12 @@ class RepositoryContractTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn('"next_item_id": 187256156', result.stdout)
-        self.assertIn('"next_location_id": 187256211', result.stdout)
+        self.assertIn('"next_location_id": 187256292', result.stdout)
+        self.assertIn('"campaign_location_count": 88', result.stdout)
+        self.assertIn('"new_campaign_location_count": 81', result.stdout)
+        self.assertIn('"active_location_totals": {', result.stdout)
+        self.assertIn('"Normal": 121', result.stdout)
+        self.assertIn('"Perfection": 273', result.stdout)
 
     def test_validator_rejects_changed_base_id(self):
         for relative in (
@@ -287,7 +298,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.23.0")
+        self.assertEqual(manifest["world_version"], "0.24.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 
