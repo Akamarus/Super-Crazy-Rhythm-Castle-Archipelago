@@ -7,20 +7,22 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Latest development candidate: APWorld v0.24.0 and Client v0.70.0 map all 22 normal campaign identities. Use the matching components only with a fresh v0.24 seed and fresh in-game save.
+- Latest testing prerelease: APWorld v0.24.0 and Client v0.70.0 map all 22 normal campaign identities. Use the matching components only with a fresh v0.24 seed and fresh in-game save.
 - Active normal checks are separate Completion and cumulative 1-Star/2-Star/3-Star locations: Normal 121 / Hard 179 / Expert 237 / Perfection 273 addressed locations.
 - Not active yet: all 66 AP Stars, generated Star gates, final Victory, production special-mode locations, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
 - Testers can download both matching components from the latest GitHub prerelease or build them from source, then generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
-[Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
+[Latest testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.24.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
 
-## Current candidate — v0.24.0 / v0.70.0
+## Latest testing release — v0.24.0-dev
 
 - Added the complete normal campaign map: all 22 identities, four permanent candidate location names per level, and active difficulty filtering.
 - Development Caches are retired from new seeds; their historical IDs remain reserved. The next safe item/location frontiers are `187256156` / `187256292`.
 - Bee/Devil variants are diagnostic-only observation paths. They cannot queue normal campaign checks, AP Stars, Star gates, Victory, or special-mode locations.
-- Automated coverage proves the mapping contract and client queue behavior; individual campaign mappings have not had a broad gameplay replay. Manual acceptance remains required.
+- Retained AP Music Lab Points under the new schema-15 contract and preserved legacy v0.23 Level 22 cumulative Star checks.
+- Fixed campaign checks queued during temporary disconnects or failed reconnect attempts. Pending results are isolated by authenticated game, seed, team, and slot and flush exactly once after recovery.
+- Automated coverage proves the mapping contract and client queue behavior; individual campaign mappings have not had a broad gameplay replay. Manual acceptance remains required, so this is a prerelease for testers rather than a stable release.
 
 See the full [changelog](CHANGELOG.md) and [full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md) for detailed status and remaining test cases.
 
@@ -29,7 +31,7 @@ See the full [changelog](CHANGELOG.md) and [full-level-mapping acceptance record
 1. Current playable prototype — Roots routing through Hip Glasses, the Bucket Minion trade, Chicken Bucket, and native Combo Bucket conversion, plus Garage/cassette/chest checks.
 2. Generation foundation — options, deterministic Star previews, active difficulty filtering, and the four-seed filtering generator matrix are complete; live Star placement and client Star gates still wait for broader location capacity and solver logic.
 3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
-4. Full randomizer logic — accept the Music Lab Points candidate, then continue Stars, level requirements, item pool, and Level 22 victory.
+4. Full randomizer logic — the full normal campaign map is implemented; next come broader gameplay acceptance, AP Stars, enforced level requirements, the final item pool, and Level 22 victory.
 5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
 
 See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
@@ -51,7 +53,7 @@ This repository contains both halves of the implementation:
 
 Music Lab Points retain their prior exact contract. The v0.24 candidate adds normal campaign checks while keeping normal Completion separate from 1 Star. Addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273; inactive checks are absent from a seed, not filler.
 
-Only an exact v0.23 point contract enables AP totals. In the Music Lab hub, the effective total is zero before history synchronization, then the weighted AP total; a temporary disconnect retains the last synchronized total. Native medals never contribute. Recognized v0.22 seeds and non-AP play retain native scoring; a malformed v0.23 contract reports incompatibility and stays at zero. The client uses the existing managed score getter only in `GameRoom_Hub6`, writes no native score/save state, and installs no chest/native detour. The diagnostic-first investigation and pending gameplay matrix are recorded in the [acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md).
+Exact v0.23/schema-14 and v0.24/schema-15 point contracts enable AP totals. In the Music Lab hub, the effective total is zero before history synchronization, then the weighted AP total; a temporary disconnect retains the last synchronized total. Native medals never contribute. Recognized v0.22 seeds and non-AP play retain native scoring; malformed or unsupported AP contracts report incompatibility and stay at zero. The client uses the existing managed score getter only in `GameRoom_Hub6`, writes no native score/save state, and installs no chest/native detour. The diagnostic-first investigation and pending gameplay matrix are recorded in the [Music Lab Points acceptance record](docs/testing/2026-09-09-music-lab-points-acceptance.md) and [v0.24 mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md).
 
 Current Roots progression includes randomized **Weed Killer**, **Plant Pipes**, **Hip Glasses**, and **Chicken Bucket**. Level 4 and the normal Bucket Minion trade send AP checks; AP-delivered inventory is consumed only by the normal trade and Lift Quest interactions. Combo Bucket remains a native, non-network ability.
 

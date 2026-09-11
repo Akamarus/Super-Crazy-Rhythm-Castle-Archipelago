@@ -75,7 +75,7 @@ Before accepting a Roots milestone, confirm:
 
 ## Game Garage cartridge persistence checklist
 
-Use a compatible fresh seed (v0.23 for the current candidate). Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09 with v0.22. Repeat the same matrix for the remaining randomized cartridges—Bloody Tears, Gradius Remix, Smooch, and Wag the Dog—before closing the broader blocker:
+Use a compatible fresh v0.24 seed for the current candidate. Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09 with v0.22. Repeat the same matrix for the remaining randomized cartridges—Bloody Tears, Gradius Remix, Smooch, and Wag the Dog—before closing the broader blocker:
 
 - the AP receipt appears in the native inventory;
 - the matching cartridge is available for normal insertion in Game Garage;

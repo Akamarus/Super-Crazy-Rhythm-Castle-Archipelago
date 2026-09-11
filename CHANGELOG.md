@@ -5,8 +5,11 @@
 - Added all 22 normal campaign identities with separate Completion and cumulative 1-Star/2-Star/3-Star checks. Addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273.
 - Allocated the 81 new normal-campaign IDs in `187256211..187256291`; the next safe item/location IDs are `187256156` / `187256292`. Historical Development Cache IDs remain reserved but are no longer instantiated.
 - Published the schema-15 / campaign-mapping-schema-1 contract and matching client candidate. A fresh v0.24 seed and fresh native save are required.
+- Retained the strict AP Music Lab Points economy under v0.24/schema 15 while preserving v0.23/schema 14 compatibility. Unsupported or malformed AP claims fail closed with an immediate field-specific compatibility error.
+- Preserved the historical v0.23 Level 22 Completion and cumulative 1/2/3-Star behavior at its enabled difficulty tiers without activating the new full-campaign map for old seeds.
+- Fixed temporary-disconnect and failed-reconnect handling so eligible campaign results queue once against the authenticated game/seed/team/slot identity, survive failed retries, flush once after recovery, and cannot leak into a different authenticated identity or unauthenticated replacement transport.
 - Bee/Devil handling is diagnostic-only and read-only. Special-mode locations, all 66 AP Stars, generated Star gates, and final Victory remain inactive.
-- Automated mapping and validator coverage passed; no broad gameplay replay is claimed. Normal first-clear, improved-result, offline/reconnect, diagnostic, and unplayed-mapping evidence remain manual acceptance work.
+- Automated release verification passed 20/20 client projects, 102/102 APWorld tests, the live repository validator, local APWorld packaging, and an undeployed client build. No broad gameplay replay is claimed; normal first-clear, improved-result, offline/reconnect, diagnostic, and unplayed-mapping evidence remain manual acceptance work.
 
 ## APWorld v0.23.0 / Client v0.69.0 — Experimental Music Lab Points testing
 

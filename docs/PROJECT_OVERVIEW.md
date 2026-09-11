@@ -4,7 +4,7 @@ This document is the living technical/design overview for the **Super Crazy Rhyt
 
 > **Status:** Work in progress. The implementation is being developed incrementally, with gameplay testing used to confirm native progression flags and source behavior before those systems are committed to Archipelago logic.
 
-Current candidate: **Client v0.70.0 / APWorld v0.24.0**, with slot-data schema 15 and campaign-mapping schema 1. It requires a fresh v0.24 seed and fresh native save. It is not a completed release.
+Current testing release: **Client v0.70.0 / APWorld v0.24.0**, with slot-data schema 15 and campaign-mapping schema 1. It requires a fresh v0.24 seed and fresh native save. It is an experimental prerelease, not a stable release.
 
 ## Full normal-campaign mapping candidate
 
@@ -417,9 +417,9 @@ When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG
 
 Nine Hub6 Music Lab reward chests are tracked from their live native metadata. The client does not create fake startup chest components; it waits until Hub6 loads and reads the actual chest unlock requirement and native collection flag.
 
-The v0.23 candidate replaces the Music Lab medal-score currency with AP inventory for an exact compatible point contract. Ten 1-point items, three 10-point bundles, and seven 20-point large bundles replace 20 Stardust, for 180 points in 20 progression instances. The final chest costs 140, leaving 40 points of slack. No point milestone locations are added; the nine existing checks and their five cassette/two cartridge source reuses are unchanged. Weighted solver rules allow progression in point chests when a reachable chain exists.
+The v0.24 candidate retains the Music Lab AP inventory introduced in v0.23. Ten 1-point items, three 10-point bundles, and seven 20-point large bundles replace 20 Stardust, for 180 points in 20 progression instances. The final chest costs 140, leaving 40 points of slack. No point milestone locations are added; the nine existing checks and their five cassette/two cartridge source reuses are unchanged. Weighted solver rules allow progression in point chests when a reachable chain exists.
 
-The v0.23 candidate rebuilds AP point totals from complete received-item packets, using permanent item IDs and receipt indexes. An index-zero packet establishes authoritative history, including an empty history; login alone and individual replay callbacks cannot replace the retained total. Matching reconnects retain their last synchronized value until that complete packet arrives. Its existing managed score postfix substitutes the total only in `GameRoom_Hub6`: awaiting or incompatible sessions return zero, synchronized and retained disconnects return AP points. Deliberate native reads bypass replacement, and Shift+F4 cycling is a no-op while AP owns the score. Other rooms and legacy/non-AP sessions keep native/developer score behavior. Identity replacement and shutdown clear AP totals. This candidate performs no native score/save writes and installs no native detour. The existing display and all nine chest thresholds remain pending live gameplay acceptance.
+The v0.24 candidate rebuilds AP point totals from complete received-item packets, using permanent item IDs and receipt indexes. An index-zero packet establishes authoritative history, including an empty history; login alone and individual replay callbacks cannot replace the retained total. Matching reconnects retain their last synchronized value until that complete packet arrives. Its existing managed score postfix substitutes the total only in `GameRoom_Hub6`: awaiting or incompatible sessions return zero, synchronized and retained disconnects return AP points. Deliberate native reads bypass replacement, and Shift+F4 cycling is a no-op while AP owns the score. Other rooms and legacy/non-AP sessions keep native/developer score behavior. Identity replacement and shutdown clear AP totals. This candidate performs no native score/save writes and installs no native detour. The existing display and all nine chest thresholds remain pending live gameplay acceptance.
 
 The point contract validates exact names, IDs, values, counts, totals, maximum 180, and threshold-to-location mapping. Recognized v0.22 and earlier implementation prefixes retain native Music Lab scoring. A malformed v0.23 or v0.24 contract, or an unknown or unsupported implementation claim, reports incompatibility and stays at zero instead of substituting native medals. Campaign, cassette, and Game Garage medals never add AP points, and their native results remain untouched.
 
@@ -447,15 +447,9 @@ A developer-only Music Lab point override exists for legacy/non-AP testing witho
 
 ## 9. Level completion checks
 
-Level completion is observed through native result persistence. Current APWorld baseline includes:
+Level completion is observed through native result persistence. APWorld v0.24 maps all 22 normal campaign identities with separate Completion and cumulative 1/2/3-Star locations. Each seed contains only the tiers enabled by its AP difficulty, and improved results send only newly satisfied locations.
 
-- Level 1 - Completion
-- Level 2 - Completion
-- Level 3 - Completion
-
-The current APWorld assigns these early completion locations to Roots while that area's progression graph is being built.
-
-Completion logic will become more detailed as Star requirements and meaningful item prerequisites are introduced.
+The current region graph places every mapped result in its physical campaign area using conservative reachability. Those result locations do not yet model every meaningful native prerequisite; broad gameplay acceptance and later item/area audits will refine the solver rules. Bee and Devil variants remain diagnostic-only and cannot send the normal locations.
 
 ---
 
@@ -597,16 +591,17 @@ The client follows several implementation rules developed through testing:
 | Gecko / Weed Killer | Implemented and tested | Source check + randomized consumable delivery + native consumption work. |
 | Frog/Hippo / Plant Pipes | Implemented and tested | Source check is reachable without Plant Pipes; ability is randomized. |
 | Level 3 partial completion model | Implemented and tested | Player can menu-exit when Plant Pipes is elsewhere. |
-| Level 4 Hip Glasses | Native mapping verified / not implemented | Source `LEVEL_08_GLASSES_COLLECTED`; held item `HIP_GLASSES_BAG_ITEM`. The source becomes an AP check and the native item grant will be suppressed. |
-| Bucket Minion glasses trade | Native mapping verified / not implemented | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, grants Chicken Bucket, removes the blockade, and unlocks the King conversation. |
-| Chicken Bucket | Native mapping verified / not implemented | Held item `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
+| Level 4 Hip Glasses | Implemented / live source accepted | Source `LEVEL_08_GLASSES_COLLECTED` sends an AP check; the vanilla item grant is suppressed and AP ownership reconciles `HIP_GLASSES_BAG_ITEM`. |
+| Bucket Minion glasses trade | Implemented / live route accepted | Trade source `ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES`; vanilla consumes Hip Glasses, the AP check supplies randomized Chicken Bucket, and normal blockade/King progression remains intact. |
+| Chicken Bucket | Implemented / live route accepted | AP ownership reconciles `CHICKEN_BUCKET_BAG_ITEM`; Lift Quest consumes it into native `COMBO_BUCKET_ABILITY` and sets `LEVEL_09_COMBO_ABILITY_EARNED`. |
 | Game Garage stickers | Implemented | 6 songs × 4 cumulative tiers. |
 | Garage cartridges | Implemented / needs gameplay acceptance | Five AP items reconcile to native bag state plus AP slot-scoped inserted state; Vampire Killer remains a physical vanilla pickup required for Garage entry. Test all five across receipt, insertion, reload, and reconnect. |
 | Music Lab cassette medal checks | Implemented | 30 songs × 4 cumulative medal tiers. The four I Got Money medals require Money Cassette. |
 | Level 2 Money Cassette pilot | Implemented / needs gameplay acceptance | `Level_06 -> 110 -> I_GOT_MONEY` is randomized through `Level 2 - Money Cassette`; fresh-save and save-switch IL2CPP acceptance remain pending. |
 | Music Lab cassette-item randomization | Experimental test candidate / manual verification pending | All 30 mappings are present in v0.22. The 24 newly mapped songs and I Got Money Bee alias require individual gameplay evidence. |
 | Music Lab reward chests | Implemented | 9 thresholds, live metadata + reconciliation. |
-| AP Music Lab Points | Experimental v0.23 candidate / manual acceptance pending | 10/3/7 items worth 180 points; room-scoped effective score, strict compatibility, and history rebuilds implemented. Display, nine thresholds, persistence, and compatibility require live acceptance. |
+| AP Music Lab Points | Retained v0.24 candidate / manual acceptance pending | 10/3/7 items worth 180 points; v0.23/schema-14 and v0.24/schema-15 compatibility, room-scoped effective score, and history rebuilds implemented. Display, nine thresholds, persistence, and compatibility require live acceptance. |
+| Full normal campaign result map | Experimental v0.24 candidate / broad manual acceptance pending | All 22 normal identities have Completion plus cumulative difficulty-filtered Star checks. Improved and offline results are identity-scoped and idempotent. Bee/Devil variants remain diagnostic-only. |
 | Secret Bunker | Design approved / not implemented | Bunker Keycard is the approved access item. A Star Eater test override exists; its 50-Star target remains provisional pending validation. |
 | Difficulty options | Implemented / manual acceptance pending | Normal/Hard/Expert/Perfection produce 121/179/237/273 addressed locations for the full normal map; native REG/PRO remains player-controlled. |
 | Random AP Star requirements | Design approved / not implemented | To be layered on after meaningful prerequisite mapping. |
@@ -621,17 +616,18 @@ flowchart TD
     DONE1[Roots basic traversal\nDONE]
     DONE2[Weed Killer randomization\nDONE]
     DONE3[Plant Pipes randomization\nDONE]
-    L4[Discover Level 4 glasses\nNEXT]
-    TRADE[Discover Minim glasses trade]
-    BUCKET[Randomize Chicken Bucket]
-    ROOTSREST[Continue Roots meaningful-item chain]
+    DONE4[Hip Glasses and Chicken Bucket\nDONE]
+    DONE5[Garage, cassettes, AP Music Lab Points\nDONE]
+    DONE6[Full normal campaign map\nAUTOMATED CANDIDATE]
+    ACCEPT[Full campaign gameplay acceptance\nNEXT]
     OTHER[Audit other major areas]
     STARS[Add generated AP Star requirements]
-    DIFF[Finalize difficulty/check tables]
+    LOGIC[Complete meaningful-item and solver logic]
+    VICTORY[Enable post-threshold Level 22 Victory]
     STARTERS[Restore randomized starter areas]
 
-    DONE1 --> DONE2 --> DONE3 --> L4 --> TRADE --> BUCKET --> ROOTSREST
-    ROOTSREST --> OTHER --> STARS --> DIFF --> STARTERS
+    DONE1 --> DONE2 --> DONE3 --> DONE4 --> DONE5 --> DONE6 --> ACCEPT
+    ACCEPT --> OTHER --> LOGIC --> STARS --> VICTORY --> STARTERS
 ```
 
 Completed 2026-08-21 evidence reconciliation:
@@ -644,7 +640,7 @@ Level 4 sets HIP_GLASSES_BAG_ITEM + LEVEL_08_GLASSES_COLLECTED
 → LEVEL_09_COMBO_ABILITY_EARNED records the conversion
 ```
 
-The Area Access source/item/trade design and native mappings are now confirmed. The next step is an implementation design covering source suppression, AP delivery, native consumption precedence, reload, reconnect, and received-item-history reconciliation. Permanent IDs remain unallocated until that design is approved and implementation is ready.
+The Area Access source/item/trade design and native mappings are confirmed and implemented. The next campaign step is broad v0.24 gameplay acceptance, followed by remaining meaningful-item/area audits and solver-backed AP Star and Victory work. New permanent IDs remain unallocated until each later feature design is approved and ready for implementation.
 
 ---
 

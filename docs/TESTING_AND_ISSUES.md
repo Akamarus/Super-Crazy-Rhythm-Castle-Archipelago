@@ -7,18 +7,18 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-Client v0.69.0 / APWorld v0.23.0 is an experimental Music Lab Points candidate requiring manual acceptance. It retains all 30 cassette items and sources, the physical vanilla Vampire Killer pickup, and normal Game Garage entrance. Many individual cassette routes remain manual verification pending. Use a fresh v0.23 seed and fresh native save.
+Client v0.70.0 / APWorld v0.24.0 is an experimental full normal-campaign mapping candidate requiring broad manual acceptance. It retains AP Music Lab Points, all 30 cassette items and sources, the physical vanilla Vampire Killer pickup, and normal Game Garage entrance. Many individual level and cassette routes remain manual verification pending. Use a fresh v0.24 seed and fresh native save.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.69.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.69.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.23.0`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23`.
+- Client: `0.70.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.70.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- APWorld: `0.24.0`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
-- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 92/129/166/202 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
+- Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 121/179/237/273 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
 - For the reward-chest reconciliation portion below, leave `[Developer] EnableTestHarness = true`. This is the generated client configuration's current default. If it has been changed to `false`, normal chest collection still works, but the automatic Hub6 reconciliation and the Hub6 `F5` diagnostic are unavailable.
 
 Follow the [installation guide](INSTALL.md) to build and install both components, generate the seed, and configure the client. Use the room's real host, port, slot name, and password locally; do not publish a password or a complete config file.
@@ -28,7 +28,7 @@ Follow the [installation guide](INSTALL.md) to build and install both components
 Run these steps in order where the seed allows. A received progression item may belong to a different player or be placed later in your own world, so a source check need not deliver its matching item immediately. Record the exact step, level, or song at which a result differs from the expectation.
 
 1. **Start and connect.** Launch the game with the new save and connect to the room. Confirm the client version line above, normal connection/login lines, and the `area-routing-plant-pipes-0.15` slot-data implementation in `LogOutput.log`.
-2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.23.0 random currently selects only validated Roots Access.
+2. **Confirm the Hub6 and Garage start.** Verify that the save starts at Hub6, Vampire Killer is available, Game Garage enters without a black screen, and Vampire Killer is playable. Exit and re-enter once. APWorld v0.24.0 random currently selects only validated Roots Access.
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
@@ -44,15 +44,25 @@ Run these steps in order where the seed allows. A received progression item may 
 
 If a step cannot be attempted because the seed has not delivered the needed item, report the completed steps and the item/slot state instead of editing save data or using an untrusted workaround.
 
+## Full normal-campaign mapping acceptance — pending
+
+Use the [v0.24 acceptance record](testing/2026-09-10-full-level-mapping-acceptance.md). Record the exact seed, slot, save slot, AP difficulty, client/APWorld versions, and artifact hashes. For every normal level you can reach, verify that the first successful clear sends Completion separately from the enabled cumulative Star tiers. Improve at least one prior result and confirm only newly satisfied locations send. A replay at the same result must send nothing.
+
+Normal enables Completion and 1 Star; Hard adds 2 Stars; Expert and Perfection add 3 Stars. Bee and Devil variants are diagnostic-only in this release and must not send normal checks. AP Stars, generated Star gates, final Victory, and production special-mode locations remain inactive. If a normal identity, difficulty tier, improved result, disconnect/reconnect result, or special-mode classification differs, attach the relevant `CAMPAIGN` log lines and mark that mapping unverified rather than inferring a native identity.
+
+Campaign checks earned during a temporary disconnect or failed same-slot reconnect should queue once and flush once after recovery. Connecting successfully as a different game, seed, team, or slot must not deliver the previous identity's pending results. Campaign contract errors should appear immediately with the rejected field. These paths have automated coverage but still need representative live confirmation.
+
 ## Music Lab Points acceptance — pending
 
 The pool has 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles: 180 points in 20 progression instances replacing 20 Stardust. The nine existing thresholds are 5/10/20/32/46/64/89/111/140; the final chest leaves 40 slack. Solver-reachable chests may hold progression. No point milestones or duplicate cassette/cartridge locations are added.
 
 Use the [acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) after offline verification, artifact review, and explicit live-test approval. Record the commit, DLL/APWorld hashes, seed/archive, non-secret server/slot identity, native save slot, game/BepInEx versions, and diagnostic result. Test the existing display and each chest one point below/at its threshold, player-driven opening, and exactly one existing check ID. Also record native medal invariance, retained disconnect total and queued check, reconnect, relaunch, v0.22 fallback, malformed-contract regression, errors, and tester approval.
 
-The exact schema-14/point-schema-1 contract is required. Compatible Music Lab sessions show zero before history sync, then the weighted AP total capped at 180. Native medals never add AP points; recognized v0.22/non-AP sessions use native scoring, while malformed v0.23 contracts explain incompatibility and stay zero. The diagnostic-first investigation rejected the chest/native detour. Only the existing managed getter in `GameRoom_Hub6` applies AP totals, with no native medal/save write or forced interaction. Other rooms must preserve native behavior. Do not use Shift+F4; the developer override cannot supersede compatible AP point state.
+The exact v0.23/schema-14 or v0.24/schema-15 contract plus point schema 1 is required. Compatible Music Lab sessions show zero before history sync, then the weighted AP total capped at 180. Native medals never add AP points; recognized v0.22/non-AP sessions use native scoring, while malformed or unsupported AP contracts explain incompatibility and stay zero. The diagnostic-first investigation rejected the chest/native detour. Only the existing managed getter in `GameRoom_Hub6` applies AP totals, with no native medal/save write or forced interaction. Other rooms must preserve native behavior. Do not use Shift+F4; the developer override cannot supersede compatible AP points.
 
-## Confirmed blocking bugs
+## Historical regression context
+
+The cases below document failures from older clients and retained regression tests. They are not all current v0.24 release blockers. If one reproduces on Client v0.70.0 with a fresh v0.24 seed/save, report it as a regression with the new artifact versions and logs.
 
 ### Game Garage black screen with zero AP cartridges
 
@@ -126,14 +136,14 @@ Use this optional report block in addition to the general issue template below:
 
 ## Known limitations
 
-- APWorld v0.23.0 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
+- APWorld v0.24.0 random currently selects only the validated Roots Access starter; other fixed starters remain unavailable until their routes are tested.
 - Royal Corridor routing is incomplete. The Hub6 phone lands on the Level 22 side; fresh-save testing confirmed the player cannot approach the Royal Star Eater from that spawn to feed Stars and complete the bridge back toward Level 21. Until the bridge route and logic are implemented, `Royal Corridor Access` exposes only the phone-side Level 22 route and must not make Level 21 or the Royal Star Eater check logically reachable.
 - Full-game logic and the final victory condition are incomplete. The approved 66-Star / Level 22 victory design is not implemented.
-- Generated AP Stars remain design-only. AP Music Lab Point inventory and room-scoped score replacement are implemented as a v0.23 candidate; existing display, nine thresholds, persistence, and compatibility remain manual acceptance pending.
+- Generated AP Stars remain design-only. AP Music Lab Point inventory and room-scoped score replacement are retained in v0.24; existing display, nine thresholds, persistence, and compatibility remain manual acceptance pending.
 - Music Lab construction barriers are bypassed in compatible AP sessions, but most full-cassette source routes still require individual manual verification.
 - The 24 newly mapped cassette songs and the I Got Money Bee alias are manual-verification pending. Secret Bunker Devil aliases remain conservatively inactive in solver reachability.
 - The separate Game Garage cartridge native-inventory blocker remains open; Music Lab cassette receipt reconciliation does not fix it.
-- AP performance difficulty filtering is retained in APWorld v0.23.0; it filters existing performance locations and does not change native REG/PRO. The historical eight-option cassette/solver matrix is complete. Manual gameplay remains part of the broader prototype smoke test; inactive Star previews and live Star gates are separate, unfinished systems.
+- AP performance difficulty filtering in APWorld v0.24.0 covers the full normal campaign map and does not change native REG/PRO. Normal/Hard/Expert/Perfection address 121/179/237/273 locations. Manual gameplay remains part of the broader prototype smoke test; inactive AP Stars and live Star gates are separate, unfinished systems.
 - Local co-op is unverified. Online co-op, DeathLink, and an integrated overlay/text client are deferred.
 - Developer diagnostics and hotkeys may exist in development builds. Do not rely on them for normal play, and say exactly which one you used in a report.
 
