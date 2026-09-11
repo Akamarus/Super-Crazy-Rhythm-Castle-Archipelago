@@ -11975,6 +11975,7 @@ internal static class GamePatches
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] RESULT DATA internal={level} variant={variant} score={score?.ToString() ?? "?"} players={players?.ToString() ?? "?"} difficulty={difficulty}");
 
+        SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
         Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned);
@@ -12013,6 +12014,7 @@ internal static class GamePatches
         }
 
         MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
+        SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? "<unknown>");
 
         Level5Discovery.RecordLevelPersisted(level);
         Level6Discovery.RecordLevelPersisted(level);
@@ -14966,6 +14968,205 @@ internal sealed class Level4EntranceProxy : MonoBehaviour
             for (int i = 0; i < 24 && current != null; i++)
             {
                 names.Add(current.name ?? "<unnamed>");
+                current = current.parent;
+            }
+
+            names.Reverse();
+            return string.Join("/", names);
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+}
+
+
+internal static class SpecialModeDiscovery
+{
+    private const int ProgressionFlagCapacity = 256;
+    private const int SceneObjectCapacity = 100;
+
+    private static readonly object Sync = new();
+    private static readonly HashSet<string> ObservedProgressionFlags =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static bool _progressionCapacityLogged;
+
+    public static void RecordProgressionFlagUpdated(object evt, string flag)
+    {
+        if (!SpecialVariantDiagnosticPolicy.IsRelevantProgressionFlag(flag))
+            return;
+
+        string room = DeveloperHarness.CurrentRoomId;
+        string key = $"{room}\0{flag}";
+        bool capacityReached = false;
+
+        lock (Sync)
+        {
+            if (ObservedProgressionFlags.Contains(key))
+                return;
+
+            if (ObservedProgressionFlags.Count >= ProgressionFlagCapacity)
+            {
+                if (_progressionCapacityLogged)
+                    return;
+
+                _progressionCapacityLogged = true;
+                capacityReached = true;
+            }
+            else
+            {
+                ObservedProgressionFlags.Add(key);
+            }
+        }
+
+        if (capacityReached)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
+                $"flag='<capacity reached>' eventType='{evt.GetType().FullName}' " +
+                $"emitted={ProgressionFlagCapacity} truncated=1.");
+            return;
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
+            $"flag='{flag}' eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void RecordResultApplied(
+        object request,
+        string level,
+        string variant,
+        int? score,
+        string difficulty)
+    {
+        SpecialVariantKind identity =
+            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
+        if (identity == SpecialVariantKind.None)
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT APPLIED readOnly=True " +
+            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
+            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
+            $"eventType='{request.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void RecordResultPersisted(
+        object evt,
+        string level,
+        string variant,
+        int? score,
+        string difficulty)
+    {
+        SpecialVariantKind identity =
+            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
+        if (identity == SpecialVariantKind.None)
+            return;
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT PERSISTED readOnly=True " +
+            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
+            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
+            $"eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
+    }
+
+    public static void ScanCurrentScene()
+    {
+        string room = DeveloperHarness.CurrentRoomId;
+        if (string.Equals(room, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(room, "GameRoom_27", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        int emitted = 0;
+        int truncated = 0;
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN BEGIN readOnly=True " +
+            $"room='{room}' emitted=0 truncated=0.");
+
+        try
+        {
+            foreach (Transform transform in Resources.FindObjectsOfTypeAll<Transform>())
+            {
+                if (transform == null || transform.gameObject == null)
+                    continue;
+
+                GameObject gameObject = transform.gameObject;
+                bool activeSelf;
+                bool activeInHierarchy;
+                try
+                {
+                    activeSelf = gameObject.activeSelf;
+                    activeInHierarchy = gameObject.activeInHierarchy;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!activeInHierarchy)
+                    continue;
+
+                string path = BuildHierarchy(transform);
+                string[] componentTypes = ReadComponentTypes(gameObject);
+                if (!SpecialVariantDiagnosticPolicy.IsRelevantSceneObject(path, componentTypes))
+                    continue;
+
+                if (emitted >= SceneObjectCapacity)
+                {
+                    truncated++;
+                    continue;
+                }
+
+                emitted++;
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE OBJECT readOnly=True " +
+                    $"room='{room}' path='{path}' activeSelf={activeSelf} " +
+                    $"activeInHierarchy={activeInHierarchy} " +
+                    $"componentTypes='{string.Join("|", componentTypes)}'.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN ERROR readOnly=True " +
+                $"room='{room}' error='{ex.GetBaseException().Message}'.");
+        }
+        finally
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN END readOnly=True " +
+                $"room='{room}' emitted={emitted} truncated={truncated}.");
+        }
+    }
+
+    private static string[] ReadComponentTypes(GameObject gameObject)
+    {
+        try
+        {
+            return gameObject.GetComponents<Component>()
+                .Where(component => component != null)
+                .Select(component => component.GetType().FullName ?? component.GetType().Name)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static string BuildHierarchy(Transform transform)
+    {
+        try
+        {
+            var names = new List<string>();
+            Transform? current = transform;
+            while (current != null)
+            {
+                names.Add(current.name);
                 current = current.parent;
             }
 
@@ -22471,7 +22672,10 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
                 Input.GetKey(KeyCode.RightShift);
 
             if (!control && !alt && !shift)
+            {
                 MusicLabDiscovery.ScanNativeIdentityCandidates();
+                SpecialModeDiscovery.ScanCurrentScene();
+            }
 
             if (control)
                 DeveloperHarness.GrantLevel12Locally();
@@ -26627,6 +26831,7 @@ internal static class ProgressionPatches
         Level6Discovery.RecordProgressionFlagUpdated(flag);
         Level8Discovery.RecordProgressionFlagUpdated(flag);
         MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag);
+        SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
 
         bool interesting = GateKeywords.Any(k =>
             flag.Contains(k, StringComparison.OrdinalIgnoreCase));
