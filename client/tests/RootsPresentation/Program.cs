@@ -105,4 +105,31 @@ Equal(true, RootsComputerPolicy.ShouldHideCover(true, true, true, "GameRoom_Hub2
     "Sophisticated Computer cover is hidden for owned AP Roots");
 Equal(true, RootsComputerPolicy.ShouldNormalizeState(true, true, true, "GameRoom_Hub2"),
     "difficulty toggler state reports idle only in owned AP Roots");
+
+const string meatFirstAreaGatePath =
+    "Root/GameRoom_Hub4_Logic/Objects/Doors/FirstAreaGate";
+Equal(true,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        true, true, true, "GameRoom_Hub4", meatFirstAreaGatePath),
+    "owned Meat Dimension AP route suppresses the exact first gate");
+Equal(false,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        false, true, true, "GameRoom_Hub4", meatFirstAreaGatePath),
+    "disabled Area Access preserves the Meat gate");
+Equal(false,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        true, false, true, "GameRoom_Hub4", meatFirstAreaGatePath),
+    "an unauthenticated slot preserves the Meat gate");
+Equal(false,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        true, true, false, "GameRoom_Hub4", meatFirstAreaGatePath),
+    "locked Meat Dimension preserves the gate");
+Equal(false,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        true, true, true, "GameRoom_Hub40", meatFirstAreaGatePath),
+    "neighboring room identifiers do not suppress the Meat gate");
+Equal(false,
+    MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+        true, true, true, "GameRoom_Hub4", meatFirstAreaGatePath + "/Collision"),
+    "only the exact Meat first gate root is suppressed");
 Console.WriteLine("Roots presentation policy tests passed.");

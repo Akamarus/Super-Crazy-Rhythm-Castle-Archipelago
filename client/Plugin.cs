@@ -203,10 +203,11 @@ public sealed class Plugin : BasePlugin
         {
             AddComponent<AreaPhoneAccessKeeper>();
             AddComponent<RootsAreaBaselineKeeper>();
+            AddComponent<MeatAreaBaselineKeeper>();
             Log.LogWarning(
                 $"[SCRC-AP] AREA ACCESS ROUTING ENABLED: startingSource='{AreaAccessPrototype.StartingArea}'. Hub6/Music Lab + Game Garage remain available. With PrototypeStartingArea=AP, all six major-area phones begin locked until the AP server supplies the seed starter. Locked PhoneBox interactions are disabled; known Hub6 cloth covers follow Area Access; unlocked late-area phones bypass only their local vanilla visited/open condition without changing its save flag; Hub6->area TransitionToGameRoomRequest calls remain safety-gated. PAGE UP remains a developer grant; PAGE DOWN is disabled in AP-driven mode; END prints status.");
             Log.LogWarning(
-                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. HOME in Hub2 prints compact status only.");
+                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. Meat Dimension Access suppresses only the exact Hub4 FirstAreaGate root. HOME in Hub2 prints compact status only.");
         }
 
         Log.LogWarning(
@@ -22177,6 +22178,96 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
         _reportedReady = false;
         LastGateBound = false;
         LastBlockadeBound = false;
+    }
+}
+
+internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
+{
+    private string _boundRoom = string.Empty;
+    private int _initialiseDelayFrames;
+    private GameObject? _firstAreaGate;
+    private bool _reportedGate;
+
+    public MeatAreaBaselineKeeper(IntPtr pointer) : base(pointer)
+    {
+    }
+
+    private void LateUpdate()
+    {
+        string room = DeveloperHarness.CurrentRoomId;
+        if (!string.Equals(room, MeatAreaPresentationPolicy.RoomId, StringComparison.Ordinal))
+        {
+            ResetForRoomExit();
+            return;
+        }
+
+        if (!MeatAreaPresentationPolicy.ShouldSuppressFirstAreaGate(
+                AreaAccessPrototype.Enabled,
+                IntroHubSkip.Compatible,
+                AreaAccessPrototype.HasArea("Meat Dimension"),
+                room,
+                MeatAreaPresentationPolicy.FirstAreaGatePath))
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_boundRoom))
+        {
+            _boundRoom = MeatAreaPresentationPolicy.RoomId;
+            _initialiseDelayFrames = 12;
+            _firstAreaGate = null;
+            _reportedGate = false;
+            return;
+        }
+
+        // Let Hub4 finish its room-initialise scripts before touching the one
+        // campaign-order physical barrier. Binding is exact-path only; no
+        // global Resources/Transform scan is used.
+        if (_initialiseDelayFrames > 0)
+        {
+            _initialiseDelayFrames--;
+            return;
+        }
+
+        if (_firstAreaGate == null)
+        {
+            try
+            {
+                _firstAreaGate = GameObject.Find(MeatAreaPresentationPolicy.FirstAreaGatePath);
+            }
+            catch
+            {
+                _firstAreaGate = null;
+            }
+        }
+
+        try
+        {
+            if (_firstAreaGate != null && _firstAreaGate.activeSelf)
+                _firstAreaGate.SetActive(false);
+
+            if (_firstAreaGate != null && !_reportedGate)
+            {
+                _reportedGate = true;
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT FIRST AREA GATE SUPPRESSED: exact physical blocker '{MeatAreaPresentationPolicy.FirstAreaGatePath}' disabled while Meat Dimension Access is owned; MEAT_HUB_GATE_OPENED and all native quest/story flags remain unchanged.");
+            }
+        }
+        catch
+        {
+            _firstAreaGate = null;
+        }
+    }
+
+    private void ResetForRoomExit()
+    {
+        if (string.IsNullOrEmpty(_boundRoom))
+            return;
+
+        _boundRoom = string.Empty;
+        _initialiseDelayFrames = 0;
+        _firstAreaGate = null;
+        _reportedGate = false;
     }
 }
 
