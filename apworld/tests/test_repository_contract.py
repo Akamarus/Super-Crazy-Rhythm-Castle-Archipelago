@@ -33,9 +33,25 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("special variants are diagnostic-only", overview.lower())
         self.assertIn("66 AP Stars remain inactive", overview)
 
-    def run_validator(self, root=REPO_ROOT):
+        for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(document=relative):
+                self.assertIn("Client v0.70.0 / APWorld v0.24.0", text)
+                self.assertIn("schema 15", text.lower())
+                self.assertIn("campaign-mapping schema 1", text.lower())
+                self.assertIn("fresh v0.24 seed", text.lower())
+
+        testing = (REPO_ROOT / "docs/TESTING.md").read_text(encoding="utf-8")
+        self.assertIn("schema 15 / campaign-mapping schema 1", testing.lower())
+        self.assertNotIn("The exact schema-14/point-schema-1 contract is required", testing)
+
+    def run_validator(self, root=REPO_ROOT, *, validate_live=None):
         environment = os.environ.copy()
         environment["SCRC_REPO_ROOT"] = str(root)
+        if validate_live is None:
+            validate_live = root == REPO_ROOT
+        if not validate_live:
+            environment["SCRC_VALIDATE_LIVE_WORLD"] = "0"
         return subprocess.run(
             [sys.executable, str(VALIDATOR)],
             cwd=REPO_ROOT,
@@ -58,6 +74,10 @@ class RepositoryContractTests(unittest.TestCase):
                     source, destination,
                     ignore=shutil.ignore_patterns("bin", "obj", "__pycache__"),
                 )
+        support_source = REPO_ROOT / "apworld" / "tests" / "support.py"
+        support_destination = root / "apworld" / "tests" / "support.py"
+        support_destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(support_source, support_destination)
         return root
 
     def test_validator_reports_full_level_mapping_slot_contract(self):
@@ -106,6 +126,7 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn('"campaign_location_count": 88', result.stdout)
         self.assertIn('"new_campaign_location_count": 81', result.stdout)
         self.assertIn('"active_location_totals": {', result.stdout)
+        self.assertIn('"live_world_structure_checked": true', result.stdout)
         self.assertIn('"Normal": 121', result.stdout)
         self.assertIn('"Perfection": 273', result.stdout)
 
@@ -263,6 +284,42 @@ class RepositoryContractTests(unittest.TestCase):
         result = self.run_validator(root)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Star ID changed", result.stdout + result.stderr)
+
+    def test_validator_rejects_live_world_structure_regressions(self):
+        mutations = {
+            "active location total": (
+                "apworld/scrc/difficulty.py",
+                '0: frozenset(("Completion", "1 Star")),',
+                '0: frozenset(("Completion",)),',
+                "live active-location count changed for Normal",
+            ),
+            "instantiated Development Cache": (
+                "apworld/scrc/__init__.py",
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n',
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n'
+                '        phone_hub.locations.append(\n'
+                '            SCRCLocation(\n'
+                '                self.player,\n'
+                '                "Development Cache 01",\n'
+                '                LOCATION_NAME_TO_ID["Development Cache 01"],\n'
+                '                phone_hub,\n'
+                '            )\n'
+                '        )\n',
+                "instantiated Development Cache",
+            ),
+        }
+        for label, (relative, old, new, expected_error) in mutations.items():
+            with self.subTest(label=label):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new, 1), encoding="utf-8")
+
+                result = self.run_validator(root, validate_live=True)
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(expected_error, result.stdout + result.stderr)
 
     def test_packaged_world_contains_only_distribution_sources(self):
         with tempfile.TemporaryDirectory() as output_dir:

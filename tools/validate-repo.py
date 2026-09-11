@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import ast
+from importlib.util import module_from_spec, spec_from_file_location
 import json
 import os
+import random
 import re
 import runpy
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(os.environ.get("SCRC_REPO_ROOT", Path(__file__).resolve().parents[1])).resolve()
@@ -21,6 +24,7 @@ CLIENT_BUILD = ROOT / "client" / "build.ps1"
 CASSETTE_POLICY = ROOT / "client" / "CassetteRandomizationPolicy.cs"
 IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
+TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
     "client_version": "0.70.0",
     "world_version": "0.24.0",
@@ -100,6 +104,7 @@ for path in (
     CASSETTE_POLICY,
     IDS,
     OVERVIEW,
+    TEST_SUPPORT,
 ):
     if not path.exists():
         fail(f"missing required file: {repo_path(path)}")
@@ -171,6 +176,56 @@ for marker in (
 ):
     if marker not in world_text:
         fail("Development Caches are no longer reserved-only")
+
+
+support_spec = spec_from_file_location("scrc_validator_support", TEST_SUPPORT)
+if support_spec is None or support_spec.loader is None:
+    fail("could not load APWorld validation support")
+support = module_from_spec(support_spec)
+support_spec.loader.exec_module(support)
+
+
+def validate_live_world_structure() -> dict[str, int]:
+    """Build the real world at each supported difficulty without AP installed."""
+    world_module, cleanup = support.load_scrc_world()
+    try:
+        totals: dict[str, int] = {}
+        for difficulty, (label, expected_count) in enumerate(
+            EXPECTED["active_location_totals"].items()
+        ):
+            world = object.__new__(world_module.SCRCWorld)
+            world.player = 1
+            world.random = random.Random(22)
+            world.multiworld = support.FakeMultiWorld()
+            world.options = types.SimpleNamespace(
+                required_stars=support.OptionValue(50),
+                difficulty=support.OptionValue(difficulty),
+                starting_area=support.OptionValue(0),
+            )
+            world.generate_early()
+            world.create_regions()
+            addressed = {
+                location.name
+                for region in world.multiworld.regions
+                for location in region.locations
+                if location.player == world.player and location.address is not None
+            }
+            cache_name = next(
+                (name for name in addressed if name.startswith("Development Cache")),
+                None,
+            )
+            if cache_name is not None:
+                fail(f"instantiated Development Cache: {cache_name}")
+            actual_count = len(addressed)
+            if actual_count != expected_count:
+                fail(
+                    f"live active-location count changed for {label}: "
+                    f"expected {expected_count}, got {actual_count}"
+                )
+            totals[label] = actual_count
+        return totals
+    finally:
+        cleanup()
 
 
 def assignment_value(tree: ast.AST, name: str) -> ast.AST:
@@ -477,6 +532,13 @@ for expected in (str(EXPECTED["next_item_id"]), str(EXPECTED["next_location_id"]
     if expected not in ids_text:
         fail(f"ID registry is missing expected marker: {expected}")
 
+live_world_validation_enabled = os.environ.get("SCRC_VALIDATE_LIVE_WORLD", "1") != "0"
+live_active_location_totals = (
+    validate_live_world_structure()
+    if live_world_validation_enabled
+    else dict(EXPECTED["active_location_totals"])
+)
+
 expected_totals = EXPECTED["active_location_totals"]
 if (
     f"Normal {expected_totals['Normal']} / Hard {expected_totals['Hard']} / Expert {expected_totals['Expert']} / Perfection {expected_totals['Perfection']}" not in overview_text
@@ -520,7 +582,8 @@ print(json.dumps({
         EXPECTED["new_campaign_location_end"],
     ],
     "campaign_level_mapping_schema": 1,
-    "active_location_totals": EXPECTED["active_location_totals"],
+    "active_location_totals": live_active_location_totals,
+    "live_world_structure_checked": live_world_validation_enabled,
     "star_items_active": False,
     "client_star_gate_enforcement_active": False,
     "special_variant_locations_active": False,
