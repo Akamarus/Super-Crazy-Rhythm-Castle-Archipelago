@@ -2,7 +2,7 @@
 
 Date: 2026-09-11. Scope: Task 1 only, baseline `ca24bd2`.
 
-**Gate: FAIL — 0 Confirmed / 15 Provisional / 1 Rejected / 1 Deferred.**
+**Gate: FAIL — 1 Confirmed / 14 Provisional / 1 Rejected / 1 Deferred.**
 The required `confirmed_action_count >= 11` is not met. No action IDs are
 allocated and no action checks, AP Stars, campaign Star gates, or Victory are
 activated. This is an evidence assessment, not a gameplay sign-off.
@@ -41,6 +41,7 @@ superseded by Area Access plus meaningful items and unavoidable local story.
 | E12 | `50dc1dd1-0403-4d43-b0c2-fb487ee66880`: `turn194file0` L6–16, Locker Room result; `turn194file1` L31–60 and `turn195file3` L76–96, Royal feeding/bridge/hangout sequence; `turn196file8` L179–200, Level 22 door. |
 | E13 | `1ff63116-0d25-4660-b015-a9ac656f9ddc`: Area Access pivot; later PROGRESSION.md explicitly limits Royal phone access to the Level 22 side. Historical optional modes and illustrative Star costs are not current requirements. |
 | E14 | [2026-08-21 acceptance](2026-08-21-hip-glasses-chicken-bucket-acceptance.md): consumption/reload/reconnect and Lift Quest matrix still pending. The later [consolidated record](2026-08-23-consolidated-preview-acceptance.md) does not close conversion-marker durability. Current overview accepts the live Roots route but is not evidence for the missing action-specific durability matrix. |
+| E15 | 2026-09-11 focused v0.70.0/v0.24 live capture, seed `91111` / `AP_21483200610759512211.zip`, AP slot `Jack`: save slot 4 established the online before/action/reload/replay path; fresh save slot 3 established false-state isolation, offline conversion, same-identity reconnect, autosave and restart persistence. The diagnostic emitted no action check and made no progression mutation. |
 
 ## Candidate ledger
 
@@ -62,7 +63,7 @@ does not implement that queue or reconciliation; its snapshots only log reads.
 
 | Key (fixed order) | Proposed canonical location / physical area | Status |
 | --- | --- | --- |
-| `roots_combo_bucket_conversion` | Roots - Lift Quest - Combo Bucket Conversion / `GameRoom_09` | Provisional |
+| `roots_combo_bucket_conversion` | Roots - Lift Quest - Combo Bucket Conversion / `GameRoom_09` | Confirmed |
 | `lobby_important_letters_delivery` | Lobby - Important Letters Delivery / Hub1A | Provisional |
 | `lobby_plunger_hand_in` | Lobby - Plunger Hand-In / Lobby Star Eater route | Provisional |
 | `lobby_fish_tears_delivery` | Lobby - Fish Tears Delivery / Hub1A | Provisional |
@@ -85,7 +86,7 @@ does not implement that queue or reconciliation; its snapshots only log reads.
 - Action/event: use Chicken Bucket during Lift Quest; `LEVEL_09_COMBO_ABILITY_EARNED` false→true, `CHICKEN_BUCKET_BAG_ITEM` true→false, `COMBO_BUCKET_ABILITY` false→true (E1). Exact marker exists independently of `LEVEL_09_COMPLETED`.
 - Access/items/events: Roots Access; Chicken Bucket; reachable Lift Quest entrance, preceded in the observed route by Hip Glasses trade, blockade removal and `ROOTS_HUB_KING_LIFT_CHAT_WITNESSED`. Item receipt alone is not permission to bypass native entrance conditions.
 - Reward/distinctness: native Combo Bucket stays vanilla; this action is separate from the already registered Bucket Minion trade, both Level 5 results and its cassette sources. No second item is added.
-- Repeat/reload/reconnect/offline: common pending matrix above, specifically E14; proposed R on `LEVEL_09_COMBO_ABILITY_EARNED`. Existing consumable policy tests are not live proof of this new action check.
+- Repeat/reload/reconnect/offline: confirmed by E15. Slot 4 captured `LEVEL_09_COMBO_ABILITY_EARNED` false in Hub2 and `GameRoom_09`, then the distinct in-level sequence `COMBO_BUCKET_ABILITY` false→true, `CHICKEN_BUCKET_BAG_ITEM` true→false and `LEVEL_09_COMBO_ABILITY_EARNED` false→true. After completion/autosave and a full restart, the marker remained true; replay started with Combo Bucket already present and emitted no second conversion. Fresh slot 3 remained false despite slot 4 being complete. Slot 3 then followed the native Hip Glasses trade, blockade/King dialogue and Lift Quest entrance, converted while the AP server was offline, reconnected to the same seed/slot without restoring either consumed item, completed/autosaved, and retained the true marker with Chicken Bucket absent after a final restart. Reconciliation identity is `LEVEL_09_COMBO_ABILITY_EARNED`; the action must not derive from `LEVEL_09_COMPLETED` or AP item ownership.
 
 ### 2. lobby_important_letters_delivery
 
@@ -258,9 +259,10 @@ route and actual threshold. No broad campaign replay is requested by this
 checkpoint; focus on these missing boundaries only after the user chooses a
 diagnostic run. Deployment and launch remain separate authorization gates.
 
-Task 2 is blocked. Versions, contracts, item/location counts and ID frontiers
-remain at the accepted baseline. Automated diagnostics validate capture bounds;
-they do not upgrade gameplay evidence statuses.
+Task 2 remains blocked at 1/11 required Confirmed actions. Versions, contracts,
+item/location counts and ID frontiers remain at the accepted baseline. Automated
+diagnostics validate capture bounds; only the focused E15 live matrix upgrades
+one gameplay evidence status.
 
 ## Checkpoint verification
 
@@ -276,5 +278,11 @@ they do not upgrade gameplay evidence statuses.
   confirmed Stars/gates/special checks inactive and unchanged ID frontiers.
 - Client Release build with `-SkipInstall` passed: zero errors, nine warnings
   (existing nullable warnings and unavailable NuGet vulnerability feed).
-- No deployment, game launch or new gameplay acceptance was performed. The
-  native Harmony callback/scene behavior is still a live-testing boundary.
+- The approved diagnostic client v0.70.0 was deployed only to
+  `BepInEx/plugins/RhythmCastleAP` with DLL SHA-256
+  `1F0F0A2310C3D75008370466B4E18373674A6C4750495D42E650BEDD7E2ADB43`.
+  APWorld v0.24 SHA-256
+  `2A3AC0830D4D2DA1BD4E773F671ABFA7B05CB4B4BBE6BABE532B3C195D837253`
+  hosted the focused seed. E15 confirms the Combo Bucket action only; the
+  remaining native Harmony callback/scene behavior is still a live-testing
+  boundary.
