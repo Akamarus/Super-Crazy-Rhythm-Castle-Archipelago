@@ -4,6 +4,7 @@ using Archipelago.MultiClient.Net.Converters;
 using Archipelago.MultiClient.Net.Packets;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using LoginSuccessful = Archipelago.MultiClient.Net.LoginSuccessful;
 
 static void Equal<T>(T expected, T actual, string scenario)
 {
@@ -187,6 +188,22 @@ CampaignLevelRandomization.ApplySlotData(RoundTripSlotData(CompatibleSlotData())
 Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLevelRandomization.Snapshot.Mode,
     "adapter accepts real ConnectedPacket slot-data shapes");
 
+foreach ((int[] tiers, string[] expected) in new[]
+{
+    (new[] { 1 }, new[] { "Level 22 - Completion", "Level 22 - 1 Star" }),
+    (new[] { 1, 2 }, new[] { "Level 22 - Completion", "Level 22 - 1 Star", "Level 22 - 2 Stars" }),
+    (new[] { 1, 2, 3 }, new[] { "Level 22 - Completion", "Level 22 - 1 Star", "Level 22 - 2 Stars", "Level 22 - 3 Stars" }),
+})
+{
+    var legacy = LegacySlotData();
+    legacy["active_campaign_star_tiers"] = tiers;
+    CampaignLevelRandomization.ApplySlotData(RoundTripSlotData(legacy));
+    SequenceEqual(expected, CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "LevelVariant_Default", 3),
+        $"legacy {tiers.Length}-tier difficulty preserves cumulative Level 22 checks");
+    SequenceEqual(Array.Empty<string>(), CampaignLevelRandomization.EvaluatePersistedResult("Level_02", "LevelVariant_Default", 3),
+        "legacy Star tiers do not activate new campaign levels");
+}
+
 CampaignLevelRandomization.ApplySlotData(LegacySlotData());
 Equal(CampaignLocationCompatibilityMode.Legacy, CampaignLevelRandomization.Snapshot.Mode,
     "adapter stores legacy campaign mode");
@@ -289,10 +306,8 @@ string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirector
 string persistedWiring = pluginSource[
     pluginSource.IndexOf("public static void ResultPersistedEventPostfix", StringComparison.Ordinal)..
     pluginSource.IndexOf("private sealed record PendingResult", StringComparison.Ordinal)];
-Equal(true, persistedWiring.Contains("CampaignLevelRandomization.EvaluatePersistedResult(", StringComparison.Ordinal),
-    "production persisted-result path uses the campaign adapter");
-Equal(true, persistedWiring.Contains("Plugin.AP?.QueueLocation(location)", StringComparison.Ordinal),
-    "every adapter result is routed through the production location queue");
+Equal(true, persistedWiring.Contains("Plugin.AP?.QueueCampaignResult(", StringComparison.Ordinal),
+    "production persisted-result path uses the identity-bound campaign queue exercised by lifecycle tests");
 Equal(false, persistedWiring.Contains("LocationMap.InternalToLocationName", StringComparison.Ordinal),
     "production campaign results no longer use the partial location dictionary");
 Equal(false, persistedWiring.Contains("bool level22", StringComparison.Ordinal),
@@ -310,4 +325,5 @@ string queueWiring = pluginSource[
 Equal(true, queueWiring.Contains("_queuedOrSent.Add(locationName)", StringComparison.Ordinal),
     "production queue retains location-level idempotency");
 
+ConnectionTests.Run(CompatibleSlotData);
 Console.WriteLine("Level completion policy tests passed.");

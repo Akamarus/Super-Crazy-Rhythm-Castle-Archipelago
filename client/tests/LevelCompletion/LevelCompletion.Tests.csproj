@@ -11,5 +11,17 @@
     <Compile Include="..\..\CampaignLocationContract.cs" Link="CampaignLocationContract.cs" />
     <Compile Include="..\..\CampaignLevelRandomization.cs" Link="CampaignLevelRandomization.cs" />
     <Compile Include="..\..\LevelCompletionPolicy.cs" Link="LevelCompletionPolicy.cs" />
+    <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
+    <Compile Include="..\..\ReconnectPolicy.cs" Link="ReconnectPolicy.cs" />
   </ItemGroup>
+  <Target Name="ExtractProductionConnection" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
+      <ConnectionSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?s)internal sealed class ArchipelagoClient.*?(?=internal sealed class Level5EntranceKeeper)').Value)</ConnectionSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionConnection.cs" Lines="using System.Collections.Concurrent%3B namespace RhythmCastleAP%3B $(ConnectionSource)" Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)ProductionConnection.cs" />
+    </ItemGroup>
+  </Target>
 </Project>

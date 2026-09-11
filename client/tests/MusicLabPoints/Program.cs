@@ -73,12 +73,51 @@ static MusicLabPointCompatibilityResult Validate(Action<Dictionary<string, objec
     return MusicLabPointContract.ValidateSlotData(data);
 }
 
+MusicLabPointRandomization.ReportGetterAvailability(true);
+using (var exporter = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("py",
+    "apworld/tests/export_client_slot_data.py") { RedirectStandardOutput = true, UseShellExecute = false })!)
+{
+    string json = exporter.StandardOutput.ReadToEnd();
+    exporter.WaitForExit();
+    Equal(0, exporter.ExitCode, "current APWorld slot-data export succeeds");
+    var worlds = JsonConvert.DeserializeObject<Dictionary<string, object>[]>(json)!;
+    foreach (var world in worlds)
+    {
+        var data = RoundTripSlotData(world);
+        Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(data).Mode,
+            "current APWorld wire data enables campaign mapping");
+        Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(data).Mode,
+            "current APWorld wire data enables AP Music Lab Points");
+        PacketHistoryTests.Run(() => world);
+        MusicLabPointRandomization.ApplySlotData(data, "game", "current-world", "slot", 200);
+        MusicLabPointRandomization.SynchronizeHistory(200,
+            new[] { new MusicLabPointReceipt(0, 187256153), new MusicLabPointReceipt(1, 187256154), new MusicLabPointReceipt(2, 187256155) });
+        Equal(31, MusicLabPointRandomization.ResolveEffectiveScore(99, 140), "current contract uses weighted AP history for effective score");
+        foreach (string field in new[] { "schema_version", "music_lab_points_schema", "music_lab_point_values", "implementation_version" })
+        {
+            var invalid = RoundTripSlotData(world);
+            invalid[field] = 99L;
+            Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(invalid).Mode,
+                "current implementation rejects invalid " + field);
+        }
+        foreach (string version in new[] { "unknown-world", V023 + "-full-level-mapping-0.25" })
+        {
+            var invalid = RoundTripSlotData(world);
+            invalid["implementation_version"] = version;
+            Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(invalid).Mode,
+                "unknown and unsupported point contracts cannot fall back to native medals");
+        }
+    }
+}
+
 Equal(MusicLabPointCompatibilityMode.LegacyNative,
     MusicLabPointContract.ValidateSlotData(new() { ["implementation_version"] = V022 }).Mode,
     "v0.22 retains native points");
 Equal(MusicLabPointCompatibilityMode.Compatible,
     MusicLabPointContract.ValidateSlotData(CompatibleSlotData()).Mode,
     "complete v0.23 contract is compatible");
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim,
+    Validate(data => data["schema_version"] = 15).Mode, "v0.23 still requires schema 14");
 
 static Dictionary<string, object> RoundTripSlotData(Dictionary<string, object> data)
 {

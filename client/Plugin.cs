@@ -1347,6 +1347,7 @@ internal sealed class ArchipelagoClient
     private volatile bool _connected;
     private int _reconnectWorkerActive;
     private readonly HashSet<int> _processedReceivedItemIndexes = new();
+    private (string Game, string Seed, int Team, int Slot)? _authenticatedIdentity;
 
     public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
@@ -1497,7 +1498,7 @@ internal sealed class ArchipelagoClient
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     _connected = false;
-                    CampaignLevelRandomization.OnIdentityReplaced();
+                    CampaignLevelRandomization.OnDisconnected();
                     if (previousSession.Session != null &&
                         !ReferenceEquals(previousSession.Session, session))
                     {
@@ -1562,7 +1563,23 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
-                        CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
+                        lock (_lock)
+                        {
+                            var identity = (Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
+                            if (_authenticatedIdentity != identity)
+                            {
+                                _pendingChecks.Clear();
+                                _queuedOrSent.Clear();
+                                _processedReceivedItemIndexes.Clear();
+                                CampaignLevelRandomization.OnIdentityReplaced();
+                            }
+                            _authenticatedIdentity = identity;
+                            CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
+                            CampaignLevelRandomizationSnapshot campaignState = CampaignLevelRandomization.Snapshot;
+                            if (campaignState.Mode == CampaignLocationCompatibilityMode.IncompatibleClaim)
+                                Plugin.LoggerInstance?.LogError(
+                                    $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
+                        }
                         MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
                             loginSuccess.SlotData,
                             Plugin.GameName,
@@ -1630,7 +1647,13 @@ internal sealed class ArchipelagoClient
             _connected = false;
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
-            CampaignLevelRandomization.Shutdown();
+            lock (_lock)
+            {
+                _authenticatedIdentity = null;
+                _pendingChecks.Clear();
+                _queuedOrSent.Clear();
+                CampaignLevelRandomization.Shutdown();
+            }
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
@@ -1708,6 +1731,23 @@ internal sealed class ArchipelagoClient
         }
     }
 
+    public void QueueCampaignResult(string? level, string? variant, int? starsEarned)
+    {
+        // Evaluation and queue admission share the login identity boundary.
+        // A result cannot be evaluated for one seed and queued for its replacement.
+        lock (_lock)
+        {
+            if (!_authenticatedIdentity.HasValue)
+                return;
+            IReadOnlyList<string> locations = CampaignLevelRandomization.EvaluatePersistedResult(level, variant, starsEarned);
+            if (locations.Count == 0)
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={starsEarned?.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
+            foreach (string location in locations)
+                QueueLocation(location);
+        }
+    }
+
     public void QueueLocation(string locationName)
     {
         lock (_lock)
@@ -1717,9 +1757,8 @@ internal sealed class ArchipelagoClient
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Duplicate local check ignored: {locationName}");
                 return;
             }
+            _pendingChecks.Enqueue(locationName);
         }
-
-        _pendingChecks.Enqueue(locationName);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEUED CHECK '{locationName}'.");
 
         if (Connected)
@@ -1739,6 +1778,10 @@ internal sealed class ArchipelagoClient
         bool sendFailed = false;
         using (sessionLease)
         {
+            // The initial Connected read can precede a transport replacement.
+            // Recheck under its lease before delivering identity-bound results.
+            if (!Connected)
+                return;
             while (_pendingChecks.TryDequeue(out string? locationName))
             {
                 try
@@ -12064,21 +12107,7 @@ internal static class GamePatches
 
         if (CampaignLevelCatalog.TryGet(level, out _))
         {
-            IReadOnlyList<string> locations = CampaignLevelRandomization.EvaluatePersistedResult(
-                level,
-                variant,
-                result?.StarsEarned);
-            if (locations.Count == 0)
-            {
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={result?.StarsEarned.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
-            }
-
-            foreach (string location in locations)
-            {
-                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{location}'.");
-                Plugin.AP?.QueueLocation(location);
-            }
+            Plugin.AP?.QueueCampaignResult(level, variant, result?.StarsEarned);
         }
         else if (!explicitlyNonDefaultVariant)
         {

@@ -304,6 +304,7 @@ string shutdown = pluginSource[pluginSource.IndexOf("public void Shutdown()", St
 True(shutdown.Contains("MusicLabPointRandomization.Reset()", StringComparison.Ordinal), "deliberate shutdown clears point state");
 True(shutdown.Contains("CampaignLevelRandomization.Shutdown()", StringComparison.Ordinal), "deliberate shutdown clears campaign compatibility state");
 True(pluginSource.Contains("MusicLabPointRandomization.OnDisconnected(previousSession.Generation)", StringComparison.Ordinal), "replacement revokes previous point generation");
-string publication = pluginSource[pluginSource.IndexOf("if (!ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal)..pluginSource.IndexOf("LoginResult result = session.TryConnectAndLogin", StringComparison.Ordinal)];
-True(publication.Contains("CampaignLevelRandomization.OnIdentityReplaced()", StringComparison.Ordinal), "session replacement clears the previous campaign identity before login");
+// The extracted production connection tests in LevelCompletion exercise failed
+// retry retention and authenticated identity replacement. The former source-only
+// assertion here incorrectly required clearing campaign state before login.
 Console.WriteLine("Music Lab Point lifecycle wiring tests passed.");

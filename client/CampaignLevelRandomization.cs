@@ -1,3 +1,6 @@
+using System.Collections;
+using Newtonsoft.Json.Linq;
+
 namespace RhythmCastleAP;
 
 internal sealed record CampaignLevelRandomizationSnapshot(
@@ -14,6 +17,9 @@ internal static class CampaignLevelRandomization
         "Level 2 - Completion",
         "Level 3 - Completion",
         "Level 22 - Completion",
+        "Level 22 - 1 Star",
+        "Level 22 - 2 Stars",
+        "Level 22 - 3 Stars",
     };
 
     private static CampaignLocationCompatibilityMode _mode = CampaignLocationCompatibilityMode.IncompatibleClaim;
@@ -31,7 +37,7 @@ internal static class CampaignLevelRandomization
                 CampaignLocationCompatibilityMode.Compatible =>
                     new HashSet<string>(compatibility.ActiveLocations, StringComparer.Ordinal),
                 CampaignLocationCompatibilityMode.Legacy =>
-                    new HashSet<string>(LegacyLocations, StringComparer.Ordinal),
+                    LegacyActiveLocations(slotData),
                 _ => EmptyLocations(),
             };
             _detail = compatibility.Detail;
@@ -122,6 +128,27 @@ internal static class CampaignLevelRandomization
 
     private static IReadOnlySet<string> EmptyLocations() =>
         new HashSet<string>(StringComparer.Ordinal);
+
+    private static IReadOnlySet<string> LegacyActiveLocations(Dictionary<string, object>? slotData)
+    {
+        var locations = LegacyLocations.Where(name => name.EndsWith("Completion", StringComparison.Ordinal))
+            .ToHashSet(StringComparer.Ordinal);
+        if (slotData?.TryGetValue("active_campaign_star_tiers", out object? raw) != true ||
+            raw is not IEnumerable entries || raw is string)
+            return locations;
+
+        var tiers = new HashSet<int>();
+        foreach (object? entry in entries)
+        {
+            object? value = entry is JValue token && token.Type == JTokenType.Integer ? token.Value : entry;
+            long tier = value is int number ? number : value is long wide ? wide : -1;
+            if (tier is < 1 or > 3 || !tiers.Add((int)tier))
+                return locations;
+        }
+        foreach (int tier in tiers)
+            locations.Add(tier == 1 ? "Level 22 - 1 Star" : $"Level 22 - {tier} Stars");
+        return locations;
+    }
 
     private static bool IsLegacyDefaultVariant(string? variant) =>
         string.IsNullOrWhiteSpace(variant) ||

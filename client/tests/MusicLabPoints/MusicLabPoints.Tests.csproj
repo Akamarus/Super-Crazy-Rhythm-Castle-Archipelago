@@ -12,6 +12,8 @@
     <Compile Include="..\..\MusicLabPointSessionHistory.cs" Link="MusicLabPointSessionHistory.cs" />
     <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
     <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
+    <Compile Include="..\..\CampaignLevelCatalog.cs" Link="CampaignLevelCatalog.cs" />
+    <Compile Include="..\..\CampaignLocationContract.cs" Link="CampaignLocationContract.cs" />
   </ItemGroup>
   <Target Name="ExtractProductionScorePostfix" BeforeTargets="CoreCompile">
     <PropertyGroup>
