@@ -1,4 +1,9 @@
 using RhythmCastleAP;
+using Archipelago.MultiClient.Net;
+using Archipelago.MultiClient.Net.Converters;
+using Archipelago.MultiClient.Net.Packets;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 static void Equal<T>(T expected, T actual, string scenario)
 {
@@ -69,6 +74,13 @@ static CampaignLocationCompatibilityResult Validate(Action<Dictionary<string, ob
     return CampaignLocationContract.Validate(data);
 }
 
+static Dictionary<string, object> RoundTripSlotData(Dictionary<string, object> data)
+{
+    string json = JsonConvert.SerializeObject(new { cmd = "Connected", team = 0, slot = 1, slot_data = data });
+    var packet = (ConnectedPacket)JsonConvert.DeserializeObject<ArchipelagoPacketBase>(json, new ArchipelagoPacketConverter())!;
+    return new LoginSuccessful(packet).SlotData;
+}
+
 SequenceEqual(ExpectedLevels().Select(level => level.ToString()), CampaignLevelCatalog.All.Select(level => level.ToString()),
     "catalog has the exact 22 client descriptors in campaign order");
 Equal(22, CampaignLevelCatalog.All.Count, "catalog has 22 descriptors");
@@ -80,9 +92,32 @@ CampaignLocationCompatibilityResult compatible = CampaignLocationContract.Valida
 Equal(CampaignLocationCompatibilityMode.Compatible, compatible.Mode, "exact v0.24 slot-data schema is compatible");
 SequenceEqual(AllCampaignLocations().OrderBy(name => name, StringComparer.Ordinal), compatible.ActiveLocations.OrderBy(name => name, StringComparer.Ordinal),
     "compatible slot data retains canonical active locations");
+
+Dictionary<string, object> wireData = RoundTripSlotData(CompatibleSlotData());
+Equal(true, wireData["active_campaign_locations"] is JArray, "real login retains the campaign location list as a JSON array");
+Equal(true, ((JArray)wireData["active_campaign_locations"])[0] is JValue, "real login wraps each campaign location as a JSON scalar");
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(wireData).Mode,
+    "complete v0.24 contract through ConnectedPacket and LoginSuccessful is compatible");
+
 Equal(CampaignLocationCompatibilityMode.Legacy,
-    CampaignLocationContract.Validate(new() { ["implementation_version"] = "music-lab-points-0.23" }).Mode,
+    CampaignLocationContract.Validate(new()
+    {
+        ["implementation_version"] = "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
+    }).Mode,
     "v0.23 implementation remains Legacy");
+foreach (Dictionary<string, object> malformedImplementation in new[]
+{
+    new Dictionary<string, object> { ["implementation_version"] = "unrelated-client-0.24" },
+    new Dictionary<string, object>(),
+    new Dictionary<string, object> { ["implementation_version"] = "full-level-mapping-0.25" },
+    new Dictionary<string, object> { ["implementation_version"] = 24L },
+})
+{
+    CampaignLocationCompatibilityResult rejected = CampaignLocationContract.Validate(malformedImplementation);
+    Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, rejected.Mode, "unknown, missing, future, and non-string implementation claims fail closed");
+    Equal(true, rejected.Detail.Contains("implementation_version", StringComparison.Ordinal), "implementation claim rejection identifies its field");
+    Equal(0, rejected.ActiveLocations.Count, "implementation claim rejection exposes no active locations");
+}
 
 foreach ((string field, Action<Dictionary<string, object>> mutate) in new[]
 {

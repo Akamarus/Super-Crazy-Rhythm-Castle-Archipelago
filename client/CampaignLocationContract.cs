@@ -1,4 +1,5 @@
 using System.Collections;
+using Newtonsoft.Json.Linq;
 
 namespace RhythmCastleAP;
 
@@ -17,6 +18,8 @@ internal sealed record CampaignLocationCompatibilityResult(
 internal static class CampaignLocationContract
 {
     private const string ClaimSuffix = "full-level-mapping-0.24";
+    private const string LegacyV023Implementation =
+        "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23";
     private const int SchemaVersion = 15;
     private const int MappingSchema = 1;
 
@@ -34,11 +37,14 @@ internal static class CampaignLocationContract
     internal static CampaignLocationCompatibilityResult Validate(Dictionary<string, object>? slotData)
     {
         if (slotData?.TryGetValue("implementation_version", out object? versionRaw) != true ||
-            versionRaw is not string version ||
-            !version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
-        {
+            UnwrapScalar(versionRaw) is not string version)
+            return Fail("implementation_version");
+
+        if (string.Equals(version, LegacyV023Implementation, StringComparison.Ordinal))
             return new(CampaignLocationCompatibilityMode.Legacy, EmptyLocations, "pre-v0.24 implementation");
-        }
+
+        if (!version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
+            return Fail("implementation_version");
 
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion) || schemaVersion != SchemaVersion)
             return Fail("schema_version");
@@ -47,7 +53,7 @@ internal static class CampaignLocationContract
         if (!TryReadLocations(slotData, out HashSet<string> activeLocations))
             return Fail("active_campaign_locations");
         if (!slotData.TryGetValue("special_variant_locations_active", out object? specialVariantsRaw) ||
-            specialVariantsRaw is not bool specialVariantsActive ||
+            UnwrapScalar(specialVariantsRaw) is not bool specialVariantsActive ||
             specialVariantsActive)
         {
             return Fail("special_variant_locations_active");
@@ -62,7 +68,7 @@ internal static class CampaignLocationContract
         if (!slotData.TryGetValue(key, out object? raw))
             return false;
 
-        switch (raw)
+        switch (UnwrapScalar(raw))
         {
             case int integer:
                 value = integer;
@@ -87,7 +93,7 @@ internal static class CampaignLocationContract
 
         foreach (object? entry in entries)
         {
-            if (entry is not string location || !KnownLocations.Contains(location) || !activeLocations.Add(location))
+            if (UnwrapScalar(entry) is not string location || !KnownLocations.Contains(location) || !activeLocations.Add(location))
                 return false;
         }
 
@@ -96,4 +102,11 @@ internal static class CampaignLocationContract
 
     private static CampaignLocationCompatibilityResult Fail(string field) =>
         new(CampaignLocationCompatibilityMode.IncompatibleClaim, EmptyLocations, $"invalid {field}");
+
+    // ConnectedPacket.SlotData retains nested JSON scalar wrappers in 6.7.1.
+    // Unwrap only accepted scalar kinds; arrays and objects remain invalid input.
+    private static object? UnwrapScalar(object? raw) => raw is JValue value &&
+        value.Type is JTokenType.Integer or JTokenType.String or JTokenType.Boolean or JTokenType.Null
+            ? value.Value
+            : raw;
 }
