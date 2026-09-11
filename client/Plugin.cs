@@ -22277,9 +22277,10 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 
 internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 {
+    private readonly MeatMouseEscortRecoveryRuntime _runtime = new();
     private string _boundRoom = string.Empty;
     private int _initialiseDelayFrames;
-    private bool _attemptedThisRoom;
+    private bool _reportedPending;
 
     public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
     {
@@ -22298,7 +22299,8 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         {
             _boundRoom = MeatMouseEscortRecoveryPolicy.RoomId;
             _initialiseDelayFrames = 12;
-            _attemptedThisRoom = false;
+            _runtime.Reset();
+            _reportedPending = false;
             return;
         }
 
@@ -22308,11 +22310,11 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             return;
         }
 
-        if (_attemptedThisRoom)
+        if (!_runtime.ShouldEvaluateFrame())
+        {
+            _runtime.AdvanceFrame();
             return;
-
-        bool attemptedBefore = _attemptedThisRoom;
-        _attemptedThisRoom = true;
+        }
 
         GameObject? spawnerObject = null;
         object? nativeSpawner = null;
@@ -22389,21 +22391,37 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             resetSpawnCount != null && triggerSpawner != null,
             leaderReadable,
             leaderPresent,
-            attemptedBefore);
+            _runtime.AttemptConsumed);
 
-        MeatMouseEscortRecoveryDecision decision =
-            MeatMouseEscortRecoveryPolicy.Decide(snapshot);
-        if (decision != MeatMouseEscortRecoveryDecision.ReevaluateNativeSpawner)
+        MeatMouseEscortRecoveryObservation observation = _runtime.Observe(snapshot);
+        if (observation == MeatMouseEscortRecoveryObservation.Pending)
         {
-            string outcome = spawnerObject == null || nativeSpawner == null ||
-                             resetSpawnCount == null || triggerSpawner == null ||
-                             !requirementReadable || !revolutionReadable || !leaderReadable
-                ? "failed"
-                : "skipped";
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY {outcome} room='{room}' authenticatedCompatible={snapshot.AuthenticatedCompatible} requirementReadable={requirementReadable} requirementStated={requirementStated} revolutionReadable={revolutionReadable} revolutionTriggered={revolutionTriggered} exactSpawnerBound={nativeSpawner != null} leaderReadable={leaderReadable} leaderPresent={leaderPresent} attemptedThisRoom={attemptedBefore}. No progression flags or AP checks changed.");
+            if (!_reportedPending)
+            {
+                _reportedPending = true;
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY pending room='{room}' authenticatedCompatible={snapshot.AuthenticatedCompatible} requirementReadable={requirementReadable} revolutionReadable={revolutionReadable} exactSpawnerBound={nativeSpawner != null && resetSpawnCount != null && triggerSpawner != null} leaderReadable={leaderReadable}. Reevaluation is bounded and rate-limited; no attempt, progression flag, or AP check was consumed.");
+            }
             return;
         }
+
+        if (observation == MeatMouseEscortRecoveryObservation.Failed)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY failed room='{room}' reason='pending prerequisites exhausted bounded reevaluation' evaluations={_runtime.PendingEvaluationCount}. No native attempt, progression write, or AP check was consumed.");
+            return;
+        }
+
+        if (observation == MeatMouseEscortRecoveryObservation.Skipped)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY skipped room='{room}' requirementStated={requirementStated} revolutionTriggered={revolutionTriggered} leaderPresent={leaderPresent}. Native state is not an interrupted eligible escort; no progression flags or AP checks changed.");
+            return;
+        }
+
+        if (observation != MeatMouseEscortRecoveryObservation.Ready ||
+            !_runtime.TryConsumeAttempt())
+            return;
 
         try
         {
@@ -22426,7 +22444,8 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 
         _boundRoom = string.Empty;
         _initialiseDelayFrames = 0;
-        _attemptedThisRoom = false;
+        _runtime.Reset();
+        _reportedPending = false;
     }
 }
 
@@ -23271,6 +23290,7 @@ internal static class IntroRoomToHubRedirectPatches
         bool ownsDestination = !isMajorAreaHub || AreaAccessPrototype.HasArea(destinationArea.AreaName);
         AreaAccessDestinationDecision destinationDecision = AreaAccessDestinationPolicy.Decide(
             AreaAccessPrototype.Enabled,
+            AreaAccessPrototype.AuthenticatedCompatibleSession,
             roomId,
             isMajorAreaHub,
             ownsDestination);

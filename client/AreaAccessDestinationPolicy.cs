@@ -12,6 +12,7 @@ internal static class AreaAccessDestinationPolicy
 
     internal static AreaAccessDestinationDecision Decide(
         bool enabled,
+        bool authenticatedCompatible,
         string? destinationRoomId,
         bool isMajorAreaHub,
         bool ownsDestination)
@@ -20,7 +21,7 @@ internal static class AreaAccessDestinationPolicy
             string.IsNullOrEmpty(destinationRoomId) ||
             string.Equals(destinationRoomId, MusicLabRoomId, StringComparison.Ordinal) ||
             !isMajorAreaHub ||
-            ownsDestination)
+            (authenticatedCompatible && ownsDestination))
         {
             return AreaAccessDestinationDecision.Preserve;
         }

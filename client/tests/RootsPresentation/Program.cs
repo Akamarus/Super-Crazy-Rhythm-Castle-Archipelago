@@ -148,22 +148,28 @@ Equal(false,
     "only the exact Meat first gate root is suppressed");
 
 Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
-    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub4", true, false),
+    AreaAccessDestinationPolicy.Decide(true, true, "GameRoom_Hub4", true, false),
     "an unowned major-area destination is redirected to Music Lab");
 Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
-    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub2", true, false),
+    AreaAccessDestinationPolicy.Decide(true, true, "GameRoom_Hub2", true, false),
     "destination guarding is independent of the transition origin");
 Equal(AreaAccessDestinationDecision.Preserve,
-    AreaAccessDestinationPolicy.Decide(false, "GameRoom_Hub4", true, false),
+    AreaAccessDestinationPolicy.Decide(false, false, "GameRoom_Hub4", true, false),
     "disabled Area Access preserves native transitions");
+Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
+    AreaAccessDestinationPolicy.Decide(true, false, "GameRoom_Hub4", true, false),
+    "pending or incompatible Area Access redirects an unowned destination");
+Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
+    AreaAccessDestinationPolicy.Decide(true, false, "GameRoom_Hub4", true, true),
+    "stale ownership cannot preserve a destination after authentication ends");
 Equal(AreaAccessDestinationDecision.Preserve,
-    AreaAccessDestinationPolicy.Decide(true, "GameRoom_Hub4", true, true),
+    AreaAccessDestinationPolicy.Decide(true, true, "GameRoom_Hub4", true, true),
     "owned major-area destinations are preserved");
 Equal(AreaAccessDestinationDecision.Preserve,
-    AreaAccessDestinationPolicy.Decide(true, "GameRoom_27", false, false),
+    AreaAccessDestinationPolicy.Decide(true, false, "GameRoom_27", false, false),
     "non-area destinations are preserved");
 Equal(AreaAccessDestinationDecision.Preserve,
-    AreaAccessDestinationPolicy.Decide(true, AreaAccessDestinationPolicy.MusicLabRoomId, false, false),
+    AreaAccessDestinationPolicy.Decide(true, false, AreaAccessDestinationPolicy.MusicLabRoomId, false, false),
     "return travel to Music Lab is never redirected");
 
 static MeatMouseEscortRecoverySnapshot MouseRecovery(
@@ -184,36 +190,106 @@ static MeatMouseEscortRecoverySnapshot MouseRecovery(
 Equal(MeatMouseEscortRecoveryDecision.ReevaluateNativeSpawner,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery()),
     "interrupted Act 4 escort re-evaluates the exact native mouse spawner");
-Equal(MeatMouseEscortRecoveryDecision.Preserve,
+Equal(MeatMouseEscortRecoveryDecision.RetryPending,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(authenticatedCompatible: false)),
-    "unauthenticated Area Access session fails closed");
+    "pending authenticated Area Access session retries later");
 Equal(MeatMouseEscortRecoveryDecision.Preserve,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(roomId: "GameRoom_Hub40")),
     "mouse recovery is exact-room scoped");
-Equal(MeatMouseEscortRecoveryDecision.Preserve,
+Equal(MeatMouseEscortRecoveryDecision.RetryPending,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(requirementReadable: false)),
-    "unreadable Act 4 requirement fails closed");
+    "unreadable Act 4 requirement retries later");
 Equal(MeatMouseEscortRecoveryDecision.Preserve,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(requirementStated: false)),
     "unstated Act 4 requirement preserves native state");
-Equal(MeatMouseEscortRecoveryDecision.Preserve,
+Equal(MeatMouseEscortRecoveryDecision.RetryPending,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(revolutionReadable: false)),
-    "unreadable revolution state fails closed");
+    "unreadable revolution state retries later");
 Equal(MeatMouseEscortRecoveryDecision.Preserve,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(revolutionTriggered: true)),
     "completed revolution is never repaired");
-Equal(MeatMouseEscortRecoveryDecision.Preserve,
+Equal(MeatMouseEscortRecoveryDecision.RetryPending,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(nativeSpawnerIdentityKnown: false)),
-    "unknown native spawner identity fails closed");
-Equal(MeatMouseEscortRecoveryDecision.Preserve,
+    "pending native spawner identity retries later");
+Equal(MeatMouseEscortRecoveryDecision.RetryPending,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(leaderReadable: false)),
-    "unreadable native Character state fails closed");
+    "unreadable native Character state retries later");
 Equal(MeatMouseEscortRecoveryDecision.Preserve,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(leaderPresent: true)),
     "present mouse leader is never duplicated");
 Equal(MeatMouseEscortRecoveryDecision.Preserve,
     MeatMouseEscortRecoveryPolicy.Decide(MouseRecovery(attemptedThisRoom: true)),
     "mouse recovery is bounded to one attempt per room lifetime");
+
+var pendingRecovery = new MeatMouseEscortRecoveryRuntime();
+Equal(true, pendingRecovery.ShouldEvaluateFrame(),
+    "new room recovery evaluates after its initial scene delay");
+Equal(MeatMouseEscortRecoveryObservation.Pending,
+    pendingRecovery.Observe(MouseRecovery(authenticatedCompatible: false)),
+    "pending authentication schedules a bounded later evaluation");
+Equal(false, pendingRecovery.AttemptConsumed,
+    "pending authentication does not consume the native recovery attempt");
+Equal(false, pendingRecovery.ShouldEvaluateFrame(),
+    "pending recovery is rate-limited instead of hot-looped");
+int pendingWaitFrames = 0;
+while (!pendingRecovery.ShouldEvaluateFrame() && pendingWaitFrames < 1000)
+{
+    pendingRecovery.AdvanceFrame();
+    pendingWaitFrames++;
+}
+Equal(15, pendingWaitFrames,
+    "first pending recovery waits the bounded literal frame delay");
+Equal(MeatMouseEscortRecoveryObservation.Ready,
+    pendingRecovery.Observe(MouseRecovery()),
+    "a later fully readable frame becomes eligible for native recovery");
+Equal(false, pendingRecovery.AttemptConsumed,
+    "eligibility alone does not consume the attempt before the native call boundary");
+Equal(true, pendingRecovery.TryConsumeAttempt(),
+    "the fully proven native call consumes the one room-lifetime attempt");
+Equal(true, pendingRecovery.AttemptConsumed,
+    "actual native execution records the consumed attempt");
+Equal(MeatMouseEscortRecoveryObservation.None,
+    pendingRecovery.Observe(MouseRecovery()),
+    "an actual execution prevents repeat recovery in the same room");
+Equal(false, pendingRecovery.TryConsumeAttempt(),
+    "the native attempt cannot be consumed twice");
+
+var unreadableRecovery = new MeatMouseEscortRecoveryRuntime();
+Equal(MeatMouseEscortRecoveryObservation.Pending,
+    unreadableRecovery.Observe(MouseRecovery(leaderReadable: false)),
+    "an unreadable native Character frame schedules reevaluation");
+Equal(false, unreadableRecovery.AttemptConsumed,
+    "an unreadable native Character frame does not consume the attempt");
+for (int frame = 0; frame < 15; frame++)
+    unreadableRecovery.AdvanceFrame();
+Equal(MeatMouseEscortRecoveryObservation.Ready,
+    unreadableRecovery.Observe(MouseRecovery()),
+    "a later readable native Character frame can execute recovery");
+Equal(true, unreadableRecovery.TryConsumeAttempt(),
+    "later valid state consumes the attempt only at the native call boundary");
+
+var exhaustedRecovery = new MeatMouseEscortRecoveryRuntime();
+foreach (int expectedDelay in new[] { 15, 30, 60, 120, 240, 480 })
+{
+    Equal(MeatMouseEscortRecoveryObservation.Pending,
+        exhaustedRecovery.Observe(MouseRecovery(requirementReadable: false)),
+        $"unreadable prerequisite schedules bounded retry delay {expectedDelay}");
+    int elapsed = 0;
+    while (!exhaustedRecovery.ShouldEvaluateFrame() && elapsed <= expectedDelay)
+    {
+        exhaustedRecovery.AdvanceFrame();
+        elapsed++;
+    }
+    Equal(expectedDelay, elapsed,
+        $"pending retry uses literal delay {expectedDelay}");
+}
+Equal(MeatMouseEscortRecoveryObservation.Failed,
+    exhaustedRecovery.Observe(MouseRecovery(requirementReadable: false)),
+    "unreadable prerequisites stop after the bounded retry schedule");
+Equal(false, exhaustedRecovery.AttemptConsumed,
+    "retry exhaustion never consumes the native recovery attempt");
+Equal(true, exhaustedRecovery.Finished,
+    "retry exhaustion prevents an endless hot-loop");
 
 int meatKeeperStart = pluginSource.IndexOf(
     "internal sealed class MeatAreaBaselineKeeper", StringComparison.Ordinal);
@@ -255,7 +331,8 @@ string transitionPatchSource = pluginSource[transitionPatchStart..transitionPatc
 Equal(true,
     transitionPatchSource.Contains("AreaAccessDestinationPolicy.Decide(", StringComparison.Ordinal) &&
     transitionPatchSource.Contains("AreaAccessDestinationPolicy.MusicLabRoomId", StringComparison.Ordinal) &&
-    transitionPatchSource.Contains("AreaAccessPrototype.TryGetAreaForHubRoom(", StringComparison.Ordinal),
+    transitionPatchSource.Contains("AreaAccessPrototype.TryGetAreaForHubRoom(", StringComparison.Ordinal) &&
+    transitionPatchSource.Contains("AreaAccessPrototype.AuthenticatedCompatibleSession", StringComparison.Ordinal),
     "every unowned major-area destination is rewritten through the pure guard policy");
 Equal(true,
     transitionPatchSource.Contains(
@@ -270,7 +347,7 @@ Equal(true, mouseKeeperStart >= 0 && mouseKeeperEnd > mouseKeeperStart,
     "mouse escort recovery has a bounded production source region");
 string mouseKeeperSource = pluginSource[mouseKeeperStart..mouseKeeperEnd];
 Equal(true,
-    mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.Decide(", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("_runtime.Observe(snapshot)", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("\"SpawnMeatAnimalCharacterOnDemand\"", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("\"SetSpawnCount\"", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("\"OnTrigger\"", StringComparison.Ordinal),
@@ -287,4 +364,14 @@ Equal(false,
     mouseKeeperSource.Contains("Clone", StringComparison.Ordinal) ||
     mouseKeeperSource.Contains("SpawnRoom23MouseCharacterRequest", StringComparison.Ordinal),
     "mouse recovery dispatches no checks, writes no progression, and creates no synthetic NPC");
+int mouseDecisionIndex = mouseKeeperSource.IndexOf(
+    "_runtime.Observe(snapshot)", StringComparison.Ordinal);
+int mouseAttemptIndex = mouseKeeperSource.IndexOf(
+    "_runtime.TryConsumeAttempt()", StringComparison.Ordinal);
+int mouseNativeCallIndex = mouseKeeperSource.IndexOf(
+    "resetSpawnCount!.Invoke", StringComparison.Ordinal);
+Equal(true,
+    mouseDecisionIndex >= 0 && mouseAttemptIndex > mouseDecisionIndex &&
+    mouseNativeCallIndex > mouseAttemptIndex,
+    "production consumes the bounded attempt only after eligibility and immediately before the native call");
 Console.WriteLine("Roots presentation policy tests passed.");
