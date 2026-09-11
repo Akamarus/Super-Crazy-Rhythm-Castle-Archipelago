@@ -12019,6 +12019,7 @@ internal static class GamePatches
             $"[SCRC-AP] RESULT DATA internal={level} variant={variant} score={score?.ToString() ?? "?"} players={players?.ToString() ?? "?"} difficulty={difficulty}");
 
         SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);
+        QuestActionDiscovery.RecordResult(level, variant, persisted: false);
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
         Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned);
@@ -12058,6 +12059,7 @@ internal static class GamePatches
 
         MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
         SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? "<unknown>");
+        QuestActionDiscovery.RecordResult(level, variant, persisted: true);
 
         Level5Discovery.RecordLevelPersisted(level);
         Level6Discovery.RecordLevelPersisted(level);
@@ -15011,6 +15013,51 @@ internal sealed class Level4EntranceProxy : MonoBehaviour
 }
 
 
+internal static class QuestActionDiscovery
+{
+    private static readonly QuestActionDiagnosticPolicy Policy = new();
+
+    public static void RecordProgressionRequest(object request, string flag)
+    {
+        Log(Policy.Observe("request", DeveloperHarness.CurrentRoomId, flag, null,
+            ReflectionUtil.ReadBool(request, "Value") ?? ReflectionUtil.ReadBool(request, "_Value_k__BackingField")));
+    }
+
+    public static void RecordProgressionFlagUpdated(object evt, string flag)
+    {
+        Log(Policy.Observe("event", DeveloperHarness.CurrentRoomId, flag,
+            ReflectionUtil.ReadBool(evt, "FlagWasSet") ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField"),
+            ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")));
+    }
+
+    public static void RecordResult(string level, string variant, bool persisted)
+    {
+        Log(Policy.Observe(persisted ? "result-persisted" : "result-applied",
+            DeveloperHarness.CurrentRoomId, level + "|" + variant));
+    }
+
+    public static void RecordSceneObject(string path, string componentTypes, bool activeSelf, bool activeInHierarchy)
+    {
+        Log(Policy.ObserveScene(DeveloperHarness.CurrentRoomId, path, componentTypes, activeSelf, activeInHierarchy));
+    }
+
+    public static void SnapshotKnownFlags()
+    {
+        string room = DeveloperHarness.CurrentRoomId;
+        foreach (string flag in Policy.BeginSnapshot(room))
+        {
+            bool readable = RootsBucketRandomization.TryReadProgressionFlag(flag, out bool value);
+            Log(Policy.Observe("snapshot", room, flag, null, readable ? value : null));
+        }
+    }
+
+    private static void Log(string? message)
+    {
+        if (message != null)
+            Plugin.LoggerInstance?.LogInfo(message);
+    }
+}
+
 internal static class SpecialModeDiscovery
 {
     private const int ProgressionFlagCapacity = 256;
@@ -15134,11 +15181,11 @@ internal static class SpecialModeDiscovery
                     continue;
                 }
 
-                if (!activeInHierarchy)
-                    continue;
-
                 string path = BuildHierarchy(transform);
                 string[] componentTypes = ReadComponentTypes(gameObject);
+                QuestActionDiscovery.RecordSceneObject(path, string.Join("|", componentTypes), activeSelf, activeInHierarchy);
+                if (!activeInHierarchy)
+                    continue;
                 if (!SpecialVariantDiagnosticPolicy.IsRelevantSceneObject(path, componentTypes))
                     continue;
 
@@ -22702,6 +22749,7 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
 
             if (!control && !alt && !shift)
             {
+                QuestActionDiscovery.SnapshotKnownFlags();
                 MusicLabDiscovery.ScanNativeIdentityCandidates();
                 SpecialModeDiscovery.ScanCurrentScene();
             }
@@ -26829,6 +26877,7 @@ internal static class ProgressionPatches
         Level6Discovery.RecordProgressionRequest(flag);
         Level8Discovery.RecordProgressionRequest(flag);
         MusicLabDiscovery.RecordProgressionRequest(req, flag);
+        QuestActionDiscovery.RecordProgressionRequest(req, flag);
         GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag);
         WeedKillerRandomization.RecordGeckoSourceCollected(req, flag);
         PlantPipesRandomization.RecordFrogHippoSourceCollected(req, flag);
@@ -26861,6 +26910,7 @@ internal static class ProgressionPatches
         Level8Discovery.RecordProgressionFlagUpdated(flag);
         MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag);
         SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
+        QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag);
 
         bool interesting = GateKeywords.Any(k =>
             flag.Contains(k, StringComparison.OrdinalIgnoreCase));

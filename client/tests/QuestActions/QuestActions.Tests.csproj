@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\QuestActionDiagnosticPolicy.cs" Link="QuestActionDiagnosticPolicy.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionDiagnosticDispatch" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
+      <DispatchSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?s)internal static class QuestActionDiscovery.*?(?=internal static class SpecialModeDiscovery)').Value)</DispatchSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionDiagnosticDispatch.cs" Lines="namespace RhythmCastleAP%3B $(DispatchSource)" Overwrite="true" />
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)ProductionDiagnosticDispatch.cs" /></ItemGroup>
+  </Target>
+</Project>
