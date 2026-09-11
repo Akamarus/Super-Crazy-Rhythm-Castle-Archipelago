@@ -33,6 +33,17 @@ Expected validator frontiers are item `187256156` and location `187256292`. Do n
 - SHA-256: client DLL `20B76C48FFC5EB2D9C16E84BDAAD6DED485B666C8114513722C0D40C3EAAB262`; APWorld package `7127AB41BA1B1DCF79EE1C1840268CF9872D6703DDCC1605D5F924A521CE3F99`.
 - Final pre-evidence inspection: `git diff main...HEAD --check` passed with no output; `git status --short` was clean; `main..HEAD` contained the approved 15 candidate commits through `a8b5494`, with no tracked generated binaries, logs, or packages.
 
+## Automated final-review fix evidence — 2026-09-10
+
+- Implementation commit: `c10166c1385ac158ec3bd93fc0bea3ddd8131303` (`fix: preserve campaign and point compatibility across reconnects`).
+- Final client matrix: **20/20** Release projects passed, including actual production connection lifecycle coverage with controlled network responses, failed-retry retention, authenticated identity replacement, exactly-once queue delivery, an unauthenticated transport race, and immediate campaign compatibility errors.
+- Current APWorld slot data from all four difficulties passed through both client validators and real login packets. AP point history replay and effective weighted scoring passed; legacy Normal/Hard/Expert Level 22 cumulative tiers passed.
+- Complete APWorld suite: **102/102** passed (`Ran 102 tests in 22.141s`, `OK`). Live repository validation and local APWorld packaging passed. Versions remain Client v0.70.0 / APWorld v0.24.0, top schema **15**, campaign mapping schema **1**, and point schema **1**. Campaign totals remain **44/66/88/88** and world totals **121/179/237/273**.
+- Undeployed client build: **0 errors**, **7 existing nullable warnings**; output confirmed `Build complete; installation skipped.`
+- Updated client DLL SHA-256: `EBC925FA1A6D3FA7FB415DA697E46DB345600F97B80CF92E3C7DCED277985832`.
+- APWorld SHA-256 is unchanged: `7127AB41BA1B1DCF79EE1C1840268CF9872D6703DDCC1605D5F924A521CE3F99`.
+- No deployment, game launch, installation, publication, or live gameplay acceptance occurred. The diagnostic scan-cost optimization remains deferred; all manual fields below remain unchecked.
+
 ## Manual evidence — leave unchecked until recorded
 
 - [ ] Commit:
