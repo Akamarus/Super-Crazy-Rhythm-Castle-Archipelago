@@ -187,6 +187,12 @@ support_spec.loader.exec_module(support)
 
 def validate_live_world_structure() -> dict[str, int]:
     """Build the real world at each supported difficulty without AP installed."""
+    campaign_tiers_by_difficulty = (
+        frozenset(("Completion", "1 Star")),
+        frozenset(("Completion", "1 Star", "2 Stars")),
+        frozenset(("Completion", "1 Star", "2 Stars", "3 Stars")),
+        frozenset(("Completion", "1 Star", "2 Stars", "3 Stars")),
+    )
     world_module, cleanup = support.load_scrc_world()
     try:
         totals: dict[str, int] = {}
@@ -204,24 +210,41 @@ def validate_live_world_structure() -> dict[str, int]:
             )
             world.generate_early()
             world.create_regions()
-            addressed = {
-                location.name
+            instantiated_locations = [
+                location
                 for region in world.multiworld.regions
                 for location in region.locations
-                if location.player == world.player and location.address is not None
-            }
+                if location.player == world.player
+            ]
             cache_name = next(
-                (name for name in addressed if name.startswith("Development Cache")),
+                (
+                    location.name
+                    for location in instantiated_locations
+                    if location.name.startswith("Development Cache")
+                ),
                 None,
             )
             if cache_name is not None:
                 fail(f"instantiated Development Cache: {cache_name}")
-            actual_count = len(addressed)
+            addressed_locations = [
+                location
+                for location in instantiated_locations
+                if location.address is not None
+            ]
+            actual_count = len(addressed_locations)
             if actual_count != expected_count:
                 fail(
                     f"live active-location count changed for {label}: "
                     f"expected {expected_count}, got {actual_count}"
                 )
+            addressed_names = {location.name for location in addressed_locations}
+            expected_campaign_names = {
+                name
+                for name in campaign_location_names
+                if name.rsplit(" - ", 1)[-1] in campaign_tiers_by_difficulty[difficulty]
+            }
+            if addressed_names.intersection(campaign_location_names) != expected_campaign_names:
+                fail(f"live campaign location names changed for {label}")
             totals[label] = actual_count
         return totals
     finally:

@@ -293,7 +293,21 @@ class RepositoryContractTests(unittest.TestCase):
                 '0: frozenset(("Completion",)),',
                 "live active-location count changed for Normal",
             ),
-            "instantiated Development Cache": (
+            "duplicate addressed location instance": (
+                "apworld/scrc/__init__.py",
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n',
+                'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n'
+                '        phone_hub.locations.append(\n'
+                '            SCRCLocation(\n'
+                '                self.player,\n'
+                '                ROOTS_GECKO_WEED_KILLER,\n'
+                '                LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER],\n'
+                '                phone_hub,\n'
+                '            )\n'
+                '        )\n',
+                "live active-location count changed for Normal",
+            ),
+            "unaddressed Development Cache": (
                 "apworld/scrc/__init__.py",
                 'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n',
                 'phone_hub = Region("Phone Hub", self.player, self.multiworld)\n'
@@ -301,7 +315,7 @@ class RepositoryContractTests(unittest.TestCase):
                 '            SCRCLocation(\n'
                 '                self.player,\n'
                 '                "Development Cache 01",\n'
-                '                LOCATION_NAME_TO_ID["Development Cache 01"],\n'
+                '                None,\n'
                 '                phone_hub,\n'
                 '            )\n'
                 '        )\n',
