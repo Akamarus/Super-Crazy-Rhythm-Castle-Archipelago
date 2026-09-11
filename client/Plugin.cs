@@ -22281,6 +22281,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
     private string _boundRoom = string.Empty;
     private int _initialiseDelayFrames;
     private bool _reportedPending;
+    private bool _bindingDiagnosticEmitted;
 
     public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
     {
@@ -22301,6 +22302,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             _initialiseDelayFrames = 12;
             _runtime.Reset();
             _reportedPending = false;
+            _bindingDiagnosticEmitted = false;
             return;
         }
 
@@ -22396,6 +22398,21 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         MeatMouseEscortRecoveryObservation observation = _runtime.Observe(snapshot);
         if (observation == MeatMouseEscortRecoveryObservation.Pending)
         {
+            if (MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
+                    room, _bindingDiagnosticEmitted))
+            {
+                _bindingDiagnosticEmitted = true;
+                try
+                {
+                    EmitNativeBindingDiagnostic();
+                }
+                catch (Exception ex)
+                {
+                    Plugin.LoggerInstance?.LogWarning(
+                        $"[SCRC-AP] MEAT MOUSE ESCORT BINDING failed error='{ex.GetType().Name}' readOnly=True. Existing recovery evaluation remains unchanged.");
+                }
+            }
+
             if (!_reportedPending)
             {
                 _reportedPending = true;
@@ -22437,6 +22454,297 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         }
     }
 
+    private static void EmitNativeBindingDiagnostic()
+    {
+        const string nativeSpawnerTypeName = "SpawnMeatAnimalCharacterOnDemand";
+        GameObject? container = null;
+        try
+        {
+            container = GameObject.Find(MeatMouseEscortRecoveryPolicy.NativeSpawnerPath);
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING path lookup failed path='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' error='{ex.GetType().Name}'. readOnly=True.");
+        }
+
+        string containerActualPath = container == null
+            ? "<missing>"
+            : BuildDiagnosticHierarchyPath(container.transform);
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING PATH expected='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' objectFound={container != null} actual='{containerActualPath}' exactHierarchyMatch={string.Equals(containerActualPath, MeatMouseEscortRecoveryPolicy.NativeSpawnerPath, StringComparison.Ordinal)} readOnly=True.");
+
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? nativeSpawnerType = null;
+        try
+        {
+            nativeSpawnerType = gameAssembly?.GetType(
+                nativeSpawnerTypeName, throwOnError: false, ignoreCase: false);
+        }
+        catch { }
+
+        object? il2CppType = null;
+        bool il2CppTypeConverted = false;
+        if (nativeSpawnerType != null)
+        {
+            try
+            {
+                il2CppType = Il2CppInterop.Runtime.Il2CppType.From(nativeSpawnerType);
+                il2CppTypeConverted = il2CppType != null;
+            }
+            catch { }
+        }
+
+        ConstructorInfo? pointerConstructor = nativeSpawnerType?.GetConstructor(
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            binder: null,
+            types: new[] { typeof(IntPtr) },
+            modifiers: null);
+        MethodInfo? resetSpawnCount = nativeSpawnerType?.GetMethod(
+            "SetSpawnCount",
+            BindingFlags.Public | BindingFlags.Instance,
+            binder: null,
+            types: new[] { typeof(int) },
+            modifiers: null);
+        MethodInfo? triggerSpawner = nativeSpawnerType?.GetMethod(
+            "OnTrigger",
+            BindingFlags.Public | BindingFlags.Instance,
+            binder: null,
+            types: Type.EmptyTypes,
+            modifiers: null);
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING TYPE gameAssemblyFound={gameAssembly != null} typeFound={nativeSpawnerType != null} il2CppTypeConverted={il2CppTypeConverted} pointerConstructorFound={pointerConstructor != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} readOnly=True.");
+
+        var scopedObjects = new List<(GameObject Object, string ExpectedPath, string Scope)>();
+        if (container != null)
+        {
+            if (MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+                    MeatMouseEscortRecoveryPolicy.NativeSpawnerPath))
+            {
+                scopedObjects.Add((
+                    container,
+                    MeatMouseEscortRecoveryPolicy.NativeSpawnerPath,
+                    "container"));
+            }
+
+            try
+            {
+                for (int childIndex = 0; childIndex < container.transform.childCount; childIndex++)
+                {
+                    Transform child = container.transform.GetChild(childIndex);
+                    if (child == null || child.gameObject == null)
+                        continue;
+
+                    string expectedChildPath =
+                        MeatMouseEscortRecoveryPolicy.NativeSpawnerPath + "/" + child.name;
+                    if (MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(expectedChildPath))
+                    {
+                        scopedObjects.Add((
+                            child.gameObject,
+                            expectedChildPath,
+                            "direct-child"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING direct-child enumeration failed error='{ex.GetType().Name}'. readOnly=True.");
+            }
+        }
+
+        var exactNativeMatches = new List<(Component Component, IntPtr Pointer, string Path)>();
+        foreach ((GameObject scopedObject, string expectedPath, string scope) in scopedObjects)
+        {
+            string actualPath = BuildDiagnosticHierarchyPath(scopedObject.transform);
+            GameObject? exactLookup = null;
+            try { exactLookup = GameObject.Find(expectedPath); }
+            catch { }
+            bool exactObjectMatch = SameDiagnosticNativeObject(scopedObject, exactLookup);
+
+            var rawComponents = new List<Component>();
+            try
+            {
+                foreach (Component component in scopedObject.GetComponents<Component>())
+                {
+                    if (component != null)
+                        rawComponents.Add(component);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING OBJECT scope='{scope}' expected='{expectedPath}' actual='{actualPath}' exactObjectMatch={exactObjectMatch} componentsReadable=False error='{ex.GetType().Name}' readOnly=True.");
+            }
+
+            object? typedComponent = null;
+            if (il2CppTypeConverted)
+            {
+                try
+                {
+                    typedComponent = scopedObject.GetComponent(
+                        (Il2CppSystem.Type)il2CppType!);
+                }
+                catch { }
+            }
+
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING OBJECT scope='{scope}' expected='{expectedPath}' actual='{actualPath}' exactObjectMatch={exactObjectMatch} rawComponentCount={rawComponents.Count} typedGetComponentFound={typedComponent != null} readOnly=True.");
+
+            for (int componentIndex = 0; componentIndex < rawComponents.Count; componentIndex++)
+            {
+                Component component = rawComponents[componentIndex];
+                IntPtr pointer = DiagnosticNativePointer(component);
+                IntPtr klass = IntPtr.Zero;
+                if (pointer != IntPtr.Zero)
+                {
+                    try { klass = mm_il2cpp_object_get_class(pointer); }
+                    catch { }
+                }
+
+                string nativeClass = DiagnosticNativeClassFullName(klass);
+                bool exactNativeMatch = string.Equals(
+                    nativeClass, nativeSpawnerTypeName, StringComparison.Ordinal);
+                if (exactNativeMatch)
+                    exactNativeMatches.Add((component, pointer, actualPath));
+
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING COMPONENT path='{actualPath}' index={componentIndex} managed='{component.GetType().FullName ?? "<unknown>"}' native='{nativeClass}' exactNativeMatch={exactNativeMatch} pointerNonzero={pointer != IntPtr.Zero} readOnly=True.");
+            }
+        }
+
+        string exactMatchLocations = exactNativeMatches.Count == 0
+            ? "<none>"
+            : string.Join("|", exactNativeMatches.Select(match => match.Path));
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING MATCH exactType='{nativeSpawnerTypeName}' count={exactNativeMatches.Count} locations='{exactMatchLocations}' readOnly=True.");
+
+        int wrapperCreatedCount = 0;
+        int characterReadableCount = 0;
+        int hasValueReadableCount = 0;
+        for (int matchIndex = 0; matchIndex < exactNativeMatches.Count; matchIndex++)
+        {
+            (Component _, IntPtr pointer, string path) = exactNativeMatches[matchIndex];
+            object? wrapped = null;
+            if (pointerConstructor != null && pointer != IntPtr.Zero)
+            {
+                try { wrapped = pointerConstructor.Invoke(new object[] { pointer }); }
+                catch { }
+            }
+            if (wrapped != null)
+                wrapperCreatedCount++;
+
+            bool characterReadable = false;
+            bool hasValueReadable = false;
+            bool? hasValue = null;
+            if (wrapped != null)
+            {
+                try
+                {
+                    object? character = ReflectionUtil.ReadMember(wrapped, "Character");
+                    characterReadable = character != null;
+                    hasValue = character == null
+                        ? null
+                        : ReflectionUtil.ReadBool(character, "HasValue");
+                    hasValueReadable = hasValue.HasValue;
+                }
+                catch { }
+            }
+            if (characterReadable)
+                characterReadableCount++;
+            if (hasValueReadable)
+                hasValueReadableCount++;
+
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER index={matchIndex} path='{path}' pointerConstructorFound={pointerConstructor != null} wrapperCreated={wrapped != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadable={characterReadable} hasValueReadable={hasValueReadable} hasValue={hasValue?.ToString() ?? "<unreadable>"} readOnly=True.");
+        }
+
+        Plugin.LoggerInstance?.LogWarning(
+            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER SUMMARY exactMatchCount={exactNativeMatches.Count} pointerConstructorFound={pointerConstructor != null} wrapperCreatedCount={wrapperCreatedCount} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadableCount={characterReadableCount} hasValueReadableCount={hasValueReadableCount} readOnly=True.");
+    }
+
+    private static string BuildDiagnosticHierarchyPath(Transform transform)
+    {
+        try
+        {
+            var names = new List<string>();
+            for (Transform? current = transform;
+                 current != null && names.Count < 32;
+                 current = current.parent)
+                names.Add(current.name ?? "<unnamed>");
+            names.Reverse();
+            return string.Join("/", names);
+        }
+        catch
+        {
+            return "<unreadable>";
+        }
+    }
+
+    private static bool SameDiagnosticNativeObject(GameObject expected, GameObject? actual)
+    {
+        if (actual == null)
+            return false;
+        IntPtr expectedPointer = DiagnosticNativePointer(expected);
+        IntPtr actualPointer = DiagnosticNativePointer(actual);
+        return expectedPointer != IntPtr.Zero && expectedPointer == actualPointer;
+    }
+
+    private static IntPtr DiagnosticNativePointer(object value)
+    {
+        try
+        {
+            PropertyInfo? property = value.GetType().GetProperty(
+                "Pointer",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            return property?.GetValue(value) is IntPtr pointer ? pointer : IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    private static string DiagnosticNativeClassFullName(IntPtr klass)
+    {
+        if (klass == IntPtr.Zero)
+            return "<no-class>";
+
+        string ns = DiagnosticNativeAnsi(() => mm_il2cpp_class_get_namespace(klass));
+        string name = DiagnosticNativeAnsi(() => mm_il2cpp_class_get_name(klass));
+        if (string.IsNullOrWhiteSpace(name))
+            name = "<unnamed-class>";
+        return string.IsNullOrWhiteSpace(ns) ? name : ns + "." + name;
+    }
+
+    private static string DiagnosticNativeAnsi(Func<IntPtr> getter)
+    {
+        try
+        {
+            IntPtr value = getter();
+            return value == IntPtr.Zero
+                ? string.Empty
+                : Marshal.PtrToStringAnsi(value) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "il2cpp_object_get_class")]
+    private static extern IntPtr mm_il2cpp_object_get_class(IntPtr obj);
+
+    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "il2cpp_class_get_name")]
+    private static extern IntPtr mm_il2cpp_class_get_name(IntPtr klass);
+
+    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "il2cpp_class_get_namespace")]
+    private static extern IntPtr mm_il2cpp_class_get_namespace(IntPtr klass);
+
     private void ResetForRoomExit()
     {
         if (string.IsNullOrEmpty(_boundRoom))
@@ -22446,6 +22754,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         _initialiseDelayFrames = 0;
         _runtime.Reset();
         _reportedPending = false;
+        _bindingDiagnosticEmitted = false;
     }
 }
 

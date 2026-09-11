@@ -291,6 +291,38 @@ Equal(false, exhaustedRecovery.AttemptConsumed,
 Equal(true, exhaustedRecovery.Finished,
     "retry exhaustion prevents an endless hot-loop");
 
+Equal(true,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+        "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader"),
+    "binding diagnostic includes the exact native spawner container");
+Equal(true,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+        "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/Guide"),
+    "binding diagnostic includes an exact direct child");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+        "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/Guide/Nested"),
+    "binding diagnostic excludes grandchildren");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+        "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeaderOther"),
+    "binding diagnostic excludes prefix-collision objects");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
+        "Root/GameRoom_Hub40_Logic/NPCs/SpecialAnimals/SpawnMouseLeader"),
+    "binding diagnostic excludes other rooms");
+Equal(true,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub4", false),
+    "binding diagnostic may emit on the first Hub4 pending observation");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub4", true),
+    "binding diagnostic cannot emit twice in one room lifetime");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub40", false),
+    "binding diagnostic cannot emit outside exact Hub4");
+Equal(false, MeatMouseEscortBindingDiagnosticPolicy.RequestsMutation,
+    "binding diagnostic is read-only by contract");
+
 int meatKeeperStart = pluginSource.IndexOf(
     "internal sealed class MeatAreaBaselineKeeper", StringComparison.Ordinal);
 int areaAccessStart = pluginSource.IndexOf(
@@ -374,4 +406,53 @@ Equal(true,
     mouseDecisionIndex >= 0 && mouseAttemptIndex > mouseDecisionIndex &&
     mouseNativeCallIndex > mouseAttemptIndex,
     "production consumes the bounded attempt only after eligibility and immediately before the native call");
+
+int mouseBindingDiagnosticStart = mouseKeeperSource.IndexOf(
+    "private static void EmitNativeBindingDiagnostic", StringComparison.Ordinal);
+int mouseBindingDiagnosticEnd = mouseKeeperSource.IndexOf(
+    "private void ResetForRoomExit", Math.Max(0, mouseBindingDiagnosticStart), StringComparison.Ordinal);
+Equal(true,
+    mouseBindingDiagnosticStart >= 0 && mouseBindingDiagnosticEnd > mouseBindingDiagnosticStart,
+    "mouse recovery exposes a bounded native-binding diagnostic region");
+string mouseBindingDiagnosticSource =
+    mouseKeeperSource[mouseBindingDiagnosticStart..mouseBindingDiagnosticEnd];
+Equal(true,
+    mouseBindingDiagnosticSource.Contains(
+        "GameObject.Find(MeatMouseEscortRecoveryPolicy.NativeSpawnerPath)", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("transform.childCount", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("transform.GetChild", StringComparison.Ordinal),
+    "binding diagnostic inspects only the exact native spawner container and its direct children");
+Equal(false,
+    mouseBindingDiagnosticSource.Contains("GetComponentsInChildren", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("Resources.FindObjectsOfTypeAll", StringComparison.Ordinal),
+    "binding diagnostic does not widen into descendant or scene-wide scans");
+Equal(true,
+    mouseBindingDiagnosticSource.Contains("GetComponents<Component>()", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("il2cpp_object_get_class", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("SpawnMeatAnimalCharacterOnDemand", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("new[] { typeof(IntPtr) }", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("SetSpawnCount", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("OnTrigger", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("Character", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("HasValue", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("BINDING WRAPPER SUMMARY", StringComparison.Ordinal),
+    "binding diagnostic reports every exact native binding and Character-read boundary");
+Equal(false,
+    mouseBindingDiagnosticSource.Contains("resetSpawnCount!.Invoke", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("triggerSpawner!.Invoke", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("SetActive", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("QueueLocation", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("TrySubmitProgressionFlag", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("Instantiate", StringComparison.Ordinal) ||
+    mouseBindingDiagnosticSource.Contains("Clone", StringComparison.Ordinal),
+    "binding diagnostic cannot invoke recovery, mutate scene state, write progression, dispatch checks, or clone NPCs");
+Equal(true,
+    mouseKeeperSource.Contains("_bindingDiagnosticEmitted = true", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("_bindingDiagnosticEmitted = false", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("MEAT MOUSE ESCORT BINDING failed", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains(
+        "MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains(
+        "MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath", StringComparison.Ordinal),
+    "production uses a fail-closed pure policy boundary for one exact-scope emission per room lifetime");
 Console.WriteLine("Roots presentation policy tests passed.");
