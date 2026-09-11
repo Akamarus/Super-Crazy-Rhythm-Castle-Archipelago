@@ -1497,6 +1497,7 @@ internal sealed class ArchipelagoClient
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     _connected = false;
+                    CampaignLevelRandomization.OnIdentityReplaced();
                     if (previousSession.Session != null &&
                         !ReferenceEquals(previousSession.Session, session))
                     {
@@ -1561,6 +1562,7 @@ internal sealed class ArchipelagoClient
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
+                        CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
                         MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
                             loginSuccess.SlotData,
                             Plugin.GameName,
@@ -1628,6 +1630,7 @@ internal sealed class ArchipelagoClient
             _connected = false;
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
+            CampaignLevelRandomization.Shutdown();
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
@@ -1647,6 +1650,7 @@ internal sealed class ArchipelagoClient
             _connected = false;
             GarageCartridgeAccess.EndServerSync(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
+            CampaignLevelRandomization.OnDisconnected();
             terminal?.Invoke();
         });
     }
@@ -11896,6 +11900,8 @@ internal static class GamePatches
 {
     private static readonly Dictionary<string, PendingResult> Pending = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> PersistedThisSession = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> RepeatedPersistedLogs = new(StringComparer.OrdinalIgnoreCase);
+    private const int PersistedEventLogCapacity = 128;
 
     public static void PersistResultPostfix(object[]? __args)
     {
@@ -11999,20 +12005,11 @@ internal static class GamePatches
         string persistedKey =
             $"{level}|{variant}";
 
-        bool repeatedPersistedKey = !PersistedThisSession.Add(persistedKey);
-        bool garageResult = string.Equals(level, "Level_27", StringComparison.OrdinalIgnoreCase);
-
-        if (repeatedPersistedKey && !garageResult)
+        bool repeatedPersistedKey = ShouldLogRepeatedPersistedKey(persistedKey);
+        if (repeatedPersistedKey)
         {
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] Duplicate persisted event ignored for {level} variant={variant}.");
-            return;
-        }
-
-        if (repeatedPersistedKey && garageResult)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                "[SCRC-AP] Repeated Level_27 persisted event retained for Game Garage song diagnostics.");
+                $"[SCRC-AP] Repeated persisted event retained for result evaluation: {level} variant={variant}.");
         }
 
         MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
@@ -12051,8 +12048,6 @@ internal static class GamePatches
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] NON-DEFAULT VARIANT COMPLETION internal={level} variant={variant}: base-level AP location check suppressed.");
-
-            return;
         }
 
         try
@@ -12065,16 +12060,16 @@ internal static class GamePatches
                 $"[SCRC-AP] SAVE PROBE failed for {level}: {ex.GetBaseException().Message}");
         }
 
-        bool level22 = string.Equals(level, "Level_28", StringComparison.OrdinalIgnoreCase);
-        if (level22)
+        if (CampaignLevelCatalog.TryGet(level, out _))
         {
-            IReadOnlyList<string> locations = LevelCompletionPolicy.LocationsForPersistedResult(
+            IReadOnlyList<string> locations = CampaignLevelRandomization.EvaluatePersistedResult(
                 level,
+                variant,
                 result?.StarsEarned);
             if (locations.Count == 0)
             {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] LEVEL 22 RESULT SUPPRESSED: persisted event had no verified successful Star result (stars={result?.StarsEarned.ToString() ?? "<missing>"}).");
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={result?.StarsEarned.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
             }
 
             foreach (string location in locations)
@@ -12083,15 +12078,26 @@ internal static class GamePatches
                 Plugin.AP?.QueueLocation(location);
             }
         }
-        else if (LocationMap.InternalToLocationName.TryGetValue(level, out string? locationName))
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP LOCATION '{locationName}'.");
-            Plugin.AP?.QueueLocation(locationName);
-        }
-        else
+        else if (!explicitlyNonDefaultVariant)
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] Unmapped internal level '{level}'. It will not be sent to Archipelago yet.");
+        }
+    }
+
+    private static bool ShouldLogRepeatedPersistedKey(string persistedKey)
+    {
+        lock (PersistedThisSession)
+        {
+            if (!PersistedThisSession.Contains(persistedKey))
+            {
+                if (PersistedThisSession.Count < PersistedEventLogCapacity)
+                    PersistedThisSession.Add(persistedKey);
+                return false;
+            }
+
+            return RepeatedPersistedLogs.Count < PersistedEventLogCapacity &&
+                   RepeatedPersistedLogs.Add(persistedKey);
         }
     }
 

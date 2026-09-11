@@ -67,6 +67,11 @@ static Dictionary<string, object> CompatibleSlotData() => new()
     ["special_variant_locations_active"] = false,
 };
 
+static Dictionary<string, object> LegacySlotData() => new()
+{
+    ["implementation_version"] = "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23",
+};
+
 static CampaignLocationCompatibilityResult Validate(Action<Dictionary<string, object>> mutate)
 {
     Dictionary<string, object> data = CompatibleSlotData();
@@ -164,5 +169,145 @@ SequenceEqual(
     "three-Star success is cumulative");
 Equal(false, LevelCompletionPolicy.LocationsForPersistedResult("Level_28", "LevelVariant_Default", 3, AllCampaignLocations()).Contains("Victory"),
     "ordinary result never contains Victory");
+
+CampaignLevelRandomization.Shutdown();
+CampaignLevelRandomization.ApplySlotData(CompatibleSlotData());
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLevelRandomization.Snapshot.Mode,
+    "adapter stores compatible campaign mode");
+SequenceEqual(
+    AllCampaignLocations().OrderBy(name => name, StringComparer.Ordinal),
+    CampaignLevelRandomization.Snapshot.ActiveLocations.OrderBy(name => name, StringComparer.Ordinal),
+    "adapter stores the exact compatible active set");
+SequenceEqual(
+    new[] { "Level 6 - Completion", "Level 6 - 1 Star", "Level 6 - 2 Stars" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_02", "LevelVariant_Default", 2),
+    "compatible adapter routes default campaign results through the active-set policy");
+
+CampaignLevelRandomization.ApplySlotData(RoundTripSlotData(CompatibleSlotData()));
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLevelRandomization.Snapshot.Mode,
+    "adapter accepts real ConnectedPacket slot-data shapes");
+
+CampaignLevelRandomization.ApplySlotData(LegacySlotData());
+Equal(CampaignLocationCompatibilityMode.Legacy, CampaignLevelRandomization.Snapshot.Mode,
+    "adapter stores legacy campaign mode");
+foreach ((string level, string location) in new[]
+{
+    ("Level_05", "Level 1 - Completion"),
+    ("Level_06", "Level 2 - Completion"),
+    ("Level_07", "Level 3 - Completion"),
+})
+{
+    SequenceEqual(
+        new[] { location },
+        CampaignLevelRandomization.EvaluatePersistedResult(level, "LevelVariant_Default", null),
+        $"legacy adapter preserves {location} without requiring newly available Star data");
+}
+SequenceEqual(
+    new[] { "Level 22 - Completion" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "LevelVariant_Default", 1),
+    "legacy adapter preserves verified Level 22 completion");
+SequenceEqual(
+    new[] { "Level 1 - Completion" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "<none>", null),
+    "legacy adapter preserves a Level 1 persisted event whose variant was unavailable");
+SequenceEqual(
+    new[] { "Level 22 - Completion" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "<none>", 1),
+    "legacy adapter preserves a verified Level 22 result whose variant was unavailable");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_08", "LevelVariant_Default", 3),
+    "legacy adapter does not activate Level 4 or other new campaign mappings");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_BeeMode", 3),
+    "legacy adapter still rejects non-default variants");
+
+Dictionary<string, object> malformedCampaign = CompatibleSlotData();
+malformedCampaign["campaign_level_mapping_schema"] = 2L;
+CampaignLevelRandomization.ApplySlotData(malformedCampaign);
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLevelRandomization.Snapshot.Mode,
+    "adapter stores malformed v0.24 claims as incompatible");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 3),
+    "malformed v0.24 claim exposes no new campaign locations");
+
+CampaignLevelRandomization.ApplySlotData(CompatibleSlotData());
+CampaignLevelRandomization.OnDisconnected();
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLevelRandomization.Snapshot.Mode,
+    "temporary disconnect retains the compatible campaign state");
+SequenceEqual(
+    new[] { "Level 1 - Completion", "Level 1 - 1 Star" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 1),
+    "offline persisted results use the retained active set");
+
+CampaignLevelRandomization.OnIdentityReplaced();
+Equal(0, CampaignLevelRandomization.Snapshot.ActiveLocations.Count,
+    "AP identity replacement clears the active campaign set");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 3),
+    "replacement cannot leak prior-identity campaign locations");
+
+CampaignLevelRandomization.ApplySlotData(CompatibleSlotData());
+IReadOnlyList<string> firstResult = CampaignLevelRandomization.EvaluatePersistedResult(
+    "Level_05", "LevelVariant_Default", 1);
+IReadOnlyList<string> improvedResult = CampaignLevelRandomization.EvaluatePersistedResult(
+    "Level_05", "LevelVariant_Default", 3);
+SequenceEqual(
+    new[] { "Level 1 - Completion", "Level 1 - 1 Star" },
+    firstResult,
+    "one-Star result returns the first cumulative campaign checks");
+SequenceEqual(
+    new[] { "Level 1 - Completion", "Level 1 - 1 Star", "Level 1 - 2 Stars", "Level 1 - 3 Stars" },
+    improvedResult,
+    "repeated improved result still returns every earned tier to the location queue");
+var queuedOrSent = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+SequenceEqual(firstResult, firstResult.Where(queuedOrSent.Add),
+    "first result queues both newly checked names");
+SequenceEqual(
+    new[] { "Level 1 - 2 Stars", "Level 1 - 3 Stars" },
+    improvedResult.Where(queuedOrSent.Add),
+    "location-level queue idempotency suppresses prior tiers but admits improvements");
+
+SequenceEqual(
+    new[] { "Level 22 - Completion", "Level 22 - 1 Star" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "LevelVariant_Default", 1),
+    "ordinary Level 22 result remains a campaign check");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "LevelVariant_Default", null),
+    "a later event without result Star data cannot reuse a prior Level 22 clear");
+Equal(false,
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_28", "LevelVariant_Default", 3).Contains("Victory"),
+    "campaign adapter never returns Victory");
+
+CampaignLevelRandomization.Shutdown();
+Equal(0, CampaignLevelRandomization.Snapshot.ActiveLocations.Count,
+    "shutdown clears the active campaign set");
+SequenceEqual(Array.Empty<string>(),
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 3),
+    "shutdown rejects late persisted results");
+
+string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
+string persistedWiring = pluginSource[
+    pluginSource.IndexOf("public static void ResultPersistedEventPostfix", StringComparison.Ordinal)..
+    pluginSource.IndexOf("private sealed record PendingResult", StringComparison.Ordinal)];
+Equal(true, persistedWiring.Contains("CampaignLevelRandomization.EvaluatePersistedResult(", StringComparison.Ordinal),
+    "production persisted-result path uses the campaign adapter");
+Equal(true, persistedWiring.Contains("Plugin.AP?.QueueLocation(location)", StringComparison.Ordinal),
+    "every adapter result is routed through the production location queue");
+Equal(false, persistedWiring.Contains("LocationMap.InternalToLocationName", StringComparison.Ordinal),
+    "production campaign results no longer use the partial location dictionary");
+Equal(false, persistedWiring.Contains("bool level22", StringComparison.Ordinal),
+    "Level 22 no longer has a separate campaign result branch");
+Equal(false, persistedWiring.Contains("Victory", StringComparison.Ordinal),
+    "ordinary persisted-result wiring cannot queue Victory");
+string repeatedEventBranch = persistedWiring[
+    persistedWiring.IndexOf("if (repeatedPersistedKey", StringComparison.Ordinal)..
+    persistedWiring.IndexOf("MusicLabDiscovery.RecordPersistedEvent", StringComparison.Ordinal)];
+Equal(false, repeatedEventBranch.Contains("return;", StringComparison.Ordinal),
+    "repeated persisted events are logged without blocking improved Star tiers");
+string queueWiring = pluginSource[
+    pluginSource.IndexOf("public void QueueLocation", StringComparison.Ordinal)..
+    pluginSource.IndexOf("private void FlushPendingChecks", StringComparison.Ordinal)];
+Equal(true, queueWiring.Contains("_queuedOrSent.Add(locationName)", StringComparison.Ordinal),
+    "production queue retains location-level idempotency");
 
 Console.WriteLine("Level completion policy tests passed.");

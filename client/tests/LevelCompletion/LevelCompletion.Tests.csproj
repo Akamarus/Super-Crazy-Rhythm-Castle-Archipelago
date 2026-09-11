@@ -9,6 +9,7 @@
     <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
     <Compile Include="..\..\CampaignLevelCatalog.cs" Link="CampaignLevelCatalog.cs" />
     <Compile Include="..\..\CampaignLocationContract.cs" Link="CampaignLocationContract.cs" />
+    <Compile Include="..\..\CampaignLevelRandomization.cs" Link="CampaignLevelRandomization.cs" />
     <Compile Include="..\..\LevelCompletionPolicy.cs" Link="LevelCompletionPolicy.cs" />
   </ItemGroup>
 </Project>

@@ -281,9 +281,12 @@ Console.WriteLine("Reconnect policy tests passed.");
 string loginWiring = pluginSource[pluginSource.IndexOf("if (result is LoginSuccessful loginSuccess)", StringComparison.Ordinal)..];
 int pointConfig = loginWiring.IndexOf("pointHistory.ApplySlotData(", StringComparison.Ordinal);
 int pointGate = loginWiring.IndexOf("if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)", StringComparison.Ordinal);
+int campaignConfig = loginWiring.IndexOf("CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData)", StringComparison.Ordinal);
 int connectedWiring = loginWiring.IndexOf("_connected = true;", StringComparison.Ordinal);
 True(pointConfig >= 0 && pointGate > pointConfig && connectedWiring > pointGate,
     "login configures packet-complete history and rejects incompatibility before advertising connected");
+True(campaignConfig >= 0 && connectedWiring > campaignConfig,
+    "login applies campaign slot data before advertising connected");
 False(loginWiring[..connectedWiring].Contains("AllItemsReceived", StringComparison.Ordinal),
     "login cannot publish the unready received-item cache");
 string itemWiring = pluginSource[pluginSource.IndexOf("session.Items.ItemReceived += helper =>", StringComparison.Ordinal)..pluginSource.IndexOf("if (!ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal)];
@@ -296,7 +299,11 @@ True(itemWiring.Contains("session.Socket.PacketReceived += packet =>", StringCom
 True(itemWiring.Contains("MusicLabPointRandomization.TryHandleItemName,", StringComparison.Ordinal), "point names are consumed by item dispatch");
 string ending = pluginSource[pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)..pluginSource.IndexOf("private void RequestReconnect(", StringComparison.Ordinal)];
 True(ending.Contains("MusicLabPointRandomization.OnDisconnected(generation)", StringComparison.Ordinal), "accepted session ending retains synchronized points");
+True(ending.Contains("CampaignLevelRandomization.OnDisconnected()", StringComparison.Ordinal), "temporary disconnect retains campaign compatibility state");
 string shutdown = pluginSource[pluginSource.IndexOf("public void Shutdown()", StringComparison.Ordinal)..pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)];
 True(shutdown.Contains("MusicLabPointRandomization.Reset()", StringComparison.Ordinal), "deliberate shutdown clears point state");
+True(shutdown.Contains("CampaignLevelRandomization.Shutdown()", StringComparison.Ordinal), "deliberate shutdown clears campaign compatibility state");
 True(pluginSource.Contains("MusicLabPointRandomization.OnDisconnected(previousSession.Generation)", StringComparison.Ordinal), "replacement revokes previous point generation");
+string publication = pluginSource[pluginSource.IndexOf("if (!ConnectionLifecycle.TryPublish(session, generation", StringComparison.Ordinal)..pluginSource.IndexOf("LoginResult result = session.TryConnectAndLogin", StringComparison.Ordinal)];
+True(publication.Contains("CampaignLevelRandomization.OnIdentityReplaced()", StringComparison.Ordinal), "session replacement clears the previous campaign identity before login");
 Console.WriteLine("Music Lab Point lifecycle wiring tests passed.");
