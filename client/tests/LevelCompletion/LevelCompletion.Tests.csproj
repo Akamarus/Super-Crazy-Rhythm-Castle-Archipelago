@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\CampaignLevelCatalog.cs" Link="CampaignLevelCatalog.cs" />
+    <Compile Include="..\..\CampaignLocationContract.cs" Link="CampaignLocationContract.cs" />
     <Compile Include="..\..\LevelCompletionPolicy.cs" Link="LevelCompletionPolicy.cs" />
   </ItemGroup>
 </Project>
