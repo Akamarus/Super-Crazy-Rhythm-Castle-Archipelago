@@ -330,6 +330,38 @@ Equal(false,
 Equal(false, MeatMouseEscortBindingDiagnosticPolicy.RequestsMutation,
     "binding diagnostic is read-only by contract");
 
+var interopEmptyMouse = MeatMouseEscortCharacterReader.Read(
+    new SpawnMeatAnimalCharacterOnDemand(TestMouseCharacterMode.InteropEmpty));
+Equal(true, interopEmptyMouse.Readable,
+    "exact IL2CPP empty-nullable exception is readable native absence");
+Equal(false, interopEmptyMouse.Present,
+    "exact IL2CPP empty nullable proves the mouse leader is missing");
+Equal("empty-il2cpp-nullable", interopEmptyMouse.Stage,
+    "exact IL2CPP empty nullable reports its distinct read stage");
+
+var explicitEmptyMouse = MeatMouseEscortCharacterReader.Read(
+    new SpawnMeatAnimalCharacterOnDemand(TestMouseCharacterMode.ExplicitEmpty));
+Equal(true, explicitEmptyMouse.Readable,
+    "ordinary false HasValue remains readable");
+Equal(false, explicitEmptyMouse.Present,
+    "ordinary false HasValue proves the mouse leader is missing");
+
+var presentMouse = MeatMouseEscortCharacterReader.Read(
+    new SpawnMeatAnimalCharacterOnDemand(TestMouseCharacterMode.Present));
+Equal(true, presentMouse.Readable,
+    "present native Character is readable");
+Equal(true, presentMouse.Present,
+    "present native Character prevents recovery duplication");
+
+var unrelatedMouseFailure = MeatMouseEscortCharacterReader.Read(
+    new SpawnMeatAnimalCharacterOnDemand(TestMouseCharacterMode.UnrelatedFailure));
+Equal(false, unrelatedMouseFailure.Readable,
+    "unrelated Character getter null-reference fails closed");
+
+var wrongMouseSpawner = MeatMouseEscortCharacterReader.Read(new WrongMouseSpawnerType());
+Equal(false, wrongMouseSpawner.Readable,
+    "Character reader rejects a non-exact native spawner type");
+
 int meatKeeperStart = pluginSource.IndexOf(
     "internal sealed class MeatAreaBaselineKeeper", StringComparison.Ordinal);
 int areaAccessStart = pluginSource.IndexOf(
@@ -391,6 +423,21 @@ Equal(true,
     mouseKeeperSource.Contains("\"SetSpawnCount\"", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("\"OnTrigger\"", StringComparison.Ordinal),
     "mouse recovery uses the exact existing native spawner reset and trigger boundary");
+int mouseRuntimeBindingStart = mouseKeeperSource.IndexOf(
+    "GameObject? spawnerObject", StringComparison.Ordinal);
+int mouseRuntimeBindingEnd = mouseKeeperSource.IndexOf(
+    "bool requirementReadable", mouseRuntimeBindingStart, StringComparison.Ordinal);
+Equal(true,
+    mouseRuntimeBindingStart >= 0 && mouseRuntimeBindingEnd > mouseRuntimeBindingStart,
+    "mouse recovery native binding has a bounded production source region");
+string mouseRuntimeBindingSource =
+    mouseKeeperSource[mouseRuntimeBindingStart..mouseRuntimeBindingEnd];
+Equal(true,
+    mouseRuntimeBindingSource.Contains("new[] { typeof(IntPtr) }", StringComparison.Ordinal) &&
+    mouseRuntimeBindingSource.Contains("pointerConstructor.Invoke", StringComparison.Ordinal) &&
+    mouseKeeperSource.Split(
+        "MeatMouseEscortCharacterReader.Read(", StringSplitOptions.None).Length - 1 == 2,
+    "recovery binds the exact typed pointer wrapper and uses the exact nullable Character reader");
 Equal(true,
     mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.RequirementStatedFlag", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("MeatMouseEscortRecoveryPolicy.RevolutionTriggeredFlag", StringComparison.Ordinal) &&
@@ -440,8 +487,9 @@ Equal(true,
     mouseBindingDiagnosticSource.Contains("new[] { typeof(IntPtr) }", StringComparison.Ordinal) &&
     mouseBindingDiagnosticSource.Contains("SetSpawnCount", StringComparison.Ordinal) &&
     mouseBindingDiagnosticSource.Contains("OnTrigger", StringComparison.Ordinal) &&
-    mouseBindingDiagnosticSource.Contains("Character", StringComparison.Ordinal) &&
-    mouseBindingDiagnosticSource.Contains("HasValue", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains(
+        "MeatMouseEscortCharacterReader.Read(wrapped)", StringComparison.Ordinal) &&
+    mouseBindingDiagnosticSource.Contains("characterReadStage", StringComparison.Ordinal) &&
     mouseBindingDiagnosticSource.Contains("BINDING WRAPPER SUMMARY", StringComparison.Ordinal),
     "binding diagnostic reports every exact native binding and Character-read boundary");
 Equal(false,

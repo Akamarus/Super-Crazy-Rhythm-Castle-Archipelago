@@ -13,6 +13,7 @@
     <Compile Include="..\..\AreaAccessDestinationPolicy.cs" Link="AreaAccessDestinationPolicy.cs" />
     <Compile Include="..\..\MeatMouseEscortRecoveryPolicy.cs" Link="MeatMouseEscortRecoveryPolicy.cs" />
     <Compile Include="..\..\MeatMouseEscortBindingDiagnosticPolicy.cs" Link="MeatMouseEscortBindingDiagnosticPolicy.cs" />
+    <Compile Include="..\..\MeatMouseEscortCharacterReader.cs" Link="MeatMouseEscortCharacterReader.cs" />
     <Compile Include="..\..\AreaAccessSessionPolicy.cs" Link="AreaAccessSessionPolicy.cs" />
   </ItemGroup>
 </Project>

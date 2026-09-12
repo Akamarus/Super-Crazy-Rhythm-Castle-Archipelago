@@ -22331,8 +22331,19 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
                 : ReflectionUtil.SafeGetTypes(gameAssembly)
                     .FirstOrDefault(type => string.Equals(
                         type.FullName, "SpawnMeatAnimalCharacterOnDemand", StringComparison.Ordinal));
-            nativeSpawner = spawnerObject != null && nativeSpawnerType != null
+            object? rawSpawner = spawnerObject != null && nativeSpawnerType != null
                 ? spawnerObject.GetComponent(Il2CppInterop.Runtime.Il2CppType.From(nativeSpawnerType))
+                : null;
+            ConstructorInfo? pointerConstructor = nativeSpawnerType?.GetConstructor(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(IntPtr) },
+                modifiers: null);
+            IntPtr rawSpawnerPointer = rawSpawner == null
+                ? IntPtr.Zero
+                : DiagnosticNativePointer(rawSpawner);
+            nativeSpawner = pointerConstructor != null && rawSpawnerPointer != IntPtr.Zero
+                ? pointerConstructor.Invoke(new object[] { rawSpawnerPointer })
                 : null;
             resetSpawnCount = nativeSpawnerType?.GetMethod(
                 "SetSpawnCount",
@@ -22362,24 +22373,14 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 
         bool leaderReadable = false;
         bool leaderPresent = false;
+        string leaderReadStage = "native-spawner-unavailable";
         if (nativeSpawner != null)
         {
-            try
-            {
-                object? character = ReflectionUtil.ReadMember(nativeSpawner, "Character");
-                bool? hasValue = character == null
-                    ? null
-                    : ReflectionUtil.ReadBool(character, "HasValue");
-                if (hasValue.HasValue)
-                {
-                    leaderPresent = hasValue.Value;
-                    leaderReadable = true;
-                }
-            }
-            catch
-            {
-                leaderReadable = false;
-            }
+            MeatMouseEscortCharacterState characterState =
+                MeatMouseEscortCharacterReader.Read(nativeSpawner);
+            leaderReadable = characterState.Readable;
+            leaderPresent = characterState.Present;
+            leaderReadStage = characterState.Stage;
         }
 
         MeatMouseEscortRecoverySnapshot snapshot = new(
@@ -22417,7 +22418,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             {
                 _reportedPending = true;
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY pending room='{room}' authenticatedCompatible={snapshot.AuthenticatedCompatible} requirementReadable={requirementReadable} revolutionReadable={revolutionReadable} exactSpawnerBound={nativeSpawner != null && resetSpawnCount != null && triggerSpawner != null} leaderReadable={leaderReadable}. Reevaluation is bounded and rate-limited; no attempt, progression flag, or AP check was consumed.");
+                    $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY pending room='{room}' authenticatedCompatible={snapshot.AuthenticatedCompatible} requirementReadable={requirementReadable} revolutionReadable={revolutionReadable} exactSpawnerBound={nativeSpawner != null && resetSpawnCount != null && triggerSpawner != null} leaderReadable={leaderReadable} leaderReadStage='{leaderReadStage}'. Reevaluation is bounded and rate-limited; no attempt, progression flag, or AP check was consumed.");
             }
             return;
         }
@@ -22635,29 +22636,20 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             if (wrapped != null)
                 wrapperCreatedCount++;
 
-            bool characterReadable = false;
-            bool hasValueReadable = false;
-            bool? hasValue = null;
-            if (wrapped != null)
-            {
-                try
-                {
-                    object? character = ReflectionUtil.ReadMember(wrapped, "Character");
-                    characterReadable = character != null;
-                    hasValue = character == null
-                        ? null
-                        : ReflectionUtil.ReadBool(character, "HasValue");
-                    hasValueReadable = hasValue.HasValue;
-                }
-                catch { }
-            }
+            MeatMouseEscortCharacterState characterState =
+                MeatMouseEscortCharacterReader.Read(wrapped);
+            bool characterReadable = characterState.Readable;
+            bool hasValueReadable = characterState.Readable;
+            bool? hasValue = characterState.Readable
+                ? characterState.Present
+                : null;
             if (characterReadable)
                 characterReadableCount++;
             if (hasValueReadable)
                 hasValueReadableCount++;
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER index={matchIndex} path='{path}' pointerConstructorFound={pointerConstructor != null} wrapperCreated={wrapped != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadable={characterReadable} hasValueReadable={hasValueReadable} hasValue={hasValue?.ToString() ?? "<unreadable>"} readOnly=True.");
+                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER index={matchIndex} path='{path}' pointerConstructorFound={pointerConstructor != null} wrapperCreated={wrapped != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadable={characterReadable} hasValueReadable={hasValueReadable} hasValue={hasValue?.ToString() ?? "<unreadable>"} characterReadStage='{characterState.Stage}' readOnly=True.");
         }
 
         Plugin.LoggerInstance?.LogWarning(
