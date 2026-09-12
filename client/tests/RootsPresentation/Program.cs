@@ -330,6 +330,123 @@ Equal(false,
 Equal(false, MeatMouseEscortBindingDiagnosticPolicy.RequestsMutation,
     "binding diagnostic is read-only by contract");
 
+Type? conditionDiagnosticType = typeof(MeatMouseEscortRecoveryPolicy).Assembly.GetType(
+    "RhythmCastleAP.MeatMouseEscortConditionDiagnosticPolicy",
+    throwOnError: false, ignoreCase: false);
+Equal(true, conditionDiagnosticType != null,
+    "exact mouse condition diagnostic policy exists");
+System.Reflection.MethodInfo? conditionScope = conditionDiagnosticType!.GetMethod(
+    "ShouldInspectPath", System.Reflection.BindingFlags.Static |
+    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+Equal(true, conditionScope != null,
+    "exact mouse condition diagnostic exposes a path scope gate");
+bool InspectCondition(string path) => (bool)conditionScope!.Invoke(null, new object[] { path })!;
+Equal(true, InspectCondition(
+    "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/SpawnCondition"),
+    "condition diagnostic includes only exact SpawnCondition");
+Equal(true, InspectCondition(
+    "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/SpawnCondition/RevolutionNotTriggeredCondition"),
+    "condition diagnostic includes its exact known revolution child");
+Equal(false, InspectCondition(
+    "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/SpawnCondition/OtherCondition"),
+    "condition diagnostic rejects unapproved siblings");
+Equal(false, InspectCondition(
+    "Root/GameRoom_Hub4_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/SpawnCondition/RevolutionNotTriggeredCondition/Nested"),
+    "condition diagnostic rejects deeper descendants");
+Equal(false, InspectCondition(
+    "Root/GameRoom_Hub40_Logic/NPCs/SpecialAnimals/SpawnMouseLeader/SpawnCondition"),
+    "condition diagnostic rejects other rooms");
+System.Reflection.MethodInfo? conditionEmission = conditionDiagnosticType.GetMethod(
+    "ShouldEmit", System.Reflection.BindingFlags.Static |
+    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+Equal(true, conditionEmission != null,
+    "exact condition diagnostic exposes a late-loaded emission gate");
+bool EmitCondition(string room, bool emitted, bool exactSubtreeAvailable) =>
+    (bool)conditionEmission!.Invoke(null, new object[] { room, emitted, exactSubtreeAvailable })!;
+Equal(false, EmitCondition("GameRoom_Hub4", false, false),
+    "missing exact condition child cannot consume the once-per-room emission");
+Equal(true, EmitCondition("GameRoom_Hub4", false, true),
+    "later available condition subtree emits once in Hub4");
+Equal(false, EmitCondition("GameRoom_Hub4", true, true),
+    "condition diagnostic does not repeat after emission");
+Equal(false, EmitCondition("GameRoom_Hub40", false, true),
+    "condition diagnostic never emits in another room");
+var lateCondition = new MeatMouseEscortConditionDiagnosticRuntime();
+Equal(true, lateCondition.ShouldEvaluateFrame(),
+    "condition diagnostic polls once after the room initialization delay");
+Equal(false, lateCondition.Observe("GameRoom_Hub4", false),
+    "missing exact condition subtree remains pending without emission");
+Equal(false, lateCondition.Emitted,
+    "missing subtree does not consume the diagnostic");
+int conditionWait = 0;
+while (!lateCondition.ShouldEvaluateFrame() && conditionWait <= 15)
+{
+    lateCondition.AdvanceFrame();
+    conditionWait++;
+}
+Equal(15, conditionWait, "late condition diagnostic uses a bounded 15-frame retry");
+Equal(true, lateCondition.Observe("GameRoom_Hub4", true),
+    "later exact subtree emits in the same room lifetime");
+Equal(true, lateCondition.Emitted, "emission is consumed only after full availability");
+Equal(false, lateCondition.ShouldEvaluateFrame(),
+    "successful condition diagnostic never repeats");
+lateCondition.Reset();
+Equal(true, lateCondition.ShouldEvaluateFrame(),
+    "room exit resets the condition diagnostic lifetime");
+var exhaustedCondition = new MeatMouseEscortConditionDiagnosticRuntime();
+foreach (int delay in new[] { 15, 30, 60, 120, 240, 480 })
+{
+    Equal(false, exhaustedCondition.Observe("GameRoom_Hub4", false),
+        $"missing exact subtree schedules a bounded {delay}-frame retry");
+    int elapsed = 0;
+    while (!exhaustedCondition.ShouldEvaluateFrame() && elapsed <= delay)
+    {
+        exhaustedCondition.AdvanceFrame();
+        elapsed++;
+    }
+    Equal(delay, elapsed, $"condition retry delay is exactly {delay} frames");
+}
+Equal(false, exhaustedCondition.Observe("GameRoom_Hub4", false),
+    "last unavailable poll does not emit");
+Equal(true, exhaustedCondition.Finished,
+    "condition diagnostic stops after seven bounded polls");
+Equal(false, exhaustedCondition.Emitted,
+    "exhaustion does not claim a diagnostic was emitted");
+
+Type? conditionReaderType = typeof(MeatMouseEscortRecoveryPolicy).Assembly.GetType(
+    "RhythmCastleAP.MeatMouseEscortConditionReader", false, false);
+Equal(true, conditionReaderType != null,
+    "exact native condition reader exists");
+System.Reflection.MethodInfo? conditionRead = conditionReaderType!.GetMethod(
+    "Read", System.Reflection.BindingFlags.Static |
+    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+Equal(true, conditionRead != null,
+    "exact condition reader exposes its read-only entry point");
+object ReadCondition(object condition) => conditionRead!.Invoke(null, new[] { condition })!;
+static (bool Readable, bool Met, string Stage) ConditionState(object state)
+{
+    Type type = state.GetType();
+    return ((bool)type.GetProperty("Readable")!.GetValue(state)!,
+        (bool)type.GetProperty("Met")!.GetValue(state)!,
+        (string)type.GetProperty("Stage")!.GetValue(state)!);
+}
+var trueCondition = new ExactMouseGeneralCondition(true);
+var trueConditionState = ConditionState(ReadCondition(trueCondition));
+Equal(true, trueConditionState.Readable, "native GeneralCondition bool is readable");
+Equal(true, trueConditionState.Met, "native true CheckIfMet remains true");
+Equal(1, trueCondition.Calls, "exact CheckIfMet is evaluated once");
+var falseCondition = new ExactMouseGeneralCondition(false);
+var falseConditionState = ConditionState(ReadCondition(falseCondition));
+Equal(true, falseConditionState.Readable, "native false condition is readable");
+Equal(false, falseConditionState.Met, "native false CheckIfMet remains false");
+Equal(1, falseCondition.Calls, "native false condition is evaluated once");
+Equal(false, ConditionState(ReadCondition(new WrongMouseCondition())).Readable,
+    "unrelated bool method is never invoked");
+Equal(false, ConditionState(ReadCondition(new WrongReturnMouseGeneralCondition())).Readable,
+    "a hidden non-bool CheckIfMet cannot fall back to an inherited bool method");
+Equal(false, ConditionState(ReadCondition(new ThrowingMouseGeneralCondition())).Readable,
+    "native condition evaluation failure is unreadable, not false");
+
 var interopEmptyMouse = MeatMouseEscortCharacterReader.Read(
     new SpawnMeatAnimalCharacterOnDemand(TestMouseCharacterMode.InteropEmpty));
 Equal(true, interopEmptyMouse.Readable,
@@ -516,4 +633,39 @@ Equal(true,
     mouseBindingDiagnosticSource.Contains(
         "MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath", StringComparison.Ordinal),
     "production consumes the fail-closed exact-scope emission only after the container is available");
+Equal(true,
+    mouseKeeperSource.Contains("EmitExactConditionDiagnostic();", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("MeatMouseEscortConditionDiagnosticPolicy.ShouldEmit(", StringComparison.Ordinal) &&
+    mouseKeeperSource.Contains("_conditionDiagnosticEmitted = false", StringComparison.Ordinal),
+    "production emits the separate exact condition diagnostic once after its subtree loads");
+int conditionPolling = mouseKeeperSource.IndexOf(
+    "TryEmitExactConditionDiagnostic(room);", StringComparison.Ordinal);
+int recoveryFrameGate = mouseKeeperSource.IndexOf(
+    "if (!_runtime.ShouldEvaluateFrame())", StringComparison.Ordinal);
+Equal(true, conditionPolling >= 0 && recoveryFrameGate > conditionPolling,
+    "condition polling continues independently when recovery has skipped or exhausted");
+int exactConditionStart = mouseKeeperSource.IndexOf(
+    "private static void EmitExactConditionDiagnostic", StringComparison.Ordinal);
+int exactConditionEnd = mouseKeeperSource.IndexOf(
+    "private static void EmitNativeBindingDiagnostic", Math.Max(0, exactConditionStart), StringComparison.Ordinal);
+Equal(true, exactConditionStart >= 0 && exactConditionEnd > exactConditionStart,
+    "exact condition diagnostic has a bounded source region");
+string exactConditionSource = mouseKeeperSource[exactConditionStart..exactConditionEnd];
+Equal(true,
+    exactConditionSource.Contains("GetComponents<Component>()", StringComparison.Ordinal) &&
+    exactConditionSource.Contains("DiagnosticNativeClassFullName", StringComparison.Ordinal) &&
+    exactConditionSource.Contains("MeatMouseEscortConditionReader.Read(", StringComparison.Ordinal) &&
+    exactConditionSource.Contains("GeneralCondition", StringComparison.Ordinal),
+    "exact condition diagnostic logs native identity and evaluates only proven GeneralCondition wrappers");
+Equal(false,
+    exactConditionSource.Contains("GetComponentsInChildren", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("Resources.FindObjectsOfTypeAll", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("SetSpawnCount", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("OnTrigger", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("SetActive", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("QueueLocation", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("TrySubmitProgressionFlag", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("Instantiate", StringComparison.Ordinal) ||
+    exactConditionSource.Contains("Clone", StringComparison.Ordinal),
+    "exact condition diagnostic cannot mutate scene, progression, AP, or spawn state");
 Console.WriteLine("Roots presentation policy tests passed.");

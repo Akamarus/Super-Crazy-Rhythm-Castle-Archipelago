@@ -22278,10 +22278,12 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 {
     private readonly MeatMouseEscortRecoveryRuntime _runtime = new();
+    private readonly MeatMouseEscortConditionDiagnosticRuntime _conditionDiagnosticRuntime = new();
     private string _boundRoom = string.Empty;
     private int _initialiseDelayFrames;
     private bool _reportedPending;
     private bool _bindingDiagnosticEmitted;
+    private bool _conditionDiagnosticEmitted;
 
     public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
     {
@@ -22301,8 +22303,10 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             _boundRoom = MeatMouseEscortRecoveryPolicy.RoomId;
             _initialiseDelayFrames = 12;
             _runtime.Reset();
+            _conditionDiagnosticRuntime.Reset();
             _reportedPending = false;
             _bindingDiagnosticEmitted = false;
+            _conditionDiagnosticEmitted = false;
             return;
         }
 
@@ -22311,6 +22315,8 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             _initialiseDelayFrames--;
             return;
         }
+
+        TryEmitExactConditionDiagnostic(room);
 
         if (!_runtime.ShouldEvaluateFrame())
         {
@@ -22452,6 +22458,143 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         {
             Plugin.LoggerInstance?.LogError(
                 $"[SCRC-AP] MEAT MOUSE ESCORT RECOVERY failed room='{room}' path='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' error='{ex.GetType().Name}'. No fallback spawn, progression write, or AP check was attempted.");
+        }
+    }
+
+    private void TryEmitExactConditionDiagnostic(string room)
+    {
+        if (!_conditionDiagnosticRuntime.ShouldEvaluateFrame())
+        {
+            _conditionDiagnosticRuntime.AdvanceFrame();
+            return;
+        }
+
+        GameObject? spawnCondition = null;
+        GameObject? revolutionCondition = null;
+        try
+        {
+            spawnCondition = GameObject.Find(
+                MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath);
+            revolutionCondition = GameObject.Find(
+                MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath);
+        }
+        catch { }
+
+        bool exactSubtreeAvailable = spawnCondition != null && revolutionCondition != null &&
+            string.Equals(
+                BuildDiagnosticHierarchyPath(spawnCondition.transform),
+                MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath,
+                StringComparison.Ordinal) &&
+            string.Equals(
+                BuildDiagnosticHierarchyPath(revolutionCondition.transform),
+                MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath,
+                StringComparison.Ordinal);
+        if (_conditionDiagnosticRuntime.Observe(room, exactSubtreeAvailable) &&
+            MeatMouseEscortConditionDiagnosticPolicy.ShouldEmit(
+                room, _conditionDiagnosticEmitted, exactSubtreeAvailable))
+        {
+            _conditionDiagnosticEmitted = true;
+            try
+            {
+                EmitExactConditionDiagnostic();
+            }
+            catch (Exception ex)
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION DIAGNOSTIC failed error='{ex.GetType().Name}' readOnly=True.");
+            }
+        }
+        else if (_conditionDiagnosticRuntime.Finished && !_conditionDiagnosticEmitted)
+        {
+            Plugin.LoggerInstance?.LogWarning(
+                "[SCRC-AP] MEAT MOUSE ESCORT CONDITION DIAGNOSTIC skipped reason='exact SpawnCondition/RevolutionNotTriggeredCondition subtree not available during bounded polls' readOnly=True.");
+        }
+    }
+
+    private static void EmitExactConditionDiagnostic()
+    {
+        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
+        Type? generalConditionType = gameAssembly?.GetType(
+            "GeneralCondition", throwOnError: false, ignoreCase: false);
+
+        foreach (string path in new[]
+        {
+            MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath,
+            MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath,
+        })
+        {
+            if (!MeatMouseEscortConditionDiagnosticPolicy.ShouldInspectPath(path))
+                continue;
+
+            GameObject? scopedObject = null;
+            try { scopedObject = GameObject.Find(path); }
+            catch { }
+            string actualPath = scopedObject == null
+                ? "<missing>"
+                : BuildDiagnosticHierarchyPath(scopedObject.transform);
+            if (scopedObject == null ||
+                !string.Equals(actualPath, path, StringComparison.Ordinal))
+            {
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION OBJECT expected='{path}' actual='{actualPath}' exactMatch=False readOnly=True.");
+                continue;
+            }
+
+            var rawComponents = new List<Component>();
+            bool componentsReadable = true;
+            try
+            {
+                foreach (Component component in scopedObject.GetComponents<Component>())
+                {
+                    if (component != null)
+                        rawComponents.Add(component);
+                    if (rawComponents.Count >= 16)
+                        break;
+                }
+            }
+            catch { componentsReadable = false; }
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION OBJECT expected='{path}' actual='{actualPath}' exactMatch=True componentsReadable={componentsReadable} inspectedComponentCount={rawComponents.Count} cap=16 readOnly=True.");
+
+            for (int index = 0; index < rawComponents.Count; index++)
+            {
+                Component component = rawComponents[index];
+                IntPtr pointer = DiagnosticNativePointer(component);
+                IntPtr klass = IntPtr.Zero;
+                if (pointer != IntPtr.Zero)
+                {
+                    try { klass = mm_il2cpp_object_get_class(pointer); }
+                    catch { }
+                }
+                string nativeClass = DiagnosticNativeClassFullName(klass);
+                Type? nativeType = null;
+                try
+                {
+                    nativeType = gameAssembly?.GetType(
+                        nativeClass, throwOnError: false, ignoreCase: false);
+                }
+                catch { }
+                bool exactGeneralCondition = generalConditionType != null &&
+                    nativeType != null && generalConditionType.IsAssignableFrom(nativeType);
+                object? wrapped = null;
+                if (exactGeneralCondition && pointer != IntPtr.Zero)
+                {
+                    try
+                    {
+                        ConstructorInfo? constructor = nativeType!.GetConstructor(
+                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                            binder: null,
+                            types: new[] { typeof(IntPtr) },
+                            modifiers: null);
+                        wrapped = constructor?.Invoke(new object[] { pointer });
+                    }
+                    catch { }
+                }
+                MeatMouseEscortConditionState state =
+                    MeatMouseEscortConditionReader.Read(wrapped);
+                Plugin.LoggerInstance?.LogWarning(
+                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION COMPONENT path='{path}' index={index} managed='{component.GetType().FullName ?? "<unknown>"}' native='{nativeClass}' exactGeneralCondition={exactGeneralCondition} wrapperCreated={wrapped != null} checkIfMetReadable={state.Readable} checkIfMet={(state.Readable ? state.Met.ToString() : "<unreadable>")} readStage='{state.Stage}' readOnly=True.");
+            }
         }
     }
 
@@ -22745,8 +22888,10 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         _boundRoom = string.Empty;
         _initialiseDelayFrames = 0;
         _runtime.Reset();
+        _conditionDiagnosticRuntime.Reset();
         _reportedPending = false;
         _bindingDiagnosticEmitted = false;
+        _conditionDiagnosticEmitted = false;
     }
 }
 
