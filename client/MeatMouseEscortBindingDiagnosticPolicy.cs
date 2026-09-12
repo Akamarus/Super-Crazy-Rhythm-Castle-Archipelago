@@ -20,7 +20,11 @@ internal static class MeatMouseEscortBindingDiagnosticPolicy
         return relative.Length > 0 && !relative.Contains('/', StringComparison.Ordinal);
     }
 
-    internal static bool ShouldEmit(string? roomId, bool alreadyEmitted) =>
+    internal static bool ShouldEmit(
+        string? roomId,
+        bool alreadyEmitted,
+        bool exactContainerAvailable) =>
         !alreadyEmitted &&
+        exactContainerAvailable &&
         string.Equals(roomId, MeatMouseEscortRecoveryPolicy.RoomId, StringComparison.Ordinal);
 }

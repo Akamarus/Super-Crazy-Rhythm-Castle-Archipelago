@@ -22399,7 +22399,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         if (observation == MeatMouseEscortRecoveryObservation.Pending)
         {
             if (MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
-                    room, _bindingDiagnosticEmitted))
+                    room, _bindingDiagnosticEmitted, spawnerObject != null))
             {
                 _bindingDiagnosticEmitted = true;
                 try

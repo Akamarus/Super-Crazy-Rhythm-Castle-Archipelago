@@ -311,14 +311,21 @@ Equal(false,
     MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
         "Root/GameRoom_Hub40_Logic/NPCs/SpecialAnimals/SpawnMouseLeader"),
     "binding diagnostic excludes other rooms");
+Equal(false,
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
+        "GameRoom_Hub4", false, false),
+    "a missing exact container does not consume the room diagnostic");
 Equal(true,
-    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub4", false),
-    "binding diagnostic may emit on the first Hub4 pending observation");
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
+        "GameRoom_Hub4", false, true),
+    "the later available exact container emits in the same room lifetime");
 Equal(false,
-    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub4", true),
-    "binding diagnostic cannot emit twice in one room lifetime");
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
+        "GameRoom_Hub4", true, true),
+    "binding diagnostic cannot emit twice after a successful emission");
 Equal(false,
-    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit("GameRoom_Hub40", false),
+    MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
+        "GameRoom_Hub40", false, true),
     "binding diagnostic cannot emit outside exact Hub4");
 Equal(false, MeatMouseEscortBindingDiagnosticPolicy.RequestsMutation,
     "binding diagnostic is read-only by contract");
@@ -446,13 +453,19 @@ Equal(false,
     mouseBindingDiagnosticSource.Contains("Instantiate", StringComparison.Ordinal) ||
     mouseBindingDiagnosticSource.Contains("Clone", StringComparison.Ordinal),
     "binding diagnostic cannot invoke recovery, mutate scene state, write progression, dispatch checks, or clone NPCs");
+int mouseBindingAvailabilityGuard = mouseKeeperSource.IndexOf(
+    "room, _bindingDiagnosticEmitted, spawnerObject != null", StringComparison.Ordinal);
+int mouseBindingEmissionMark = mouseKeeperSource.IndexOf(
+    "_bindingDiagnosticEmitted = true", Math.Max(0, mouseBindingAvailabilityGuard), StringComparison.Ordinal);
+int mouseBindingObserverCall = mouseKeeperSource.IndexOf(
+    "EmitNativeBindingDiagnostic();", Math.Max(0, mouseBindingEmissionMark), StringComparison.Ordinal);
 Equal(true,
-    mouseKeeperSource.Contains("_bindingDiagnosticEmitted = true", StringComparison.Ordinal) &&
+    mouseBindingAvailabilityGuard >= 0 &&
+    mouseBindingEmissionMark > mouseBindingAvailabilityGuard &&
+    mouseBindingObserverCall > mouseBindingEmissionMark &&
     mouseKeeperSource.Contains("_bindingDiagnosticEmitted = false", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("MEAT MOUSE ESCORT BINDING failed", StringComparison.Ordinal) &&
-    mouseKeeperSource.Contains(
-        "MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit", StringComparison.Ordinal) &&
     mouseBindingDiagnosticSource.Contains(
         "MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath", StringComparison.Ordinal),
-    "production uses a fail-closed pure policy boundary for one exact-scope emission per room lifetime");
+    "production consumes the fail-closed exact-scope emission only after the container is available");
 Console.WriteLine("Roots presentation policy tests passed.");
