@@ -4,20 +4,45 @@ This document is the living technical/design overview for the **Super Crazy Rhyt
 
 > **Status:** Work in progress. The implementation is being developed incrementally, with gameplay testing used to confirm native progression flags and source behavior before those systems are committed to Archipelago logic.
 
-Current testing release: **Client v0.70.0 / APWorld v0.24.0**, with slot-data schema 15 and campaign-mapping schema 1. It requires a fresh v0.24 seed and fresh native save. It is an experimental prerelease, not a stable release.
+Current experimental release: **Client v0.73.9 / APWorld v0.26.0**, slot-data schema 17,
+campaign-mapping schema 1, and quest checks schema 1. Installed client **v0.73.9**
+is gameplay accepted for Garage cartridge insertion, native placement, medal previews,
+and restart persistence on the retained schema-16 seed. The v0.73.9 cleanup removes
+superseded Garage helpers and temporary diagnostics; it is installed and gameplay accepted.
+A fresh v0.26 seed and fresh native save are required to accept the new quest features.
+Existing schema-16 seeds keep their earlier behavior and do not gain new quest checks.
 
-## Full normal-campaign mapping candidate
+Current addressed totals: **Normal 125 / Hard 183 / Expert 241 / Perfection 277**.
+The new useful AP rewards are Plunger, Meoo, and Maniac. Old Game Data and Car
+Battery are progression inputs to their new hand-in checks. Original Music Lab
+chest IDs and native item mappings are unchanged. Plunger pickup and Roots Star
+Eater Fed remain Stardust-only until full native gates are modeled. The native
+three-star threshold is retained; it is not an AP Star item requirement.
 
-All 22 normal campaign identities are mapped. Each has separate `Completion` and `1 Star` checks, plus cumulative `2 Stars` and `3 Stars` checks on the difficulties that enable them. The exact addressed-location totals are **Normal 121 / Hard 179 / Expert 237 / Perfection 273**. Development Caches are retired from new seeds while their permanent IDs remain reserved.
+Garage consumption and native saved-medal previews are gameplay accepted on v0.73.9.
+Cleanup verification and separate pending quest acceptance are documented in
+[the candidate record](testing/2026-09-16-quest-checks-candidate.md).
+
+## Full normal-campaign mapping milestone (historical v0.24)
+
+Local maintenance candidate (2026-09-14): deferred cassette-save ownership checks
+are rate-limited and explicit save callbacks retain their exact owner for existing
+pointer validation. Obsolete per-level Access gates and legacy diagnostic polling
+are removed; current Area Access and source checks remain. Localhost reconnect
+uses explicit WS and exposes bounded underlying prelogin errors. Performance and
+in-game reconnect acceptance are still pending; see
+[the maintenance record](testing/2026-09-14-client-maintenance.md).
+
+At the v0.24 milestone, all 22 normal campaign identities were mapped. Each has separate `Completion` and `1 Star` checks, plus cumulative `2 Stars` and `3 Stars` checks on the difficulties that enable them. That milestone had addressed-location totals **Normal 121 / Hard 179 / Expert 237 / Perfection 273**; current v0.26 totals are above. Development Caches are retired from new seeds while their permanent IDs remain reserved.
 
 The v0.24/schema-15 client contract retains AP Music Lab Points with the same strict point sub-schema as v0.23/schema 14. Legacy v0.23 seeds retain their partial campaign mapping, including cumulative Level 22 Stars filtered by `active_campaign_star_tiers`. Campaign contract rejection reports the failing field immediately at login. Offline campaign results retain the last validated contract through failed authentication retries; pending checks and local deduplication belong to the authenticated game, seed, team, and slot. A different authenticated identity or shutdown clears that state. Campaign evaluation and queue admission share the identity lock, and a flush rechecks authentication under the current transport lease.
 
 | # | Normal campaign identity | Internal ID |
 | ---: | --- | --- |
-| 1 | The Little Things | `Level_05` |
+| 1 | Light Humor | `Level_05` |
 | 2 | Pop Party | `Level_06` |
-| 3 | Jolt City | `Level_07` |
-| 4 | Quieres Bailar | `Level_08` |
+| 3 | The Megafying Ritual | `Level_07` |
+| 4 | DJ Eggplant | `Level_08` |
 | 5 | Lift Quest | `Level_09` |
 | 6 | Boring Room | `Level_02` |
 | 7 | Demolition Training | `Level_19` |
@@ -25,13 +50,13 @@ The v0.24/schema-15 client contract retains AP Music Lab Points with the same st
 | 9 | School Trip | `Level_20` |
 | 10 | The Vault | `Level_01` |
 | 11 | Act 1: Flavor | `Level_12` |
-| 12 | Act 2 | `Level_15` |
-| 13 | Act 3 | `Level_22` |
-| 14 | Act 4 | `Level_23` |
+| 12 | Act 2: Sauce and Spice | `Level_15` |
+| 13 | Act 3: Montage | `Level_22` |
+| 14 | Act 4: Habanero | `Level_23` |
 | 15 | Central Mainframe | `Level_16` |
-| 16 | Thief Prince | `Level_24` |
+| 16 | The Thief Prince | `Level_24` |
 | 17 | Cold Storage | `Level_21` |
-| 18 | Darkness | `Level_03` |
+| 18 | The Darkness | `Level_03` |
 | 19 | Escape | `Level_13` |
 | 20 | Loneliness | `Level_25` |
 | 21 | Locker Room | `Level_14` |
@@ -165,7 +190,7 @@ flowchart TD
     CONSUME[Vanilla consumes Weed Killer]
     L3OPEN[Level 3 becomes enterable]
     FROG[Frog + Hippo inside Level 3]
-    PPCHECK[AP Check:\nRoots - Level 3 - Frog and Hippo]
+    PPCHECK[AP Check:\nRoots - Level 3 - Plant Pipes Pickup]
     PP[AP Item:\nPlant Pipes]
     PPFLAG[Native: WEED_KILLER_ABILITY]
     L3DONE[Level 3 can be completed]
@@ -209,7 +234,7 @@ LEVEL_07_WK_ABILITY_EARNED = True
 AP behavior:
 
 - `WEED_KILLER_ABILITY` is suppressed at the vanilla Frog/Hippo source.
-- `LEVEL_07_WK_ABILITY_EARNED` remains native and sends **`Roots - Level 3 - Frog and Hippo`**.
+- `LEVEL_07_WK_ABILITY_EARNED` remains native and sends **`Roots - Level 3 - Plant Pipes Pickup`**.
 - Receiving **Plant Pipes** from AP grants the real `WEED_KILLER_ABILITY`.
 
 ### Intentional partial-level progression
@@ -409,7 +434,7 @@ The client evaluates the real result-time clean-medal tier and sends cumulative 
 
 APWorld v0.22 provides experimental randomizer routing for all 30 cassette songs. Twenty-five are level-earned sources and five reuse the native 32/64/89/111/140-point chest checks. Repeated native award routes are aliases of one AP source. `I_GOT_MONEY` retains the live-verified Level 2 Money identity; `MONEY_DUB` remains the distinct Music Lab song named Money. Many individual source routes remain manual verification pending.
 
-When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG`, never `HAVE_DEPOSITED`; normal Music Lab insertion remains player-driven. Only the four **I Got Money** medal locations require this item. Replays and the Level 2 Bee Mode variant do not send the source check, and **Level 2 - Completion** remains an independent check.
+When the AP item arrives, the client reconciles native ownership to `HAVE_IN_BAG`, never `HAVE_DEPOSITED`; normal Music Lab insertion remains player-driven. Only the four **I Got Money** medal locations require this item. The normal and Bee Mode Level 2 award routes share one source check; later awards and replays do not resend it, and **Level 2 - Completion** remains an independent check.
 
 ---
 
@@ -654,11 +679,11 @@ Archipelago IDs are permanent once used in a published/tested datapackage.
 - Update `IDS.md` in the same commit that introduces a new item/location.
 - A datapackage-changing APWorld release requires generating a fresh test seed.
 
-Current frontier at APWorld v0.24.0:
+Current frontier including v0.25 character items and inactive Lobby reservations:
 
 ```text
-Next safe item ID:     187256156
-Next safe location ID: 187256292
+Next safe item ID:     187256161
+Next safe location ID: 187256294
 ```
 
 ---
@@ -704,3 +729,191 @@ Update this file when any of the following changes:
 - current development status or roadmap.
 
 For exact permanent network allocations, [`IDS.md`](IDS.md) remains the authoritative ID registry. For concise implementation-oriented logic notes, [`PROGRESSION.md`](PROGRESSION.md) remains the companion progression reference.
+
+
+## Character quest item candidate (2026-09-15)
+
+Client v0.72.0 / APWorld v0.25.0, schema 16, adds Old Game Data and Car Battery
+as useful randomized inventory items, replacing two Stardust. Their existing
+5-point and 20-point Music Lab chest checks are reused; character rewards remain
+vanilla and are not new checks. Normal hand-ins unlock Maniac in Game Garage and
+Meoo in the Lobby. Received items are queued from complete authenticated history,
+then reconciled on the Unity thread only against the proven selected save.
+Maniac's native saved character-unlock predicate and Meoo's unlock flag prevent
+consumed items being re-granted. Unknown native state defers the grant.
+
+A newly generated v0.25 seed is required to test these items. Existing v0.24 seeds
+retain vanilla item behavior. Validate chest grants suppressed with checks intact,
+received inventory, both hand-ins, reload/reconnect/offline and new-save isolation
+before gameplay acceptance. No live deployment or new-seed replacement is implied.
+
+
+## Native naming audit — 2026-09-16
+
+All 22 campaign numbers and native IDs, all 37 cassette award routes, all 30 cassette titles, six Garage song titles, and nine chest thresholds were compared with installed game assets. Campaign display names now use the native English titles. Existing network song-name aliases and the Platinum/PERFECT tier alias remain explicit compatibility labels, not asserted native spellings. See [the complete location/name audit](testing/2026-09-16-location-name-audit.md) for every registered check and its native description. This verifies static names and mappings, not end-to-end gameplay acceptance.
+
+
+## In-game item notifications (client v0.72.0 candidate)
+
+Received items and server-confirmed sends appear in six-second upper-right popups,
+with at most three visible at once. Press **F6** to open/close the recent-item
+history (up to 100 entries); Escape also closes it. Gameplay continues while the
+history is open. The panel lists item, sender/recipient, and source location.
+Own rewards appear once as **Found**. Initial received history loads silently;
+reconnects within the running client announce only newly received items, including
+offline arrivals. History clears on a different seed/team/slot and is not saved to
+disk; historical outgoing sends are not reconstructed after relaunch.
+
+Set `Notifications.ShowItemPopups=false` to disable popups while retaining F6 history.
+The feature is local UI only and does not grant items or send checks. The client
+honors the connected seed's old/new Plant Pipes source name, so the notification
+update can be tested on the retained seed without resetting saves. The renamed
+Plant Pipes check appears in newly generated seeds using the updated APWorld.
+
+Build/automated verification does not establish runtime visual acceptance. Check
+readability, placement, F6 history, self rewards, remote sends/receipts, and
+reconnect behavior in game before accepting this candidate.
+
+## v0.73.1 native hook repair candidate (2026-09-16)
+
+v0.73.0 was installed with approval and connected to the retained schema-16 seed.
+Startup failed to attach Switch.ProcessInteraction and the Garage consumption hook.
+Installed interop reflection reproduces TypeLoadException for both classes: their
+WorldEntity generic StateClass constraints reject the generated state types.
+The native methods are present; changing reflected method names cannot repair this.
+
+v0.73.1 removes the redundant Switch hook. Both exact hand-in sequences remain
+guarded at Begin and ResetAndBegin, persisting pending intent before their bodies.
+All seven remaining managed hook signatures resolve against installed interop.
+
+The Garage hook resolves native Room27LevelEntranceDoor metadata directly and uses
+BepInEx INativeDetour. It validates the declaring class, nongeneric instance method,
+void return, single eBagItemType argument, enum width and nonzero code pointer.
+UnityVersionHandler supplies the version-specific method layout. Delegates and the
+detour remain rooted. The native method runs exactly once even if observation or
+diagnostic logging fails. No generated door wrapper or modified game DLL is needed.
+
+Focused Garage persistence and quest tests pass. Build passes with the existing
+four nullable warnings and unavailable NuGet audit metadata warning. Native hook
+installation and cartridge/score persistence still require gameplay acceptance.
+v0.73.1 is a client-only candidate; no server, seed, save, APWorld or IDs changed.
+
+## v0.73.2 crash repair candidate (2026-09-16)
+
+v0.73.1 installed with approval and connected, but crashed loading slot 4. Windows
+recorded stack overflow c00000fd. Read-only dump stack analysis found about 1266
+repeated IL2CPP runtime invocation frames. Game frame mapping via installed
+MethodAddressToToken.db identifies SetInactiveOnRoomInitialise.HandleEvent and
+IsGameProgressionFlagSetCondition.CheckIfMet. The generated condition wrapper
+redispatches virtually; a Harmony original path can re-enter the patched method.
+
+v0.73.2 replaces all five newly added virtual wrapper hooks with validated native
+trampolines: three CheckIfMet methods, character-popup Trigger, Sequence.Begin.
+The nonvirtual character save request and Sequence.ResetAndBegin retain Harmony.
+Native bool return is explicitly marshalled as I1; delegates/detours remain rooted.
+Legacy and unrelated conditions return the original native result directly. Unknown
+or unreadable quest sequence paths fail closed before mutations; errors are logged.
+Garage consumption hook remains unchanged and had not been reached at the crash.
+
+Build and focused Garage persistence, QuestRuntime and QuestChecks tests pass,
+including eight original/override condition cases and three sequence admission cases.
+Static review found no ABI/lifetime defects; its path-error finding was corrected.
+This candidate is NOT installed. Next requires explicit candidate deployment approval,
+then slot-4 loading acceptance before any Bloody Tears gameplay test.
+
+## v0.73.3 shared native hook repair candidate (2026-09-16)
+
+Rollback to verified v0.72 succeeded: user confirmed slot 4 no longer crashes.
+Installed MethodAddressToToken.db, filtered to Assembly-CSharp, maps both
+IsGameProgressionFlagTrueCondition.CheckIfMet and
+IsGameProgressionFlagSetCondition.CheckIfMet to native RVA 0x7D94D0. These
+distinct managed wrappers alias the same native function. v0.72 already patches
+the True wrapper for area routing; v0.73 additionally patched the Set wrapper.
+v0.73.2 changed that second patch to a native detour but still patched the same
+address twice. This conflict explains why changing wrapper dispatch alone failed.
+
+v0.73.3 keeps the existing area hook as sole owner. Its exact CheckIfMet prefix
+dispatches the narrow quest override before area routing. Set is removed from the
+dedicated native hook plan. Native alias equality and signature are verified before
+patching, and quest readiness requires successful installation of this shared hook
+plus six dedicated hooks. The quest installer runs after area-hook installation.
+No extra Set detour is installed, even for legacy seeds.
+
+An alias-collision regression test fails with the previous three-condition plan and
+passes with the two-condition plan plus the shared owner. Static review found no
+concrete integration defects. Music Lab score interception guards remain intact;
+the obsolete project-wide detour-dependency ban was removed because unrelated
+quest/Garage hooks now use the game-provided detour runtime.
+
+v0.72 remains installed. v0.73.3 is not live-accepted; next is explicit deployment
+approval followed only by slot-4 loading/movement stability before Garage testing.
+
+## v0.73.4 Garage initialization candidate (2026-09-16)
+
+User confirmed v0.73.3 slot-load stability, then reported a Garage loading hang.
+Player.log records NullReferenceException in CarriableObject.HandlePutOnHolder ->
+CarriableObjectHolder.StartHoldingObject -> Room27GameCartridgeHolder.HandleEvent
+(GameRoomReadyToRunEvent) -> GameRoomManager.PrepareFreshlyAddedGameRoom.
+The AP keeper had already changed cartridge visibility/release and reconciled bag
+items before native preparation completed. This establishes overlapping mutations,
+not proof that the timing conflict is the only cause of the native null reference.
+
+v0.73.4 gates both Garage bag reconciliation and all keeper SetActive/release calls
+until successful synchronous native room preparation completion. The exact installed
+PrepareFreshlyAddedGameRoom(GameRoomIdentifier) method is loadable, nonvirtual and
+returns void. Gate epochs reset at every observed transition. Old completion cannot
+release a newer visit; failed preparation stays closed. Outside-Garage AP receipt
+reconciliation remains available so ownership is established before entry.
+
+All 25 client test projects passed, including initialization, missing-completion and
+stale-visit regression cases. Build passes with the existing four nullable warnings
+and NuGet audit metadata warning. Review found no missed cartridge mutation path.
+No installation yet. Next: explicit candidate deployment approval; verify Garage
+entry and exit/re-entry before the still-pending Bloody Tears score/consumption test.
+
+## v0.73.5 Garage readiness correction candidate (2026-09-17)
+
+v0.73.4 entered and re-entered Garage without hanging, but user confirmed Bloody
+Tears stayed in inventory and unavailable. Logs show no preparation-completed
+notification and no in-Garage AP reconciliation: the readiness gate never reopened.
+Thus successful room loading alone did not validate the prior loading repair.
+
+v0.73.5 replaces the missed preparation callback with a postfix on nonvirtual
+GameRoomManager.UpdateRoomChangeTasks(). It reads currentGameRoom and currentTask
+after the native update and opens only for native GameRoom_27 plus task NONE in the
+same observed transition epoch. Missing/old-room/loading observations stay closed.
+The observer logs changed readiness states while waiting and stops reads once open.
+No preparation-completion callback is required. Both cartridge mutation guards remain.
+
+Installed interop verifies void/no-argument/nonvirtual target, readable properties,
+and enum NONE=0. Build and Garage persistence tests pass, including eight readiness
+cases for initial blocking, idle current room, missed preparation callback, loading,
+unreadable data, stale completion and re-entry. Bounded review found no concrete
+defect. Native callback execution and cartridge availability remain unaccepted.
+Next: explicit approval to install, verify native readiness opened=True and Bloody
+Tears availability before any song replay. Consumption/score persistence still open.
+
+### v0.73.6 Garage native-root reader candidate (2026-09-17)
+The v0.73.5 live readiness log never opened the gate: currentGameRoom was unreadable even with task NONE. This left AP-owned Bloody Tears in the preview/bag while the native room still exposed unowned Gradius. Replace the generated nullable field read with the native nonvirtual FindRootObjectForCurrentGameRoom lookup, called only after task NONE. Require that returned root contains GameRoom_27_Logic/Objects/Cartridges, plus the existing transition epoch guard. Do not use a global scene lookup or remove the loading guard. The native lookup and exact returned hierarchy still require live confirmation. Cartridge consumption and native score persistence are not yet accepted.
+Verification: Garage cartridge persistence regression suite passed (including idle-only lookup, absent root, stale epoch and loading guards); Release build passed with five pre-existing warnings. Candidate is not deployed. Next: approve client-only deployment, reconnect same seed/slot 4, enter Garage and verify Bloody Tears available, Gradius absent, then insertion consumption and score persistence.
+
+### v0.73.7 Garage consumption and medal preview candidate (2026-09-17)
+Live v0.73.6 accepted the idle room-root gate: Garage opened, owned Bloody Tears released and unowned Gradius hidden. User completed Bloody Tears at 200199/Silver, but bag item and blank preview persisted. Bronze AP check sent; Silver AP location correctly inactive in this Normal seed.
+Root-cause evidence from installed native code: Room27LevelEntranceDoor.OpenDoor (RVA 0x5597B0) inlines the bag-removal body, bypassing RemoveBagItemIfOwned (0x559CB0); observing the helper cannot catch that consumption. Replace the helper detour with a zero-argument OpenDoor detour and snapshot/readback all randomized AP-owned bag items around exactly one original call. Existing generation/reset guards and durable insertion coordinator remain.
+LevelPreviewUIView.RefreshToMatchState (RVA 0x87AE10, ownership branch around 0x87B48C) inserts NONE medals without calling saved-medal getters when native cartridge ownership is false. The previous ReflectGarageVisuals ownership-only patch exposed an AP cartridge with these blank medals. Populate that preview DTO's regular/pro medals from native saved getters for AP-owned randomized cartridges. Preserve native Vampire Killer and unowned/disabled entries. Never write saved scores or medals.
+Correct misleading diagnostics: native saved-score/medal getters return Nullable<T>; IL2CPP boxes these as the underlying T or null, but generated wrappers present them as Nullable<T>. Prior INVALID/0/NONE readbacks are not reliable proof of missing saved results. New read-only getter invocation uses native MethodInfo metadata, validated Int32 enum arguments, native boxed class validation and unboxing; empty results remain absent. Live native integration remains unaccepted until next test.
+Regression coverage: AP-owned/native-uncollected Silver/pro medal, no reads for disabled/unowned, missing data preserves display, vanilla cartridge untouched; existing door invocation and persistence tests cover original-call and consumption guards. Build and focused Garage suites passed before final packaging; no deployment or native-save modification performed.
+Next: approve client v0.73.7 deployment; connect retained seed before loading slot 4; check whether existing Silver appears in entrance preview, enter Garage and verify Bloody Tears leaves bag and stays playable; exit/re-enter to verify no regrant. Only replay if saved Silver is still absent.
+
+### v0.73.8 native Garage entrance candidate (2026-09-17)
+User requirement: retain vanilla cartridge insertion into the room; no visible delayed spawn. v0.73.7 live log confirmed OpenDoor ran, but its immediate readback still held the bag item; native setup later removed it and the mod regranted it. A PlayerSaveRequestProcessor replacement also occurred inside the door call, invalidating the generic reset epoch.
+Replace keeper SetActive/release polling and object bindings with native Room27GameCartridgeHolder.HandleEvent(GameRoomReadyToRunEvent) initialization. Original holder callback always runs exactly once; a thread-local scope overrides only its read of the five randomized collected flags through GameProgressionEnquiries.IsFlagSet using AP ownership. No saved collected flag, bag flag, holder placement or reparenting is written by this hook. Vampire Killer remains native. Validate empty event ABI (one byte), exact method signatures, owners and nonzero distinct pointers at install. Native disassembly verifies direct IsFlagSet call inside the holder event; CartridgeIsOwned itself is inlined and is not hooked.
+Observe delayed door consumption until the expected Hub6-to-Garage transition completes and native bag readback is available. Pending evidence blocks regrant; a held-to-absent result is recorded through the existing insertion coordinator before grant decisions. Distinguish actual save/configuration boundaries from stateless processor replacement so the native door handoff cannot discard the snapshot. Explicit save change, wrong transition or connection change still invalidates evidence. A new AP cartridge received while already inside waits for the next native room initialization/entry.
+Regression cases cover delayed still-held/absent readback, unreadable state, stale connection, wrong transition, actual still-held at ready, AP holder ownership, untouched bag flags/vanilla Vampire and absence of late keeper activation. Garage persistence and availability suites pass; Release build passes with five existing warnings. Review identified the processor-reset timing issue, now corrected. Live native hook/consumption and preview acceptance still pending. No deployment/save reset/new seed performed.
+Next: approve v0.73.8, connect retained seed, load slot 4, enter Garage through normal door. Verify bag removal, cartridges already placed on room reveal, continued availability after exit/re-entry and preview Silver.
+
+### v0.73.8 gameplay acceptance (2026-09-17)
+User confirmed normal Garage behavior for Bloody Tears, then requested a second cartridge test. Sent exactly one Gradius Remix Cartridge through the retained seed 14964085740301527950 server to Jack (item 187256111); receipt and native bag grant verified. User subsequently confirmed Gradius working correctly. Saved native readbacks verify Bloody Tears 200199 / SILVER (including Pro), Gradius Remix 390567 / GOLD (including Pro), and Vampire Killer 344423 / GOLD. Thus earlier zero/INVALID diagnostic output was misleading; native results were retained. User accepts cartridge consumption, normal room placement and preview behavior on this build. Evidence retained locally as work/v0738-gradius-accepted.log in task workspace. Keep installed v0.73.8; next check is persistence after an ordinary game restart, connecting seed before loading slot 4, with no new grants or save resets.
+
+### v0.73.8 restart persistence accepted (2026-09-17)
+User completed an ordinary game restart, reconnected the retained seed before slot 4, and confirmed both Bloody Tears and Gradius remained playable with their medals intact. Garage cartridge consumption, native room placement, preview medals, and restart persistence are now gameplay accepted. Keep installed v0.73.8 as the accepted client baseline. Next work: clean up superseded Garage workaround code and temporary diagnostics in the isolated worktree, preserving accepted native behavior; new schema-17 quest feature acceptance remains separate from this retained schema-16 seed.

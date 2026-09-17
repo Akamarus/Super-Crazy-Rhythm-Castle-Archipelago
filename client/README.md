@@ -1,6 +1,6 @@
 # RhythmCastleAP client
 
-Current baseline: **v0.67.60**.
+Current testing release: **v0.73.9**, paired with **APWorld v0.26.0**. New quest features require fresh-seed gameplay acceptance.
 
 This is the BepInEx/IL2CPP client for the Super Crazy Rhythm Castle Archipelago implementation.
 
@@ -11,7 +11,7 @@ For the complete public source-build, installation, configuration, APWorld, upda
 - Super Crazy Rhythm Castle installed locally.
 - BepInEx 6 IL2CPP installed for the game.
 - .NET 6 SDK available to `dotnet`.
-- Current compatible APWorld: **v0.15**.
+- Current compatible APWorld: **v0.26.0** (new seed/save for new quest features).
 
 ## Build and install
 
@@ -34,7 +34,7 @@ After BepInEx has completed its first IL2CPP interop-generating game launch, con
 - `ROOTS_HUB_INTRO_WITNESSED` is set immediately before the first permitted Roots transition to bypass the displaced vanilla arrival cutscene.
 - Gecko's vanilla `WEED_KILLER_BAG_ITEM` reward is suppressed and converted to the AP location `Roots - Gecko's Weed Killer`.
 - Receiving `Weed Killer` grants the native consumable item so vanilla can consume it to reveal Level 3.
-- Level 3 Frog/Hippo's vanilla `WEED_KILLER_ABILITY` reward is suppressed and converted to `Roots - Level 3 - Frog and Hippo` via the retained `LEVEL_07_WK_ABILITY_EARNED` source marker.
+- Level 3 Frog/Hippo's vanilla `WEED_KILLER_ABILITY` reward is suppressed and converted to `Roots - Level 3 - Plant Pipes Pickup` via the retained `LEVEL_07_WK_ABILITY_EARNED` source marker.
 - Receiving `Plant Pipes` grants the real native `WEED_KILLER_ABILITY`.
 
 Use `BepInEx\LogOutput.log` as the primary runtime test artifact; do not commit logs to this repository.

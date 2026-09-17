@@ -18,20 +18,26 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+169..+173` | `187256169..187256173` | Music Lab 5 / 10 / 20 / 32 / 46 Point Chests |
 | `+174..+177` | `187256174..187256177` | Smooch / Superstar / Vampire Killer / Wag the Dog cartridge source checks |
 | `+178` | `187256178` | Roots - Gecko's Weed Killer |
-| `+179` | `187256179` | Roots - Level 3 - Frog and Hippo |
+| `+179` | `187256179` | Roots - Level 3 - Plant Pipes Pickup |
 | `+180` | `187256180` | Roots - Level 4 - Hip Glasses |
 | `+181` | `187256181` | Roots - Bucket Minion Trade |
 | `+182..+185` | `187256182..187256185` | Level 22 Completion / 1 Star / 2 Stars / 3 Stars |
 | `+186` | `187256186` | Level 2 - Money Cassette |
 | `+187..+210` | `187256187..187256210` | 24 new full-cassette source checks |
 | `+211..+291` | `187256211..187256291` | Full normal-campaign location catalog (81 newly allocated checks) |
+| `+292` | `187256292` | Lobby - Important Letters Pickup (reserved, inactive) |
+| `+293` | `187256293` | Lobby - Bean Trumpet Award (reserved, inactive) |
+| `+294` | `187256294` | Lobby - Plunger Pickup (Stardust-only) |
+| `+295` | `187256295` | Lobby - Car Battery Hand-In |
+| `+296` | `187256296` | Game Garage - Old Game Data Hand-In |
+| `+297` | `187256297` | Roots - Star Eater Fed (Stardust-only) |
 
-**Next safe location offset:** `+292`
-**Next safe location ID:** `187256292`
+**Next safe location offset:** `+298`
+**Next safe location ID:** `187256298`
 
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
-The current allocation contains **203** network locations.
+The current registry contains **286** named network locations, including 13 inactive reservations. Active addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273.
 
 ### Full cassette source IDs
 
@@ -228,9 +234,17 @@ Cassette` source at `187256186`.
 | `+153` | `187256153` | Music Lab Point |
 | `+154` | `187256154` | Music Lab Point Bundle |
 | `+155` | `187256155` | Music Lab Point Large Bundle |
+| `+156` | `187256156` | Important Letters (reserved, inactive) |
+| `+157` | `187256157` | Bean Trumpet (reserved, inactive) |
+| `+158` | `187256158` | Demolition Certificate (reserved, inactive) |
+| `+159` | `187256159` | Old Game Data (progression in v0.26; useful in v0.25) |
+| `+160` | `187256160` | Car Battery (progression in v0.26; useful in v0.25) |
+| `+161` | `187256161` | Plunger (useful) |
+| `+162` | `187256162` | Meoo (useful character unlock) |
+| `+163` | `187256163` | Maniac (useful character unlock) |
 
-**Next safe item offset:** `+156`
-**Next safe item ID:** `187256156`
+**Next safe item offset:** `+164`
+**Next safe item ID:** `187256164`
 
 ## Rule for changes
 
@@ -240,3 +254,19 @@ Before assigning an ID:
 2. Use the next safe unused ID; do not fill historical gaps.
 3. Update this document in the same commit.
 4. If the APWorld datapackage changes, require a newly generated seed for testing.
+
+### v0.25 character quest items
+
+Old Game Data and Car Battery each appear once as useful items, replacing two filler items. They reuse the existing Music Lab 5-point (`187256169`) and 20-point (`187256171`) checks; no new locations or character rewards are randomized. Native bag flags are `LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM` and `CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM`. Slot data uses schema 16 and character quest item schema 1. A newly generated v0.25 seed is required; old seeds are not upgraded. Lobby item IDs `187256156`–`187256158` remain reserved and inactive.
+
+
+### v0.26 quest checks candidate
+
+The new IDs above follow native metadata inspection; existing reservations are
+unchanged. Schema 17 exports `quest_checks_schema: 1`, `quest_items` as the exact
+three name-to-ID entries, and `quest_locations` as the exact four name-to-ID
+entries above. Original `character_quest_items` and
+`character_quest_item_locations` maps remain unchanged. New quests require a
+fresh v0.26 seed; schema-16 seeds are not upgraded. The candidate is uninstalled
+and gameplay acceptance is pending. Native mapping and scope limitations are
+recorded in [the acceptance record](testing/2026-09-16-quest-checks-candidate.md).

@@ -39,6 +39,100 @@ static (string Song, string Kind)? ClassifyProgressionFlag(string flag)
     return (classified.Cartridge.Song, classified.Kind.ToString());
 }
 
+int roomLookups = 0;
+string? LookupGarage() { roomLookups++; return "GameRoom_27"; }
+Equal<string?>(null, GarageRoomInitializationState.ReadIdleRoom("ADDING_TARGET_GAME_ROOM", LookupGarage), "do not query native room while adding");
+Equal<string?>(null, GarageRoomInitializationState.ReadIdleRoom(null, LookupGarage), "do not query native room with unreadable task");
+Equal(0, roomLookups, "loading never invokes room getter");
+Equal("GameRoom_27", GarageRoomInitializationState.ReadIdleRoom("NONE", LookupGarage), "idle resolves current native root");
+Equal(1, roomLookups, "one native room lookup");
+Equal<string?>(null, GarageRoomInitializationState.ReadIdleRoom("NONE", () => null), "missing root stays closed");
+
+var deferredDoor = new GarageDeferredDoorConsumption();
+deferredDoor.Arm("Bloody Tears", 7, 2);
+Equal(GarageDoorReadback.Waiting, deferredDoor.Observe("Bloody Tears", 7, 2, false, true, true), "door return still held does not cancel deferred removal");
+Equal(GarageDoorReadback.Waiting, deferredDoor.Observe("Bloody Tears", 7, 2, false, true, false), "pre-transition absence waits and blocks regrant");
+deferredDoor.Transition(7, 2, 3, true);
+Equal(GarageDoorReadback.Waiting, deferredDoor.Observe("Bloody Tears", 7, 3, true, false, false), "unreadable native result keeps pending");
+Equal(GarageDoorReadback.Consumed, deferredDoor.Observe("Bloody Tears", 7, 3, true, true, false), "deferred entrance removal confirmed before any grant");
+Equal(GarageDoorReadback.None, deferredDoor.Observe("Bloody Tears", 7, 3, true, true, false), "confirmation occurs once");
+deferredDoor.Arm("Bloody Tears", 7, 3); deferredDoor.Transition(8, 3, 4, true);
+Equal(GarageDoorReadback.None, deferredDoor.Observe("Bloody Tears", 8, 4, true, true, false), "connection change cannot confirm old removal");
+deferredDoor.Arm("Bloody Tears", 8, 4); deferredDoor.Transition(8, 4, 5, false);
+Equal(GarageDoorReadback.None, deferredDoor.Observe("Bloody Tears", 8, 5, true, true, false), "wrong destination cancels pending removal");
+deferredDoor.Arm("Bloody Tears", 8, 5); deferredDoor.Transition(8, 5, 6, true);
+Equal(GarageDoorReadback.None, deferredDoor.Observe("Bloody Tears", 8, 6, true, true, true), "actually held at ready is not consumed");
+Equal<bool?>(true, GarageHolderOwnershipPolicy.Resolve("LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED", true, true, _ => true), "AP-owned holder initializes normally");
+Equal<bool?>(false, GarageHolderOwnershipPolicy.Resolve("LEVEL_27_CARTRIDGE_GRADIUS_COLLECTED", true, true, _ => false), "unowned holder hidden during native initialization");
+Equal<bool?>(null, GarageHolderOwnershipPolicy.Resolve("LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED", true, false, _ => true), "outside holder callback flag is native");
+Equal<bool?>(null, GarageHolderOwnershipPolicy.Resolve("LEVEL_27_CARTRIDGE_BLOODYTEARS_BAG_ITEM", true, true, _ => true), "bag flag never overridden");
+Equal<bool?>(null, GarageHolderOwnershipPolicy.Resolve("LEVEL_27_CARTRIDGE_VAMPIREKILLER_COLLECTED", true, true, _ => false), "vanilla entrance preserved");
+
+var roomInitialization = new GarageRoomInitializationState();
+False(roomInitialization.CanMutate("GameRoom_27"), "Garage mutations wait for native idle evidence");
+True(roomInitialization.CanMutate("GameRoom_Hub6"), "pre-entry receipts remain available");
+roomInitialization.Transition("GameRoom_27");
+long firstLoad = roomInitialization.Epoch;
+roomInitialization.Observe(firstLoad, "GameRoom_27", "ADDING_TARGET_GAME_ROOM");
+False(roomInitialization.CanMutate("GameRoom_27"), "objects existing during load do not open gate");
+roomInitialization.Observe(firstLoad, "GameRoom_Hub6", "NONE");
+False(roomInitialization.CanMutate("GameRoom_27"), "idle old room does not open target Garage");
+roomInitialization.Observe(firstLoad, "GameRoom_27", "NONE");
+True(roomInitialization.CanMutate("GameRoom_27"), "native idle Garage opens gate without a preparation callback");
+roomInitialization.Transition("GameRoom_Hub6");
+roomInitialization.Transition("GameRoom_27");
+roomInitialization.Observe(firstLoad, "GameRoom_27", "NONE");
+False(roomInitialization.CanMutate("GameRoom_27"), "stale idle observation cannot release a new visit");
+roomInitialization.Observe(roomInitialization.Epoch, "GameRoom_27", null);
+False(roomInitialization.CanMutate("GameRoom_27"), "unreadable task fails closed");
+roomInitialization.Observe(roomInitialization.Epoch, "GameRoom_27", "NONE");
+True(roomInitialization.CanMutate("GameRoom_27"), "second visit reconciles when native room is idle");
+
+// Native behavior executes once even if optional observations fail.
+foreach (bool failBefore in new[] { false, true })
+foreach (bool failAfter in new[] { false, true })
+{
+    int originalCalls = 0, reports = 0;
+    NativeDoorInvocation.Run<object>(
+        () => failBefore ? throw new Exception("before") : new object(),
+        () => originalCalls++,
+        _ => { if (failAfter) throw new Exception("after"); },
+        _ => reports++);
+    Equal(1, originalCalls, "native removal executes exactly once");
+    Equal((failBefore ? 1 : 0) + (failAfter ? 1 : 0), reports, "observation failures isolated");
+}
+
+int callsWithBrokenLogger = 0;
+NativeDoorInvocation.Run<object>(() => throw new Exception("read"),
+    () => callsWithBrokenLogger++, _ => { }, _ => throw new Exception("log"));
+Equal(1, callsWithBrokenLogger, "logging failure cannot block native consumption");
+
+// The native Garage entrance consumes the bag before holder bindings/release exist.
+True(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.NotInserted, true, true, true, false, true),
+    "exact native door held-to-absent consumption confirms before Garage bindings");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.NotInserted, true, true, true, true, true),
+    "a door call that leaves the bag held cannot confirm insertion");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.NotInserted, true, false, true, false, true),
+    "a previously absent bag cannot manufacture a door insertion");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.NotInserted, true, true, false, false, true),
+    "unreadable post-door state cannot confirm insertion");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.NotInserted, true, true, true, false, false),
+    "a stale connection/save epoch cannot confirm insertion");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, true,
+    GarageInsertionServerValue.NotInserted, true, true, true, false, true),
+    "physical Vampire Killer never becomes AP insertion state");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, false, false,
+    GarageInsertionServerValue.NotInserted, true, true, true, false, true),
+    "unowned cartridge cannot become inserted");
+False(GarageCartridgeInsertionPolicy.ShouldRecordDoorConsumption(true, true, false,
+    GarageInsertionServerValue.Unknown, true, true, true, false, true),
+    "unknown server state cannot become inserted");
+
 string[] expectedKeys =
 {
     "Bloody Tears|scrc:garage_inserted:v1:bloody_tears",
@@ -107,16 +201,14 @@ if (garageClassStart < 0)
 string garageSource = pluginSource[garageClassStart..];
 string configureMethod = MethodBody(garageSource, "public static void Configure()", "public static bool TryApplyItem(string itemName)");
 string itemCallback = MethodBody(garageSource, "public static bool TryApplyItem(string itemName)", "public static void CapturePlayerSaveRequestProcessor(object? instance)");
-string observeNativeBagMethod = MethodBody(garageSource, "public static void ObserveNativeBag(", "public static void NoteGarageObjectReleased(");
-string noteGarageObjectReleasedMethod = MethodBody(garageSource, "public static void NoteGarageObjectReleased(", "private static bool RecordGarageObjectReleasedWithinLease(");
+string observeNativeBagMethod = MethodBody(garageSource, "private static GarageCartridgeReconciliationResult ObserveNativeBagWithinLease(", "internal static GarageDoorConsumptionSnapshot? CaptureNativeDoorRemoval(");
 string captureGarageProcessorMethod = MethodBody(garageSource, "public static void CapturePlayerSaveRequestProcessor(object? instance)", "public static void TryFlushPendingNativeGrants()");
 string nativeGrantMethod = MethodBody(garageSource, "public static void TryFlushPendingNativeGrants()", "public static void ApplySlotData(");
-string releaseGarageObjectMethod = MethodBody(garageSource, "public static bool TryReleaseCartridgeObject(", "public static void NoteGarageObjectReleased(string song)");
 string garageEntryTransitionRequestMethod = MethodBody(garageSource, "public static void RecordGarageEntryTransitionRequest(", "public static void RecordNativeBagProgressionRequest(");
 string nativeProgressionRequestMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionRequest(", "public static void RecordNativeBagProgressionFlagUpdated(");
 string nativeProgressionEventMethod = MethodBody(garageSource, "public static void RecordNativeBagProgressionFlagUpdated(", "private static void TryArmPendingNativeConsumption(");
-string nativeProgressionArmMethod = MethodBody(garageSource, "private static void TryArmPendingNativeConsumption(", "public static bool TryReleaseCartridgeObject(");
-string progressionRequestPrefixMethod = MethodBody(pluginSource, "public static bool ProgressionRequestPrefix(", "private static readonly string[] GateKeywords");
+string nativeProgressionArmMethod = MethodBody(garageSource, "private static void TryArmPendingNativeConsumption(", "public static void CapturePlayerSaveRequestProcessor(");
+string progressionRequestPrefixMethod = MethodBody(pluginSource, "public static bool ProgressionRequestPrefix(", "public static void ProgressionRequestPostfix(");
 string progressionFlagEventMethod = MethodBody(pluginSource, "public static void ProgressionFlagEventPostfix(", "public static void BagItemRequestPostfix(");
 int introRedirectClassStart = pluginSource.IndexOf("internal static class IntroRoomToHubRedirectPatches", StringComparison.Ordinal);
 if (introRedirectClassStart < 0)
@@ -126,7 +218,7 @@ string introRedirectPrefixMethod = MethodBody(introRedirectSource, "public stati
 
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
-int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(_server)", StringComparison.Ordinal);
+int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server))", StringComparison.Ordinal);
 True(pluginSource.Contains("private long _connectionGeneration;", StringComparison.Ordinal),
     "ArchipelagoClient owns the connection generation");
 True(pluginSource.Contains(
@@ -238,7 +330,7 @@ False(nativeGrantMethod.Contains("HasGarageCartridgeBeenCollected", StringCompar
     "the failed native registration experiment is removed");
 False(nativeGrantMethod.Contains("NativeCartridgeType", StringComparison.Ordinal),
     "diagnostic cartridge enum metadata is not terminal insertion state");
-string garageApInsertionAndGrantMethods = string.Join("\n", observeNativeBagMethod, noteGarageObjectReleasedMethod, nativeGrantMethod);
+string garageApInsertionAndGrantMethods = string.Join("\n", observeNativeBagMethod, nativeGrantMethod);
 False(garageApInsertionAndGrantMethods.Contains("_COLLECTED", StringComparison.OrdinalIgnoreCase),
     "Garage AP insertion and grant methods never submit a native collected-source flag");
 True(captureGarageProcessorMethod.Contains("ResetNativeBagObservations", StringComparison.Ordinal),
@@ -249,19 +341,9 @@ True(pluginSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\"s
     "save selection and rebuild boundaries reset native bag evidence");
 True(garageSource.Contains("GarageCartridgeAccess.ResetNativeBagObservations(\n                $\"room transition", StringComparison.Ordinal),
     "room transition resets visit-local native bag evidence before reconciliation");
-True(releaseGarageObjectMethod.Contains("ServerSyncLifecycle.TryRunCurrent", StringComparison.Ordinal) &&
-     releaseGarageObjectMethod.Contains("InsertionCoordinator.InitialSyncReady", StringComparison.Ordinal) &&
-     releaseGarageObjectMethod.Contains("InsertionTracker.ShouldReleaseObject", StringComparison.Ordinal) &&
-     releaseGarageObjectMethod.Contains("current.Release(() =>", StringComparison.Ordinal) &&
-     releaseGarageObjectMethod.Contains("RecordGarageObjectReleasedWithinLease", StringComparison.Ordinal),
-    "keeper release eligibility, Unity action, and release recording share the current-generation lease");
-True(garageSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal) &&
-     garageSource.Contains("GarageCartridgeAccess.TryReleaseCartridgeObject(", StringComparison.Ordinal) &&
-     garageSource.Contains("_releaseVisit.WasReleased(cartridge.Song)", StringComparison.Ordinal),
-    "keeper revalidates every active poll while retaining one-shot visit release state");
-True(releaseGarageObjectMethod.Contains("InsertionTracker.ShouldReleaseObject", StringComparison.Ordinal) &&
-     noteGarageObjectReleasedMethod.Contains("InsertionTracker.ShouldReleaseObject", StringComparison.Ordinal),
-    "both production release entry points use the behaviorally tested release-eligibility adapter");
+string keeperSource = MethodBody(pluginSource, "internal sealed class GarageCartridgeAccessKeeper", "internal static class AreaPhoneConditionPatches");
+False(keeperSource.Contains(".SetActive(", StringComparison.Ordinal), "native holders own cartridge activation; no delayed keeper spawn");
+False(keeperSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal), "obsolete release polling is removed");
 
 {
     var access = new GarageCartridgeReconciliationAccess();
@@ -400,401 +482,11 @@ True(releaseGarageObjectMethod.Contains("InsertionTracker.ShouldReleaseObject", 
     Equal(0, releaseActionCount, "rejected stale release action cannot activate an object");
 }
 
-static bool TryManagedReleasePoll(
-    GarageCartridgeReconciliationAccess access,
-    GarageInsertionServerValue serverValue,
-    bool currentVisitNativeBagHeldObserved,
-    bool releasedThisVisit,
-    Action releaseAction)
-{
-    bool accepted = false;
-    access.TryRunCurrent(current =>
-    {
-        accepted = GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-            usesPhysicalVanillaEntrance: false,
-            serverValue,
-            currentVisitNativeBagHeldObserved);
-        if (accepted && !releasedThisVisit)
-            current.Release(releaseAction);
-    });
-    return accepted;
-}
 
-{
-    var access = new GarageCartridgeReconciliationAccess();
-    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
-    var nativeObservations = new GarageCartridgeInsertionTracker();
-    var releaseActionCount = 0;
-    True(access.TryBegin(439, () => { }), "Garage-entry ordering generation begins");
-    keeperVisit.SynchronizeResetEpoch(1);
 
-    False(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "Garage entry cannot release while the periodic native timer is not due and no current-visit sample exists");
-    Equal(0, releaseActionCount,
-        "the object remains closed before the first authoritative current-visit bag sample");
 
-    False(nativeObservations.Observe(
-            "Bloody Tears",
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            readable: true,
-            held: true,
-            inGarage: true,
-            releasedThisVisit: false),
-        "the first current-visit held sample records observation without insertion");
-    True(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "release becomes eligible only after the authoritative current-visit bag sample");
-    Equal(1, releaseActionCount, "post-sample release performs one real Unity action");
-    True(access.End(439, () => { }), "Garage-entry ordering generation ends");
-}
 
-{
-    var access = new GarageCartridgeReconciliationAccess();
-    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
-    var nativeObservations = new GarageCartridgeInsertionTracker();
-    var releaseActionCount = 0;
-    True(access.TryBegin(4391, () => { }), "absent-to-held release generation begins");
-    keeperVisit.SynchronizeResetEpoch(1);
 
-    False(nativeObservations.Observe(
-            "Bloody Tears",
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            readable: true,
-            held: false,
-            inGarage: true,
-            releasedThisVisit: false),
-        "an authoritative readable-absent sample records observation without insertion");
-    Equal(GarageNativeGrantDecision.ApplyBagItem,
-        GarageCartridgeInsertionPolicy.DecideGrant(
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            nativeBagReadable: true,
-            nativeBagHeld: false),
-        "AP native grant reconciliation may remain active after the authoritative absent sample");
-    False(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "an authoritative readable-absent sample cannot release a randomized Garage cartridge");
-    Equal(0, releaseActionCount,
-        "the randomized Garage object stays closed until held evidence exists");
-
-    False(nativeObservations.Observe(
-            "Bloody Tears",
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            readable: true,
-            held: true,
-            inGarage: true,
-            releasedThisVisit: false),
-        "a subsequent authoritative readable-held sample records history without insertion");
-    True(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "a subsequent authoritative held sample permits randomized Garage release");
-    Equal(1, releaseActionCount,
-        "the held-gated release performs one real Unity action");
-    True(access.End(4391, () => { }), "absent-to-held release generation ends");
-}
-
-{
-    var access = new GarageCartridgeReconciliationAccess();
-    var keeperVisit = new GarageCartridgeReleaseVisitCoordinator();
-    var nativeObservations = new GarageCartridgeInsertionTracker();
-    var releaseActionCount = 0;
-    True(access.TryBegin(440, () => { }), "save-reset release generation begins");
-    keeperVisit.SynchronizeResetEpoch(1);
-    False(nativeObservations.Observe(
-            "Bloody Tears",
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            readable: true,
-            held: true,
-            inGarage: true,
-            releasedThisVisit: false),
-        "the pre-release native sample records held state without insertion");
-    True(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "a current-visit authoritative sample permits the first real release");
-    Equal(1, releaseActionCount, "the first release performs its real Unity action once");
-
-    // A save/processor reset clears access-side evidence. The keeper-local marker
-    // must consume the same reset epoch before another poll can claim release.
-    nativeObservations.Reset();
-    keeperVisit.SynchronizeResetEpoch(2);
-    False(nativeObservations.Observe(
-            "Bloody Tears",
-            compatible: true,
-            apOwned: true,
-            usesPhysicalVanillaEntrance: false,
-            GarageInsertionServerValue.NotInserted,
-            readable: true,
-            held: true,
-            inGarage: true,
-            releasedThisVisit: false),
-        "the post-reset native sample is authoritative but is not release evidence");
-    True(keeperVisit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                nativeObservations.HasAuthoritativeHeldObservation("Bloody Tears"),
-                releasedThisVisit,
-                releaseAction),
-            () => releaseActionCount++,
-            () => { }),
-        "save or processor reset requires and permits a new real release after a fresh sample");
-    True(keeperVisit.WasReleased("Bloody Tears"),
-        "only the new real release rearms current-epoch release evidence");
-    Equal(2, releaseActionCount,
-        "post-reset polling cannot rearm release evidence without another real Unity action");
-    True(access.End(440, () => { }), "save-reset release generation ends");
-}
-
-{
-    const string song = "Superstar";
-    const string garageRoom = "GameRoom_27";
-    var keys = GarageCartridgeNativePolicy.RandomizedCartridges.ToDictionary(
-        cartridge => cartridge.Song,
-        cartridge => cartridge.ServerInsertionKey);
-    var store = new FakeGarageInsertionDataStore();
-    var coordinator = new GarageCartridgeInsertionCoordinator(keys);
-    var access = new GarageCartridgeReconciliationAccess();
-    var reconciliation = new GarageCartridgeReconciliationAdapter();
-    var visit = new GarageCartridgeReleaseVisitCoordinator();
-    var objectActive = false;
-    var releaseActions = 0;
-    var deactivations = 0;
-    var nativeBagGrantCallbacks = 0;
-    var durableInsertionConfirmations = 0;
-    coordinator.DurableInsertionConfirmed += _ => durableInsertionConfirmations++;
-    True(access.TryBegin(44, () => coordinator.BeginConnection(44, store)),
-        "inserted-availability production generation begins");
-    foreach (string key in store.ReadKeys.ToArray())
-    {
-        store.CompleteNextRead(
-            key,
-            string.Equals(key, keys[song], StringComparison.Ordinal)
-                ? GarageInsertionReadResult.KnownTrue
-                : GarageInsertionReadResult.KnownFalse);
-    }
-    await Eventually(() => coordinator.InitialSyncReady,
-        "inserted-availability production server synchronization completes");
-    Equal(GarageInsertionServerValue.Inserted, coordinator.GetServerValue(song),
-        "server-confirmed Superstar begins terminally inserted");
-    True(GarageCartridgeRoomPolicy.IsGarage(garageRoom),
-        "the availability regression runs in authoritative GameRoom_27 context");
-    visit.SynchronizeResetEpoch(reconciliation.ResetEpoch);
-
-    GarageCartridgeReconciliationResult ReconcileInserted(bool releasedThisVisit)
-    {
-        GarageCartridgeReconciliationResult result = default;
-        True(access.TryRunCurrent(current =>
-            current.Observe(() =>
-                result = reconciliation.Reconcile(
-                    song,
-                    compatible: true,
-                    apOwned: true,
-                    usesPhysicalVanillaEntrance: false,
-                    coordinator.GetServerValue(song),
-                    readable: true,
-                    held: false,
-                    inGarage: GarageCartridgeRoomPolicy.IsGarage(garageRoom),
-                    releasedThisVisit,
-                    current.Generation,
-                    coordinator.NoteInserted,
-                    value =>
-                    {
-                        nativeBagGrantCallbacks++;
-                        return new GarageNativeGrantSubmission(true, $"unexpected grant value={value}");
-                    }))),
-            "inserted Superstar reconciles through the active production generation");
-        return result;
-    }
-
-    bool PollGarageVisit()
-    {
-        if (!GarageCartridgeRoomPolicy.IsGarage(garageRoom))
-            return false;
-        return visit.Poll(
-            song,
-            (releasedThisVisit, releaseAction) =>
-            {
-                bool accepted = false;
-                access.TryRunCurrent(current =>
-                {
-                    accepted = reconciliation.ShouldReleaseObject(
-                        song,
-                        usesPhysicalVanillaEntrance: false,
-                        coordinator.GetServerValue(song),
-                        reconciliation.ResetEpoch);
-                    if (accepted && !releasedThisVisit)
-                        current.Release(releaseAction);
-                });
-                return accepted;
-            },
-            () =>
-            {
-                objectActive = true;
-                releaseActions++;
-            },
-            () =>
-            {
-                objectActive = false;
-                deactivations++;
-            });
-    }
-
-    GarageCartridgeReconciliationResult beforeRelease = ReconcileInserted(releasedThisVisit: false);
-    Equal(GarageNativeGrantDecision.AlreadyInserted, beforeRelease.GrantDecision,
-        "terminal inserted state suppresses native bag regrant while the bag is absent");
-    False(beforeRelease.RecordedInsertion,
-        "server-confirmed inserted state cannot record duplicate consumption");
-    Equal(0, nativeBagGrantCallbacks,
-        "inserted availability never invokes the native bag-grant callback");
-    Equal(0, store.WriteKeys.Count,
-        "loading inserted state and reconciling native absence queues no insertion write");
-
-    True(PollGarageVisit(),
-        "server-inserted AP-owned Superstar releases through the real Garage visit path");
-    True(objectActive,
-        "the inserted Superstar song object becomes playable in GameRoom_27");
-    True(visit.WasReleased(song),
-        "the inserted Superstar release records the current Garage visit");
-    True(PollGarageVisit(),
-        "later polling revalidates inserted Superstar availability in the same visit");
-    Equal(1, releaseActions,
-        "inserted Superstar performs exactly one real release action per Garage visit");
-    Equal(0, deactivations,
-        "valid inserted Superstar availability never deactivates its song object");
-
-    GarageCartridgeReconciliationResult afterRelease = ReconcileInserted(releasedThisVisit: true);
-    Equal(GarageNativeGrantDecision.AlreadyInserted, afterRelease.GrantDecision,
-        "release does not weaken terminal bag-regrant suppression");
-    False(afterRelease.RecordedInsertion,
-        "release cannot duplicate the already-terminal insertion event");
-    Equal(0, nativeBagGrantCallbacks,
-        "no reconciliation around inserted availability invokes a native bag grant");
-    Equal(0, store.WriteKeys.Count,
-        "inserted availability performs no duplicate storage write");
-    Equal(0, durableInsertionConfirmations,
-        "inserted availability emits no duplicate durable-insertion confirmation");
-    Equal(GarageInsertionServerValue.Inserted, coordinator.GetServerValue(song),
-        "availability leaves inserted state terminal and true");
-
-    reconciliation.ResetForRoomTransition(44);
-    visit.SynchronizeResetEpoch(reconciliation.ResetEpoch);
-    objectActive = false;
-    True(PollGarageVisit(),
-        "a later Garage visit releases server-inserted Superstar again for availability");
-    True(PollGarageVisit(),
-        "later-visit polling revalidates without repeating the release action");
-    Equal(2, releaseActions,
-        "each of two Garage visits performs one and only one release action");
-    Equal(0, nativeBagGrantCallbacks,
-        "later-visit availability still never invokes the native bag-grant callback");
-    Equal(0, store.WriteKeys.Count,
-        "later-visit availability still performs no insertion storage write");
-    Equal(GarageInsertionServerValue.Inserted, coordinator.GetServerValue(song),
-        "later-visit availability preserves terminal inserted state");
-    True(access.End(44, () => coordinator.EndConnection(44)),
-        "inserted-availability production generation ends cleanly");
-}
-
-{
-    var access = new GarageCartridgeReconciliationAccess();
-    var visit = new GarageCartridgeReleaseVisitCoordinator();
-    var objectActive = false;
-    var releaseNotifications = 0;
-    var deactivations = 0;
-    True(access.TryBegin(45, () => { }), "teardown revalidation visit generation begins");
-    True(visit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                true,
-                releasedThisVisit,
-                releaseAction),
-            () =>
-            {
-                objectActive = true;
-                releaseNotifications++;
-            },
-            () => deactivations++),
-        "pre-teardown authoritative poll releases the object");
-    True(access.End(45, () => { }), "teardown wins before the next active poll");
-
-    False(visit.Poll(
-            "Bloody Tears",
-            (releasedThisVisit, releaseAction) => TryManagedReleasePoll(
-                access,
-                GarageInsertionServerValue.NotInserted,
-                true,
-                releasedThisVisit,
-                releaseAction),
-            () => releaseNotifications++,
-            () =>
-            {
-                objectActive = false;
-                deactivations++;
-            }),
-        "next active poll rejects release after teardown");
-    False(objectActive, "teardown revalidation deactivates the formerly released object");
-    False(visit.WasReleased("Bloody Tears"), "teardown revalidation clears the keeper visit marker");
-    Equal(1, releaseNotifications, "teardown does not repeat release notification");
-    Equal(1, deactivations, "teardown revalidation deactivates exactly once");
-}
 
 {
     var lifecycle = new GenerationLeaseGate();
@@ -2569,3 +2261,4 @@ sealed class GarageInsertionSequenceHarness
                 Generation);
     }
 }
+

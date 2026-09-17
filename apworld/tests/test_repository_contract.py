@@ -14,6 +14,63 @@ VALIDATOR = REPO_ROOT / "tools" / "validate-repo.py"
 
 
 class RepositoryContractTests(unittest.TestCase):
+    def test_current_roots_post_level_one_presentation_remains_wired(self):
+        source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
+        for call in ("patched += PatchRootsPostLevelOnePresentation();",
+                     "nameof(GamePatches.RootsPostLevelOneSequencePrefix)",
+                     "RootsPostLevelOnePresentation.BeforeSequence(",
+                     "RootsPostLevelOnePresentation.RecordLevelPersisted(level);",
+                     "RootsPostLevelOnePresentation.NewSaveCreated();"):
+            self.assertIn(call, source)
+
+    def test_progression_callbacks_keep_sources_without_generic_property_dumps(self):
+        source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
+        self.assertNotIn("DumpAllSimpleMembers", source)
+        self.assertNotIn("Level5Discovery", source)
+        for call in ("QuestActionDiscovery.RecordProgressionRequest(req, flag)",
+                     "QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag)",
+                     "QuestActionDiscovery.SnapshotKnownFlags()",
+                     "SpecialModeDiscovery.ScanCurrentScene()",
+                     "GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag)",
+                     "WeedKillerRandomization.RecordGeckoSourceCollected(req, flag)",
+                     "PlantPipesRandomization.RecordFrogHippoSourceCollected(req, flag)",
+                     "RootsBucketRandomization.RecordSourceCollected(req, flag)"):
+            self.assertIn(call, source)
+
+    def test_area_access_client_cannot_restore_retired_per_level_gates(self):
+        source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
+        self.assertNotIn("RandomizeEarlyProgression", source)
+        self.assertNotIn("EarlySequenceBlockerPatches", source)
+        self.assertNotIn("NativeLevel4DoorBridge", source)
+        self.assertNotIn("NativeLevel6DoorBridge", source)
+        for number in range(2, 23):
+            self.assertNotIn(f'"Level {number} Access"', source)
+            self.assertNotIn(f"GrantLevel{number}Locally", source)
+            self.assertNotIn(f"DeveloperResetLevel{number}Access", source)
+        for call in ("AreaAccessPrototype.TryApplyItem(itemName)",
+                     "CassetteReceiptRandomization.TryApplyItem(itemName)",
+                     "NativeProgression.CapturePlayerSaveRequestProcessor(__instance)",
+                     "RootsBucketRandomization.ShouldSuppressVanillaGrant(req, flag)",
+                     "QuestActionDiscovery.SnapshotKnownFlags()"):
+            self.assertIn(call, source)
+
+    def test_retired_automatic_diagnostics_preserve_gameplay_and_acceptance_hooks(self):
+        source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
+        keeper = source.split("internal sealed class MusicLabDiagnosticKeeper", 1)[1].split(
+            "internal static class MusicLabDiscovery", 1)[0]
+        self.assertIn("MusicLabDiscovery.ReconcileCollectedRewardChests()", keeper)
+        self.assertIn("MusicLabDiscovery.PollGarageCartridgeSelection()", keeper)
+        for obsolete in ("PollCassetteStartState", "ResolveCassetteStartGetterMethods",
+                         "PollGarageCurrentSong", "BottomHudInputDiagnostic"):
+            self.assertNotIn(obsolete, source)
+        for required in ("_getCurrentSongMethod.Invoke(null, null)",
+                         "QuestActionDiscovery.SnapshotKnownFlags()",
+                         "QuestActionDiscovery.RecordProgressionRequest(",
+                         "QuestActionDiscovery.RecordProgressionFlagUpdated("):
+            self.assertIn(required, source)
+        self.assertFalse((REPO_ROOT / "client/CassetteCatalogDiagnostic.cs").exists())
+        self.assertFalse((REPO_ROOT / "client/CassetteCatalogDiagnosticPolicy.cs").exists())
+
     def assert_public_counts(self, normal, hard, expert, perfection):
         expected = f"Normal {normal} / Hard {hard} / Expert {expert} / Perfection {perfection}"
         for relative in (
@@ -27,22 +84,22 @@ class RepositoryContractTests(unittest.TestCase):
                 self.assertIn(expected, text)
 
     def test_public_docs_report_full_level_mapping_candidate_status(self):
-        self.assert_public_counts("121", "179", "237", "273")
+        self.assert_public_counts("125", "183", "241", "277")
         overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
-        self.assertIn("Client v0.70.0 / APWorld v0.24.0", overview)
+        self.assertIn("Client v0.73.9 / APWorld v0.26.0", overview)
         self.assertIn("special variants are diagnostic-only", overview.lower())
         self.assertIn("66 AP Stars remain inactive", overview)
 
         for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
-                self.assertIn("Client v0.70.0 / APWorld v0.24.0", text)
-                self.assertIn("schema 15", text.lower())
+                self.assertIn("Client v0.73.9 / APWorld v0.26.0", text)
+                self.assertIn("schema 17", text.lower())
                 self.assertIn("campaign-mapping schema 1", text.lower())
-                self.assertIn("fresh v0.24 seed", text.lower())
+                self.assertIn("fresh v0.26 seed", text.lower())
 
         testing = (REPO_ROOT / "docs/TESTING.md").read_text(encoding="utf-8")
-        self.assertIn("schema 15 / campaign-mapping schema 1", testing.lower())
+        self.assertIn("schema 17 / campaign-mapping schema 1", testing.lower())
         self.assertNotIn("The exact schema-14/point-schema-1 contract is required", testing)
 
     def run_validator(self, root=REPO_ROOT, *, validate_live=None):
@@ -83,11 +140,11 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.70.0", result.stdout)
-        self.assertIn("APWorld: v0.24.0", result.stdout)
-        self.assertIn('"world_version": "0.24.0"', result.stdout)
+        self.assertIn("Client:  v0.73.9", result.stdout)
+        self.assertIn("APWorld: v0.26.0", result.stdout)
+        self.assertIn('"world_version": "0.26.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
@@ -121,14 +178,50 @@ class RepositoryContractTests(unittest.TestCase):
             '  }',
             result.stdout,
         )
-        self.assertIn('"next_item_id": 187256156', result.stdout)
-        self.assertIn('"next_location_id": 187256292', result.stdout)
+        self.assertIn('"next_item_id": 187256164', result.stdout)
+        self.assertIn('"next_location_id": 187256298', result.stdout)
         self.assertIn('"campaign_location_count": 88', result.stdout)
         self.assertIn('"new_campaign_location_count": 81', result.stdout)
         self.assertIn('"active_location_totals": {', result.stdout)
         self.assertIn('"live_world_structure_checked": true', result.stdout)
-        self.assertIn('"Normal": 121', result.stdout)
-        self.assertIn('"Perfection": 273', result.stdout)
+        self.assertIn('"Normal": 125', result.stdout)
+        self.assertIn('"Perfection": 277', result.stdout)
+
+    def test_validator_rejects_quest_wire_contract_drift(self):
+        for path, before, after in (
+            ("apworld/scrc/items.py", '"Meoo": BASE_ID + 162', '"Meoo": BASE_ID + 164'),
+            ("apworld/scrc/__init__.py", '"Roots - Star Eater Fed": BASE_ID + 297', '"Roots - Star Eater Fed": BASE_ID + 298'),
+            ("apworld/scrc/__init__.py", '"quest_checks_schema": 1', '"quest_checks_schema": 2'),
+        ):
+            with self.subTest(mutation=before):
+                root = self.make_fixture()
+                source = root / path
+                original = source.read_text(encoding="utf-8")
+                self.assertIn(before, original)
+                source.write_text(original.replace(before, after), encoding="utf-8")
+                result = self.run_validator(root)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("quest", result.stderr.lower())
+
+    def test_validator_rejects_quest_filler_only_regression(self):
+        root = self.make_fixture()
+        source = root / "apworld/scrc/__init__.py"
+        original = source.read_text(encoding="utf-8")
+        before = 'if filler_only:'
+        self.assertIn(before, original)
+        source.write_text(original.replace(before, 'if False:'), encoding="utf-8")
+        result = self.run_validator(root, validate_live=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("quest", result.stderr.lower())
+
+    def test_validator_rejects_changed_character_quest_native_flag(self):
+        root = self.make_fixture()
+        items = root / "apworld/scrc/items.py"
+        items.write_text(items.read_text(encoding="utf-8").replace(
+            "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM", "WRONG_CHARACTER_UNLOCK_FLAG"), encoding="utf-8")
+        result = self.run_validator(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("character quest item contract changed", result.stderr)
 
     def test_validator_rejects_changed_base_id(self):
         for relative in (
@@ -369,7 +462,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.24.0")
+        self.assertEqual(manifest["world_version"], "0.26.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

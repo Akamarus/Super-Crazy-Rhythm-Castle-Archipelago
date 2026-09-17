@@ -16,7 +16,7 @@
 - Append `star-victory-quest-capacity-0.25` to the complete v0.24 implementation-version string; preserve every historical prefix.
 - Advance top-level slot-data `schema_version` from `15` to `16`; retain campaign-level-mapping schema `1` and add Star/Victory schema `1` plus quest-action schema `1`.
 - Preserve every existing item and location ID. The `Star` item remains permanent ID `187256118` and is generated exactly 66 times.
-- Do not allocate action-location IDs until the confirmation gate in Task 1 passes. Confirmed actions receive contiguous IDs beginning at `187256292`, in the approved candidate-ledger order, with no gaps and no IDs for Provisional, Rejected, or Deferred rows.
+- Do not allocate action-location IDs until the confirmation gate in Task 1 passes. IDs `187256292` and `187256293` are already reserved for inactive Lobby pickup sources; confirmed actions receive contiguous IDs beginning at `187256294`, in the approved candidate-ledger order, with no gaps and no IDs for Provisional, Rejected, or Deferred rows.
 - Freeze that first allocation permanently. A candidate confirmed after this milestone must append at the then-current safe frontier in a later plan; it must never be inserted into the initial sequence or renumber an existing location.
 - Require at least 11 confirmed, net-new, progression-safe action locations before enabling Stars. The target is 15; 15 confirmations produce Normal capacity 136 and four Stardust with the current 132 required items.
 - Preserve all 20 Music Lab Point instances and their exact `10 x 1`, `3 x 10`, `7 x 20` distribution, 180 total value, and final threshold 140.
@@ -73,7 +73,7 @@
 
 **Interfaces:**
 - Consumes: `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`, conversation `6a823d3d-f450-83ea-9ad2-890691a86084`, existing bounded progression-flag logging, and current area-access design.
-- Produces: a signed-off ledger with `Confirmed`, `Provisional`, `Rejected`, or `Deferred` for all 17 candidates; exact native identities and prerequisites for every Confirmed row; exact native HUD and gate hook identities; a hard pass/fail count.
+- Produces: a signed-off ledger with `Confirmed`, `Provisional`, `Rejected`, or `Deferred` for all 18 candidates; exact native identities and prerequisites for every Confirmed row; exact native HUD and gate hook identities; a hard pass/fail count.
 
 - [ ] **Step 1: Create the evidence record before changing production behavior**
 
@@ -97,6 +97,7 @@ tower_minim_mind_restoration
 tower_minim_heart_restoration
 tower_totem_completion
 royal_star_eater_feed
+roots_star_eater_feed
 ```
 
 For each row record: canonical location name, area, physical action, native event/flag, false-to-true semantics, repeat behavior, reload result, reconnect result, required Area Access, required items, required level/quest events, vanilla reward relationship, distinctness from neighboring checks, offline reconciliation strategy, evidence source, and status.
@@ -120,7 +121,7 @@ The accepted boundary must allow the same pure policy result to drive display an
 
 - [ ] **Step 4: Add bounded read-only diagnostics test-first**
 
-Add a failing pure-policy test that requires an allowlisted room/token and bounded one-time logging for the 17-candidate discovery queue. Run:
+Add a failing pure-policy test that requires an allowlisted room/token and bounded one-time logging for the 18-candidate discovery queue. Run:
 
 ```powershell
 dotnet run --project .\client\tests\QuestActions\QuestActions.Tests.csproj -c Release
@@ -165,19 +166,19 @@ This commit contains no production action checks, IDs, Star activation, or gate 
 
 - [ ] **Step 1: Write the catalog and ID tests**
 
-Test all 17 keys in Task 1's fixed order. Require every Confirmed entry to have a nonempty canonical name, area, native identity, evidence citation, and reconciliation mode, plus explicit item-prerequisite and event-prerequisite tuples (empty tuples are valid when the evidence proves no prerequisite). Reject duplicate keys, names, native identities, or IDs.
+Test all 18 keys in Task 1's fixed order. Require every Confirmed entry to have a nonempty canonical name, area, native identity, evidence citation, and reconciliation mode, plus explicit item-prerequisite and event-prerequisite tuples (empty tuples are valid when the evidence proves no prerequisite). Reject duplicate keys, names, native identities, or IDs.
 
 Use this allocation rule and assert it exactly:
 
 ```python
-FIRST_ACTION_LOCATION_ID = 187256292
+FIRST_ACTION_LOCATION_ID = 187256294
 CONFIRMED_ACTION_LOCATION_NAME_TO_ID = {
     action.location_name: FIRST_ACTION_LOCATION_ID + index
     for index, action in enumerate(CONFIRMED_ACTIONS)
 }
 ```
 
-Assert `len(CONFIRMED_ACTIONS) >= 11`. Assert all non-Confirmed candidates have no ID. Assert the next safe frontier is `187256292 + len(CONFIRMED_ACTIONS)`.
+Assert `len(CONFIRMED_ACTIONS) >= 11`. Assert all non-Confirmed candidates have no ID. Assert the next safe frontier is `187256294 + len(CONFIRMED_ACTIONS)`.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -961,7 +962,7 @@ Expected: all verification GREEN and the evidence record contains the user's exp
 ## Execution Checkpoints
 
 1. **Evidence gate:** stop if fewer than 11 action checks are Confirmed.
-2. **ID gate:** allocate only after evidence, contiguously from `187256292` in fixed ledger order.
+2. **ID gate:** allocate only after evidence, contiguously from `187256294` in fixed ledger order.
 3. **Automated gate:** all APWorld/client tests, validator, package build, and non-deploy client build pass.
 4. **Deployment gate:** exact hashes and targets receive explicit user approval.
 5. **Targeted gameplay gate:** Star sync, display/enforcement parity, action reconciliation, and replay-only Victory pass.

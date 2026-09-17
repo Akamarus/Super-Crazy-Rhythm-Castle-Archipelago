@@ -162,7 +162,7 @@ Contains("SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result
 string f5Wiring = SourceRegion(
     pluginSource,
     "if (Input.GetKeyDown(KeyCode.F5))",
-    "if (Input.GetKeyDown(KeyCode.F6))");
+    "internal static class IntroRoomToHubRedirectPatches");
 Contains("SpecialModeDiscovery.ScanCurrentScene();", f5Wiring,
     "plain F5 forwards to the special-mode scene scan");
 

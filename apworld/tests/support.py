@@ -72,6 +72,7 @@ def load_scrc_world():
     class ItemClassification:
         progression = "progression"
         filler = "filler"
+        useful = "useful"
 
     class Item:
         def __init__(self, name, classification, code, player):

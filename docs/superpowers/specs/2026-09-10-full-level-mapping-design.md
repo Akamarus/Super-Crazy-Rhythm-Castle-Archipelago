@@ -27,10 +27,10 @@ The canonical campaign order is:
 
 | Level | Player-facing name | Internal level | Area |
 | ---: | --- | --- | --- |
-| 1 | The Little Things | `Level_05` | Roots |
+| 1 | Light Humor | `Level_05` | Roots |
 | 2 | Pop Party | `Level_06` | Roots |
-| 3 | Jolt City | `Level_07` | Roots |
-| 4 | Quieres Bailar | `Level_08` | Roots |
+| 3 | The Megafying Ritual | `Level_07` | Roots |
+| 4 | DJ Eggplant | `Level_08` | Roots |
 | 5 | Lift Quest | `Level_09` | Roots |
 | 6 | Boring Room | `Level_02` | Lobby |
 | 7 | Demolition Training | `Level_19` | Lobby |
@@ -38,13 +38,13 @@ The canonical campaign order is:
 | 9 | School Trip | `Level_20` | Lobby |
 | 10 | The Vault | `Level_01` | Lobby |
 | 11 | Act 1: Flavor | `Level_12` | Meat Dimension |
-| 12 | Act 2 | `Level_15` | Meat Dimension |
-| 13 | Act 3 | `Level_22` | Meat Dimension |
-| 14 | Act 4 | `Level_23` | Meat Dimension |
+| 12 | Act 2: Sauce and Spice | `Level_15` | Meat Dimension |
+| 13 | Act 3: Montage | `Level_22` | Meat Dimension |
+| 14 | Act 4: Habanero | `Level_23` | Meat Dimension |
 | 15 | Central Mainframe | `Level_16` | Cell Tower |
-| 16 | Thief Prince | `Level_24` | Cell Tower |
+| 16 | The Thief Prince | `Level_24` | Cell Tower |
 | 17 | Cold Storage | `Level_21` | Lobby |
-| 18 | Darkness | `Level_03` | Tower of Fear |
+| 18 | The Darkness | `Level_03` | Tower of Fear |
 | 19 | Escape | `Level_13` | Tower of Fear |
 | 20 | Loneliness | `Level_25` | Tower of Fear |
 | 21 | Locker Room | `Level_14` | Royal Corridor |

@@ -174,7 +174,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertNotIn("Game Garage - Smooch - Platinum", names)
 
     def test_active_location_counts_are_exact(self):
-        expected = {0: 121, 1: 179, 2: 237, 3: 273}
+        expected = {0: 125, 1: 183, 2: 241, 3: 277}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 self.assertEqual(len(self.addressed_names(self.build_world(value))), count)
@@ -204,7 +204,7 @@ class WorldIntegrationTests(unittest.TestCase):
                     if name in self.campaign.CAMPAIGN_LOCATION_NAMES
                 }
 
-                self.assertEqual(data["schema_version"], 15)
+                self.assertEqual(data["schema_version"], 17)
                 self.assertEqual(data["campaign_level_mapping_schema"], 1)
                 self.assertEqual(
                     data["active_campaign_locations"],
@@ -226,8 +226,8 @@ class WorldIntegrationTests(unittest.TestCase):
             self.make_world(player=2, difficulty=1, multiworld=multiworld),
         ]
         expected = {
-            1: (121, ["Completion", "1 Star"], 0),
-            2: (179, ["Completion", "1 Star", "2 Stars"], 1),
+            1: (125, ["Completion", "1 Star"], 0),
+            2: (183, ["Completion", "1 Star", "2 Stars"], 1),
         }
         for world in worlds:
             world.generate_early()
@@ -250,7 +250,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 )
 
     def test_full_campaign_catalog_is_active_and_development_caches_are_reserved_only(self):
-        expected = {0: 121, 1: 179, 2: 237, 3: 273}
+        expected = {0: 125, 1: 183, 2: 241, 3: 277}
         for difficulty, count in expected.items():
             with self.subTest(difficulty=difficulty):
                 world = self.build_world(difficulty=difficulty)
@@ -303,7 +303,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assert_rejects_required_progression("Level 6 - Completion")
 
     def test_item_pool_matches_active_unfilled_capacity(self):
-        expected = {0: 121, 1: 179, 2: 237, 3: 273}
+        expected = {0: 125, 1: 183, 2: 241, 3: 277}
         for value, count in expected.items():
             with self.subTest(difficulty=value):
                 world = self.build_world(difficulty=value)
@@ -355,6 +355,37 @@ class WorldIntegrationTests(unittest.TestCase):
                     self.assertFalse(medal.access_rule(State(all_prerequisites)))
                     self.assertFalse(medal.access_rule(State(all_prerequisites | {wrong_item})))
                     self.assertTrue(medal.access_rule(State(all_prerequisites | {entry.item_name})))
+
+    def test_cassette_rewards_cannot_bypass_campaign_item_gates(self):
+        # Independent regression cases: these rewards were reachable without
+        # items needed to finish their native levels, allowing self-locks.
+        cases = {
+            "Badass": {"Roots Access", "Weed Killer", "Plant Pipes", "Hip Glasses", "Chicken Bucket"},
+            "Heavy Metal": {"Roots Access", "Weed Killer", "Plant Pipes", "Hip Glasses", "Chicken Bucket"},
+            "Gotta Get Up": {"Tower of Fear Access", "Plant Pipes"},
+            "Party Non Stop": {"Tower of Fear Access", "Hypno Pan"},
+            "Keep On Hustlin": {"Royal Corridor Access", "Violance", "Weed Killer", "Plant Pipes"},
+        }
+        for difficulty in range(4):
+            world = self.build_world(difficulty=difficulty)
+            for song, required in cases.items():
+                source = world.multiworld.get_location(f"Cassette Source - {song}", world.player)
+                with self.subTest(difficulty=difficulty, song=song, owned="all"):
+                    self.assertTrue(self.location_is_reachable(world, source, State(required)))
+                for missing in required:
+                    with self.subTest(difficulty=difficulty, song=song, missing=missing):
+                        self.assertFalse(self.location_is_reachable(world, source, State(required - {missing})))
+
+    def test_normal_cassette_routes_include_campaign_requirements(self):
+        for entry in self.catalog.CASSETTES:
+            for trigger in entry.triggers:
+                if trigger.variant != "LevelVariant_Default":
+                    continue
+                level = self.campaign.CAMPAIGN_LEVELS_BY_INTERNAL_ID[trigger.level]
+                expected = {f"{level.area} Access", *level.required_items}
+                actual = {req.item for req in trigger.requirements}
+                with self.subTest(song=entry.display_song, level=level.number):
+                    self.assertTrue(expected <= actual, f"Missing {expected - actual}")
 
     def test_cassette_sources_use_non_bunker_verified_routes_in_the_region_graph(self):
         world = self.build_world(difficulty=3)
@@ -499,7 +530,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(len(chest_objects), 7)
         self.assertEqual(len({id(chest) for chest in chest_objects}), 7)
 
-        expected_counts = {0: 121, 1: 179, 2: 237, 3: 273}
+        expected_counts = {0: 125, 1: 183, 2: 241, 3: 277}
         for difficulty, count in expected_counts.items():
             with self.subTest(difficulty=difficulty):
                 self.assertEqual(len(self.addressed_names(self.build_world(difficulty))), count)
@@ -556,7 +587,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(
             [world._active_unfilled_location_capacity() for world in worlds],
-            [121, 121],
+            [125, 125],
         )
 
         for world in worlds:
@@ -567,7 +598,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [121, 121],
+            [125, 125],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
@@ -713,17 +744,17 @@ class WorldIntegrationTests(unittest.TestCase):
             Counter(name for name in names if name.startswith("Music Lab Point")),
             Counter(self.module.MUSIC_LAB_POINT_POOL),
         )
-        self.assertEqual(names.count("Stardust"), 55)
+        self.assertEqual(names.count("Stardust"), 54)
 
     def test_slot_data_labels_active_difficulty_filtering(self):
         world = self.make_world()
         world.generate_early()
         data = world.fill_slot_data()
 
-        self.assertEqual(data["schema_version"], 15)
+        self.assertEqual(data["schema_version"], 17)
         self.assertEqual(
             data["implementation_version"],
-            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24",
+            "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))
         self.assertTrue(data["implementation_version"].startswith("area-routing-plant-pipes-0.15"))
@@ -752,7 +783,7 @@ class WorldIntegrationTests(unittest.TestCase):
             data["cassette_reused_locations"]["Quicksand"],
             "Music Lab - 32 Point Chest",
         )
-        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"))
         self.assertEqual(data["vanilla_game_garage_cartridge"], "Vampire Killer")
         self.assertEqual(
             data["vanilla_game_garage_cartridge_item"],
@@ -795,8 +826,8 @@ class WorldIntegrationTests(unittest.TestCase):
     def test_slot_data_publishes_the_strict_music_lab_point_contract(self):
         data = self.build_world().fill_slot_data()
 
-        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
-        self.assertEqual(data["schema_version"], 15)
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"))
+        self.assertEqual(data["schema_version"], 17)
         self.assertTrue(data["music_lab_points_enabled"])
         self.assertEqual(data["music_lab_points_schema"], 1)
         self.assertEqual(data["music_lab_point_items"], {
@@ -837,7 +868,7 @@ class WorldIntegrationTests(unittest.TestCase):
         self.assertEqual(data["difficulty"], {"value": 0, "name": "Normal"})
         self.assertEqual(data["starting_area_requested"], "Random")
         self.assertEqual(data["generated_star_requirements"], {})
-        self.assertEqual(data["active_location_count"], 121)
+        self.assertEqual(data["active_location_count"], 125)
         self.assertEqual(data["active_campaign_star_tiers"], [1])
         self.assertEqual(data["active_medal_tiers"], ["Bronze"])
 
@@ -877,10 +908,10 @@ class WorldIntegrationTests(unittest.TestCase):
         data = world.fill_slot_data()
 
         self.assertTrue(data["difficulty_filtering_active"])
-        self.assertEqual(data["active_location_count"], 179)
+        self.assertEqual(data["active_location_count"], 183)
         self.assertEqual(data["active_campaign_star_tiers"], [1, 2])
         self.assertEqual(data["active_medal_tiers"], ["Bronze", "Silver"])
-        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24"))
+        self.assertTrue(data["implementation_version"].endswith("full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"))
 
     def test_vampire_killer_is_vanilla_but_permanent_ids_are_preserved(self):
         world = self.build_world(difficulty=0)

@@ -12,6 +12,7 @@ class ItemPlanningTests(unittest.TestCase):
 
         class ItemClassification:
             progression = "progression"
+            useful = "useful"
 
         base_classes.ItemClassification = ItemClassification
         sys.modules["BaseClasses"] = base_classes

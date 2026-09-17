@@ -92,11 +92,13 @@ internal static class MusicLabPointContract
              Enumerable.Range(15, 7).Any(release => version.EndsWith($"-0.{release}", StringComparison.Ordinal)));
         if (recognizedLegacy)
             return new(MusicLabPointCompatibilityMode.LegacyNative, "recognized pre-v0.23 implementation");
-        if (!(version.EndsWith(ClaimSuffix, StringComparison.Ordinal) ||
+        bool expandedQuests = version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26", StringComparison.Ordinal);
+        bool characterItems = expandedQuests || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25", StringComparison.Ordinal);
+        if (!(characterItems || version.EndsWith(ClaimSuffix, StringComparison.Ordinal) ||
               version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal)))
             return Fail("implementation_version", "supported point implementation", version);
 
-        int expectedSchema = version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
+        int expectedSchema = expandedQuests ? 17 : characterItems ? 16 : version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion))
             return Fail("schema_version", expectedSchema, Actual(slotData, "schema_version"));
         if (schemaVersion != expectedSchema)

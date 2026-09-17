@@ -7,15 +7,15 @@ Use this guide for a focused public smoke test and for reporting a problem. For 
 
 Confirmed release blockers and their required acceptance tests are tracked in [NEXT_RELEASE_BUG_FIXES.md](NEXT_RELEASE_BUG_FIXES.md).
 
-Client v0.70.0 / APWorld v0.24.0 is an experimental full normal-campaign mapping candidate requiring broad manual acceptance. It retains AP Music Lab Points, all 30 cassette items and sources, the physical vanilla Vampire Killer pickup, and normal Game Garage entrance. Many individual level and cassette routes remain manual verification pending. Use a fresh v0.24 seed and fresh native save.
+Client v0.71.0 / APWorld v0.25.0 is an experimental full normal-campaign mapping candidate requiring broad manual acceptance. It retains AP Music Lab Points, all 30 cassette items and sources, the physical vanilla Vampire Killer pickup, and normal Game Garage entrance. Many individual level and cassette routes remain manual verification pending. Use a fresh v0.25 seed and fresh native save.
 
 ## Before starting a smoke test
 
 Use matching source builds and record the versions you actually use:
 
-- Client: `0.70.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.70.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
-- APWorld: `0.24.0`.
-- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24`.
+- Client: `0.71.0`; confirm `<GameDir>\BepInEx\LogOutput.log` contains `[SCRC-AP] v0.71.0 loading.` (the first `[SCRC-AP]` version line should identify this client version).
+- APWorld: `0.25.0`.
+- Slot-data implementation tag: `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25`.
 - A **freshly generated seed** after any APWorld replacement or update. Replacing an installed `.apworld` does not change an existing seed.
 - A **fresh in-game save** for the first pass, especially when testing first arrivals, story scenes, or source checks.
 - Record the AP YAML `difficulty`. Normal/Hard/Expert/Perfection address 121/179/237/273 locations. Inactive checks are absent, not filler; native REG/PRO remains player-controlled.
@@ -32,7 +32,7 @@ Run these steps in order where the seed allows. A received progression item may 
 3. **Travel to Roots.** Use the Roots phone. The first trip should not leave the player unable to move because of the displaced arrival cutscene. The current prototype also permits the Roots traversal baseline around the first area gate and Star Eater blockade.
 4. **Test Gecko's source.** Reach Gecko in Roots. The interaction should send `Roots - Gecko's Weed Killer`; it must not directly give the native Weed Killer reward. Look for `ROOTS WEED KILLER SOURCE AP CHECK` in the log.
 5. **Test delivered Weed Killer.** When the room delivers `Weed Killer`, verify that the client applies the native item and that vanilla progression can use it to open Level 3. The relevant confirmation is `ROOTS WEED KILLER NATIVE GRANT APPLIED`.
-6. **Test the Level 3 partial route.** Enter Level 3 and reach Frog/Hippo. Their interaction should send `Roots - Level 3 - Frog and Hippo`, without directly granting Plant Pipes. If `Plant Pipes` has not arrived yet, use the normal menu exit: leaving the level at this point is intentional and is the expected partial-level behavior.
+6. **Test the Level 3 partial route.** Enter Level 3 and reach Frog/Hippo. Their interaction should send `Roots - Level 3 - Plant Pipes Pickup`, without directly granting Plant Pipes. If `Plant Pipes` has not arrived yet, use the normal menu exit: leaving the level at this point is intentional and is the expected partial-level behavior.
 7. **Test Plant Pipes and Level 3 completion.** After the room delivers `Plant Pipes`, verify `ROOTS PLANT PIPES NATIVE GRANT APPLIED`, return to Level 3, and complete it. This confirms that Plant Pipes is required for completion, not for reaching the Frog/Hippo source.
 8. **Test one randomized Game Garage cartridge.** When you own one of the five AP cartridge items, insert its matching cartridge in Game Garage and complete that song at least at Bronze. Vampire Killer is native and not one of these five items. Confirm the matching `Game Garage - {song} - Bronze` check; a higher sticker should also satisfy its lower cumulative tiers.
 9. **Verify the live I Got Money source baseline.** On the fresh candidate save, clear default Level 2 once. Confirm the source check `Level 2 - Money Cassette` is sent and the native cassette award is suppressed. This proves the **source location**, not ownership of the cassette item placed there. Replay default Level 2 and confirm the source does not send again. The Bee Mode alias remains manual verification pending and is not part of this baseline.
@@ -62,7 +62,13 @@ The exact v0.23/schema-14 or v0.24/schema-15 contract plus point schema 1 is req
 
 ## Historical regression context
 
-The cases below document failures from older clients and retained regression tests. They are not all current v0.24 release blockers. If one reproduces on Client v0.70.0 with a fresh v0.24 seed/save, report it as a regression with the new artifact versions and logs.
+The cases below document failures from older clients and retained regression tests. They are not all current v0.24 release blockers. If one reproduces on Client v0.70.0 with a fresh v0.25 seed/save, report it as a regression with the new artifact versions and logs.
+
+### Current Game Garage loading-screen recurrence (2026-09-12)
+
+On the live v0.24 AP session using save slot 3 and Client v0.70.0 (installed DLL SHA-256 `AED471E7137AD43318CF80052B033B391D50E207D5C1658216E01C7A52C15797`), Game Garage again remained on the loading screen. Garage audio continued and the loading icon spun, but controls and menus did not work. The BepInEx log records the `GameRoom_27` transition, all six cartridge bindings resolving, and Vampire Killer **owned and active** while the other five cartridges were inactive. No subsequent Garage-ready/exit event or unhandled exception was logged. The Unity `Player.log` was empty. The game process remained responsive to Windows. The exact stalled native stage and cause are not yet known; do not classify this as the older zero-physical-cartridge case or claim the issue fixed. Preserve the current log and use a controlled repeat/vanilla comparison or targeted loading-state diagnostics before changing routing.
+
+The immediate same-seed/save/build repeat **loaded and exited Game Garage normally**. Its cartridge ownership and binding logs match the failed entry through the `MUSIC LAB GARAGE CARTRIDGE BASELINE READY` line; only the successful run subsequently recorded normal Garage activity and a `GameRoom_Hub6` exit. This establishes an intermittent loading/transition failure, not a deterministic cartridge-ownership mismatch. Both traces are preserved under `.superpowers/live-seed-91111/` as `garage-black-screen-2026-09-12.log` and `garage-success-repeat-2026-09-12.log`.
 
 ### Game Garage black screen with zero AP cartridges
 

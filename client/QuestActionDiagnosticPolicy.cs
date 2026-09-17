@@ -4,15 +4,25 @@ internal sealed class QuestActionDiagnosticPolicy
 {
     // Discovery hints only: matching a hint never establishes an action identity.
     // Bounds last for the process lifetime; repeated F5/reconnect/room entry cannot reset them.
-    private sealed record Candidate(string Key, string[] Rooms, string[] Tokens, string? Snapshot = null);
+    private sealed record Candidate(string Key, string[] Rooms, string[] Tokens, string? Snapshot = null, string[]? ExtraSnapshots = null);
     private static readonly string[] Lobby = { "GameRoom_Hub1A", "GameRoom_Hub1B" };
     private static readonly string[] Meat = { "GameRoom_Hub4" };
     private static readonly string[] Tower = { "GameRoom_Hub3" };
+    private static readonly string[] CharacterItemRooms = { "GameRoom_Hub6", "GameRoom_27" };
     private static readonly Candidate[] Candidates =
     {
+        // Exact enum names verified from installed Assembly-CSharp metadata.
+        // Collection is not assumed to mean insertion; snapshots establish that separately.
+        new("music_lab_old_game_data", CharacterItemRooms,
+            new[] { "CLEAN_HUB_MEMORY_CARD_TAKEN", "LEVEL_27_MEMORY_CARD_SCGMD", "MemoryCard" },
+            "CLEAN_HUB_MEMORY_CARD_TAKEN", new[] { "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM", "LEVEL_27_MEMORY_CARD_SCGMD_COLLECTED" }),
+        new("music_lab_car_battery", new[] { "GameRoom_Hub6", "GameRoom_27", "GameRoom_Hub1A", "GameRoom_Hub1B" },
+            new[] { "CLEAN_HUB_GHOST_CAT_BATTERY", "PLAYABLE_CHARACTER_UNLOCKED_MEOO", "GhostCat", "CatBattery" },
+            "CLEAN_HUB_GHOST_CAT_BATTERY_REWARDED", new[] { "CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM", "PLAYABLE_CHARACTER_UNLOCKED_MEOO" }),
         new("roots_combo_bucket_conversion", new[] { "GameRoom_Hub2", "GameRoom_09" }, new[] { "LEVEL_09_COMBO", "CHICKEN_BUCKET", "COMBO_BUCKET" }, "LEVEL_09_COMBO_ABILITY_EARNED"),
         new("lobby_important_letters_delivery", Lobby, new[] { "LETTER", "MAIL", "BEAN_TRUMPET" }),
-        new("lobby_plunger_hand_in", Lobby, new[] { "PLUNGER", "PLUNGERED" }),
+        new("lobby_plunger_hand_in", Lobby, new[] { "PLUNGER", "PLUNGERED" }, "LOBBY_HUB_MEAT_DOOR_BLOCKER_PLUNGERED"),
+        new("lobby_star_eater_feed", Lobby, new[] { "LOBBY_HUB_STAR_EATER", "StarEater" }, "LOBBY_HUB_STAR_EATER_FED"),
         new("lobby_fish_tears_delivery", Lobby, new[] { "FISH_TEARS", "FishTears" }, "LOBBY_HUB_FISH_TEARS_DEPOSITED"),
         new("meat_hypno_pan_creation", Meat, new[] { "PIED_PIPER_ABILITY", "FRYING_PAN", "WOODEN_SPOON", "Hypno" }),
         new("meat_act_1_music_delivery", Meat, new[] { "ACT_ONE_MUSIC" }, "MEAT_HUB_ACT_ONE_MUSIC_DONE"),
@@ -27,6 +37,7 @@ internal sealed class QuestActionDiagnosticPolicy
         new("tower_minim_heart_restoration", Tower, new[] { "MADNESS_HUB_HEART", "LONELINESS_AREA", "Loneliness", "Heart" }, "MADNESS_HUB_LONELINESS_AREA_COMPLETED"),
         new("tower_totem_completion", new[] { "GameRoom_Hub3", "GameRoom_Hub5C" }, new[] { "Totem", "OVERALL_PROGRESS_HELPED_SCARED_MINION", "SCARED_MINIM_WRAP_UP" }, "OVERALL_PROGRESS_HELPED_SCARED_MINION"),
         new("royal_star_eater_feed", new[] { "GameRoom_Hub7" }, new[] { "KING_CORRIDOR_STAR_EATER", "StarEater" }, "KING_CORRIDOR_STAR_EATER_FED"),
+        new("roots_star_eater_feed", new[] { "GameRoom_Hub2" }, new[] { "ROOTS_HUB_STAR_EATER_FED" }, "ROOTS_HUB_STAR_EATER_FED"),
     };
     private static readonly HashSet<string> Channels = new(StringComparer.Ordinal)
         { "event", "request", "snapshot", "scene", "result-applied", "result-persisted" };
@@ -83,7 +94,8 @@ internal sealed class QuestActionDiagnosticPolicy
     internal IReadOnlyList<string> BeginSnapshot(string room)
     {
         var flags = Candidates.Where(c => c.Rooms.Contains(room, StringComparer.Ordinal) && c.Snapshot != null)
-            .Select(c => c.Snapshot!).Distinct(StringComparer.Ordinal).ToArray();
+            .SelectMany(c => new[] { c.Snapshot! }.Concat(c.ExtraSnapshots ?? Array.Empty<string>()))
+            .Distinct(StringComparer.Ordinal).ToArray();
         if (flags.Length == 0) return flags;
         lock (_sync) return _snapshots.Add(room) ? flags : Array.Empty<string>();
     }

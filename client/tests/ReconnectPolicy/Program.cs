@@ -265,7 +265,9 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 Equal(true, pluginSource.Contains("Interlocked.CompareExchange(ref _reconnectWorkerActive, 1, 0)", StringComparison.Ordinal),
     "only one reconnect worker is scheduled");
-Equal(true, pluginSource.Contains("previous.Socket.DisconnectAsync()", StringComparison.Ordinal),
+Equal(true, pluginSource.Contains("ObserveDisconnect(previous)", StringComparison.Ordinal) &&
+    pluginSource.Contains("ConnectionAttemptDiagnostics.ObserveDisconnectAsync(", StringComparison.Ordinal) &&
+    pluginSource.Contains("session.Socket.DisconnectAsync,", StringComparison.Ordinal),
     "replaced session is disconnected");
 Equal(true, pluginSource.Contains("_processedReceivedItemIndexes.Add(itemIndex)", StringComparison.Ordinal),
     "replayed received items are deduplicated");

@@ -8,6 +8,8 @@ the routes are alternatives, never additional Archipelago locations.
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
+from .campaign_levels import CAMPAIGN_LEVELS_BY_INTERNAL_ID
+
 
 BASE_ID = 187256000
 
@@ -75,6 +77,14 @@ def _trigger(
     region: str,
     *requirements: str,
 ) -> CassetteTrigger:
+    # Normal cassette awards require finishing their campaign level. Keep
+    # route-specific restrictions, but never omit the shared campaign gates.
+    # Special variants retain their own routes and must not inherit normal gates.
+    if variant == "LevelVariant_Default":
+        campaign = CAMPAIGN_LEVELS_BY_INTERNAL_ID[level]
+        requirements = tuple(dict.fromkeys((
+            *requirements, f"{campaign.area} Access", *campaign.required_items,
+        )))
     return CassetteTrigger(level, variant, region, _requirements(*requirements))
 
 

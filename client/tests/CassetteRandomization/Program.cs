@@ -253,7 +253,7 @@ Equal(true, unityTick.Contains("identitySnapshot.ExpectedSlot", StringComparison
 string queueBoundary = ExtractMethods(receiptRandomizationSource, "internal static void QueueSaveBoundarySignal(").Single();
 Equal(true, queueBoundary.Contains("_saveIdentity.Signal(expectedSlot, kind, processor)", StringComparison.Ordinal), "every exact boundary kind records an authoritative managed signal");
 Equal(true, queueBoundary.Contains("_regularSavePointerJoinProbe.Cancel", StringComparison.Ordinal), "every exact boundary supersedes pending MostRecent generation");
-Equal(true, queueBoundary.Contains("kind is CassetteSaveBoundarySignalKind.Selection", StringComparison.Ordinal), "a new Selection clears retained target diagnostics while Creation and Build preserve the joined SaveData processor identity");
+Equal(true, queueBoundary.Contains("_joinedSaveDataRequestProcessor = saveDataProcessor != null", StringComparison.Ordinal) && queueBoundary.Contains("? saveDataProcessor : null", StringComparison.Ordinal), "each explicit boundary replaces the old owner with its own verified-type callback instance, or clears it");
 Equal(false, queueBoundary.Contains("if (kind == CassetteSaveBoundarySignalKind.Selection)", StringComparison.Ordinal), "Creation and Build cannot bypass stabilizer signaling");
 Equal(true, queueBoundary.Contains("_unityReconciliationRequested = false", StringComparison.Ordinal), "exact boundary callback suspends prior reconciliation immediately");
 Equal(true, queueBoundary.Contains("IsCompatiblePlayerSaveRequestProcessor(_playerSaveRequestProcessor)", StringComparison.Ordinal), "selection binds only a compatible preexisting processor");
@@ -296,6 +296,14 @@ foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitReque
     Equal(false, persistenceTargetLogger.Contains(prohibitedMutation, StringComparison.Ordinal), $"persistence target snapshot contains no mutation path {prohibitedMutation}");
 Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
 string persistenceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistence(").Single();
+int pollAdmission = persistenceStarter.IndexOf("_persistencePoll.TryBegin", StringComparison.Ordinal);
+int firstOwnershipRead = persistenceStarter.IndexOf("ReadCassettePostLoadDiagnostic", StringComparison.Ordinal);
+Equal(true, pollAdmission >= 0 && pollAdmission < firstOwnershipRead,
+    "deferred cassette waves must rate-limit ownership reads before entering native reflection");
+Equal(true, selectedMutationPostfix.Contains("QueueSaveBoundarySignal(slot, kind, __instance)", StringComparison.Ordinal),
+    "explicit save creation/selection retains its native save-data processor for ownership validation");
+Equal(true, buildPostfix.Contains("CassetteSaveBoundarySignalKind.Build, __instance", StringComparison.Ordinal),
+    "save rebuild retains the native save-data processor without doing native work in its callback");
 int persistencePlanIndex = persistenceStarter.IndexOf("TryPreparePointerBoundPersistenceInvocation", StringComparison.Ordinal);
 int persistenceTokenIndex = persistenceStarter.IndexOf("_productionPersistence.TryInvoke", StringComparison.Ordinal);
 int persistenceInvokeIndex = persistenceStarter.IndexOf("InvokePointerBoundPersistence", StringComparison.Ordinal);
@@ -1023,6 +1031,22 @@ Equal(true, oneShotCompatibilityRuntime.TryPrepare(
 Equal(true, nextEpochCompatibilityAttempt.Id > oneShotCompatibilityAttempt.Id,
     "attempt identifiers remain monotonic across epoch boundaries");
 Console.WriteLine("PASS: pointer_bound_persistence_runtime_supports_sequential_verified_batches");
+
+var deferredPollSchedule = new CassettePersistencePollScheduler();
+Equal(true, deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.Zero), "new wave probes immediately");
+int pollAdmissions = 0;
+for (int frame = 0; frame < 1000; frame++)
+    if (deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.FromMilliseconds(1))) pollAdmissions++;
+Equal(1, pollAdmissions, "1000 render ticks produce only one deferred native retry per second");
+Equal(false, deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.Zero), "retry does not burst in the same frame");
+Equal(false, deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.FromSeconds(-1)), "negative elapsed cannot advance retry");
+Equal(true, deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.FromHours(1)), "long stalls permit one retry");
+Equal(false, deferredPollSchedule.TryBegin(sequentialIdentity, 1, TimeSpan.Zero), "long stalls do not accumulate catch-up retries");
+Equal(true, deferredPollSchedule.TryBegin(sequentialIdentity, 2, TimeSpan.Zero), "next immutable wave is immediately eligible");
+Equal(true, deferredPollSchedule.TryBegin(sequentialIdentity with { Epoch = sequentialIdentity.Epoch + 1 }, 2, TimeSpan.Zero), "new save identity does not inherit old retry delay");
+Equal(false, deferredPollSchedule.TryBegin(sequentialIdentity with { Pointer = 0 }, 3, TimeSpan.FromSeconds(5)), "unknown save pointer cannot admit ownership work");
+Equal(false, deferredPollSchedule.TryBegin(sequentialIdentity, 0, TimeSpan.FromSeconds(5)), "missing wave cannot admit ownership work");
+Console.WriteLine("PASS: deferred_persistence_native_reads_are_rate_limited_without_losing_new_wave_readiness");
 
 int productionReconciliationRequests = 0;
 int productionAdapterAdmissions = 0;

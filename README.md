@@ -7,15 +7,27 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## TL;DR
 
-- Latest testing prerelease: APWorld v0.24.0 and Client v0.70.0 map all 22 normal campaign identities. Use the matching components only with a fresh v0.24 seed and fresh in-game save.
-- Active normal checks are separate Completion and cumulative 1-Star/2-Star/3-Star locations: Normal 121 / Hard 179 / Expert 237 / Perfection 273 addressed locations.
+- Current testing release: **Client v0.73.9 / APWorld v0.26.0**, schema 17. New quests require a fresh v0.26 seed and native save; their gameplay acceptance remains pending. Garage behavior is accepted on the retained schema-16 seed.
+- Active normal checks are separate Completion and cumulative 1-Star/2-Star/3-Star locations: Normal 125 / Hard 183 / Expert 241 / Perfection 277 addressed locations.
 - Not active yet: all 66 AP Stars, generated Star gates, final Victory, production special-mode locations, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
 - Testers can download both matching components from the latest GitHub prerelease or build them from source, then generate a fresh seed with the matching APWorld.
 - Start with the installation guide, then use the testing/reporting checklist when something breaks.
 
-[Latest testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.24.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
+[Latest testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.26.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
 
-## Latest testing release — v0.24.0-dev
+## Testing release v0.26.0-dev / Client v0.73.9
+
+This experimental prerelease adds randomized Old Game Data and Car Battery, in-game item popups and F6 history, corrected location names and cassette prerequisites, performance/reconnect repairs, and native Game Garage cartridge insertion and medal-preview fixes. It also includes new Plunger/Meoo/Maniac AP rewards and four quest checks awaiting fresh-seed gameplay acceptance.
+
+Use Client v0.73.9 and APWorld v0.26.0 together with a fresh v0.26 seed and fresh native save for the new quest features. Existing schema-16 seeds retain their earlier behavior; updating files does not add checks to an old seed. Connect to the AP seed before loading the save.
+
+Gameplay confirmed: Old Game Data/Car Battery hand-ins and persistence under schema 16, improved performance, local cold-start reconnect, and Bloody Tears/Gradius Garage insertion, availability and medal previews. v0.73.9 cleanup passed the Garage entry/exit check. New schema-17 quest flows and true cross-player notifications still need live testing. AP Stars, generated Star gates, final Victory and production Bee/Devil checks remain inactive.
+
+New checks: Lobby - Plunger Pickup; Lobby - Car Battery Hand-In; Game Garage - Old Game Data Hand-In; Roots - Star Eater Fed. Active totals: Normal 125 / Hard 183 / Expert 241 / Perfection 277. Plunger Pickup and Roots Star Eater Fed are Stardust-only pending fuller prerequisite modeling; feeding still checks three native stars without spending them.
+
+Next: validate new quest rewards/checks on a fresh seed, including early receipt and offline/reconnect isolation, then continue remaining quest logic and Star/Victory work.
+
+## Previous testing release — v0.24.0-dev
 
 - Added the complete normal campaign map: all 22 identities, four permanent candidate location names per level, and active difficulty filtering.
 - Development Caches are retired from new seeds; their historical IDs remain reserved. The next safe item/location frontiers are `187256156` / `187256292`.
@@ -32,7 +44,7 @@ See the full [changelog](CHANGELOG.md) and [full-level-mapping acceptance record
 2. Generation foundation — options, deterministic Star previews, active difficulty filtering, and the four-seed filtering generator matrix are complete; live Star placement and client Star gates still wait for broader location capacity and solver logic.
 3. Native discovery — remaining areas, cassette sources, quest items, characters, multiplayer/versus behavior.
 4. Full randomizer logic — the full normal campaign map is implemented; next come broader gameplay acceptance, AP Stars, enforced level requirements, the final item pool, and Level 22 victory.
-5. Player features — verified local co-op, integrated AP log, DeathLink, then low-priority online co-op.
+5. Player features — verified local co-op, cross-player notification testing, DeathLink, then low-priority online co-op.
 
 See the [detailed roadmap](docs/ROADMAP.md) for status tables and acceptance gates.
 
@@ -43,7 +55,7 @@ This repository contains both halves of the implementation:
 - `docs/` — progression design, permanent network-ID registry, testing notes, and repository workflow.
 - `tools/` — local validation and APWorld packaging helpers.
 
-## Current baseline
+## Published campaign baseline (historical v0.24)
 
 | Component | Version | Status |
 | --- | --- | --- |
@@ -116,6 +128,28 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## Current development direction
 
-The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls the normal campaign map: Normal 121 / Hard 179 / Expert 237 / Perfection 273. All 22 normal identities are mapped, but broad campaign replay is deferred and unplayed mappings remain manual-testing pending. Bee/Devil diagnostics are observation-only. APWorld v0.24.0 requires a fresh seed/save for acceptance.
+The default random starter conservatively samples only validated starts, currently Roots. AP performance difficulty controls the normal campaign map: Normal 125 / Hard 183 / Expert 241 / Perfection 277. All 22 normal identities are mapped, but broad campaign replay is deferred and unplayed mappings remain manual-testing pending. Bee/Devil diagnostics are observation-only. APWorld v0.26.0 requires a fresh seed/save for new-feature acceptance.
 
 See [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md) for the full living project guide and [`docs/PROGRESSION.md`](docs/PROGRESSION.md) for the concise progression logic model.
+
+
+## In-game item notifications (client v0.72.0 candidate)
+
+Received items and server-confirmed sends appear in six-second upper-right popups,
+with at most three visible at once. Press **F6** to open/close the recent-item
+history (up to 100 entries); Escape also closes it. Gameplay continues while the
+history is open. The panel lists item, sender/recipient, and source location.
+Own rewards appear once as **Found**. Initial received history loads silently;
+reconnects within the running client announce only newly received items, including
+offline arrivals. History clears on a different seed/team/slot and is not saved to
+disk; historical outgoing sends are not reconstructed after relaunch.
+
+Set `Notifications.ShowItemPopups=false` to disable popups while retaining F6 history.
+The feature is local UI only and does not grant items or send checks. The client
+honors the connected seed's old/new Plant Pipes source name, so the notification
+update can be tested on the retained seed without resetting saves. The renamed
+Plant Pipes check appears in newly generated seeds using the updated APWorld.
+
+Build/automated verification does not establish runtime visual acceptance. Check
+readability, placement, F6 history, self rewards, remote sends/receipts, and
+reconnect behavior in game before accepting this candidate.

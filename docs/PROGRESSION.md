@@ -1,10 +1,27 @@
 # Progression Design
 
+## Current quest-check candidate (v0.26)
+
+Client v0.73.0 / APWorld v0.26.0 is an uninstalled schema-17 candidate. New quests
+require a fresh v0.26 seed and fresh native save; schema-16 seeds retain prior
+behavior. Current counts are Normal 125 / Hard 183 / Expert 241 / Perfection 277.
+
+- Lobby Access plus Car Battery reaches `Lobby - Car Battery Hand-In`.
+- Existing Garage access plus Old Game Data reaches `Game Garage - Old Game Data Hand-In`.
+- Both hand-ins may hold progression; their inputs are progression items. Meoo and Maniac are independent useful rewards, never prerequisites for hand-in.
+- `Lobby - Plunger Pickup` is Lobby-bound and Stardust-only pending phone/button-route modeling. Plunger is useful; no Vault/cassette gate is inferred.
+- `Roots - Star Eater Fed` is Roots-bound and Stardust-only. Its native three earned-star threshold remains intact but is not modeled by AP logic. The logical region alone does not prove gameplay reachability.
+
+Next safe item/location IDs are `187256164` / `187256298`. All AP Stars, generated
+Star gates, and final Star Victory remain inactive. See the
+[candidate acceptance record](testing/2026-09-16-quest-checks-candidate.md).
+Historical design and acceptance notes below describe their original milestones.
+
 Historical gameplay and native mapping evidence from the full discovery playthrough is indexed in `docs/HISTORICAL_GAMEPLAY_EVIDENCE.md`. Use that evidence as a starting point, while treating its former individual-level access design as superseded by this document's Area Access model.
 
 ## Full normal-campaign mapping candidate (v0.24)
 
-Client v0.70.0 / APWorld v0.24.0 is experimental and requires manual acceptance with a fresh v0.24 seed and fresh native save. All 22 normal campaign identities are mapped to separate Completion and cumulative Star checks. The exact addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273. Development Caches are retired from new seeds but their historical IDs remain reserved; the safe item/location frontiers are `187256156` / `187256292`.
+Client v0.70.0 / APWorld v0.24.0 is experimental and requires manual acceptance with a fresh v0.24 seed and fresh native save. All 22 normal campaign identities are mapped to separate Completion and cumulative Star checks. The exact addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273. Development Caches are retired from new seeds but their historical IDs remain reserved; the pre-v0.26 safe item/location frontiers, including v0.25 character items and inactive Lobby reservations, were `187256161` / `187256294`.
 
 Normal results send Completion and every newly earned enabled cumulative Star tier. A first 2-Star result therefore sends Completion, 1 Star, and 2 Stars when those checks are present; an improvement sends only the remaining unchecked tier. Bee and Devil variants are diagnostic-only and cannot send normal checks or special locations. All 66 AP Stars, generated Star gates, and final Victory remain inactive. The candidate does not claim gameplay verification for every mapped level: broad replay is deferred and unplayed mappings remain manual-testing pending.
 
@@ -81,7 +98,7 @@ Level 3 becomes enterable
     ↓
 Frog + Hippo source inside Level 3
     ↓ AP location
-Roots - Level 3 - Frog and Hippo
+Roots - Level 3 - Plant Pipes Pickup
     ↓
 Plant Pipes [randomized AP item]
     ↓ native WEED_KILLER_ABILITY
@@ -104,7 +121,7 @@ post-Level-3 / Level 4 progression
 - Vanilla source: Frog and Hippo inside Level 3.
 - Native usable ability: `WEED_KILLER_ABILITY`.
 - Native source/story marker: `LEVEL_07_WK_ABILITY_EARNED`.
-- AP location: `Roots - Level 3 - Frog and Hippo`.
+- AP location: `Roots - Level 3 - Plant Pipes Pickup`.
 - AP item: `Plant Pipes`.
 
 The source marker remains vanilla while the actual ability grant is suppressed. Therefore the Frog/Hippo check is reachable before Plant Pipes is owned.
@@ -166,3 +183,29 @@ In particular, the old implementation used a separate `Level 5 Access` item to g
 The approved source/item/trade model is implemented in APWorld v0.17 and client v0.67.60, pending fresh-save gameplay acceptance. `Hip Glasses` is item `187256119`, `Chicken Bucket` is item `187256120`, the Level 4 source is location `187256180`, and the Bucket Minion trade is location `187256181`.
 
 The client suppresses only the two native inventory grants. It retains Level 4's source marker and all normal trade, blockade, King-chat, Lift Quest, completion, Combo Bucket, and Lobby-transition behavior. Received-item history restores an owned item only while its durable consumed marker is false; reconnecting after the trade or conversion must not resurrect consumed inventory. Incompatible seeds and unsynchronized saves fail closed to vanilla behavior.
+
+
+## Character quest item candidate (2026-09-15)
+
+Client v0.71.0 / APWorld v0.25.0, schema 16, adds Old Game Data and Car Battery
+as useful randomized inventory items, replacing two Stardust. Their existing
+5-point and 20-point Music Lab chest checks are reused; character rewards remain
+vanilla and are not new checks. Normal hand-ins unlock Maniac in Game Garage and
+Meoo in the Lobby. Received items are queued from complete authenticated history,
+then reconciled on the Unity thread only against the proven selected save.
+Maniac's native saved character-unlock predicate and Meoo's unlock flag prevent
+consumed items being re-granted. Unknown native state defers the grant.
+
+A newly generated v0.25 seed is required to test these items. Existing v0.24 seeds
+retain vanilla item behavior. Validate chest grants suppressed with checks intact,
+received inventory, both hand-ins, reload/reconnect/offline and new-save isolation
+before gameplay acceptance. No live deployment or new-seed replacement is implied.
+
+### Cassette completion prerequisites (2026-09-16 repair)
+
+Every normal-level cassette award inherits its campaign level's area and item
+requirements, plus any cassette-route-specific restrictions. This prevents an
+ability from being placed on a completion reward behind that same ability.
+Alternative native award routes remain alternatives; special variants retain
+separate prerequisites. The Level 3 in-level Plant Pipes pickup is intentionally
+separate and still requires Weed Killer without requiring Plant Pipes.

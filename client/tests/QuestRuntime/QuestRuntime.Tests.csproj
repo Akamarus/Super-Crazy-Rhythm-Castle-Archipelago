@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+<ItemGroup><PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+<Compile Include="../../QuestChecks.cs" Link="QuestChecks.cs" />
+<Compile Include="../../QuestChecksPolicy.cs" Link="QuestChecksPolicy.cs" />
+<Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs" />
+<Compile Include="../../CharacterQuestItems.cs" Link="CharacterQuestItems.cs" />
+<Compile Include="../../CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
+</ItemGroup></Project>

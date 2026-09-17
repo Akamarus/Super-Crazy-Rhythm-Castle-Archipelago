@@ -22,10 +22,18 @@ from .campaign_levels import (
     CAMPAIGN_LOCATION_TIERS,
 )
 from .items import (
+    QUEST_ITEM_NAME_TO_ID,
+    QUEST_ITEM_CLASSIFICATIONS,
+    CHARACTER_QUEST_ITEM_NAME_TO_ID,
+    CHARACTER_QUEST_ITEM_CLASSIFICATIONS,
+    CHARACTER_QUEST_ITEMS,
+    CHARACTER_QUEST_ITEM_LOCATIONS,
     CASSETTE_ITEM_CLASSIFICATIONS,
     CASSETTE_ITEM_NAME_TO_ID,
     MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS,
     MUSIC_LAB_POINT_ITEM_NAME_TO_ID,
+    LOBBY_ITEM_CLASSIFICATIONS,
+    LOBBY_ITEM_NAME_TO_ID,
     NEW_ITEM_CLASSIFICATIONS,
     NEW_ITEM_NAME_TO_ID,
 )
@@ -226,7 +234,7 @@ LOCATION_NAME_TO_ID[ROOTS_GECKO_WEED_KILLER] = BASE_ID + 178
 # v0.15: Frog and Hippo's Level 3 Plant Pipes source becomes an AP check.
 # The source is reachable after entering Level 3 with Weed Killer; Plant Pipes
 # itself is only required to complete Level 3, not to reach this check.
-ROOTS_LEVEL3_FROG_HIPPO = "Roots - Level 3 - Frog and Hippo"
+ROOTS_LEVEL3_FROG_HIPPO = "Roots - Level 3 - Plant Pipes Pickup"
 LOCATION_NAME_TO_ID[ROOTS_LEVEL3_FROG_HIPPO] = BASE_ID + 179
 
 # v0.17: Level 4's Hip Glasses reward and the Bucket Minion trade become AP checks.
@@ -243,6 +251,21 @@ LOCATION_NAME_TO_ID[LEVEL_2_MONEY_CASSETTE_SOURCE] = BASE_ID + 186
 # their established locations and never receive duplicate checks.
 LOCATION_NAME_TO_ID.update(NEW_CASSETTE_SOURCE_IDS)
 validate_cassette_catalog(CASSETTE_SONGS, LOCATION_NAME_TO_ID)
+
+LOBBY_LETTERS_PICKUP = "Lobby - Important Letters Pickup"
+LOBBY_BEAN_TRUMPET_AWARD = "Lobby - Bean Trumpet Award"
+LOCATION_NAME_TO_ID[LOBBY_LETTERS_PICKUP] = BASE_ID + 292
+LOCATION_NAME_TO_ID[LOBBY_BEAN_TRUMPET_AWARD] = BASE_ID + 293
+
+# The Plunger pickup route and native Star Eater threshold remain incomplete
+# solver models. Their sources are Stardust-only until independently verified.
+QUEST_LOCATION_NAME_TO_ID = {
+    "Lobby - Plunger Pickup": BASE_ID + 294,
+    "Lobby - Car Battery Hand-In": BASE_ID + 295,
+    "Game Garage - Old Game Data Hand-In": BASE_ID + 296,
+    "Roots - Star Eater Fed": BASE_ID + 297,
+}
+LOCATION_NAME_TO_ID.update(QUEST_LOCATION_NAME_TO_ID)
 
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
@@ -291,6 +314,9 @@ ITEM_NAME_TO_ID = {
     **NEW_ITEM_NAME_TO_ID,
     **CASSETTE_ITEM_NAME_TO_ID,
     **MUSIC_LAB_POINT_ITEM_NAME_TO_ID,
+    **LOBBY_ITEM_NAME_TO_ID,
+    **CHARACTER_QUEST_ITEM_NAME_TO_ID,
+    **QUEST_ITEM_NAME_TO_ID,
 }
 
 HIP_GLASSES_ITEM = "Hip Glasses"
@@ -309,6 +335,9 @@ ITEM_CLASSIFICATIONS = {
     **NEW_ITEM_CLASSIFICATIONS,
     **CASSETTE_ITEM_CLASSIFICATIONS,
     **MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS,
+    **LOBBY_ITEM_CLASSIFICATIONS,
+    **CHARACTER_QUEST_ITEM_CLASSIFICATIONS,
+    **QUEST_ITEM_CLASSIFICATIONS,
 }
 
 
@@ -380,6 +409,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and name not in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD)
                 and not name.startswith("Development Cache ")
             )
         )
@@ -483,6 +513,29 @@ class SCRCWorld(World):
             )
         )
         roots.locations.append(bucket_trade_event)
+
+        # Reserve both source IDs, but do not instantiate them until their
+        # collected marker can be bound safely to the active AP seed/save.
+        for name in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD):
+            if is_active(name):
+                source = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], lobby)
+                set_rule(source, lambda state: state.has("Lobby Access", self.player))
+                lobby.locations.append(source)
+
+        for name, parent, requirements, filler_only in (
+            ("Lobby - Plunger Pickup", lobby, ("Lobby Access",), True),
+            ("Lobby - Car Battery Hand-In", lobby, ("Car Battery",), False),
+            ("Game Garage - Old Game Data Hand-In", game_garage, ("Old Game Data",), False),
+            ("Roots - Star Eater Fed", roots, (), True),
+        ):
+            if not is_active(name):
+                continue
+            location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], parent)
+            set_rule(location, lambda state, required=requirements: all(
+                state.has(item, self.player) for item in required))
+            if filler_only:
+                location.item_rule = lambda item: item.name == "Stardust"
+            parent.locations.append(location)
 
         combo_bucket_event = SCRCLocation(
             self.player,
@@ -743,6 +796,9 @@ class SCRCWorld(World):
         progression_items.append(VIOLANCE_ITEM_NAME)
         progression_items.extend(entry.item_name for entry in CASSETTES)
         progression_items.extend(MUSIC_LAB_POINT_POOL)
+        # Character hand-in inputs and randomized quest rewards each appear once.
+        progression_items.extend(CHARACTER_QUEST_ITEM_NAME_TO_ID)
+        progression_items.extend(QUEST_ITEM_NAME_TO_ID)
 
         capacity = self._active_unfilled_location_capacity()
         required_count = len(progression_items)
@@ -808,6 +864,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
+                and name not in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD)
                 and not name.startswith("Development Cache ")
             )
         )
@@ -841,9 +898,16 @@ class SCRCWorld(World):
             if any(name.endswith(f" - {tier}") for name in active_campaign_locations)
         ]
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 15,
+            "schema_version": 17,
+            "quest_checks_schema": 1,
+            "quest_items": dict(QUEST_ITEM_NAME_TO_ID),
+            "quest_locations": dict(QUEST_LOCATION_NAME_TO_ID),
+            "character_quest_item_schema": 1,
+            "randomize_character_quest_items": True,
+            "character_quest_items": dict(CHARACTER_QUEST_ITEMS),
+            "character_quest_item_locations": dict(CHARACTER_QUEST_ITEM_LOCATIONS),
             "required_stars": required_stars,
             "difficulty": {
                 "value": difficulty_value,
@@ -906,6 +970,16 @@ class SCRCWorld(World):
             "plant_pipes_native_source_marker_flag": "LEVEL_07_WK_ABILITY_EARNED",
             "plant_pipes_source_room": "GameRoom_07",
             "randomize_hip_glasses_chicken_bucket": True,
+            "randomize_lobby_letters_bean_trumpet": False,
+            "lobby_letters_item": "Important Letters",
+            "lobby_bean_trumpet_item": "Bean Trumpet",
+            "lobby_letters_source_location": LOBBY_LETTERS_PICKUP,
+            "lobby_bean_trumpet_source_location": LOBBY_BEAN_TRUMPET_AWARD,
+            "lobby_letters_native_flag": "LOBBY_HUB_MENIAL_TASK_ITEM",
+            "lobby_letters_collected_flag": "LOBBY_HUB_MENIAL_TASK_ITEM_COLLECTED",
+            "lobby_letters_deposited_flag": "LOBBY_HUB_MENIAL_TASK_ITEM_DEPOSITED",
+            "lobby_bean_trumpet_native_flag": "BEAN_TRUMPET_ABILITY",
+            "randomize_demolition_certificate": False,
             "randomize_level_2_money_cassette": True,
             "cassette_schema": 1,
             "full_cassette_randomization": True,

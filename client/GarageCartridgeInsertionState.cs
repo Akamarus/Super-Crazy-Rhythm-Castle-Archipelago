@@ -44,6 +44,14 @@ internal readonly record struct GarageInsertionObservation(
 
 internal static class GarageCartridgeInsertionPolicy
 {
+    internal static bool ShouldRecordDoorConsumption(
+        bool compatible, bool apOwned, bool physicalVanilla,
+        GarageInsertionServerValue serverValue, bool beforeReadable, bool beforeHeld,
+        bool afterReadable, bool afterHeld, bool identityUnchanged) =>
+        compatible && apOwned && !physicalVanilla && identityUnchanged &&
+        serverValue == GarageInsertionServerValue.NotInserted &&
+        beforeReadable && beforeHeld && afterReadable && !afterHeld;
+
     internal static GarageNativeGrantDecision DecideGrant(
         bool compatible,
         bool apOwned,
@@ -679,51 +687,4 @@ internal sealed class GarageCartridgeReconciliationLease
     }
 
     internal void Invalidate() => _active = false;
-}
-
-internal sealed class GarageCartridgeReleaseVisitCoordinator
-{
-    private readonly HashSet<string> _released = new(StringComparer.OrdinalIgnoreCase);
-    private long _resetEpoch = long.MinValue;
-
-    internal void SynchronizeResetEpoch(long resetEpoch)
-    {
-        if (_resetEpoch == resetEpoch)
-            return;
-
-        _released.Clear();
-        _resetEpoch = resetEpoch;
-    }
-
-    internal bool Poll(
-        string song,
-        Func<bool, Action, bool> tryRelease,
-        Action releaseAction,
-        Action deactivateAction)
-    {
-        if (string.IsNullOrWhiteSpace(song))
-            throw new ArgumentException("Garage cartridge song must be non-empty.", nameof(song));
-        ArgumentNullException.ThrowIfNull(tryRelease);
-        ArgumentNullException.ThrowIfNull(releaseAction);
-        ArgumentNullException.ThrowIfNull(deactivateAction);
-
-        bool releasedThisVisit = _released.Contains(song);
-        bool accepted = tryRelease(releasedThisVisit, () =>
-        {
-            releaseAction();
-            _released.Add(song);
-        });
-        if (accepted)
-            return true;
-
-        deactivateAction();
-        _released.Remove(song);
-        return false;
-    }
-
-    internal bool WasReleased(string song) => _released.Contains(song);
-
-    internal void Clear(string song) => _released.Remove(song);
-
-    internal void Clear() => _released.Clear();
 }

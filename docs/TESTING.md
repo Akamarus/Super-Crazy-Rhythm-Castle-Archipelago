@@ -1,4 +1,32 @@
+# Current release checkpoint
+
+## Testing release v0.26.0-dev / Client v0.73.9
+
+This experimental prerelease adds randomized Old Game Data and Car Battery, in-game item popups and F6 history, corrected location names and cassette prerequisites, performance/reconnect repairs, and native Game Garage cartridge insertion and medal-preview fixes. It also includes new Plunger/Meoo/Maniac AP rewards and four quest checks awaiting fresh-seed gameplay acceptance.
+
+Use Client v0.73.9 and APWorld v0.26.0 together with a fresh v0.26 seed and fresh native save for the new quest features. Existing schema-16 seeds retain their earlier behavior; updating files does not add checks to an old seed. Connect to the AP seed before loading the save.
+
+Gameplay confirmed: Old Game Data/Car Battery hand-ins and persistence under schema 16, improved performance, local cold-start reconnect, and Bloody Tears/Gradius Garage insertion, availability and medal previews. v0.73.9 cleanup passed the Garage entry/exit check. New schema-17 quest flows and true cross-player notifications still need live testing. AP Stars, generated Star gates, final Victory and production Bee/Devil checks remain inactive.
+
+New checks: Lobby - Plunger Pickup; Lobby - Car Battery Hand-In; Game Garage - Old Game Data Hand-In; Roots - Star Eater Fed. Active totals: Normal 125 / Hard 183 / Expert 241 / Perfection 277. Plunger Pickup and Roots Star Eater Fed are Stardust-only pending fuller prerequisite modeling; feeding still checks three native stars without spending them.
+
+Next: validate new quest rewards/checks on a fresh seed, including early receipt and offline/reconnect isolation, then continue remaining quest logic and Star/Victory work.
+
+---
+
+Historical development and test guidance follows. For current release versions and acceptance boundaries use the checkpoint above.
+
 # Testing Workflow
+
+## New quest acceptance still required
+
+Client v0.73.9 / APWorld v0.26.0 uses schema 17 / campaign-mapping schema 1,
+with quest checks schema 1. Follow [the quest checklist](testing/2026-09-16-quest-checks-candidate.md)
+for early/late character receipt, item-before-chest, source suppression,
+offline/restart and identity isolation, and Plunger source availability after early
+receipt/use. Native Roots admission was confirmed blocked at 2 stars and allowed
+at 3 without consumption; its new AP check still needs fresh-seed testing.
+Garage consumption and medal previews are accepted on the retained schema-16 seed.
 
 > [!NOTE]
 > For the public, end-to-end development-test smoke test and safe issue-report template, start with [Testing and issue reports](TESTING_AND_ISSUES.md). This document is the advanced developer checklist for targeted regression and diagnostics.
@@ -30,7 +58,7 @@ Verify one normal first clear, one improved Star result, and an offline/reconnec
 
 The expected pool is 10/3/7 items worth 1/10/20, totaling 180 and replacing 20 Stardust. The nine thresholds are 5/10/20/32/46/64/89/111/140, leaving 40 slack after the final chest. No point milestones are added; five cassette and two cartridge sources reuse their existing chest IDs.
 
-Verify zero before authoritative synchronization, correct weighted display, each threshold immediately below/at, player-driven opening, and one existing AP check per chest. Confirm native medals persist without contributing AP points, disconnect retains the synchronized total and queues checks, reconnect/relaunch rebuild history without double-counting, recognized v0.22/non-AP sessions retain native scoring, and malformed point contracts report incompatibility and stay at zero. The candidate requires schema 15 / campaign-mapping schema 1; its retained Music Lab Point sub-contract uses point schema 1. Do not use the developer Shift+F4 override to satisfy thresholds.
+Verify zero before authoritative synchronization, correct weighted display, each threshold immediately below/at, player-driven opening, and one existing AP check per chest. Confirm native medals persist without contributing AP points, disconnect retains the synchronized total and queues checks, reconnect/relaunch rebuild history without double-counting, recognized v0.22/non-AP sessions retain native scoring, and malformed point contracts report incompatibility and stay at zero. The candidate requires schema 16 / campaign-mapping schema 1; its retained Music Lab Point sub-contract uses point schema 1. Do not use the developer Shift+F4 override to satisfy thresholds.
 
 The diagnostic-first review rejected the generated chest hook and native detour. The candidate uses only the existing managed getter in exact room `GameRoom_Hub6`, writes no native score/save state, and never invokes or forces a chest. Verify unrelated rooms preserve native behavior; failure of the display or any threshold fails acceptance and requires revising the design.
 
@@ -59,7 +87,7 @@ Before accepting a Roots milestone, confirm:
 - Gecko's Weed Killer source sends `Roots - Gecko's Weed Killer`.
 - Gecko does not directly grant the randomized Weed Killer item.
 - Receiving `Weed Killer` creates the native item and vanilla consumes it for Level 3 access.
-- Frog/Hippo sends `Roots - Level 3 - Frog and Hippo`.
+- Frog/Hippo sends `Roots - Level 3 - Plant Pipes Pickup`.
 - Frog/Hippo does not directly grant the Plant Pipes ability.
 - Without Plant Pipes, menu exit from Level 3 works.
 - Receiving `Plant Pipes` grants `WEED_KILLER_ABILITY`.
@@ -116,3 +144,20 @@ GAME GARAGE ALREADY INSERTED NO REGRANT
 ```
 
 When testing later score or objective checks without Combo Bucket, report the exact level/song, native difficulty, AP performance tier, score, stars, medal or missed objective, player count, abilities, attempt count, best result, and whether `COMBO_BUCKET_ABILITY` was absent. Include a focused log excerpt and video when practical. A success proves feasibility under those conditions; a failed attempt alone does not prove impossibility and must not create a solver requirement by itself.
+
+
+## Character quest item candidate (2026-09-15)
+
+Client v0.71.0 / APWorld v0.25.0, schema 16, adds Old Game Data and Car Battery
+as useful randomized inventory items, replacing two Stardust. Their existing
+5-point and 20-point Music Lab chest checks are reused; character rewards remain
+vanilla and are not new checks. Normal hand-ins unlock Maniac in Game Garage and
+Meoo in the Lobby. Received items are queued from complete authenticated history,
+then reconciled on the Unity thread only against the proven selected save.
+Maniac's native saved character-unlock predicate and Meoo's unlock flag prevent
+consumed items being re-granted. Unknown native state defers the grant.
+
+A newly generated v0.25 seed is required to test these items. Existing v0.24 seeds
+retain vanilla item behavior. Validate chest grants suppressed with checks intact,
+received inventory, both hand-ins, reload/reconnect/offline and new-save isolation
+before gameplay acceptance. No live deployment or new-seed replacement is implied.

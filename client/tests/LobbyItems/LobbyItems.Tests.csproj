@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\CassetteCatalogDiagnosticPolicy.cs" Link="CassetteCatalogDiagnosticPolicy.cs" />
+    <Compile Include="..\..\LobbyItemRandomizationPolicy.cs" Link="LobbyItemRandomizationPolicy.cs" />
   </ItemGroup>
 </Project>

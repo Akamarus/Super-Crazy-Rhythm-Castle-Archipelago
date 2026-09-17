@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../GarageDeferredDoorConsumption.cs" />
+    <Compile Include="../../GarageHolderOwnershipPolicy.cs" />
+    <Compile Include="../../GarageRoomInitializationState.cs" />
+    <Compile Include="..\..\NativeDoorInvocation.cs" />
     <Compile Include="..\..\GarageCartridgeNativePolicy.cs" Link="GarageCartridgeNativePolicy.cs" />
     <Compile Include="..\..\GarageVanillaEntrancePolicy.cs" Link="GarageVanillaEntrancePolicy.cs" />
     <Compile Include="..\..\GarageCartridgeInsertionState.cs" Link="GarageCartridgeInsertionState.cs" />

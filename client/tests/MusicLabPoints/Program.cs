@@ -452,10 +452,8 @@ string f5Source = pluginSource.Split("if (Input.GetKeyDown(KeyCode.F5))", String
 Equal(false, f5Source.Contains("Boundary", StringComparison.Ordinal), "plain F5 has no Music Lab boundary interception");
 Equal(false, pluginSource.Contains("GetType(\"Hub06MedalScoreRewardChest\"", StringComparison.Ordinal),
     "the invalid generated chest owner must not be CLR-loaded");
-var clientProject = System.Xml.Linq.XDocument.Load(Path.Combine(Path.GetDirectoryName(pluginPath)!, "RhythmCastleAP.csproj"));
-Equal(false, clientProject.Descendants("Reference").Any(reference =>
-    ((string?)reference.Attribute("Include"))?.StartsWith("MonoMod.RuntimeDetour", StringComparison.Ordinal) == true),
-    "temporary native-detour project dependency must be removed");
+// The score/metadata guards above remain scoped to Music Lab. Unrelated quest
+// and Garage hooks now use the game-provided detour runtime.
 Equal(false, File.Exists(Path.Combine(Path.GetDirectoryName(pluginPath)!, "tests/MusicLabPoints/NativeInteropProbe.cs")),
     "the rejected installed-interop probe must be removed");
 Contains("nameof(MusicLabPointOverridePatches.GetMedalScorePostfix)", pluginSource,

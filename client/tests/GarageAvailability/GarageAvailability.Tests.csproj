@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../GaragePreviewMedals.cs" />
     <Compile Include="..\..\GarageAvailabilityPolicy.cs" Link="GarageAvailabilityPolicy.cs" />
     <Compile Include="..\..\GarageCartridgeNativePolicy.cs" Link="GarageCartridgeNativePolicy.cs" />
     <Compile Include="..\..\GarageVanillaEntrancePolicy.cs" Link="GarageVanillaEntrancePolicy.cs" />

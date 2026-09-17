@@ -26,14 +26,14 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.70.0",
-    "world_version": "0.24.0",
+    "client_version": "0.73.9",
+    "world_version": "0.26.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
         "consolidated-preview-0.19-difficulty-filtering-0.20-"
         "vanilla-vampire-garage-0.21-full-cassettes-0.22-"
-        "music-lab-points-0.23-full-level-mapping-0.24"
+        "music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -69,17 +69,25 @@ EXPECTED = {
         (111, "Music Lab - 111 Point Chest"),
         (140, "Music Lab - 140 Point Chest"),
     ),
-    "next_item_id": 187256156,
-    "next_location_id": 187256292,
+    "quest_checks_schema": 1,
+    "quest_items": {"Plunger": 187256161, "Meoo": 187256162, "Maniac": 187256163},
+    "quest_locations": {
+        "Lobby - Plunger Pickup": 187256294,
+        "Lobby - Car Battery Hand-In": 187256295,
+        "Game Garage - Old Game Data Hand-In": 187256296,
+        "Roots - Star Eater Fed": 187256297,
+    },
+    "next_item_id": 187256164,
+    "next_location_id": 187256298,
     "campaign_location_count": 88,
     "new_campaign_location_count": 81,
     "new_campaign_location_start": 187256211,
     "new_campaign_location_end": 187256291,
     "active_location_totals": {
-        "Normal": 121,
-        "Hard": 179,
-        "Expert": 237,
-        "Perfection": 273,
+        "Normal": 125,
+        "Hard": 183,
+        "Expert": 241,
+        "Perfection": 277,
     },
 }
 
@@ -245,6 +253,34 @@ def validate_live_world_structure() -> dict[str, int]:
             }
             if addressed_names.intersection(campaign_location_names) != expected_campaign_names:
                 fail(f"live campaign location names changed for {label}")
+            world.create_items()
+            item_names = [item.name for item in world.multiworld.itempool]
+            for item_name in ("Old Game Data", "Car Battery"):
+                if item_names.count(item_name) != 1:
+                    fail(f"character quest item pool count changed: {item_name}")
+                if world.create_item(item_name).classification != "progression":
+                    fail(f"character quest item classification changed: {item_name}")
+            if len(item_names) != expected_count:
+                fail(f"live item pool capacity changed for {label}")
+            character_data = world.fill_slot_data()
+            if character_data.get("character_quest_item_schema") != 1 or character_data.get("randomize_character_quest_items") is not True:
+                fail("character quest item slot contract is inactive or malformed")
+            for field in ("quest_checks_schema", "quest_items", "quest_locations"):
+                if character_data.get(field) != EXPECTED[field]:
+                    fail(f"quest slot contract changed: {field}")
+            for name, item_id in EXPECTED["quest_items"].items():
+                item = world.create_item(name)
+                if item_names.count(name) != 1 or item.code != item_id or item.classification != "useful":
+                    fail(f"quest item pool or classification changed: {name}")
+            for name, location_id in EXPECTED["quest_locations"].items():
+                matches = [location for location in addressed_locations if location.name == name]
+                if len(matches) != 1 or matches[0].address != location_id:
+                    fail(f"quest location registry changed: {name}")
+            for name in ("Lobby - Plunger Pickup", "Roots - Star Eater Fed"):
+                source = world.multiworld.get_location(name, world.player)
+                for item in world.multiworld.itempool:
+                    if source.item_rule(item) != (item.name == "Stardust"):
+                        fail(f"quest filler-only placement changed: {name}")
             totals[label] = actual_count
         return totals
     finally:
@@ -467,6 +503,51 @@ for label, expected_id, symbol in (
     if absolute != expected_id:
         fail(f"{label} item ID changed: expected {expected_id}, got {absolute}")
 
+for label, expected_id in (
+    ("Important Letters", 187256156),
+    ("Bean Trumpet", 187256157),
+    ("Demolition Certificate", 187256158),
+    ("Old Game Data", 187256159),
+    ("Car Battery", 187256160),
+):
+    match = re.search(rf'"{label}"\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
+    if not match or 187256000 + int(match.group(1)) != expected_id:
+        fail(f"{label} reserved item ID is missing or changed")
+
+for symbol, expected_id in (
+    ("LOBBY_LETTERS_PICKUP", 187256292),
+    ("LOBBY_BEAN_TRUMPET_AWARD", 187256293),
+):
+    match = re.search(rf'LOCATION_NAME_TO_ID\[{symbol}\]\s*=\s*BASE_ID\s*\+\s*(\d+)', world_text)
+    if not match or 187256000 + int(match.group(1)) != expected_id:
+        fail(f"{symbol} reserved location ID is missing or changed")
+
+# Validate permanent new quest IDs independently, even in static-only mode.
+for source_text, symbol, expected in (
+    (items_text, "QUEST_ITEM_NAME_TO_ID", EXPECTED["quest_items"]),
+    (world_text, "QUEST_LOCATION_NAME_TO_ID", EXPECTED["quest_locations"]),
+):
+    node = assignment_value(ast.parse(source_text), symbol)
+    if not isinstance(node, ast.Dict):
+        fail(f"quest ID contract is not a dictionary: {symbol}")
+    actual = {ast.literal_eval(key): static_int(value) for key, value in zip(node.keys, node.values)}
+    if actual != expected or len(node.keys) != len(expected):
+        fail(f"quest ID contract changed: {symbol}")
+
+# Retain original native bag flags and chest sources independently of new rewards.
+for symbol, expected in (
+    ("CHARACTER_QUEST_ITEMS", {
+        "Old Game Data": "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM",
+        "Car Battery": "CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM",
+    }),
+    ("CHARACTER_QUEST_ITEM_LOCATIONS", {
+        "Old Game Data": "Music Lab - 5 Point Chest",
+        "Car Battery": "Music Lab - 20 Point Chest",
+    }),
+):
+    if ast.literal_eval(assignment_value(ast.parse(items_text), symbol)) != expected:
+        fail(f"character quest item contract changed: {symbol}")
+
 money_cassette_location_match = re.search(
     r'LOCATION_NAME_TO_ID\[LEVEL_2_MONEY_CASSETTE_SOURCE\]\s*=\s*BASE_ID\s*\+\s*(\d+)',
     world_text,
@@ -482,7 +563,7 @@ if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
-if '"schema_version": 15' not in world_text:
+if '"schema_version": 17' not in world_text:
     fail("full-level-mapping slot-data schema changed")
 if '"campaign_level_mapping_schema": 1' not in world_text:
     fail("campaign level mapping schema changed")
@@ -490,6 +571,13 @@ if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"
     fail("generation_foundation_version changed without updating validator/baseline docs")
 
 for required_marker in (
+    '"quest_checks_schema": 1',
+    '"quest_items": dict(QUEST_ITEM_NAME_TO_ID)',
+    '"quest_locations": dict(QUEST_LOCATION_NAME_TO_ID)',
+    '"character_quest_item_schema": 1',
+    '"randomize_character_quest_items": True',
+    '"character_quest_items": dict(CHARACTER_QUEST_ITEMS)',
+    '"character_quest_item_locations": dict(CHARACTER_QUEST_ITEM_LOCATIONS)',
     '"star_items_active": False',
     '"client_star_gate_enforcement_active": False',
     '"special_variant_locations_active": False',
@@ -605,6 +693,13 @@ print(json.dumps({
         EXPECTED["new_campaign_location_end"],
     ],
     "campaign_level_mapping_schema": 1,
+    "slot_data_schema": 17,
+    "quest_checks_schema": EXPECTED["quest_checks_schema"],
+    "quest_items": EXPECTED["quest_items"],
+    "quest_locations": EXPECTED["quest_locations"],
+    "character_quest_item_schema": 1,
+    "character_quest_item_ids": {"Old Game Data": 187256159, "Car Battery": 187256160},
+    "character_quest_source_ids": {"Old Game Data": 187256169, "Car Battery": 187256171},
     "active_location_totals": live_active_location_totals,
     "live_world_structure_checked": live_world_validation_enabled,
     "star_items_active": False,
@@ -613,6 +708,6 @@ print(json.dumps({
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
-print("v0.24 full campaign mapping is an experimental candidate requiring manual acceptance; special variants are diagnostic-only, 66 AP Stars, Star gates, and Victory remain inactive.")
+print("v0.26 quest checks and full campaign mapping are an experimental candidate requiring manual acceptance; special variants are diagnostic-only, 66 AP Stars, Star gates, and Victory remain inactive.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

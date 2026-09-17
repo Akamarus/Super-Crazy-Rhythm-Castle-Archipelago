@@ -3,6 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AssemblyName>RhythmCastleAP</AssemblyName>
@@ -13,6 +14,10 @@
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
 
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>$(GameDir)\BepInEx\core\MonoMod.RuntimeDetour.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="BepInEx.Core">
       <HintPath>$(GameDir)\BepInEx\core\BepInEx.Core.dll</HintPath>
       <Private>false</Private>
@@ -37,6 +42,14 @@
 
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(GameDir)\BepInEx\interop\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameDir)\BepInEx\interop\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameDir)\BepInEx\interop\UnityEngine.IMGUIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">

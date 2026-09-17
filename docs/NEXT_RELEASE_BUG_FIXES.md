@@ -8,6 +8,20 @@ The failed regression seed is `AP_28223804408101432968`. It is useful for reprod
 
 ## Open release blockers
 
+- [ ] **Accept fresh-save resume performance repair.** E54 records hub/level lag.
+  The local candidate retains explicit save owners and limits deferred cassette
+  ownership scans; obsolete diagnostic polling/dumps are removed. Automated
+  coverage cannot establish frame-rate recovery. Check one short level segment
+  and cassette persistence before marking fixed. See
+  [maintenance evidence](testing/2026-09-14-client-maintenance.md).
+- [ ] **Repair and accept reconnect after cold offline startup.** E52 failed to
+  reconnect after the server returned; a game restart recovered. The candidate
+  skips the localhost TLS probe and surfaces bounded underlying errors. Isolated
+  .NET 6.0.7 tests recover, but the original in-game failure remains unproven.
+  Repeat cold-start/server-return on the retained save before marking fixed.
+
+- [ ] **Diagnose recurring Game Garage loading-screen hang.** On 2026-09-12 Client v0.70.0 reached `GameRoom_27` with the physical Vampire Killer cartridge owned/active, Garage audio playing, and the loading icon spinning indefinitely while controls and menus were unavailable. This is not the historical unsupported zero-physical-cartridge entrance. See [the captured regression](TESTING_AND_ISSUES.md#current-game-garage-loading-screen-recurrence-2026-09-12); determine the stalled native loading boundary and prove entry/exit on a controlled repeat before claiming a fix.
+
 - [ ] **Accept AP Music Lab Points at the native boundary.** The 10/3/7 point distribution (values 1/10/20) replaces 20 Stardust and totals 180; the final threshold is 140 with 40 slack. The nine existing checks remain, with no milestones or duplicate cassette/cartridge sources. The diagnostic-first review rejected the chest/native detour; only the managed getter in `GameRoom_Hub6` substitutes AP totals, without native score/save writes. Complete the [acceptance record](testing/2026-09-09-music-lab-points-acceptance.md): display and every threshold below/at, native medal invariance, zero-before-sync, retained disconnect total, reconnect, relaunch, native v0.22/non-AP fallback, and malformed-v0.23 fail-closed zero behavior. The exact schema-14/point-schema-1 contract is required.
 
 Historical v0.19 point-chest filler restrictions below describe the accepted older boundary. In the v0.23 candidate, weighted AP-point rules permit solver-reachable progression in these same chests. Active Level-22 2/3-Star restrictions and every unrelated acceptance note remain in force.

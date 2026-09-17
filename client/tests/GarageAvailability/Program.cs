@@ -319,8 +319,31 @@ Equal(false,
         string.Equals(cartridge.Song, "Vampire Killer", StringComparison.Ordinal)),
     "physical Vampire Killer is excluded from native AP reconciliation");
 
+var medalPreview = new MedalPreview();
+var medalRow = new MedalRow(); medalPreview.PreviousGarageResults.Add(medalRow);
+int medalReads = 0;
+(int? Medal, int? Pro) ReadMedals(string song) { medalReads++; return (2, 2); }
+GaragePreviewMedals.Apply(medalPreview, false, new[]{"Bloody Tears"}, ReadMedals);
+GaragePreviewMedals.Apply(medalPreview, true, Array.Empty<string>(), ReadMedals);
+Equal(0, medalReads, "disabled or unowned preview never reads medals");
+GaragePreviewMedals.Apply(medalPreview, true, new[]{"Bloody Tears"}, ReadMedals);
+Equal(TestMedal.SILVER, medalRow.medalEarned, "AP-owned native-uncollected cartridge shows saved silver");
+Equal(TestMedal.SILVER, medalRow.proMedalEarned, "saved pro medal is displayed");
+GaragePreviewMedals.Apply(medalPreview, true, new[]{"Bloody Tears"}, _ => (null, null));
+Equal(TestMedal.SILVER, medalRow.medalEarned, "unavailable save data does not erase medal");
+medalRow.cartridgeType = "VAMPIRE_KILLER";
+GaragePreviewMedals.Apply(medalPreview, true, new[]{"Vampire Killer"}, ReadMedals);
+Equal(1, medalReads, "vanilla Vampire Killer display is preserved");
+
 Console.WriteLine("Game Garage availability policy tests passed.");
 
+internal enum TestMedal { NONE, BRONZE, SILVER, GOLD }
+internal sealed class MedalPreview { public List<MedalRow> PreviousGarageResults { get; } = new(); }
+internal sealed class MedalRow {
+ public string cartridgeType { get; set; } = "BLOODY_TEARS";
+ public TestMedal medalEarned { get; set; }
+ public TestMedal proMedalEarned { get; set; }
+}
 internal sealed class FakeGaragePreviewData
 {
     internal FakeGaragePreviewData(params FakeGarageResult[] results)

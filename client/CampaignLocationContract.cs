@@ -43,10 +43,12 @@ internal static class CampaignLocationContract
         if (string.Equals(version, LegacyV023Implementation, StringComparison.Ordinal))
             return new(CampaignLocationCompatibilityMode.Legacy, EmptyLocations, "pre-v0.24 implementation");
 
-        if (!version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
+        bool expandedQuests = version.EndsWith(ClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26", StringComparison.Ordinal);
+        bool characterItems = expandedQuests || version.EndsWith(ClaimSuffix + "-character-quest-items-0.25", StringComparison.Ordinal);
+        if (!characterItems && !version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
             return Fail("implementation_version");
 
-        if (!TryReadNumber(slotData, "schema_version", out int schemaVersion) || schemaVersion != SchemaVersion)
+        if (!TryReadNumber(slotData, "schema_version", out int schemaVersion) || schemaVersion != (expandedQuests ? 17 : characterItems ? 16 : SchemaVersion))
             return Fail("schema_version");
         if (!TryReadNumber(slotData, "campaign_level_mapping_schema", out int mappingSchema) || mappingSchema != MappingSchema)
             return Fail("campaign_level_mapping_schema");

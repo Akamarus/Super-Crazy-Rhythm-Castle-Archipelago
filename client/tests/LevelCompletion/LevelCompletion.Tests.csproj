@@ -12,12 +12,16 @@
     <Compile Include="..\..\CampaignLevelRandomization.cs" Link="CampaignLevelRandomization.cs" />
     <Compile Include="..\..\LevelCompletionPolicy.cs" Link="LevelCompletionPolicy.cs" />
     <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
+    <Compile Include="..\..\ConnectionEndpointPolicy.cs" Link="ConnectionEndpointPolicy.cs" />
+    <Compile Include="..\..\ConnectionAttemptDiagnostics.cs" Link="ConnectionAttemptDiagnostics.cs" />
+    <Compile Include="..\..\CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
+    <Compile Include="..\..\CharacterQuestItemSessionHistory.cs" Link="CharacterQuestItemSessionHistory.cs" />
     <Compile Include="..\..\ReconnectPolicy.cs" Link="ReconnectPolicy.cs" />
-  </ItemGroup>
+  <Compile Include="../../QuestChecksSession.cs" Link="QuestChecksSession.cs"/><Compile Include="../../QuestChecksPolicy.cs" Link="QuestChecksPolicy.cs"/><Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs"/></ItemGroup>
   <Target Name="ExtractProductionConnection" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
-      <ConnectionSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?s)internal sealed class ArchipelagoClient.*?(?=internal sealed class Level5EntranceKeeper)').Value)</ConnectionSource>
+      <ConnectionSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?s)internal sealed class ArchipelagoClient.*?(?=internal static class Level6Discovery)').Value)</ConnectionSource>
     </PropertyGroup>
     <WriteLinesToFile File="$(IntermediateOutputPath)ProductionConnection.cs" Lines="using System.Collections.Concurrent%3B namespace RhythmCastleAP%3B $(ConnectionSource)" Overwrite="true" />
     <ItemGroup>

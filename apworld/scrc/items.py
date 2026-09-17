@@ -11,6 +11,39 @@ HYPNO_PAN_ITEM_NAME = "Hypno Pan"
 VIOLANCE_ITEM_NAME = "Violance"
 MONEY_CASSETTE_ITEM_NAME = "Money Cassette"
 
+# Reserved for future randomization. The Lobby pickup grants two native rewards
+# in one interaction; safe seed/save-bound source recovery is not yet proven.
+LOBBY_ITEM_NAME_TO_ID = {
+    "Important Letters": BASE_ID + 156,
+    "Bean Trumpet": BASE_ID + 157,
+    # Registered for permanent ID stability; source recovery is not yet proven.
+    "Demolition Certificate": BASE_ID + 158,
+}
+
+LOBBY_ITEM_CLASSIFICATIONS = {
+    "Important Letters": ItemClassification.progression,
+    "Bean Trumpet": ItemClassification.useful,
+    "Demolition Certificate": ItemClassification.progression,
+}
+
+# v0.25: existing Music Lab 5/20-point checks become these item sources.
+# v0.26: their hand-in checks may hold progression, so both inputs are progression.
+CHARACTER_QUEST_ITEM_NAME_TO_ID = {
+    "Old Game Data": BASE_ID + 159,
+    "Car Battery": BASE_ID + 160,
+}
+CHARACTER_QUEST_ITEM_CLASSIFICATIONS = {
+    name: ItemClassification.progression for name in CHARACTER_QUEST_ITEM_NAME_TO_ID
+}
+CHARACTER_QUEST_ITEMS = {
+    "Old Game Data": "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM",
+    "Car Battery": "CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM",
+}
+CHARACTER_QUEST_ITEM_LOCATIONS = {
+    "Old Game Data": "Music Lab - 5 Point Chest",
+    "Car Battery": "Music Lab - 20 Point Chest",
+}
+
 NEW_ITEM_NAME_TO_ID = {
     STAR_ITEM_NAME: BASE_ID + 118,
     HYPNO_PAN_ITEM_NAME: BASE_ID + 121,
@@ -71,3 +104,14 @@ def validate_planned_item_capacity(
             f"planned pool has {required_items} required items but only "
             f"{available_locations} locations"
         )
+
+# v0.26: permanent IDs allocated after native source and hand-in mapping.
+QUEST_ITEM_NAME_TO_ID = {
+    "Plunger": BASE_ID + 161,
+    "Meoo": BASE_ID + 162,
+    "Maniac": BASE_ID + 163,
+}
+# Character unlocks and Plunger have no verified AP progression dependencies.
+QUEST_ITEM_CLASSIFICATIONS = {
+    name: ItemClassification.useful for name in QUEST_ITEM_NAME_TO_ID
+}

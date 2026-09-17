@@ -9,6 +9,22 @@ internal static class ConnectionTests
 {
     internal static void Run(Func<Dictionary<string, object>> contract)
     {
+        // Previous item ownership must stop before a replacement authenticates,
+        // including a replacement rejected for an incompatible item contract.
+        var questClient = new ArchipelagoClient("test", "slot", "", false);
+        Connect(questClient, Login(contract()), true);
+        CharacterQuestItems.State.Configure(1, true);
+        CharacterQuestItems.State.Publish(1, new long[] { 187256159 });
+        Check(true, CharacterQuestItems.State.Snapshot.Ready, "previous ownership setup");
+        var badQuestContract = contract();
+        badQuestContract["randomize_character_quest_items"] = true;
+        var replacementQuest = Login(badQuestContract);
+        bool readyDuringLogin = true;
+        replacementQuest.BeforeLoginReturns = () => readyDuringLogin = CharacterQuestItems.State.Snapshot.Ready;
+        Connect(questClient, replacementQuest, false);
+        Check(false, readyDuringLogin, "replacement suspends grants before authentication");
+        Check(false, CharacterQuestItems.State.Snapshot.Ready, "invalid replacement cannot retain old ownership");
+        questClient.Shutdown();
         UnauthenticatedTransportCannotFlush(contract);
         foreach (string replacement in new[] { "same", "seed", "team", "slot" })
         {
@@ -25,21 +41,25 @@ internal static class ConnectionTests
             var next = Login(contract(), seed: replacement == "seed" ? "other-seed" : "seed",
                 team: replacement == "team" ? 1 : 0, slot: replacement == "slot" ? 2 : 1);
             Connect(client, next, true);
-            Check(replacement == "same" ? 2 : 0, next.Locations.Sent.Count,
+            Check(replacement == "same" ? 2 : 0, next.Locations.SentCount,
                 "pending checks flush once only to the same authenticated identity: " + replacement);
             Flush(client);
-            Check(replacement == "same" ? 2 : 0, next.Locations.Sent.Count, "second flush cannot duplicate checks");
+            Check(replacement == "same" ? 2 : 0, next.Locations.SentCount, "second flush cannot duplicate checks");
             if (replacement != "same")
             {
                 client.QueueCampaignResult("Level_05", "LevelVariant_Default", 1);
                 Flush(client);
-                Check(2, next.Locations.Sent.Count, "new identity may earn its own checks without stale deduplication");
+                // QueueCampaignResult also launches background flushes. A worker
+                // may own a dequeued check after our synchronous flush returns.
+                Check(true, SpinWait.SpinUntil(() => next.Locations.SentCount >= 2, TimeSpan.FromSeconds(5)),
+                    "new identity check delivery completes");
+                Check(2, next.Locations.SentCount, "new identity may earn its own checks without stale deduplication");
             }
             client.Shutdown();
             Check(0, CampaignLevelRandomization.Snapshot.ActiveLocations.Count, "shutdown clears retained campaign state");
             client.QueueCampaignResult("Level_05", "LevelVariant_Default", 3);
             Flush(client);
-            Check(2, next.Locations.Sent.Count, "late result after shutdown cannot deliver checks");
+            Check(2, next.Locations.SentCount, "late result after shutdown cannot deliver checks");
         }
 
         CampaignLevelRandomization.Shutdown();
@@ -90,7 +110,7 @@ internal static class ConnectionTests
             Check(true, loginPaused.Wait(TimeSpan.FromSeconds(5)), "new transport is published before authentication");
             resumeFlush.Set();
             flushing.GetAwaiter().GetResult();
-            sent = retry.Locations.Sent.Count;
+            sent = retry.Locations.SentCount;
         }
         finally
         {
@@ -194,7 +214,10 @@ internal sealed class TestItem
 internal sealed class TestPlayer { internal string Name => "unused"; }
 internal sealed class TestLocations
 {
-    internal List<long> Sent = new();
+    internal long[] AllLocationsChecked => Array.Empty<long>();
+    internal long[] AllLocations => new long[] { 187256001, 187256211 };
+    private readonly List<long> Sent = new();
+    internal int SentCount { get { lock (Sent) return Sent.Count; } }
     internal long GetLocationIdFromName(string game, string name) => name switch
     { "Level 1 - Completion" => 187256001, "Level 1 - 1 Star" => 187256211, _ => -1 };
     internal void CompleteLocationChecks(long id) { lock (Sent) Sent.Add(id); }
@@ -245,3 +268,20 @@ internal sealed class PreviewAbilityRandomization : NativeSubsystem { }
 internal sealed class BottomHudDiagnostic : NativeSubsystem { }
 internal sealed class RootsBucketRandomization : NativeSubsystem { }
 internal sealed class NativeProgression : NativeSubsystem { }
+internal static class CharacterQuestItems
+{
+    internal static readonly CharacterQuestItemState State = new();
+    internal static bool TryHandleItemName(string name) => CharacterQuestItemPolicy.All.Any(item => item.Name == name);
+}
+
+internal static class ItemNotifications
+{
+    internal static readonly TestNotificationFeed Feed = new();
+    internal static TestNotificationSession CreateSession(object session, long generation, Action<Action> dispatch) => new();
+}
+internal sealed class TestNotificationFeed { internal void Reset() { } }
+internal sealed class TestNotificationSession
+{
+    internal void HandlePacket(object packet) { }
+    internal void Configure(string seed, int team, int slot) { }
+}

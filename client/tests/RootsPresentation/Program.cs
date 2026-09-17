@@ -668,4 +668,5 @@ Equal(false,
     exactConditionSource.Contains("Instantiate", StringComparison.Ordinal) ||
     exactConditionSource.Contains("Clone", StringComparison.Ordinal),
     "exact condition diagnostic cannot mutate scene, progression, AP, or spawn state");
+PostLevelOneTests.Run();
 Console.WriteLine("Roots presentation policy tests passed.");

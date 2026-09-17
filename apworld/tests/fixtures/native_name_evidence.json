@@ -1,0 +1,846 @@
+{
+  "provenance": {
+    "date": "2026-09-16",
+    "source": "Installed game asset bundle; Level_*_Data variant number, key, displayNameLocalisationKey resolved through GameText_en; SongInformationProvider through GameText_untranslated. Factual names/IDs only.",
+    "bundle": "14e6a99bc73f210341b431badb80a894.bundle",
+    "sha256": "8e16b913246653abec2be9b4ab33428b2994cf02ae391030a974f0c3c588bdea"
+  },
+  "campaign": [
+    {
+      "number": 1,
+      "internal_id": "Level_05",
+      "variant": "LevelVariant_Default",
+      "title": "Light Humor",
+      "localization_key": "#LOC_GR05_LevelDisplayName",
+      "song_cassettes": [
+        "Gold"
+      ],
+      "song_enums": [
+        "GOLD"
+      ],
+      "provider_path_id": 2383
+    },
+    {
+      "number": 2,
+      "internal_id": "Level_06",
+      "variant": "LevelVariant_Default",
+      "title": "Pop Party",
+      "localization_key": "#LOC_GR06_LevelDisplayName",
+      "song_cassettes": [
+        "I Got Money"
+      ],
+      "song_enums": [
+        "I_GOT_MONEY"
+      ],
+      "provider_path_id": 2341
+    },
+    {
+      "number": 3,
+      "internal_id": "Level_07",
+      "variant": "LevelVariant_Default",
+      "title": "The Megafying Ritual",
+      "localization_key": "#LOC_GR07_LevelDisplayName",
+      "song_cassettes": [
+        "Hippo and Frog"
+      ],
+      "song_enums": [
+        "HIPPO_AND_FROG"
+      ],
+      "provider_path_id": 1984
+    },
+    {
+      "number": 4,
+      "internal_id": "Level_08",
+      "variant": "LevelVariant_Default",
+      "title": "DJ Eggplant",
+      "localization_key": "#LOC_GR08_LevelDisplayName",
+      "song_cassettes": [
+        "On The Way"
+      ],
+      "song_enums": [
+        "ON_THE_WAY"
+      ],
+      "provider_path_id": 2005
+    },
+    {
+      "number": 5,
+      "internal_id": "Level_09",
+      "variant": "LevelVariant_Default",
+      "title": "Lift Quest",
+      "localization_key": "#LOC_GR09_LevelDisplayName",
+      "song_cassettes": [
+        "Badass",
+        "Heavy Metal"
+      ],
+      "song_enums": [
+        "BADASS",
+        "HEAVY_METAL"
+      ],
+      "provider_path_id": 2202
+    },
+    {
+      "number": 6,
+      "internal_id": "Level_02",
+      "variant": "LevelVariant_Default",
+      "title": "Boring Room",
+      "localization_key": "#LOC_GR02_LevelDisplayName",
+      "song_cassettes": [
+        "AOK"
+      ],
+      "song_enums": [
+        "AOK"
+      ],
+      "provider_path_id": 2317
+    },
+    {
+      "number": 7,
+      "internal_id": "Level_19",
+      "variant": "LevelVariant_Default",
+      "title": "Demolition Training",
+      "localization_key": "#LOC_GR19_LevelDisplayName",
+      "song_cassettes": [
+        "Sneaking",
+        "Rainbow Melodies"
+      ],
+      "song_enums": [
+        "SNEAKING_LOOP",
+        "RAINBOW_MELODIES"
+      ],
+      "provider_path_id": 1951
+    },
+    {
+      "number": 8,
+      "internal_id": "Level_11",
+      "variant": "LevelVariant_Default",
+      "title": "Minim Tower",
+      "localization_key": "#LOC_GR11_LevelDisplayName",
+      "song_cassettes": [
+        "Rainbow Melodies",
+        "On The Way",
+        "Gold"
+      ],
+      "song_enums": [
+        "RAINBOW_MELODIES",
+        "ON_THE_WAY",
+        "GOLD"
+      ],
+      "provider_path_id": 1900
+    },
+    {
+      "number": 9,
+      "internal_id": "Level_20",
+      "variant": "LevelVariant_Default",
+      "title": "School Trip",
+      "localization_key": "#LOC_GR20_LevelDisplayName",
+      "song_cassettes": [
+        "Sneaking",
+        "The Heist"
+      ],
+      "song_enums": [
+        "SNEAKING_LOOP",
+        "THE_HEIST"
+      ],
+      "provider_path_id": 2336
+    },
+    {
+      "number": 10,
+      "internal_id": "Level_01",
+      "variant": "LevelVariant_Default",
+      "title": "The Vault",
+      "localization_key": "#LOC_GR01_LevelDisplayName",
+      "song_cassettes": [
+        "Money"
+      ],
+      "song_enums": [
+        "MONEY_DUB"
+      ],
+      "provider_path_id": 1805
+    },
+    {
+      "number": 11,
+      "internal_id": "Level_12",
+      "variant": "LevelVariant_Default",
+      "title": "Act 1: Flavor",
+      "localization_key": "#LOC_GR12_LevelDisplayName",
+      "song_cassettes": [
+        "Let's Go"
+      ],
+      "song_enums": [
+        "LETS_GO"
+      ],
+      "provider_path_id": 2056
+    },
+    {
+      "number": 12,
+      "internal_id": "Level_15",
+      "variant": "LevelVariant_Default",
+      "title": "Act 2: Sauce and Spice",
+      "localization_key": "#LOC_GR15_LevelDisplayName",
+      "song_cassettes": [
+        "Bounce"
+      ],
+      "song_enums": [
+        "BOUNCE"
+      ],
+      "provider_path_id": 2191
+    },
+    {
+      "number": 13,
+      "internal_id": "Level_22",
+      "variant": "LevelVariant_Default",
+      "title": "Act 3: Montage",
+      "localization_key": "#LOC_GR22_LevelDisplayName",
+      "song_cassettes": [
+        "No Plan B"
+      ],
+      "song_enums": [
+        "NO_PLAN_B"
+      ],
+      "provider_path_id": 2027
+    },
+    {
+      "number": 14,
+      "internal_id": "Level_23",
+      "variant": "LevelVariant_Default",
+      "title": "Act 4: Habanero",
+      "localization_key": "#LOC_GR23_LevelDisplayName",
+      "song_cassettes": [
+        "Jolt City"
+      ],
+      "song_enums": [
+        "JOLT_CITY"
+      ],
+      "provider_path_id": 2206
+    },
+    {
+      "number": 15,
+      "internal_id": "Level_16",
+      "variant": "LevelVariant_Default",
+      "title": "Central Mainframe",
+      "localization_key": "#LOC_GR16_LevelDisplayName",
+      "song_cassettes": [
+        "Quieres Bailar"
+      ],
+      "song_enums": [
+        "QUIERES_BAILAR"
+      ],
+      "provider_path_id": 2106
+    },
+    {
+      "number": 16,
+      "internal_id": "Level_24",
+      "variant": "LevelVariant_Default",
+      "title": "The Thief Prince",
+      "localization_key": "#LOC_GR24_LevelDisplayName",
+      "song_cassettes": [
+        "The Little Things"
+      ],
+      "song_enums": [
+        "THE_LITTLE_THINGS"
+      ],
+      "provider_path_id": 2248
+    },
+    {
+      "number": 17,
+      "internal_id": "Level_21",
+      "variant": "LevelVariant_Default",
+      "title": "Cold Storage",
+      "localization_key": "#LOC_GR21_LevelDisplayName",
+      "song_cassettes": [
+        "The Epical",
+        "Hollywood Trailer",
+        "False Data"
+      ],
+      "song_enums": [
+        "THE_EPICAL",
+        "HOLLYWOOD_TRAILER",
+        "FALSE_DATA"
+      ],
+      "provider_path_id": 2178
+    },
+    {
+      "number": 18,
+      "internal_id": "Level_03",
+      "variant": "LevelVariant_Default",
+      "title": "The Darkness",
+      "localization_key": "#LOC_GR03_LevelDisplayName",
+      "song_cassettes": [
+        "Gotta Get Up"
+      ],
+      "song_enums": [
+        "GOTTA_GET_UP"
+      ],
+      "provider_path_id": 2165
+    },
+    {
+      "number": 19,
+      "internal_id": "Level_13",
+      "variant": "LevelVariant_Default",
+      "title": "Escape",
+      "localization_key": "#LOC_GR13_LevelDisplayName",
+      "song_cassettes": [
+        "Fumblin' Around"
+      ],
+      "song_enums": [
+        "FUMBLIN_AROUND"
+      ],
+      "provider_path_id": 2205
+    },
+    {
+      "number": 20,
+      "internal_id": "Level_25",
+      "variant": "LevelVariant_Default",
+      "title": "Loneliness",
+      "localization_key": "#LOC_GR25_LevelDisplayName",
+      "song_cassettes": [
+        "Party Non-Stop"
+      ],
+      "song_enums": [
+        "PARTY_NON_STOP"
+      ],
+      "provider_path_id": 2026
+    },
+    {
+      "number": 21,
+      "internal_id": "Level_14",
+      "variant": "LevelVariant_Default",
+      "title": "Locker Room",
+      "localization_key": "#LOC_GR14_LevelDisplayName",
+      "song_cassettes": [
+        "Keep on Hustlin'"
+      ],
+      "song_enums": [
+        "KEEP_ON_HUSTLIN"
+      ],
+      "provider_path_id": 2351
+    },
+    {
+      "number": 22,
+      "internal_id": "Level_28",
+      "variant": "LevelVariant_Default",
+      "title": "King Ferdinand I",
+      "localization_key": "#LOC_GR28_LevelDisplayName",
+      "song_cassettes": [
+        "Another Day in Paradise"
+      ],
+      "song_enums": [
+        "ANOTHER_DAY_IN_PARADISE"
+      ],
+      "provider_path_id": 2022
+    }
+  ],
+  "songs": [
+    {
+      "ap_name": "The Little Things",
+      "enum": "THE_LITTLE_THINGS",
+      "title": "The Little Things",
+      "key": "#LOC_SongTitle_LittleThings",
+      "source": "Cassette Source - The Little Things",
+      "source_id": 187256187,
+      "triggers": [
+        [
+          "THE_LITTLE_THINGS",
+          "Level_24",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "No Plan B",
+      "enum": "NO_PLAN_B",
+      "title": "No Plan B",
+      "key": "#LOC_SongTitle_NoPlanB",
+      "source": "Cassette Source - No Plan B",
+      "source_id": 187256188,
+      "triggers": [
+        [
+          "NO_PLAN_B",
+          "Level_22",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Jolt City",
+      "enum": "JOLT_CITY",
+      "title": "Jolt City",
+      "key": "#LOC_SongTitle_JoltCity",
+      "source": "Cassette Source - Jolt City",
+      "source_id": 187256189,
+      "triggers": [
+        [
+          "JOLT_CITY",
+          "Level_23",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Quieres Bailar",
+      "enum": "QUIERES_BAILAR",
+      "title": "Quieres Bailar",
+      "key": "#LOC_SongTitle_QuieresBailar",
+      "source": "Cassette Source - Quieres Bailar",
+      "source_id": 187256190,
+      "triggers": [
+        [
+          "QUIERES_BAILAR",
+          "Level_16",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Quicksand",
+      "enum": "QUICKSAND",
+      "title": "Quicksand",
+      "key": "#LOC_SongTitle_Quicksand",
+      "source": "Music Lab - 32 Point Chest",
+      "source_id": null,
+      "triggers": []
+    },
+    {
+      "ap_name": "Gold",
+      "enum": "GOLD",
+      "title": "Gold",
+      "key": "#LOC_SongTitle_Gold",
+      "source": "Cassette Source - Gold",
+      "source_id": 187256191,
+      "triggers": [
+        [
+          "GOLD",
+          "Level_05",
+          "LevelVariant_Default"
+        ],
+        [
+          "GOLD",
+          "Level_11",
+          "LevelVariant_Default"
+        ],
+        [
+          "GOLD",
+          "Level_11",
+          "LevelVariant_DevilMode"
+        ]
+      ]
+    },
+    {
+      "ap_name": "I Got Money",
+      "enum": "I_GOT_MONEY",
+      "title": "I Got Money",
+      "key": "#LOC_SongTitle_IGotMoney",
+      "source": "Level 2 - Money Cassette",
+      "source_id": 187256186,
+      "triggers": [
+        [
+          "I_GOT_MONEY",
+          "Level_06",
+          "LevelVariant_BeeMode"
+        ],
+        [
+          "I_GOT_MONEY",
+          "Level_06",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Hippo and Frog",
+      "enum": "HIPPO_AND_FROG",
+      "title": "Hippo and Frog",
+      "key": "#LOC_SongTitle_HippoAndFrog",
+      "source": "Cassette Source - Hippo and Frog",
+      "source_id": 187256192,
+      "triggers": [
+        [
+          "HIPPO_AND_FROG",
+          "Level_07",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "On the Way",
+      "enum": "ON_THE_WAY",
+      "title": "On The Way",
+      "key": "#LOC_SongTitle_OnTheWay",
+      "source": "Cassette Source - On the Way",
+      "source_id": 187256193,
+      "triggers": [
+        [
+          "ON_THE_WAY",
+          "Level_08",
+          "LevelVariant_Default"
+        ],
+        [
+          "ON_THE_WAY",
+          "Level_11",
+          "LevelVariant_Default"
+        ],
+        [
+          "ON_THE_WAY",
+          "Level_11",
+          "LevelVariant_DevilMode"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Badass",
+      "enum": "BADASS",
+      "title": "Badass",
+      "key": "#LOC_SongTitle_Badass",
+      "source": "Cassette Source - Badass",
+      "source_id": 187256194,
+      "triggers": [
+        [
+          "BADASS",
+          "Level_09",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Heavy Metal",
+      "enum": "HEAVY_METAL",
+      "title": "Heavy Metal",
+      "key": "#LOC_SongTitle_HeavyMetal",
+      "source": "Cassette Source - Heavy Metal",
+      "source_id": 187256195,
+      "triggers": [
+        [
+          "HEAVY_METAL",
+          "Level_09",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "AOK",
+      "enum": "AOK",
+      "title": "AOK",
+      "key": "#LOC_SongTitle_AOK",
+      "source": "Cassette Source - AOK",
+      "source_id": 187256196,
+      "triggers": [
+        [
+          "AOK",
+          "Level_02",
+          "LevelVariant_Default"
+        ],
+        [
+          "AOK",
+          "Level_02",
+          "LevelVariant_DevilMode"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Rainbow Melodies",
+      "enum": "RAINBOW_MELODIES",
+      "title": "Rainbow Melodies",
+      "key": "#LOC_SongTitle_RainbowMelodies",
+      "source": "Cassette Source - Rainbow Melodies",
+      "source_id": 187256197,
+      "triggers": [
+        [
+          "RAINBOW_MELODIES",
+          "Level_11",
+          "LevelVariant_Default"
+        ],
+        [
+          "RAINBOW_MELODIES",
+          "Level_11",
+          "LevelVariant_DevilMode"
+        ],
+        [
+          "RAINBOW_MELODIES",
+          "Level_19",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Sneaking",
+      "enum": "SNEAKING_LOOP",
+      "title": "Sneaking",
+      "key": "#LOC_SongTitle_Sneaking",
+      "source": "Cassette Source - Sneaking",
+      "source_id": 187256198,
+      "triggers": [
+        [
+          "SNEAKING_LOOP",
+          "Level_19",
+          "LevelVariant_Default"
+        ],
+        [
+          "SNEAKING_LOOP",
+          "Level_20",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "The Heist",
+      "enum": "THE_HEIST",
+      "title": "The Heist",
+      "key": "#LOC_SongTitle_Heist",
+      "source": "Cassette Source - The Heist",
+      "source_id": 187256199,
+      "triggers": [
+        [
+          "THE_HEIST",
+          "Level_20",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Money",
+      "enum": "MONEY_DUB",
+      "title": "Money",
+      "key": "#LOC_SongTitle_MoneyDub",
+      "source": "Cassette Source - Money",
+      "source_id": 187256200,
+      "triggers": [
+        [
+          "MONEY_DUB",
+          "Level_01",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Lets Go",
+      "enum": "LETS_GO",
+      "title": "Let's Go",
+      "key": "#LOC_SongTitle_LetsGo",
+      "source": "Cassette Source - Lets Go",
+      "source_id": 187256201,
+      "triggers": [
+        [
+          "LETS_GO",
+          "Level_12",
+          "LevelVariant_BeeMode"
+        ],
+        [
+          "LETS_GO",
+          "Level_12",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Bounce",
+      "enum": "BOUNCE",
+      "title": "Bounce",
+      "key": "#LOC_SongTitle_Bounce",
+      "source": "Cassette Source - Bounce",
+      "source_id": 187256202,
+      "triggers": [
+        [
+          "BOUNCE",
+          "Level_15",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Epical",
+      "enum": "THE_EPICAL",
+      "title": "The Epical",
+      "key": "#LOC_SongTitle_Epical",
+      "source": "Cassette Source - Epical",
+      "source_id": 187256203,
+      "triggers": [
+        [
+          "THE_EPICAL",
+          "Level_21",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Hollywood Trailer",
+      "enum": "HOLLYWOOD_TRAILER",
+      "title": "Hollywood Trailer",
+      "key": "#LOC_SongTitle_HollywoodTrailer",
+      "source": "Cassette Source - Hollywood Trailer",
+      "source_id": 187256204,
+      "triggers": [
+        [
+          "HOLLYWOOD_TRAILER",
+          "Level_21",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "False Data",
+      "enum": "FALSE_DATA",
+      "title": "False Data",
+      "key": "#LOC_SongTitle_FalseData",
+      "source": "Cassette Source - False Data",
+      "source_id": 187256205,
+      "triggers": [
+        [
+          "FALSE_DATA",
+          "Level_21",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Gotta Get Up",
+      "enum": "GOTTA_GET_UP",
+      "title": "Gotta Get Up",
+      "key": "#LOC_SongTitle_GottaGetUp",
+      "source": "Cassette Source - Gotta Get Up",
+      "source_id": 187256206,
+      "triggers": [
+        [
+          "GOTTA_GET_UP",
+          "Level_03",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Fumblin Around",
+      "enum": "FUMBLIN_AROUND",
+      "title": "Fumblin' Around",
+      "key": "#LOC_SongTitle_FumblinAround",
+      "source": "Cassette Source - Fumblin Around",
+      "source_id": 187256207,
+      "triggers": [
+        [
+          "FUMBLIN_AROUND",
+          "Level_13",
+          "LevelVariant_Default"
+        ],
+        [
+          "FUMBLIN_AROUND",
+          "Level_13",
+          "LevelVariant_DevilMode"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Party Non Stop",
+      "enum": "PARTY_NON_STOP",
+      "title": "Party Non-Stop",
+      "key": "#LOC_SongTitle_PartyNonStop",
+      "source": "Cassette Source - Party Non Stop",
+      "source_id": 187256208,
+      "triggers": [
+        [
+          "PARTY_NON_STOP",
+          "Level_25",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Keep On Hustlin",
+      "enum": "KEEP_ON_HUSTLIN",
+      "title": "Keep on Hustlin'",
+      "key": "#LOC_SongTitle_KeepOnHustlin",
+      "source": "Cassette Source - Keep On Hustlin",
+      "source_id": 187256209,
+      "triggers": [
+        [
+          "KEEP_ON_HUSTLIN",
+          "Level_14",
+          "LevelVariant_Default"
+        ],
+        [
+          "KEEP_ON_HUSTLIN",
+          "Level_14",
+          "LevelVariant_DevilMode"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Another Day In Paradise",
+      "enum": "ANOTHER_DAY_IN_PARADISE",
+      "title": "Another Day in Paradise",
+      "key": "#LOC_SongTitle_AnotherDayInParadise",
+      "source": "Cassette Source - Another Day In Paradise",
+      "source_id": 187256210,
+      "triggers": [
+        [
+          "ANOTHER_DAY_IN_PARADISE",
+          "Level_28",
+          "LevelVariant_Default"
+        ]
+      ]
+    },
+    {
+      "ap_name": "Flamenco",
+      "enum": "FLAMENCO",
+      "title": "Flamenco",
+      "key": "#LOC_SongTitle_Flamenco",
+      "source": "Music Lab - 64 Point Chest",
+      "source_id": null,
+      "triggers": []
+    },
+    {
+      "ap_name": "Ten-Four Good Buddy",
+      "enum": "TEN_FOUR_GOOD_BUDDY",
+      "title": "10-4 Good Buddy",
+      "key": "#LOC_SongTitle_TenFourGoodBuddy",
+      "source": "Music Lab - 89 Point Chest",
+      "source_id": null,
+      "triggers": []
+    },
+    {
+      "ap_name": "Zen",
+      "enum": "ZEN",
+      "title": "Zen",
+      "key": "#LOC_SongTitle_Zen",
+      "source": "Music Lab - 111 Point Chest",
+      "source_id": null,
+      "triggers": []
+    },
+    {
+      "ap_name": "Wiggle",
+      "enum": "WIGGLE",
+      "title": "Time to Wiggle",
+      "key": "#LOC_SongTitle_Wiggle",
+      "source": "Music Lab - 140 Point Chest",
+      "source_id": null,
+      "triggers": []
+    }
+  ],
+  "garage_songs": {
+    "BLOODY_TEARS": {
+      "enum": "BLOODY_TEARS",
+      "title": "Bloody Tears",
+      "key": "#LOC_SongTitle_BloodyTears"
+    },
+    "VAMPIRE_KILLER": {
+      "enum": "VAMPIRE_KILLER",
+      "title": "Vampire Killer",
+      "key": "#LOC_SongTitle_VampireKiller"
+    },
+    "SMOOCH": {
+      "enum": "SMOOCH",
+      "title": "Smooooch",
+      "key": "#LOC_SongTitle_Smooch"
+    },
+    "GRADIUS_REMIX": {
+      "enum": "GRADIUS_REMIX",
+      "title": "Gradius Remix",
+      "key": "#LOC_SongTitle_GradiusRemix"
+    },
+    "SUPERSTAR": {
+      "enum": "SUPERSTAR",
+      "title": "Superstar",
+      "key": "#LOC_SongTitle_Superstar"
+    },
+    "WAG_THE_DOG": {
+      "enum": "WAG_THE_DOG",
+      "title": "Wag the Dog",
+      "key": "#LOC_SongTitle_WagTheDog"
+    }
+  }
+}

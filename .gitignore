@@ -41,3 +41,6 @@ secrets.*
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Local task state and generated seed captures
+.superpowers/

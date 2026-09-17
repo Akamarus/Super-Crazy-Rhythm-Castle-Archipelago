@@ -102,8 +102,9 @@ The initial provisional ledger is:
 | Tower of Fear | Restore Minim's Heart statue | Separate delivered part and statue interaction; exact statue flag and ability rule require proof. |
 | Tower of Fear | Complete the Totem sequence | Known to be distinct from the three branch level results. Recover the durable completion identity. |
 | Royal Corridor | Feed the Royal Star Eater | `KING_CORRIDOR_STAR_EATER_FED` is known, but phone-side Level 22 access is physically separated from this route. Model the bridge/routing split before activation. |
+| Roots | Feed the Roots Star Eater | Added to the discovery queue on 2026-09-14. `ROOTS_HUB_STAR_EATER_FED` exists in native metadata, but live action, routing, threshold, persistence, and identity behavior remain unproven. Blockade removal is not feeding. Diagnostic-only until confirmation. |
 
-This is a discovery queue, not an authorization to allocate 17 IDs. Implementation selects only candidates that pass the confirmation gate. If fewer than 11 pass, Star activation remains blocked and the failed candidates stay documented with their evidence gaps.
+This 18-candidate discovery queue is not authorization to allocate IDs. Implementation selects only candidates that pass the confirmation gate. If fewer than 11 pass, Star activation remains blocked and the failed candidates stay documented with their evidence gaps.
 
 ## 6. Diagnostic-first confirmation
 

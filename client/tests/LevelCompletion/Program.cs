@@ -24,10 +24,10 @@ static HashSet<string> Set(params string[] locations) => new(locations, StringCo
 
 static CampaignLevelDescriptor[] ExpectedLevels() =>
 [
-    new(1, "The Little Things", "Level_05", "Roots"),
+    new(1, "Light Humor", "Level_05", "Roots"),
     new(2, "Pop Party", "Level_06", "Roots"),
-    new(3, "Jolt City", "Level_07", "Roots"),
-    new(4, "Quieres Bailar", "Level_08", "Roots"),
+    new(3, "The Megafying Ritual", "Level_07", "Roots"),
+    new(4, "DJ Eggplant", "Level_08", "Roots"),
     new(5, "Lift Quest", "Level_09", "Roots"),
     new(6, "Boring Room", "Level_02", "Lobby"),
     new(7, "Demolition Training", "Level_19", "Lobby"),
@@ -35,13 +35,13 @@ static CampaignLevelDescriptor[] ExpectedLevels() =>
     new(9, "School Trip", "Level_20", "Lobby"),
     new(10, "The Vault", "Level_01", "Lobby"),
     new(11, "Act 1: Flavor", "Level_12", "Meat Dimension"),
-    new(12, "Act 2", "Level_15", "Meat Dimension"),
-    new(13, "Act 3", "Level_22", "Meat Dimension"),
-    new(14, "Act 4", "Level_23", "Meat Dimension"),
+    new(12, "Act 2: Sauce and Spice", "Level_15", "Meat Dimension"),
+    new(13, "Act 3: Montage", "Level_22", "Meat Dimension"),
+    new(14, "Act 4: Habanero", "Level_23", "Meat Dimension"),
     new(15, "Central Mainframe", "Level_16", "Cell Tower"),
-    new(16, "Thief Prince", "Level_24", "Cell Tower"),
+    new(16, "The Thief Prince", "Level_24", "Cell Tower"),
     new(17, "Cold Storage", "Level_21", "Lobby"),
-    new(18, "Darkness", "Level_03", "Tower of Fear"),
+    new(18, "The Darkness", "Level_03", "Tower of Fear"),
     new(19, "Escape", "Level_13", "Tower of Fear"),
     new(20, "Loneliness", "Level_25", "Tower of Fear"),
     new(21, "Locker Room", "Level_14", "Royal Corridor"),
@@ -94,6 +94,12 @@ Equal(true, CampaignLevelCatalog.TryGet("level_02", out CampaignLevelDescriptor 
 Equal(6, levelSix.Number, "catalog lookup returns the canonical descriptor");
 Equal(false, CampaignLevelCatalog.TryGet("Level_99", out _), "unknown internal level is rejected");
 
+var characterCampaign = CompatibleSlotData();
+characterCampaign["implementation_version"] = "full-level-mapping-0.24-character-quest-items-0.25";
+characterCampaign["schema_version"] = 16L;
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(characterCampaign).Mode, "v0.25 retains full campaign mapping");
+characterCampaign["schema_version"] = 15L;
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLocationContract.Validate(characterCampaign).Mode, "v0.25 cannot downgrade schema");
 CampaignLocationCompatibilityResult compatible = CampaignLocationContract.Validate(CompatibleSlotData());
 Equal(CampaignLocationCompatibilityMode.Compatible, compatible.Mode, "exact v0.24 slot-data schema is compatible");
 SequenceEqual(AllCampaignLocations().OrderBy(name => name, StringComparer.Ordinal), compatible.ActiveLocations.OrderBy(name => name, StringComparer.Ordinal),

@@ -2152,3 +2152,32 @@ internal static class CassetteAuthoritativeStateReader
         }
     }
 }
+
+// A deferred immutable wave stays queued, but its native ownership reads must
+// not run at render frequency. A new wave/save gets one immediate attempt.
+internal sealed class CassettePersistencePollScheduler
+{
+    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(1);
+    private CassettePersistenceAcceptanceIdentity _identity;
+    private long _waveId;
+    private bool _hasWave;
+    private TimeSpan _remaining;
+
+    internal bool TryBegin(CassettePersistenceAcceptanceIdentity identity, long waveId, TimeSpan elapsed)
+    {
+        if (identity.Pointer == 0 || waveId <= 0) return false;
+        if (!_hasWave || _identity != identity || _waveId != waveId)
+        {
+            _identity = identity;
+            _waveId = waveId;
+            _hasWave = true;
+            _remaining = Interval;
+            return true;
+        }
+        if (elapsed > TimeSpan.Zero)
+            _remaining = elapsed >= _remaining ? TimeSpan.Zero : _remaining - elapsed;
+        if (_remaining > TimeSpan.Zero) return false;
+        _remaining = Interval;
+        return true;
+    }
+}
