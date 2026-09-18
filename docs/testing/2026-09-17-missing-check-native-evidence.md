@@ -1,4 +1,4 @@
-# Missing native check sources — schema 19 candidate
+# Missing native check sources â€” schema 19 candidate
 
 These two additions are statically mapped and covered by automated runtime tests. They are **not gameplay accepted**. The user's prior 33/37 acceptance remains valid; the three skipped Demonic checks and Certificate remain unverified and are not required to be replayed during this implementation pass.
 
