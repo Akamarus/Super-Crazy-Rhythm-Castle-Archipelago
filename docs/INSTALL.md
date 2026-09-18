@@ -1,11 +1,11 @@
 # Public development-test installation
 
 > [!WARNING]
-> This is an unofficial, experimental testing prerelease. Back up your save and expect incomplete logic. Do not install files or custom worlds from sources you do not trust.
+> This is an unofficial, experimental release. Back up your save and expect incomplete logic. Do not install files or custom worlds from sources you do not trust.
 
 This is the canonical installation guide for public development testing. The component guides keep their developer details: [client notes](../client/README.md), [APWorld notes](../apworld/README.md), and the [APWorld setup page](../apworld/scrc/docs/setup_en.md).
 
-Current testing release: **Client v0.73.9 / APWorld v0.26.0**. It includes item notifications, randomized character quest inputs/rewards, four quest checks, and Garage repairs while retaining all 22 normal campaign identities, AP Music Lab Points and cassette routing. Use the two matching components with a fresh v0.26 seed and fresh native save. Broad campaign gameplay acceptance remains pending; see the [quest acceptance record](testing/2026-09-16-quest-checks-candidate.md).
+Current release: **Client v0.75.0 / APWorld v0.28.0** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Native gameplay acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
 
 ## Before you begin
 
@@ -20,13 +20,13 @@ An `.apworld` is executable custom-world code. Build it from this repository or 
 
 ## Install the client
 
-Download `RhythmCastleAP-v0.73.9.zip` from the [v0.26.0-dev testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.26.0-dev). Close the game, then extract the three DLLs from the archive directly into:
+Download `RhythmCastleAP-v0.75.0.zip` from the [v0.28.0 testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0). Close the game, then extract the three DLLs from the archive directly into:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
 ```
 
-Replace the existing files when prompted. Do not put the ZIP itself or an extra `RhythmCastleAP-v0.73.9` directory inside the plugin directory. The release archive contains only the SCRC plugin and its two application dependencies; BepInEx, Harmony, and IL2CPP interop files continue to come from the BepInEx installation.
+Replace the existing files when prompted. Do not put the ZIP itself or an extra `RhythmCastleAP-v0.75.0` directory inside the plugin directory. The release archive contains only the SCRC plugin and its two application dependencies; BepInEx, Harmony, and IL2CPP interop files continue to come from the BepInEx installation.
 
 ### Build from source instead
 
@@ -34,7 +34,9 @@ Clone the repository and run the client build script with the directory that con
 
 ```powershell
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
-cd .\Super-Crazy-Rhythm-Castle-Archipelago\client
+cd .\Super-Crazy-Rhythm-Castle-Archipelago
+git checkout v0.28.0
+cd client
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
 ```
@@ -50,12 +52,12 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.73.9 loading.
+[SCRC-AP] v0.75.0 loading.
 ```
 
 ## Configure the current development client
 
-After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.26 testing flow, use these values and replace the server and slot placeholders with the room's connection values.
+After the first launch, edit `<GameDir>\BepInEx\config\jack.rhythmcastle.archipelago.cfg`. For the current Roots-first APWorld v0.28 testing flow, use these values and replace the server and slot placeholders with the room's connection values.
 
 ```ini
 [Archipelago]
@@ -80,7 +82,7 @@ Treat the room password as a secret. Put it in the local config only when the ro
 
 ## Install and generate the APWorld
 
-Download `scrc.apworld` from the [v0.26.0-dev testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.26.0-dev). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
+Download `scrc.apworld` from the [v0.28.0 testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
 
 ### Build from source instead
 
@@ -97,11 +99,11 @@ Use one of these YAML starting points: click **Generate Template Options** in Ar
 
 In Archipelago Launcher, click **Generate**. On success, take the generated archive from `<Archipelago>\output\AP_XXXXX.zip`. Custom worlds generate locally, and the resulting zip can be uploaded to a compatible hosting website afterward.
 
-Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.26.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26`; it forces Roots as the starter area, retains AP Music Lab Points and all 30 cassette mappings, maps all 22 normal campaign identities, and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
+Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropriate hosting website. Enter that room's host and port in `Server`, your player name in `Slot`, and the room password in `Password` only if required. The current APWorld is **v0.28.0** with slot-data implementation `area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26`; it forces Roots as the starter area, retains AP Music Lab Points and all 30 cassette mappings, maps all 22 normal campaign identities, and preserves the physical vanilla Vampire Killer pickup required for normal Game Garage entry.
 
-Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter AP performance locations. In v0.26, Normal addresses 125 locations; Hard 183; Expert 241; Perfection 277. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
+Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter AP performance locations. In v0.28, Normal addresses 125 locations; Hard 183; Expert 241; Perfection 277. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
-Install APWorld v0.26, generate a newly created v0.26 seed, and start a fresh in-game save for acceptance. Replacing the world does not upgrade an old seed or make an old save an acceptance baseline. Client v0.73.9 requires top-level schema 17, campaign-mapping schema 1, and point schema 1. Recognized v0.23/schema-14 seeds retain their historical mapping and AP Music Lab Points behavior; recognized v0.22 and non-AP play retain native Music Lab scoring. Malformed or unsupported AP contracts report incompatibility and keep the affected randomized system inactive.
+Install APWorld v0.28, generate a newly created v0.28 seed, and start a fresh in-game save for acceptance. Replacing the world does not upgrade an old seed or make an old save an acceptance baseline. Client v0.75.0 requires top-level schema 17, campaign-mapping schema 1, and point schema 1. Recognized v0.23/schema-14 seeds retain their historical mapping and AP Music Lab Points behavior; recognized v0.22 and non-AP play retain native Music Lab scoring. Malformed or unsupported AP contracts report incompatibility and keep the affected randomized system inactive.
 
 The 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles total 180 points. They replace 20 Stardust; the last chest costs 140, leaving 40 slack. Thresholds are 5/10/20/32/46/64/89/111/140, with no milestone or duplicate cassette/cartridge checks. AP totals apply only through the existing managed getter in `GameRoom_Hub6`, remain zero before synchronization, and retain the last synchronized total during a temporary disconnect. Native medals add no points. The diagnostic-first investigation rejected chest/native detours; no native score/save write or forced chest interaction is used. The existing display, all thresholds, and persistence still need live acceptance; the developer Shift+F4 override cannot supersede compatible AP points.
 

@@ -1,3 +1,5 @@
+> Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
+
 # Next release bug-fix gate
 
 This checklist records release-blocking defects carried forward from focused fresh-save testing. An item stays open until its acceptance test passes. Only then may it move into the next release's **Fixed** changelog section.

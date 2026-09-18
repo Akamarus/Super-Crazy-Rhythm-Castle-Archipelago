@@ -5,7 +5,7 @@ namespace RhythmCastleAP;
 // Compile the unchanged production ArchipelagoClient; replace only external
 // networking and unrelated native subsystems. Campaign policy, lifecycle leases,
 // reconnect admission, local deduplication and queue delivery remain real.
-internal static class ConnectionTests
+internal static partial class ConnectionTests
 {
     internal static void Run(Func<Dictionary<string, object>> contract)
     {
@@ -24,6 +24,8 @@ internal static class ConnectionTests
         Connect(questClient, replacementQuest, false);
         Check(false, readyDuringLogin, "replacement suspends grants before authentication");
         Check(false, CharacterQuestItems.State.Snapshot.Ready, "invalid replacement cannot retain old ownership");
+        Check(false, questClient.QueueExpandedLocation("Level 1 - Completion", "wrong-identity"),
+            "old expanded source cannot enter a replacement identity queue");
         questClient.Shutdown();
         UnauthenticatedTransportCannotFlush(contract);
         foreach (string replacement in new[] { "same", "seed", "team", "slot" })
@@ -32,6 +34,8 @@ internal static class ConnectionTests
             var client = new ArchipelagoClient("test", "slot", "", false);
             var first = Login(contract());
             Connect(client, first, true);
+            Check(false, client.QueueExpandedLocation("Level 1 - Completion", Plugin.GameName + "|old-seed|0|1"),
+                "expanded source identity mismatch rejected before queue");
             first.Socket.Close();
             Connect(client, Login(contract(), success: false), false);
             var offline = CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 1);
@@ -75,6 +79,7 @@ internal static class ConnectionTests
         Check(true, rejectedClient.Connected, "campaign-only rejection preserves other connection policy");
         rejectedClient.Shutdown();
         Console.WriteLine("PASS: production connection retry, identity isolation, queue delivery, and login errors");
+        RunStars(contract);
     }
 
     private static void UnauthenticatedTransportCannotFlush(Func<Dictionary<string, object>> contract)
@@ -189,8 +194,11 @@ internal sealed class TestSocket
     internal event Action? SocketOpened;
     internal event Action<string>? SocketClosed;
     internal event Action<Exception, string>? ErrorReceived;
-    internal event Action<object>? PacketReceived;
+    internal event Action<Archipelago.MultiClient.Net.ArchipelagoPacketBase>? PacketReceived;
 #pragma warning restore CS0067
+    internal readonly List<Archipelago.MultiClient.Net.ArchipelagoPacketBase> SentPackets = new();
+    internal void SendPacket(Archipelago.MultiClient.Net.ArchipelagoPacketBase packet) => SentPackets.Add(packet);
+    internal void Receive(Archipelago.MultiClient.Net.ArchipelagoPacketBase packet) => PacketReceived?.Invoke(packet);
     internal bool Connected => true;
     internal Task DisconnectAsync() => Task.CompletedTask;
     internal void Close() => SocketClosed?.Invoke("controlled transport loss");

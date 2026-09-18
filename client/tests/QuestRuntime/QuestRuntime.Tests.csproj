@@ -6,4 +6,4 @@
 <Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs" />
 <Compile Include="../../CharacterQuestItems.cs" Link="CharacterQuestItems.cs" />
 <Compile Include="../../CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
-</ItemGroup></Project>
+<Compile Include="../../QuestCharacterRewardPolicy.cs" Link="QuestCharacterRewardPolicy.cs"/></ItemGroup></Project>

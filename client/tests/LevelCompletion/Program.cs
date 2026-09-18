@@ -61,7 +61,7 @@ static HashSet<string> AllCampaignLocations() =>
 
 static Dictionary<string, object> CompatibleSlotData() => new()
 {
-    ["implementation_version"] = "full-level-mapping-0.24",
+    ["implementation_version"] = (string)LegacySlotData()["implementation_version"] + "-full-level-mapping-0.24",
     ["schema_version"] = 15L,
     ["campaign_level_mapping_schema"] = 1L,
     ["active_campaign_locations"] = AllCampaignLocations().OrderBy(name => name, StringComparer.Ordinal).ToArray(),
@@ -93,6 +93,24 @@ Equal(22, CampaignLevelCatalog.All.Count, "catalog has 22 descriptors");
 Equal(true, CampaignLevelCatalog.TryGet("level_02", out CampaignLevelDescriptor levelSix), "catalog lookup is case-insensitive");
 Equal(6, levelSix.Number, "catalog lookup returns the canonical descriptor");
 Equal(false, CampaignLevelCatalog.TryGet("Level_99", out _), "unknown internal level is rejected");
+
+var batchCampaign = CompatibleSlotData();
+batchCampaign["implementation_version"] = "full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27";
+batchCampaign["schema_version"] = 18;
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(batchCampaign).Mode, "schema18 campaign contract");
+batchCampaign["schema_version"] = 17;
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLocationContract.Validate(batchCampaign).Mode, "schema18 rejects mismatched schema");
+var starContract = new Dictionary<string,object>(batchCampaign);
+starContract["implementation_version"] += "-ap-stars-0.28";
+starContract["schema_version"] = 19;
+Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(starContract).Mode, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 18;
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLocationContract.Validate(starContract).Mode, "AP Stars suffix requires schema19");
+starContract["schema_version"] = 19;
+starContract["implementation_version"] = batchCampaign["implementation_version"];
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLocationContract.Validate(starContract).Mode, "schema19 requires AP Stars suffix");
+starContract["implementation_version"] += "-ap-stars-0.28-extra";
+Equal(CampaignLocationCompatibilityMode.IncompatibleClaim, CampaignLocationContract.Validate(starContract).Mode, "unknown AP Stars suffix extension rejected");
 
 var characterCampaign = CompatibleSlotData();
 characterCampaign["implementation_version"] = "full-level-mapping-0.24-character-quest-items-0.25";

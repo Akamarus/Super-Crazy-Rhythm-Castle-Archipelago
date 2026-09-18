@@ -4,6 +4,21 @@
 
 Once an item or location ID has existed in a published/tested datapackage, it is never reused for a different thing. Gaps remain reserved.
 
+## Current schema 19 additions
+
+Client 0.75.0 / APWorld 0.28.0 adds Cell 334 and King 335 after native mapping.
+The expanded map contains 39 entries; legacy schema 18 clients retain their 37-entry map.
+Star item 187256118 is active with 66 instances. Next safe location 187256336 and item 187256164.
+
+| Offset | ID | Native source |
+| --- | --- | --- |
+| +334 | 187256334 | Cell Tower - Star Eater Fed; PRISON_HUB_STAR_EATER_FED (823) in GameRoom_Hub5B |
+| +335 | 187256335 | Royal Corridor - King Ferdinand Unlocked; KING (6) award sequence in GameRoom_28B |
+
+King remains a native reward-source check; no new King ownership item is generated.
+Current totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+Older allocation/status paragraphs below are historical where explicitly versioned.
+
 ## Location IDs
 
 | Offset | Absolute ID(s) | Allocation |
@@ -25,19 +40,19 @@ Once an item or location ID has existed in a published/tested datapackage, it is
 | `+186` | `187256186` | Level 2 - Money Cassette |
 | `+187..+210` | `187256187..187256210` | 24 new full-cassette source checks |
 | `+211..+291` | `187256211..187256291` | Full normal-campaign location catalog (81 newly allocated checks) |
-| `+292` | `187256292` | Lobby - Important Letters Pickup (reserved, inactive) |
+| `+292` | `187256292` | Lobby - Important Letters Pickup |
 | `+293` | `187256293` | Lobby - Bean Trumpet Award (reserved, inactive) |
-| `+294` | `187256294` | Lobby - Plunger Pickup (Stardust-only) |
+| `+294` | `187256294` | Lobby - Plunger Pickup (modeled native route) |
 | `+295` | `187256295` | Lobby - Car Battery Hand-In |
 | `+296` | `187256296` | Game Garage - Old Game Data Hand-In |
-| `+297` | `187256297` | Roots - Star Eater Fed (Stardust-only) |
+| `+297` | `187256297` | Roots - Star Eater Fed (AP Star threshold) |
 
-**Next safe location offset:** `+298`
-**Next safe location ID:** `187256298`
+**Next safe location offset:** `+336`
+**Next safe location ID:** `187256336`
 
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
-The current registry contains **286** named network locations, including 13 inactive reservations. Active addressed totals are Normal 121 / Hard 179 / Expert 237 / Perfection 273.
+Historical v0.24 registry: **286** named network locations, including 13 inactive reservations. Its active totals were Normal 121 / Hard 179 / Expert 237 / Perfection 273; the current schema 19 totals are above.
 
 ### Full cassette source IDs
 
@@ -239,7 +254,7 @@ Cassette` source at `187256186`.
 | `+158` | `187256158` | Demolition Certificate (reserved, inactive) |
 | `+159` | `187256159` | Old Game Data (progression in v0.26; useful in v0.25) |
 | `+160` | `187256160` | Car Battery (progression in v0.26; useful in v0.25) |
-| `+161` | `187256161` | Plunger (useful) |
+| `+161` | `187256161` | Plunger (progression) |
 | `+162` | `187256162` | Meoo (useful character unlock) |
 | `+163` | `187256163` | Maniac (useful character unlock) |
 
@@ -270,3 +285,48 @@ entries above. Original `character_quest_items` and
 fresh v0.26 seed; schema-16 seeds are not upgraded. The candidate is uninstalled
 and gameplay acceptance is pending. Native mapping and scope limitations are
 recorded in [the acceptance record](testing/2026-09-16-quest-checks-candidate.md).
+
+
+## v0.27 supplemental checks (schema 18 candidate)
+
+Existing IDs remain unchanged. Important Letters reuses reserved187256292; Bean Trumpet187256293 remains inactive. New IDs187256298 through187256333 are allocated only to the mapped candidates below. Next safe location ID187256334; next safe item ID187256164 unchanged. No new item instances.
+
+| ID | Location | Native source |
+| --- | --- | --- |
+| 187256298 | Roots - Combo Bucket Conversion | `LEVEL_09_COMBO_ABILITY_EARNED` |
+| 187256299 | Lobby - Important Letters Delivery | `LOBBY_HUB_MENIAL_TASK_ITEM_DEPOSITED` |
+| 187256300 | Lobby - Plunger Hand-In | `LOBBY_HUB_MEAT_DOOR_BLOCKER_PLUNGERED` |
+| 187256301 | Lobby - Star Eater Fed | `LOBBY_HUB_STAR_EATER_FED` |
+| 187256302 | Lobby - Fish Tears Delivery | `LOBBY_HUB_FISH_TEARS_DEPOSITED` |
+| 187256303 | Meat Dimension - Act 1 Music Delivery | `MEAT_HUB_ACT_ONE_MUSIC_DONE` |
+| 187256304 | Meat Dimension - Act 2 Music Delivery | `MEAT_HUB_ACT_TWO_MUSIC_DONE` |
+| 187256305 | Meat Dimension - Act 3 Music Delivery | `MEAT_HUB_ACT_THREE_MUSIC_DONE` |
+| 187256306 | Meat Dimension - Act 4 Music Delivery | `MEAT_HUB_ACT_FOUR_MUSIC_DONE` |
+| 187256307 | Meat Dimension - Return Cat | `MEAT_HUB_ACT_TWO_BOUNCER_REQUIREMENT_DONE` |
+| 187256308 | Meat Dimension - Return Scruffy | `MEAT_HUB_ACT_THREE_BOUNCER_REQUIREMENT_DONE` |
+| 187256309 | Meat Dimension - Mouse Revolution | `MEAT_HUB_MOUSE_REVOLUTION_TRIGGERED` |
+| 187256310 | Cell Tower - Deliver Super Nectar | `PRISON_HUB_BEES_ESCAPED` |
+| 187256311 | Tower of Fear - Restore Eye Statue | `MADNESS_HUB_DARKNESS_AREA_COMPLETED` |
+| 187256312 | Tower of Fear - Restore Mind Statue | `MADNESS_HUB_COMPLEXITY_AREA_COMPLETED` |
+| 187256313 | Tower of Fear - Restore Heart Statue | `MADNESS_HUB_LONELINESS_AREA_COMPLETED` |
+| 187256314 | Royal Corridor - Star Eater Fed | `KING_CORRIDOR_STAR_EATER_FED` |
+| 187256292 | Lobby - Important Letters Pickup | `LOBBY_HUB_MENIAL_TASK_ITEM_COLLECTED` |
+| 187256315 | Lobby - Demolition Certificate Award | `LOBBY_HUB_TOOLS_CERTIFICATE` |
+| 187256316 | Meat Dimension - Wooden Spoon Pickup | `MEAT_HUB_WOODEN_SPOON_COLLECTED` |
+| 187256317 | Meat Dimension - Saw Disc Pickup | `MEAT_HUB_SAW_DISC_COLLECTED` |
+| 187256318 | Meat Dimension - Frying Pan Pickup | `MEAT_HUB_FRYING_PAN_COLLECTED` |
+| 187256319 | Meat Dimension - Fish Tears Award | `LEVEL_23_FISH_TEARS_COLLECTED` |
+| 187256320 | Cell Tower - Meet the Bees | `PRISON_HUB_SPOKEN_TO_BEES` |
+| 187256321 | Tower of Fear - Eye Pickup | `MADNESS_HUB_EYE_COLLECTED` |
+| 187256322 | Tower of Fear - Mind Pickup | `MADNESS_HUB_BRAIN_COLLECTED` |
+| 187256323 | Tower of Fear - Heart Pickup | `MADNESS_HUB_HEART_COLLECTED` |
+| 187256324 | Royal Corridor - Bunker Keycard Award | `LEVEL_28_KEY_CARD_COLLECTED` |
+| 187256325 | Lobby - Use Bunker Keycard | `LOBBY_HUB_LIFT_KEY_USED` |
+| 187256326 | Secret Bunker - Gecko Interaction | `BUNKER_HUB_GECKO_INITIAL_INTERACTION` |
+| 187256327 | Secret Bunker - Star Eater Fed | `BUNKER_HUB_STAR_EATER_FED` |
+| 187256328 | Nectar Party - Completion | `Level_06 / LevelVariant_BeeMode` |
+| 187256329 | Act 1B: Nectar - Completion | `Level_12 / LevelVariant_BeeMode` |
+| 187256330 | Demonic Room - Completion | `Level_02 / LevelVariant_DevilMode` |
+| 187256331 | Demonic Tower - Completion | `Level_11 / LevelVariant_DevilMode` |
+| 187256332 | Demonic Escape - Completion | `Level_13 / LevelVariant_DevilMode` |
+| 187256333 | Demonic Lockers - Completion | `Level_14 / LevelVariant_DevilMode` |

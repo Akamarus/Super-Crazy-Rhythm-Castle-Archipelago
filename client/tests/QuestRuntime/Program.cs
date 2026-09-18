@@ -33,6 +33,18 @@ static class Program {
  }
  static void Main() {
   try {
+   foreach(var target in new[] {
+    ("Root/GameRoom_Hub1_Logic/GameRoom_Hub1A_Script/MiscSequences/UnlockGhostCat/UnlockGhostCatCharacter", ePlayableCharacter.GHOST_CAT),
+    ("Root/GameRoom_27_Logic/GameRoom_27_Script/MiscSequences/UnlockManiac/UnlockManiacCharacter", ePlayableCharacter.GUITAR_MANIAC) }) {
+    Start();Tick();
+    // Native AcceptProcessor inlines the write, bypassing SuppressCharacter.
+    if(!QuestCharacterRewardPolicy.SuppressNativeStep(QuestChecks.Enabled,QuestChecks.IsCurrentSaveBound(),target.Item1))
+     CurrentPlayerSaveEnquiries.Unlocked.Add(target.Item2);
+    Check(!CurrentPlayerSaveEnquiries.IsCharacterUnlocked(target.Item2),"vanilla sequence cannot leak randomized character: "+target.Item2);
+    Check(!QuestCharacterRewardPolicy.SuppressNativeStep(false,true,target.Item1),"legacy sequence retained");
+    Check(!QuestCharacterRewardPolicy.SuppressNativeStep(true,false,target.Item1),"unbound native save retained");
+    Check(!QuestCharacterRewardPolicy.SuppressNativeStep(true,true,target.Item1+"Other"),"unrelated sequence retained");
+   }
    Start(QuestChecksPolicy.Meoo,QuestChecksPolicy.Maniac);Tick();
    Check(CurrentPlayerSaveEnquiries.IsCharacterUnlocked(ePlayableCharacter.GHOST_CAT)&&CurrentPlayerSaveEnquiries.IsCharacterUnlocked(ePlayableCharacter.GUITAR_MANIAC),"AP character grants reach global native request");
    Check(RootsBucketRandomization.Flags[Battery]&&RootsBucketRandomization.Flags[Memory],"early character ownership must not consume quest items");

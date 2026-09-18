@@ -6,8 +6,8 @@ from collections.abc import Mapping
 
 LEVEL_NAMES = tuple(f"Level {number}" for number in range(1, 23))
 
-# Provisional linear depth targets. The final routing graph will eventually
-# replace these fractions without changing the validation contract.
+# Seeded depth targets over a conservative half-goal ceiling. Native quest
+# closures are enforced separately; unused Stars leave capacity for item routing.
 DEFAULT_DEPTH_FRACTIONS = (
     0.00,
     0.02,
@@ -46,15 +46,17 @@ def generate_star_requirements(
     rng: random.Random,
 ) -> dict[str, int]:
     _validate_goal(required_stars)
-    maximum = required_stars - 1
+    # Full-goal scaling failed actual Normal restrictive fill at seed285001.
+    # Reserve at least half the goal for routing beyond the highest entry gate.
+    maximum = min(required_stars - 1, required_stars // 2)
     values: list[int] = []
     previous = 0
 
-    for fraction in DEFAULT_DEPTH_FRACTIONS:
+    for index, fraction in enumerate(DEFAULT_DEPTH_FRACTIONS):
         # Goal-independent normalized jitter ensures a larger configured goal
         # cannot lower a requirement when the seed is unchanged.
         adjusted_fraction = max(0.0, min(1.0, fraction + rng.uniform(-0.04, 0.04)))
-        candidate = round(maximum * adjusted_fraction)
+        candidate = 0 if index < 2 else round(maximum * adjusted_fraction)
         value = min(maximum, max(previous, candidate, 0))
         values.append(value)
         previous = value

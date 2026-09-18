@@ -1,3 +1,5 @@
+> Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
+
 # Public Development Roadmap
 
 This is an unofficial, experimental testing prerelease rather than a stable release. The current candidate is Client v0.70.0 / APWorld v0.24.0. The full normal campaign map and retained Music Lab Points contract require matching components, a fresh v0.24 seed/save, and broad manual acceptance; automated readiness does not establish every native result mapping.
@@ -88,3 +90,10 @@ Before the next client/APWorld build is presented for gameplay testing, complete
 For detailed current behavior, see the [project overview](PROJECT_OVERVIEW.md), [progression reference](PROGRESSION.md), and [historical gameplay evidence](HISTORICAL_GAMEPLAY_EVIDENCE.md). The [approved randomizer design](superpowers/specs/2026-08-20-randomizer-logic-design.md) describes future architecture, not a claim that it is implemented.
 
 The [full-level-mapping acceptance record](testing/2026-09-10-full-level-mapping-acceptance.md) owns the v0.24 campaign gate, while the [Music Lab Points acceptance record](testing/2026-09-09-music-lab-points-acceptance.md) retains the point-economy evidence. Exact compatibility is required; the hub total remains zero before sync or on malformed AP data, retains its last synchronized value on a temporary disconnect, and never receives native medal contributions. Existing five cassette/two cartridge chest sources remain single checks. No native score/save writes or chest/native detours are part of this candidate.
+
+## Expanded check review scope (2026-09-17)
+
+The [consolidated check expansion backlog](testing/2026-09-17-check-expansion-backlog.md) includes the requested item pickups/awards, Bizzle/Clive switch interactions, Tower part pickups, Bunker sources/actions, and all two Bee/four Devil completion candidates. These are now explicit planned review work, rather than uncommitted audit possibilities. This supersedes older exclusions from the review queue, while retaining native-evidence and gameplay gates before activation. Its 50 review entries are not 50 guaranteed new locations; shared rewards, existing sources and added item costs must be reconciled before counting AP Star capacity. Next priority remains Combo Bucket conversion, followed by Lobby and Meat quest actions.
+
+
+Batch candidate: [37 supplemental checks and grouped gameplay acceptance](testing/2026-09-17-batch-check-acceptance.md), client0.74.0/world0.27. Native rewards remain intact; complete progression rules remain separate work.

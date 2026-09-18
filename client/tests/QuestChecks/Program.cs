@@ -7,7 +7,38 @@ Dictionary<string, object> Contract() => new() {
     ["schema_version"] = 17, ["quest_checks_schema"] = 1,
     ["quest_items"] = QuestChecksPolicy.Items, ["quest_locations"] = QuestChecksPolicy.Locations,
 };
+var batchContract = Contract();
+batchContract["implementation_version"] += "-check-expansion-0.27";
+batchContract["schema_version"] = 18;
+Check(QuestChecksPolicy.Validate(batchContract) == QuestChecksMode.Enabled, "schema18 retains existing quest behavior");
+batchContract["schema_version"] = 17;
+Check(QuestChecksPolicy.Validate(batchContract) == QuestChecksMode.Invalid, "schema18 suffix rejects old schema number");
+var starContract = new Dictionary<string,object>(batchContract);
+starContract["implementation_version"] += "-ap-stars-0.28";
+starContract["schema_version"] = 19;
+Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Enabled, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 18;
+Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Invalid, "AP Stars suffix requires schema19");
+starContract["schema_version"] = 19;
+starContract["implementation_version"] = batchContract["implementation_version"];
+Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Invalid, "schema19 requires AP Stars suffix");
+starContract["implementation_version"] += "-ap-stars-0.28-extra";
+Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Invalid, "unknown AP Stars suffix extension rejected");
+
 Check(QuestChecksPolicy.Validate(Contract()) == QuestChecksMode.Enabled, "exact new contract");
+Check(QuestChecksPolicy.IsConditionRoom("GameRoom_Hub6"), "native condition dispatch admits the Music Lab");
+Check(!QuestChecksPolicy.IsConditionRoom("GameRoom_Hub2"), "unrelated room bypasses quest condition dispatch");
+foreach (string file in new[] { "QuestNativeVirtualHooks.cs", "QuestCheckHooks.cs" })
+    Check(File.ReadAllText(Path.Combine("client", file)).Contains("!QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId)"),
+        "outer and inner production dispatch share the tested room predicate: " + file);
+const string batteryChestCondition = "Root/GameRoom_Hub6_Logic/Objects/RewardChests/CatBatteryChest/Interaction/Condition/AlreadyHaveCatCharacter";
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition, new HashSet<long>{QuestChecksPolicy.BatteryHandIn}, () => false, () => false) == false,
+    "completed battery hand-in and AP Meoo cannot block the unopened randomized chest");
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("AlreadyHaveCatCharacter", "AlreadyHaveCatBattery"), new HashSet<long>(), () => false, () => false) == null,
+    "chest collection flag condition remains native");
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("CatBatteryChest", "OtherChest"), new HashSet<long>(), () => false, () => false) == null,
+    "unrelated chest character conditions remain native");
+
 Check(QuestChecksPolicy.Validate(null) == QuestChecksMode.Legacy, "non AP remains native");
 Check(QuestChecksPolicy.Validate(new() { ["schema_version"] = 16, ["implementation_version"] = "character-quest-items-0.25" }) == QuestChecksMode.Legacy, "existing seed stays native for new quests");
 foreach (string key in Contract().Keys) {

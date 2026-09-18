@@ -41,22 +41,22 @@ class CharacterQuestItemWorldTests(unittest.TestCase):
             self.assertEqual(matching[0].address, check_id)
 
     def test_pool_replaces_two_fillers_at_every_difficulty_without_activating_staging(self):
-        for difficulty, count in enumerate((125, 183, 241, 277)):
+        for difficulty, count in enumerate((164, 222, 280, 316)):
             with self.subTest(difficulty=difficulty):
                 world = self.make_world(difficulty)
                 names = Counter(item.name for item in world.multiworld.itempool)
                 self.assertEqual(len(world.multiworld.itempool), count)
                 self.assertEqual(names["Old Game Data"], 1)
                 self.assertEqual(names["Car Battery"], 1)
-                self.assertEqual(names["Stardust"], count - 71)
+                self.assertEqual(names["Stardust"], count - 137)
                 for inactive in ("Important Letters", "Bean Trumpet", "Demolition Certificate",
-                                 "Star", "Victory"):
+                                 "Victory",):
                     self.assertEqual(names[inactive], 0)
 
-    def test_schema17_exports_exact_native_bag_and_reused_check_maps(self):
+    def test_schema18_exports_exact_native_bag_and_reused_check_maps(self):
         data = self.make_world().fill_slot_data()
-        self.assertEqual(data["schema_version"], 17)
-        self.assertTrue(data["implementation_version"].endswith("-character-quest-items-0.25-quest-checks-0.26"))
+        self.assertEqual(data["schema_version"], 19)
+        self.assertTrue(data["implementation_version"].endswith("-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28"))
         self.assertEqual(data["character_quest_item_schema"], 1)
         self.assertIs(data["randomize_character_quest_items"], True)
         self.assertEqual(data["character_quest_items"], {
@@ -67,8 +67,7 @@ class CharacterQuestItemWorldTests(unittest.TestCase):
             "Old Game Data": "Music Lab - 5 Point Chest",
             "Car Battery": "Music Lab - 20 Point Chest",
         })
-        for inactive in ("star_items_active", "client_star_gate_enforcement_active",
-                         "randomize_lobby_letters_bean_trumpet", "randomize_demolition_certificate"):
+        for inactive in ("randomize_lobby_letters_bean_trumpet", "randomize_demolition_certificate"):
             self.assertIs(data[inactive], False)
 
 

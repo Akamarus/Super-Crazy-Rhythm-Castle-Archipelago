@@ -18,6 +18,9 @@ WORLD_DIR = WORLD.parent
 ITEMS = WORLD_DIR / "items.py"
 POINTS = WORLD_DIR / "music_lab_points.py"
 CAMPAIGN = WORLD_DIR / "campaign_levels.py"
+EXPANDED = WORLD_DIR / "expanded_checks.py"
+EXPANDED_CLIENT = ROOT / "client" / "ExpandedCheckCatalog.cs"
+EXPANDED_POLICY = ROOT / "client" / "ExpandedChecksPolicy.cs"
 META = ROOT / "apworld" / "scrc" / "archipelago.json"
 CLIENT = ROOT / "client" / "Plugin.cs"
 CLIENT_BUILD = ROOT / "client" / "build.ps1"
@@ -26,14 +29,14 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.73.9",
-    "world_version": "0.26.0",
+    "client_version": "0.75.0",
+    "world_version": "0.28.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
         "consolidated-preview-0.19-difficulty-filtering-0.20-"
         "vanilla-vampire-garage-0.21-full-cassettes-0.22-"
-        "music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"
+        "music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28"
     ),
     "generation_foundation_version": "generation-foundation-0.16",
     "weed_killer_item_id": 187256116,
@@ -78,16 +81,16 @@ EXPECTED = {
         "Roots - Star Eater Fed": 187256297,
     },
     "next_item_id": 187256164,
-    "next_location_id": 187256298,
+    "next_location_id": 187256336,
     "campaign_location_count": 88,
     "new_campaign_location_count": 81,
     "new_campaign_location_start": 187256211,
     "new_campaign_location_end": 187256291,
     "active_location_totals": {
-        "Normal": 125,
-        "Hard": 183,
-        "Expert": 241,
-        "Perfection": 277,
+        "Normal": 164,
+        "Hard": 222,
+        "Expert": 280,
+        "Perfection": 316,
     },
 }
 
@@ -106,6 +109,9 @@ for path in (
     ITEMS,
     POINTS,
     CAMPAIGN,
+    EXPANDED,
+    EXPANDED_CLIENT,
+    EXPANDED_POLICY,
     META,
     CLIENT,
     CLIENT_BUILD,
@@ -119,6 +125,7 @@ for path in (
 
 world_text = WORLD.read_text(encoding="utf-8")
 client_text = CLIENT.read_text(encoding="utf-8")
+bucket_runtime_text = (ROOT / "client/RootsBucketRandomization.cs").read_text(encoding="utf-8")
 client_build_text = CLIENT_BUILD.read_text(encoding="utf-8")
 cassette_policy_text = CASSETTE_POLICY.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
@@ -170,6 +177,70 @@ if list(new_campaign_location_name_to_id.values()) != expected_new_campaign_ids:
     fail("new campaign location ID range changed")
 if len(set(campaign_location_name_to_id.values())) != EXPECTED["campaign_location_count"]:
     fail("campaign location IDs are not unique")
+
+# Compare both production catalogs, including native identities, independently
+# of live-world construction so static mutation checks cannot skip this contract.
+expanded_entries = tuple(runpy.run_path(str(EXPANDED))["EXPANDED_CHECKS"])
+expanded_locations = {entry.name: entry.location_id for entry in expanded_entries}
+if len(expanded_entries) != 39 or len(expanded_locations) != 39:
+    fail("expanded check catalog must contain 39 unique names")
+if {entry.location_id for entry in expanded_entries} != {187256292, *range(187256298, 187256336)}:
+    fail("expanded permanent location ID range changed")
+if expanded_locations.get("Lobby - Important Letters Pickup") != 187256292:
+    fail("expanded Letters source must retain reserved ID 187256292")
+expanded_client_text = EXPANDED_CLIENT.read_text(encoding="utf-8")
+client_rows = re.findall(r'^\s*new\((\d+,\s*"[^"\n]*".*)\),\s*$', expanded_client_text, re.MULTILINE)
+try:
+    client_entries = []
+    for row in client_rows:
+        values = json.loads("[" + row.replace(', Character: "KING"', "") + "]")
+        if len(values) == 4:
+            values.extend(("", ""))
+        client_entries.append(tuple(values))
+except (ValueError, TypeError):
+    fail("expanded client catalog is malformed")
+expected_entries = [(e.location_id, e.name, e.room, e.flag, e.level, e.variant) for e in expanded_entries]
+if client_entries != expected_entries:
+    fail("expanded C# and Python native source catalogs differ")
+combo_requirements = ("Weed Killer", "Plant Pipes", "Hip Glasses", "Chicken Bucket", "Bucket Minion Trade Complete")
+for entry in expanded_entries:
+    combo = entry.name == "Roots - Combo Bucket Conversion"
+    if entry.progression_safe != combo or entry.required_items != (combo_requirements if combo else ()):
+        fail("expanded conservative progression requirements changed")
+if len([e for e in expanded_entries if e.variant]) != 6:
+    fail("expanded special completion count changed")
+for marker in (
+    '"expanded_checks_schema": 1',
+    '"expanded_check_locations": dict(EXPANDED_CHECK_LOCATION_NAME_TO_ID)',
+    '"expanded_special_completions_active": True',
+    '"expanded_check_native_rewards_preserved": True',
+):
+    if marker not in world_text:
+        fail(f"expanded slot contract marker missing: {marker}")
+for marker in (
+    "ExpandedChecksPolicy.Validate(loginSuccess.SlotData)",
+    "expandedMode == ExpandedChecksMode.Invalid",
+    "ExpandedChecks.Configure(generation,",
+    "ExpandedChecks.Reset();",
+    "ExpandedChecks.CaptureResultContext()",
+    "ExpandedChecks.ObservePersistedResult(level, variant, result?.ExpandedContext);",
+    "ExpandedChecks.Tick(elapsed);",
+    "ExpandedChecks.BeforeProgressionRequest(req, flag);",
+    "ExpandedChecks.Observe(evt, flag);",
+):
+    if marker not in client_text:
+        fail(f"expanded client integration missing: {marker}")
+expanded_policy_text = EXPANDED_POLICY.read_text(encoding="utf-8")
+for marker in (
+    'version?.EndsWith(VersionSuffix + (stars ? "-ap-stars-0.28" : ""), StringComparison.Ordinal) != true',
+    '(long?)root["schema_version"] != (stars ? 19 : 18)',
+    '(long?)root["expanded_checks_schema"] != 1',
+    'map.Count != entries.Count',
+    'map[e.Name]?.Type != JTokenType.Integer',
+    '(long?)map[e.Name] != e.Id',
+):
+    if marker not in expanded_policy_text:
+        fail(f"expanded strict client contract missing: {marker}")
 
 for number in range(1, 11):
     marker = f'"Development Cache {number:02d}": BASE_ID + {number + 10}'
@@ -270,7 +341,7 @@ def validate_live_world_structure() -> dict[str, int]:
                     fail(f"quest slot contract changed: {field}")
             for name, item_id in EXPECTED["quest_items"].items():
                 item = world.create_item(name)
-                if item_names.count(name) != 1 or item.code != item_id or item.classification != "useful":
+                if item_names.count(name) != 1 or item.code != item_id or item.classification != ("progression" if name == "Plunger" else "useful"):
                     fail(f"quest item pool or classification changed: {name}")
             for name, location_id in EXPECTED["quest_locations"].items():
                 matches = [location for location in addressed_locations if location.name == name]
@@ -279,8 +350,35 @@ def validate_live_world_structure() -> dict[str, int]:
             for name in ("Lobby - Plunger Pickup", "Roots - Star Eater Fed"):
                 source = world.multiworld.get_location(name, world.player)
                 for item in world.multiworld.itempool:
-                    if source.item_rule(item) != (item.name == "Stardust"):
-                        fail(f"quest filler-only placement changed: {name}")
+                    if not source.item_rule(item):
+                        fail(f"quest modeled-source placement changed: {name}")
+            if sum(name != "Stardust" for name in item_names) != 137:
+                fail("expanded batch changed the 137-instance non-filler pool")
+            if character_data.get("expanded_checks_schema") != 1 or character_data.get("expanded_check_locations") != expanded_locations:
+                fail("expanded live slot contract changed")
+            if "Lobby - Bean Trumpet Award" in addressed_names:
+                fail("expanded batch activated reserved duplicate Bean source")
+            for entry in expanded_entries:
+                source = world.multiworld.get_location(entry.name, world.player)
+                if source.address != entry.location_id:
+                    fail(f"expanded source ID changed: {entry.name}")
+                if entry.name not in world_module.SAFE_SOURCES:
+                    for item in world.multiworld.itempool:
+                        if source.item_rule(item) != (item.name == "Stardust"):
+                            fail(f"expanded filler-only placement changed: {entry.name}")
+            safe_capacity = sum(location.item_rule(world.create_item("Star")) for location in addressed_locations)
+            if safe_capacity != (152, 209, 266, 302)[difficulty]:
+                fail(f"expanded progression-eligible capacity changed for {label}")
+            if item_names.count("Star") != 66:
+                fail("Star pool must contain exactly66 individual items")
+            star_data = world.fill_slot_data()
+            gates = star_data["generated_star_requirements"]
+            if len(gates) != 22 or gates.get("Level 1") != 0 or gates.get("Level 2") != 0:
+                fail("Star gates have an invalid campaign/opening map")
+            if not all(0 <= gate < 50 and gate <= 25 for gate in gates.values()):
+                fail("Star gates exceed the configured goal or capacity ceiling")
+            if set(star_data["star_eater_requirements"]) != {"Roots", "Lobby", "Cell Tower", "Royal Corridor", "Secret Bunker"}:
+                fail("Star Eater contract changed")
             totals[label] = actual_count
         return totals
     finally:
@@ -563,12 +661,21 @@ if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
-if '"schema_version": 17' not in world_text:
+if '"schema_version": 19' not in world_text:
     fail("full-level-mapping slot-data schema changed")
 if '"campaign_level_mapping_schema": 1' not in world_text:
     fail("campaign level mapping schema changed")
 if f'"generation_foundation_version": "{EXPECTED["generation_foundation_version"]}"' not in world_text:
     fail("generation_foundation_version changed without updating validator/baseline docs")
+
+for marker in ('"star_victory_schema": 1', '"star_items_active": True',
+               '"client_star_gate_enforcement_active": True',
+               '"post_threshold_victory_active": True',
+               '"victory_level_name": "Level 22"',
+               '"victory_level_internal_id": "Level_28"',
+               '"development_area_access_victory_active": False'):
+    if marker not in world_text:
+        fail(f"Star contract marker missing: {marker}")
 
 for required_marker in (
     '"quest_checks_schema": 1',
@@ -578,8 +685,8 @@ for required_marker in (
     '"randomize_character_quest_items": True',
     '"character_quest_items": dict(CHARACTER_QUEST_ITEMS)',
     '"character_quest_item_locations": dict(CHARACTER_QUEST_ITEM_LOCATIONS)',
-    '"star_items_active": False',
-    '"client_star_gate_enforcement_active": False',
+    '"star_items_active": True',
+    '"client_star_gate_enforcement_active": True',
     '"special_variant_locations_active": False',
     '"special_variant_locations": []',
     '"difficulty_filtering_active": True',
@@ -619,7 +726,7 @@ for label, marker in (
     ("Chicken Bucket native marker", 'internal const string ChickenBucketNativeFlag = "CHICKEN_BUCKET_BAG_ITEM";'),
     ("native consumed marker", 'internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";'),
 ):
-    if marker not in client_text:
+    if marker not in bucket_runtime_text:
         fail(f"{label} contract is missing or changed")
 
 for label, marker in (
@@ -693,7 +800,10 @@ print(json.dumps({
         EXPECTED["new_campaign_location_end"],
     ],
     "campaign_level_mapping_schema": 1,
-    "slot_data_schema": 17,
+    "slot_data_schema": 19,
+    "expanded_checks_schema": 1,
+    "expanded_check_count": len(expanded_entries),
+    "expanded_special_completion_count": 6,
     "quest_checks_schema": EXPECTED["quest_checks_schema"],
     "quest_items": EXPECTED["quest_items"],
     "quest_locations": EXPECTED["quest_locations"],
@@ -702,12 +812,12 @@ print(json.dumps({
     "character_quest_source_ids": {"Old Game Data": 187256169, "Car Battery": 187256171},
     "active_location_totals": live_active_location_totals,
     "live_world_structure_checked": live_world_validation_enabled,
-    "star_items_active": False,
-    "client_star_gate_enforcement_active": False,
+    "star_items_active": True,
+    "client_star_gate_enforcement_active": True,
     "special_variant_locations_active": False,
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
-print("v0.26 quest checks and full campaign mapping are an experimental candidate requiring manual acceptance; special variants are diagnostic-only, 66 AP Stars, Star gates, and Victory remain inactive.")
+print("v0.28 AP Stars, generated gates and post-threshold Level 22 Victory are candidate features; native playthrough acceptance remains pending.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

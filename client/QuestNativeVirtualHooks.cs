@@ -20,15 +20,20 @@ internal static class QuestNativeVirtualHooks
         internal readonly InvokeStep Replacement;
         internal InvokeStep Original = null!;
         internal INativeDetour Detour = null!;
-        private readonly bool _popup;
-        internal VoidHook(bool popup) { _popup = popup; Replacement = Invoke; }
+        private readonly Func<object, bool> _admit;
+        internal VoidHook(Func<object, bool> admit) { _admit = admit; Replacement = Invoke; }
         private void Invoke(IntPtr instance, IntPtr methodInfo)
         {
             if (!QuestChecks.Enabled) { Original(instance, methodInfo); return; }
+            string path = "";
+            if (_admit == QuestCheckHooks.CharacterUnlockStepPrefix && ExpandedChecks.State.Handles(KingUnlockSource.LocationId)) {
+                try { path = QuestCheckHooks.PathFor(new Component(instance)); }
+                catch (Exception ex) { Plugin.LoggerInstance?.LogError($"[SCRC-AP] King source path unavailable: {ex.GetBaseException().Message}"); }
+            }
             NativeSequenceInvocation.Run(() => {
                 var component = new Component(instance);
-                return _popup ? QuestCheckHooks.PopupPrefix(component) : QuestCheckHooks.HandInSequencePrefix(component);
-            }, () => Original(instance, methodInfo),
+                return _admit(component);
+            }, () => KingUnlockSource.RunNative(path, () => Original(instance, methodInfo)),
             ex => Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest native sequence admission failed: {ex.GetBaseException().Message}"));
         }
     }
@@ -40,7 +45,7 @@ internal static class QuestNativeVirtualHooks
         internal Hook() { Replacement = Invoke; }
         private bool Invoke(IntPtr instance, IntPtr methodInfo)
         {
-            if (!QuestChecks.Enabled || DeveloperHarness.CurrentRoomId is not ("GameRoom_Hub1A" or "GameRoom_Hub1B"))
+            if (!QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId))
                 return Original(instance, methodInfo);
             return NativeConditionInvocation.Run(() => {
                 bool result = false;
@@ -78,7 +83,11 @@ internal static class QuestNativeVirtualHooks
             }
             catch (Exception ex) { Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest native hook {name} unavailable: {ex.GetBaseException().Message}"); }
         }
-        foreach (var spec in new[] { ("", "PopupNewCharacterDetailsSequenceStep", "Trigger", true), ("SIUtil.Scripting", "Sequence", "Begin", false) })
+        foreach (var spec in new (string Namespace, string Owner, string Method, Func<object, bool> Admit)[] {
+            ("", "PopupNewCharacterDetailsSequenceStep", "Trigger", QuestCheckHooks.PopupPrefix),
+            ("SIUtil.Scripting", "Sequence", "Begin", QuestCheckHooks.HandInSequencePrefix),
+            ("", "UnlockPlayableCharacterSequenceStep", "Trigger", QuestCheckHooks.CharacterUnlockStepPrefix),
+        })
         {
             try
             {

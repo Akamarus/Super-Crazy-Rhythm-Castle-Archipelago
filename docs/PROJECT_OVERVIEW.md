@@ -1,8 +1,46 @@
+> Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
+
+# AP Stars combined candidate — native playthrough acceptance pending
+
+**Client v0.75.0 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
+Use a fresh v0.28 seed and fresh native save for candidate testing. This implementation
+has not been deployed; installed client v0.74.2 and the running test seed remain unchanged.
+The published v0.26.0-dev release is a separate historical baseline.
+
+Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+All 66 AP Stars are active, with generated campaign gates and a Level 22 clear after
+reaching the configured goal (1–66, default 50). An early boss clear followed by later
+Star receipt does not win; another clear is required. Native result stars still report
+performance checks and are never overwritten by AP Stars.
+
+The 39 supplemental sources include Cell Tower Star Eater Fed and King Ferdinand
+Unlocked. The six Bee/Devil completions remain separate binary checks. The user
+confirmed 33 of the prior 37 checks; three Devil runs and the Certificate were skipped
+and remain unverified. No replay of those skipped tests is required in this pass.
+
+Normal has 152 modeled non-filler slots for 137 non-filler items (135 progression plus
+two useful characters), not merely 164 raw checks. Existing item quantities and the
+180-point Music Lab economy are unchanged. Native prerequisite closures are conservative
+candidate rules; full native playthrough validation remains pending. The final world
+passed a 48-case actual generation/playthrough matrix across four difficulties and
+goals 1/25/50/66. A prior near-goal gate curve failed; the corrected curve caps entry
+gates at half the goal while Victory still requires the full goal.
+
+Detailed rules: `apworld/scrc/docs/ap-stars-logic.md`. Native acceptance, deployment
+and release are separate steps. The older version/status sections below are historical
+and do not override this candidate checkpoint.
+
+---
+
 # Project Overview and Randomizer Design
 
 This document is the living technical/design overview for the **Super Crazy Rhythm Castle Archipelago** project. It is intended to let players, testers, contributors, and future developers understand what the randomizer currently does, why it is structured this way, and what is planned next.
 
 > **Status:** Work in progress. The implementation is being developed incrementally, with gameplay testing used to confirm native progression flags and source behavior before those systems are committed to Archipelago logic.
+
+Installed **v0.73.11** repairs the unopened20-point chest being blocked by AP Meoo ownership; build, focused regressions and same-save gameplay retest passed. Chest sent one Stardust check and did not restore consumed Car Battery.
+
+Installed repair: **Client v0.73.10**. Meoo hand-in suppression, separate AP character receipt, Plunger early use/source pickup, Roots feed check, and full-process restart persistence are gameplay confirmed for the focused test seed. Remaining character order and offline/isolation cases are listed in the acceptance record. Fresh schema-17 testing found that the battery hand-in unlocks Meoo without its AP item; the native sequence-step repair and regression evidence are in the quest acceptance record. The published prerelease retains this known issue until a gameplay-verified follow-up.
 
 Current experimental release: **Client v0.73.9 / APWorld v0.26.0**, slot-data schema 17,
 campaign-mapping schema 1, and quest checks schema 1. Installed client **v0.73.9**
@@ -917,3 +955,7 @@ User confirmed normal Garage behavior for Bloody Tears, then requested a second 
 
 ### v0.73.8 restart persistence accepted (2026-09-17)
 User completed an ordinary game restart, reconnected the retained seed before slot 4, and confirmed both Bloody Tears and Gradius remained playable with their medals intact. Garage cartridge consumption, native room placement, preview medals, and restart persistence are now gameplay accepted. Keep installed v0.73.8 as the accepted client baseline. Next work: clean up superseded Garage workaround code and temporary diagnostics in the isolated worktree, preserving accepted native behavior; new schema-17 quest feature acceptance remains separate from this retained schema-16 seed.
+
+## Temporary Star Eater threshold test — v0.74.2
+
+Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.BunkerStarRequirement controls the Bunker. The user requested25 for both on the retained batch seed to avoid star grinding. The existing proximity-scoped override now selects only the audited Royal or Bunker root, restores native patches on target/scene change, and leaves earned stars, level scores and source flags untouched. The player must perform the native feed interaction; only its resulting native flag sends the AP check. This test does not validate vanilla40/66 thresholds or AP Star progression. Restore Royal40/Bunker66 after the grouped run.

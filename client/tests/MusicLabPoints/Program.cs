@@ -126,6 +126,24 @@ static Dictionary<string, object> RoundTripSlotData(Dictionary<string, object> d
     return new LoginSuccessful(packet).SlotData;
 }
 
+var batchPoints = CompatibleSlotData();
+batchPoints["implementation_version"] = V023 + "-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27";
+batchPoints["schema_version"] = 18;
+Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(batchPoints).Mode, "schema18 point contract");
+batchPoints["schema_version"] = 17;
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(batchPoints).Mode, "schema18 wrong schema rejected");
+var starContract = new Dictionary<string,object>(batchPoints);
+starContract["implementation_version"] += "-ap-stars-0.28";
+starContract["schema_version"] = 19;
+Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(starContract).Mode, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 18;
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(starContract).Mode, "AP Stars suffix requires schema19");
+starContract["schema_version"] = 19;
+starContract["implementation_version"] = batchPoints["implementation_version"];
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(starContract).Mode, "schema19 requires AP Stars suffix");
+starContract["implementation_version"] += "-ap-stars-0.28-extra";
+Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(starContract).Mode, "unknown AP Stars suffix extension rejected");
+
 var wireData = RoundTripSlotData(CompatibleSlotData());
 Equal(true, wireData["music_lab_point_items"] is JObject, "real login contains a JSON object map");
 Equal(true, ((JObject)wireData["music_lab_point_items"])["Music Lab Point"] is JValue, "real login map contains JSON scalar wrappers");

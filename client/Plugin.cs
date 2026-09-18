@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.73.9";
+    public const string PluginVersion = "0.75.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -47,6 +47,8 @@ public sealed class Plugin : BasePlugin
             "Area-routing start: skip the fresh-save intro/tutorial and start in the Music Lab / six-phone hub (GameRoom_Hub6). If enabled, this takes precedence over DirectStartAtLevelOne.");
         var bunkerStarRequirement = Config.Bind("QualityOfLife", "BunkerStarRequirement", 50,
             "Star requirement for the final Secret Bunker Star Eater. Vanilla is 66. This changes only that Star Eater threshold and does not alter saved level star ratings.");
+        var royalStarRequirement = Config.Bind("Developer", "RoyalStarRequirement", 40,
+            "TEST ONLY: Royal Corridor Star Eater threshold. Vanilla is 40. Does not change earned stars or saved scores. Set back to 40 after testing.");
         var developerHarness = Config.Bind("Developer", "EnableTestHarness", true,
             "Enable maintainer-directed F4/F5 discovery and Area Access status/test hotkeys.");
         var cassettePointerBoundPersistenceAcceptance = Config.Bind(
@@ -108,7 +110,11 @@ public sealed class Plugin : BasePlugin
         _harmony = new Harmony(PluginGuid);
         int patched = 0;
 
-        patched += PatchMethodsByParameter("ProcessRequest", "PersistLevelResultRequest", nameof(GamePatches.PersistResultPostfix));
+        patched += PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
+            nameof(GamePatches.PersistResultPrefix), nameof(GamePatches.PersistResultPostfix));
+        ApStars.Configure(identity => AP?.SendStarGoal(identity) == true);
+        patched += ApStarNativeHooks.Install(_harmony, ApStars.ResolveTotal, ApStars.CanEnter,
+            ApStars.ReportBlocked, ApStars.OnAdmittedStart, ApStars.OnPreviewObserved);
         patched += PatchMethodsByParameterWithPrefixAndPostfix(
             "ProcessRequest",
             "ApplyLevelResultToSaveDataRequest",
@@ -220,11 +226,12 @@ public sealed class Plugin : BasePlugin
         BunkerStarRequirementKeeper.RequiredStars =
             Math.Clamp(bunkerStarRequirement.Value, 0, 66);
 
-        if (BunkerStarRequirementKeeper.RequiredStars != 66)
+        BunkerStarRequirementKeeper.RoyalRequiredStars = Math.Clamp(royalStarRequirement.Value, 0, 40);
+        if (BunkerStarRequirementKeeper.RequiredStars != 66 || BunkerStarRequirementKeeper.RoyalRequiredStars != 40)
         {
             AddComponent<BunkerStarRequirementKeeper>();
             Log.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER STAR REQUIREMENT OVERRIDE ENABLED: final Hub8 Star Eater target={BunkerStarRequirementKeeper.RequiredStars} stars. v0.67.60 keeps the temporary GetValue=target patch and, only near this exact Hub8 Star Eater, temporarily enables its native interaction checks and registers the real NPC with the game's interaction-interest pipeline.");
+                $"[SCRC-AP] STAR EATER TEST OVERRIDES: Royal={BunkerStarRequirementKeeper.RoyalRequiredStars} (vanilla40), Bunker={BunkerStarRequirementKeeper.RequiredStars} (vanilla66). Exact scene-root and proximity guards apply; earned stars and saved scores are unchanged.");
         }
 
         DeveloperHarness.Enabled = developerHarness.Value;
@@ -926,6 +933,8 @@ public sealed class Plugin : BasePlugin
     public override bool Unload()
     {
         AP?.Shutdown();
+        ApStarEaterThresholds.Restore();
+        ApStars.OnNativeBoundary();
         _harmony?.UnpatchSelf();
         return true;
     }
@@ -1065,6 +1074,7 @@ internal sealed class ArchipelagoClient
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
             session = ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server));
             var pointHistory = new MusicLabPointSessionHistory(generation);
+            var starHistory = new ApStarSessionHistory(generation, ApStars.State);
             var questHistory = new CharacterQuestItemSessionHistory(generation, CharacterQuestItems.State);
             var questChecks = new QuestChecksSession(generation);
             var notificationSession = ItemNotifications.CreateSession(session, generation, action =>
@@ -1152,6 +1162,7 @@ internal sealed class ArchipelagoClient
                                 // Area Access is core routing state in APWorld v0.13+, not an
                                 // experimental native-save mutation. Always consume these six
                                 // item names when Area Access routing is enabled.
+                                if (item.ItemId == ApStarContract.StarId) continue;
                                 if (CharacterQuestItems.TryHandleItemName(item.ItemName) || QuestChecks.Handles(item.ItemName)) continue;
                                 ReceivedItemDispatch.TryApply(
                                     item.ItemName,
@@ -1189,6 +1200,7 @@ internal sealed class ArchipelagoClient
                 using (packetLease)
                 {
                     pointHistory.HandlePacket(packet);
+                    starHistory.HandlePacket(packet);
                     questHistory.HandlePacket(packet);
                     questChecks.HandlePacket(packet);
                     notificationSession.HandlePacket(packet);
@@ -1255,6 +1267,9 @@ internal sealed class ArchipelagoClient
                 {
                     using (loginLease)
                     {
+                        ExpandedChecksMode expandedMode = ExpandedChecksPolicy.Validate(loginSuccess.SlotData);
+                        if (expandedMode == ExpandedChecksMode.Invalid)
+                            throw new InvalidOperationException("Expanded check contract is incompatible.");
                         QuestChecksMode checksMode = QuestChecksPolicy.Validate(loginSuccess.SlotData);
                         if (checksMode == QuestChecksMode.Invalid || (checksMode == QuestChecksMode.Enabled && !QuestCheckHooks.Ready))
                             throw new InvalidOperationException("Quest checks contract or native hooks are incompatible.");
@@ -1289,6 +1304,16 @@ internal sealed class ArchipelagoClient
                                 Plugin.LoggerInstance?.LogError(
                                     $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
                         }
+                        ApStarSettings starSettings = starHistory.ApplySlotData(loginSuccess.SlotData,
+                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot));
+                        if (starSettings.Mode == ApStarMode.Awaiting && !ApStarNativeHooks.Ready)
+                        {
+                            starSettings = new(ApStarMode.Incompatible, Detail: "Required AP Star native hooks unavailable");
+                            ApStars.State.Configure(generation,
+                                string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot), starSettings);
+                        }
+                        if (starSettings.Mode == ApStarMode.Incompatible)
+                            throw new InvalidOperationException($"AP Stars incompatible: {starSettings.Detail}");
                         MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
                             loginSuccess.SlotData,
                             Plugin.GameName,
@@ -1299,6 +1324,10 @@ internal sealed class ArchipelagoClient
                         questHistory.Configure(questMode == CharacterQuestItemMode.Enabled);
                         questChecks.Configure(string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
                             checksMode == QuestChecksMode.Enabled, session.Locations.AllLocationsChecked);
+                        ExpandedChecks.Configure(generation,
+                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
+                            expandedMode == ExpandedChecksMode.Enabled, session.Locations.AllLocationsChecked,
+                            includeStarChecks: starSettings.Mode == ApStarMode.Awaiting);
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
@@ -1369,8 +1398,10 @@ internal sealed class ArchipelagoClient
             AreaAccessPrototype.EndAuthenticatedSession();
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
+            ApStars.State.Reset();
             CharacterQuestItems.State.Reset();
             QuestChecks.State.Reset();
+            ExpandedChecks.Reset();
             ItemNotifications.Feed.Reset();
             lock (_lock)
             {
@@ -1399,6 +1430,7 @@ internal sealed class ArchipelagoClient
             AreaAccessPrototype.EndAuthenticatedSession();
             GarageCartridgeAccess.EndServerSync(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
+            ApStars.State.Disconnect(generation);
             CampaignLevelRandomization.OnDisconnected();
             terminal?.Invoke();
         });
@@ -1471,6 +1503,37 @@ internal sealed class ArchipelagoClient
                     $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={starsEarned?.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
             foreach (string location in locations)
                 QueueLocation(location);
+        }
+    }
+
+    internal bool SendStarGoal(string expectedIdentity)
+    {
+        if (!Connected || !ConnectionLifecycle.TryAcquireCurrent(out ArchipelagoSession? session,
+                out long generation, out LifecycleLease? lease) || session == null) return false;
+        using (lease)
+        lock (_lock)
+        {
+            if (!Connected || !_authenticatedIdentity.HasValue) return false;
+            var identity = _authenticatedIdentity.Value;
+            if (string.Join("|", identity.Game, identity.Seed, identity.Team, identity.Slot) != expectedIdentity ||
+                ApStars.State.Mode != ApStarMode.Ready || !ApStars.State.GoalPending) return false;
+            session.Socket.SendPacket(new Archipelago.MultiClient.Net.Packets.StatusUpdatePacket {
+                Status = Archipelago.MultiClient.Net.Enums.ArchipelagoClientState.ClientGoal });
+            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] AP STAR VICTORY sent for a qualifying persisted final-boss clear.");
+            return true;
+        }
+    }
+
+    internal bool QueueExpandedLocation(string locationName, string expectedIdentity)
+    {
+        lock (_lock)
+        {
+            if (!_authenticatedIdentity.HasValue) return false;
+            var identity = _authenticatedIdentity.Value;
+            if (string.Join("|", identity.Game, identity.Seed, identity.Team, identity.Slot) != expectedIdentity)
+                return false;
+            QueueLocation(locationName);
+            return true;
         }
     }
 
@@ -2191,13 +2254,9 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 {
     public static int RequiredStars = 50;
 
-    private const int VanillaRequiredStars = 66;
-
-    private const string Hub8Room =
-        "GameRoom_Hub8";
-
-    private const string StarEaterRootPath =
-        "Root/GameRoom_Hub8_Logic/Objects/NPCs/StarEater";
+    public static int RoyalRequiredStars = 40;
+    private static StarEaterTestTarget? _activeTarget;
+    private static int ActiveRequiredStars => _activeTarget?.Required ?? 66;
 
     private const string StarEaterComponentName =
         "StarEaterInteraction";
@@ -2254,7 +2313,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         _manualRetryRequested = true;
 
         Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] DEV SHIFT+F5: requested one manual Secret Bunker GetValue patch attempt. If successful, the patch will be held for 20 seconds or until leaving Hub8.");
+            "[SCRC-AP] DEV SHIFT+F5: requested one manual configured Star Eater GetValue patch attempt. If successful, the patch will be held for 20 seconds or until leaving the configured room.");
     }
 
     public static void ResetForSceneChange()
@@ -2273,15 +2332,32 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
     private void Update()
     {
-        if (!DeveloperHarness.IsCurrentRoom(
-                Hub8Room) ||
-            RequiredStars == VanillaRequiredStars)
+        if (ApStars.State.Active)
+        {
+            RestoreStarEaterInteractionPatches("AP Star contract active");
+            RestoreNativeGetValuePatch("AP Star contract active");
+            ClearCachedTargets();
+            _activeTarget = null;
+            return;
+        }
+        StarEaterTestTarget? selected = StarEaterTestOverridePolicy.Select(
+            DeveloperHarness.CurrentRoomId, RoyalRequiredStars, RequiredStars);
+        if (_activeTarget != selected)
+        {
+            RestoreStarEaterInteractionPatches("test target changed");
+            RestoreNativeGetValuePatch("test target changed");
+            ClearCachedTargets();
+            _activeTarget = selected;
+            _manualRetryRequested = false;
+            _manualHoldUntil = 0f;
+        }
+        if (selected == null)
         {
             RestoreStarEaterInteractionPatches(
-                "outside Hub8 / vanilla requirement");
+                "outside configured test room / vanilla requirement");
 
             RestoreNativeGetValuePatch(
-                "outside Hub8 / vanilla requirement");
+                "outside configured test room / vanilla requirement");
 
             ClearCachedTargets();
             return;
@@ -2584,7 +2660,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                         : int.MinValue;
 
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH READY: interaction='{BuildHierarchy(componentTransform)}', currentGetValue={(current == int.MinValue ? "<unknown>" : current.ToString())}, patchRadius={PatchRadius:0.##}, releaseRadius={ReleaseRadius:0.##}. feedingThreshold object data will not be modified.");
+                    $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH READY: interaction='{BuildHierarchy(componentTransform)}', currentGetValue={(current == int.MinValue ? "<unknown>" : current.ToString())}, patchRadius={PatchRadius:0.##}, releaseRadius={ReleaseRadius:0.##}. feedingThreshold object data will not be modified.");
             }
         }
         catch (Exception ex)
@@ -2624,7 +2700,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                 _reportedPlayerFailure = false;
 
                 Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] SECRET BUNKER player marker resolved directly: '{BuildHierarchy(_playerTransform)}'.");
+                    $"[SCRC-AP] STAR EATER TEST player marker resolved directly: '{BuildHierarchy(_playerTransform)}'.");
 
                 return;
             }
@@ -2638,7 +2714,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             _reportedPlayerFailure = true;
 
             Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] SECRET BUNKER player marker not yet available through direct GameObject.Find; no scene-wide search will be performed.");
+                "[SCRC-AP] STAR EATER TEST player marker not yet available through direct GameObject.Find; no scene-wide search will be performed.");
         }
     }
 
@@ -2788,7 +2864,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                     true;
 
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER INTERACTION PATCH ACTIVE: forced Star Eater DoesStarEaterWantToInteract, CanFeedNewStars, IsCharacterAllowedToInteract, and IsInteractionEnabled true; reason='{reason}'. Patches are proximity-scoped and restored on exit/scene transition.");
+                    $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH ACTIVE: forced Star Eater DoesStarEaterWantToInteract, CanFeedNewStars, IsCharacterAllowedToInteract, and IsInteractionEnabled true; reason='{reason}'. Patches are proximity-scoped and restored on exit/scene transition.");
             }
         }
         catch (Exception ex)
@@ -2843,7 +2919,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                 allRestored = false;
 
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER interaction method restore failed at 0x{pair.Key.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
+                    $"[SCRC-AP] STAR EATER TEST interaction method restore failed at 0x{pair.Key.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
             }
         }
 
@@ -2864,7 +2940,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         if (_reportedInteractionPatchActive)
         {
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] SECRET BUNKER INTERACTION PATCH RESTORED: reason='{reason}', allRestored={allRestored}.");
+                $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH RESTORED: reason='{reason}', allRestored={allRestored}.");
         }
 
         _reportedInteractionPatchActive =
@@ -2979,7 +3055,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                     true;
 
                 Plugin.LoggerInstance?.LogInfo(
-                    "[SCRC-AP] SECRET BUNKER NATIVE INTERACTION INTEREST ACTIVE: registered the real StarEaterInteraction with the game's interaction-interest pipeline.");
+                    "[SCRC-AP] STAR EATER TEST NATIVE INTERACTION INTEREST ACTIVE: registered the real StarEaterInteraction with the game's interaction-interest pipeline.");
             }
         }
         catch (Exception ex)
@@ -3018,7 +3094,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             return;
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SECRET BUNKER INTERACTION PATCH FAILURE: {message}");
+            $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH FAILURE: {message}");
     }
 
     private static void ReportInteractionInterestFailureOnce(
@@ -3031,7 +3107,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             true;
 
         Plugin.LoggerInstance?.LogDebug(
-            $"[SCRC-AP] SECRET BUNKER interaction-interest transient failure: {message}");
+            $"[SCRC-AP] STAR EATER TEST interaction-interest transient failure: {message}");
     }
 
     private void TryApplyNativeGetValuePatch(
@@ -3078,10 +3154,10 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             byte[] forceConfiguredValue =
             {
                 0xB8,
-                (byte)(RequiredStars & 0xFF),
-                (byte)((RequiredStars >> 8) & 0xFF),
-                (byte)((RequiredStars >> 16) & 0xFF),
-                (byte)((RequiredStars >> 24) & 0xFF),
+                (byte)(ActiveRequiredStars & 0xFF),
+                (byte)((ActiveRequiredStars >> 8) & 0xFF),
+                (byte)((ActiveRequiredStars >> 16) & 0xFF),
+                (byte)((ActiveRequiredStars >> 24) & 0xFF),
                 0xC3
             };
 
@@ -3120,19 +3196,19 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                     out int after);
 
             if (!verified ||
-                after != RequiredStars)
+                after != ActiveRequiredStars)
             {
                 RestoreNativeGetValuePatch(
                     "verification failed");
 
                 ReportPatchFailureOnce(
-                    $"patched GetValue verification returned {(verified ? after.ToString() : "<invoke-failed>")} instead of {RequiredStars}");
+                    $"patched GetValue verification returned {(verified ? after.ToString() : "<invoke-failed>")} instead of {ActiveRequiredStars}");
 
                 return;
             }
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH ACTIVE: DefinedValue<int>.GetValue() {(before == int.MinValue ? "<unknown>" : before.ToString())} -> {after}; reason='{reason}'. Patch is temporary and feedingThreshold data is untouched.");
+                $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH ACTIVE: DefinedValue<int>.GetValue() {(before == int.MinValue ? "<unknown>" : before.ToString())} -> {after}; reason='{reason}'. Patch is temporary and feedingThreshold data is untouched.");
         }
         catch (Exception ex)
         {
@@ -3167,19 +3243,19 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                         original))
                 {
                     Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH RESTORED: reason='{reason}'.");
+                        $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORED: reason='{reason}'.");
                 }
                 else
                 {
                     Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH RESTORE FAILED at 0x{codePointer.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
+                        $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORE FAILED at 0x{codePointer.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
                 }
             }
         }
         catch (Exception ex)
         {
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH RESTORE FAILED: {ex.GetBaseException().Message}");
+                $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORE FAILED: {ex.GetBaseException().Message}");
         }
         finally
         {
@@ -3314,7 +3390,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         {
             GameObject? exact =
                 GameObject.Find(
-                    StarEaterRootPath);
+                    _activeTarget!.RootPath);
 
             if (exact != null)
                 return exact;
@@ -3339,9 +3415,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                 BuildHierarchy(
                     named.transform);
 
-            return path.Contains(
-                       "GameRoom_Hub8_Logic/Objects/NPCs/StarEater",
-                       StringComparison.Ordinal)
+            return string.Equals(path, _activeTarget?.RootPath, StringComparison.Ordinal)
                 ? named
                 : null;
         }
@@ -3639,7 +3713,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         _reportedPatchFailure = true;
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SECRET BUNKER GETVALUE PATCH FAILURE: {message}");
+            $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH FAILURE: {message}");
     }
 
     private static string BuildHierarchy(
@@ -4561,6 +4635,9 @@ internal static class GamePatches
     private static readonly HashSet<string> RepeatedPersistedLogs = new(StringComparer.OrdinalIgnoreCase);
     private const int PersistedEventLogCapacity = 128;
 
+    public static void PersistResultPrefix(object[]? __args) =>
+        ApStars.BeforePersistResult(ReflectionUtil.FindArg(__args, "PersistLevelResultRequest"));
+
     public static void PersistResultPostfix(object[]? __args)
     {
         object? request = ReflectionUtil.FindArg(__args, "PersistLevelResultRequest");
@@ -4589,6 +4666,7 @@ internal static class GamePatches
 
     public static void ApplyResultPrefix(object? __instance, object[]? __args)
     {
+        ApStars.BeforeApplyResult(ReflectionUtil.FindArg(__args, "ApplyLevelResultToSaveDataRequest"));
         CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(
             __instance,
             reconcileNow: false);
@@ -4637,7 +4715,7 @@ internal static class GamePatches
         QuestActionDiscovery.RecordResult(level, variant, persisted: false);
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
-        Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned);
+        Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned, ExpandedChecks.CaptureResultContext());
 
         Level6Discovery.RecordLevelResultApplied(level);
         Level8Discovery.RecordLevelResultApplied(level);
@@ -4654,6 +4732,7 @@ internal static class GamePatches
     {
         object? evt = ReflectionUtil.FindArg(__args, "LevelResultWasPersistedEvent");
         if (evt == null) return;
+        ApStars.OnResultPersisted(evt);
 
         string level = ReflectionUtil.ExtractIdentifier(
             ReflectionUtil.ReadMember(evt, "Level")) ?? "<unknown>";
@@ -4679,6 +4758,7 @@ internal static class GamePatches
         MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
         SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? "<unknown>");
         QuestActionDiscovery.RecordResult(level, variant, persisted: true);
+        ExpandedChecks.ObservePersistedResult(level, variant, result?.ExpandedContext);
 
         Level6Discovery.RecordLevelPersisted(level);
         Level8Discovery.RecordLevelPersisted(level);
@@ -4758,7 +4838,8 @@ internal static class GamePatches
         int? Players,
         int? Score,
         string Difficulty,
-        int? StarsEarned);
+        int? StarsEarned,
+        string? ExpandedContext);
 }
 
 
@@ -9046,321 +9127,6 @@ internal static class PlantPipesRandomization
     }
 }
 
-internal static class RootsBucketRandomization
-{
-    internal const string HipGlassesItem = "Hip Glasses";
-    internal const string ChickenBucketItem = "Chicken Bucket";
-    internal const string HipGlassesLocation = "Roots - Level 4 - Hip Glasses";
-    internal const string BucketTradeLocation = "Roots - Bucket Minion Trade";
-    internal const string HipGlassesNativeFlag = "HIP_GLASSES_BAG_ITEM";
-    internal const string HipGlassesSourceFlag = "LEVEL_08_GLASSES_COLLECTED";
-    internal const string BucketTradeFlag = "ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES";
-    internal const string ChickenBucketNativeFlag = "CHICKEN_BUCKET_BAG_ITEM";
-    internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";
-
-    private static readonly object Sync = new();
-    private static object? _playerSaveRequestProcessor;
-    private static bool _slotDataSynchronized;
-    private static bool _compatible;
-    private static int _hipGlassesReceived;
-    private static int _chickenBucketReceived;
-    private static bool _hipGrantAppliedThisProcess;
-    private static bool _chickenGrantAppliedThisProcess;
-    private static bool _nativeProbePendingLogged;
-
-    [ThreadStatic]
-    private static int _applyingArchipelagoGrant;
-
-    internal static void Configure()
-    {
-        lock (Sync)
-        {
-            _playerSaveRequestProcessor = null;
-            _slotDataSynchronized = false;
-            _compatible = false;
-            _hipGlassesReceived = 0;
-            _chickenBucketReceived = 0;
-            _hipGrantAppliedThisProcess = false;
-            _chickenGrantAppliedThisProcess = false;
-            _nativeProbePendingLogged = false;
-        }
-    }
-
-    internal static void ApplySlotData(Dictionary<string, object>? slotData)
-    {
-        string implementation = ReadSlotString(slotData, "implementation_version");
-        bool requested = ReadSlotBool(slotData, "randomize_hip_glasses_chicken_bucket");
-        bool metadataMatches =
-            string.Equals(ReadSlotString(slotData, "hip_glasses_item"), HipGlassesItem, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "chicken_bucket_item"), ChickenBucketItem, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "hip_glasses_source_location"), HipGlassesLocation, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "bucket_minion_trade_location"), BucketTradeLocation, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "hip_glasses_source_flag"), HipGlassesSourceFlag, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "hip_glasses_native_flag"), HipGlassesNativeFlag, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "bucket_trade_flag"), BucketTradeFlag, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "chicken_bucket_native_flag"), ChickenBucketNativeFlag, StringComparison.Ordinal) &&
-            string.Equals(ReadSlotString(slotData, "combo_bucket_conversion_flag"), ChickenConsumedFlag, StringComparison.Ordinal);
-        bool compatible = RootsBucketRandomizationPolicy.IsCompatible(implementation, requested) && metadataMatches;
-
-        lock (Sync)
-        {
-            _slotDataSynchronized = true;
-            _compatible = compatible;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            compatible
-                ? $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION ENABLED implementation='{implementation}'. Level 4 and Bucket Minion sources are AP checks; received inventory reconciles against native consumption markers."
-                : $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION disabled implementation='{implementation}' requested={requested} metadataMatches={metadataMatches}; native behavior remains unchanged.");
-
-        TryFlushPendingNativeGrants();
-    }
-
-    internal static bool TryApplyItem(string itemName)
-    {
-        bool hip = string.Equals(itemName, HipGlassesItem, StringComparison.Ordinal);
-        bool chicken = string.Equals(itemName, ChickenBucketItem, StringComparison.Ordinal);
-        if (!hip && !chicken)
-            return false;
-
-        int count;
-        lock (Sync)
-        {
-            if (hip)
-                count = ++_hipGlassesReceived;
-            else
-                count = ++_chickenBucketReceived;
-        }
-
-        Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] ROOTS BUCKET ITEM RECEIVED item='{itemName}' receivedCount={count}.");
-        TryFlushPendingNativeGrants();
-        return true;
-    }
-
-    internal static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null ||
-            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
-    }
-
-    internal static void TryFlushPendingNativeGrants()
-    {
-        if (_applyingArchipelagoGrant != 0)
-            return;
-
-        object? processor;
-        bool synchronized;
-        bool compatible;
-        int hipReceived;
-        int chickenReceived;
-        bool hipApplied;
-        bool chickenApplied;
-        lock (Sync)
-        {
-            processor = _playerSaveRequestProcessor;
-            synchronized = _slotDataSynchronized;
-            compatible = _compatible;
-            hipReceived = _hipGlassesReceived;
-            chickenReceived = _chickenBucketReceived;
-            hipApplied = _hipGrantAppliedThisProcess;
-            chickenApplied = _chickenGrantAppliedThisProcess;
-        }
-
-        if (!synchronized || !compatible || processor == null || (hipReceived <= 0 && chickenReceived <= 0))
-            return;
-
-        if (!TryReadProgressionFlag(HipGlassesNativeFlag, out bool hipHeld) ||
-            !TryReadProgressionFlag(BucketTradeFlag, out bool hipConsumed) ||
-            !TryReadProgressionFlag(ChickenBucketNativeFlag, out bool chickenHeld) ||
-            !TryReadProgressionFlag(ChickenConsumedFlag, out bool chickenConsumed))
-        {
-            bool log;
-            lock (Sync)
-            {
-                log = !_nativeProbePendingLogged;
-                _nativeProbePendingLogged = true;
-            }
-            if (log)
-                Plugin.LoggerInstance?.LogInfo("[SCRC-AP] ROOTS BUCKET reconciliation deferred until native progression enquiries are available.");
-            return;
-        }
-
-        lock (Sync)
-            _nativeProbePendingLogged = false;
-
-        RootsBucketReconciliation result = RootsBucketRandomizationPolicy.Reconcile(
-            synchronized,
-            compatible,
-            new RootsBucketLifecycleState(
-                hipReceived,
-                chickenReceived,
-                hipHeld || hipApplied,
-                hipConsumed,
-                chickenHeld || chickenApplied,
-                chickenConsumed));
-
-        ApplyGrantDecision(processor, HipGlassesItem, HipGlassesNativeFlag, result.HipGlasses, hip: true);
-        ApplyGrantDecision(processor, ChickenBucketItem, ChickenBucketNativeFlag, result.ChickenBucket, hip: false);
-    }
-
-    private static void ApplyGrantDecision(
-        object processor,
-        string itemName,
-        string flagName,
-        RootsBucketGrantDecision decision,
-        bool hip)
-    {
-        if (decision == RootsBucketGrantDecision.Consumed)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] ROOTS BUCKET reconciliation item='{itemName}' result=consumed; received history will not restore it.");
-            return;
-        }
-        if (decision != RootsBucketGrantDecision.Apply)
-            return;
-
-        _applyingArchipelagoGrant++;
-        bool submitted;
-        string detail;
-        try
-        {
-            submitted = WeedKillerRandomization.TrySubmitProgressionFlag(processor, flagName, true, out detail);
-        }
-        finally
-        {
-            _applyingArchipelagoGrant--;
-        }
-
-        if (!submitted)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS BUCKET native grant pending item='{itemName}' flag='{flagName}'. {detail}");
-            return;
-        }
-
-        lock (Sync)
-        {
-            if (hip)
-                _hipGrantAppliedThisProcess = true;
-            else
-                _chickenGrantAppliedThisProcess = true;
-        }
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS BUCKET NATIVE GRANT APPLIED item='{itemName}' flag='{flagName}'. {detail}");
-    }
-
-    internal static bool ShouldSuppressVanillaGrant(object request, string flag)
-    {
-        bool synchronized;
-        bool compatible;
-        lock (Sync)
-        {
-            synchronized = _slotDataSynchronized;
-            compatible = _compatible;
-        }
-
-        bool value = ReflectionUtil.ReadBool(request, "Value") ?? false;
-        bool suppress = _applyingArchipelagoGrant == 0 &&
-                        RootsBucketRandomizationPolicy.ShouldSuppressVanillaGrant(
-                            synchronized,
-                            compatible,
-                            DeveloperHarness.CurrentRoomId,
-                            flag,
-                            value);
-        if (suppress)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS BUCKET VANILLA GRANT SUPPRESSED flag='{flag}' room='{DeveloperHarness.CurrentRoomId}'. Native story progression continues; inventory must come from Archipelago.");
-        }
-        return suppress;
-    }
-
-    internal static void RecordSourceCollected(object request, string flag)
-    {
-        bool active;
-        lock (Sync)
-            active = _slotDataSynchronized && _compatible;
-        if (!active || !(ReflectionUtil.ReadBool(request, "Value") ?? false))
-            return;
-
-        string? location = null;
-        if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_08", StringComparison.Ordinal) &&
-            string.Equals(flag, HipGlassesSourceFlag, StringComparison.Ordinal))
-            location = HipGlassesLocation;
-        else if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub2", StringComparison.Ordinal) &&
-                 string.Equals(flag, BucketTradeFlag, StringComparison.Ordinal))
-            location = BucketTradeLocation;
-
-        if (location == null)
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS BUCKET SOURCE AP CHECK flag='{flag}' location='{location}'. Native marker retained.");
-        Plugin.AP?.QueueLocation(location);
-    }
-
-    internal static bool TryReadProgressionFlag(string flagName, out bool value)
-    {
-        value = false;
-        Assembly? assembly = ReflectionUtil.GameAssembly;
-        if (assembly == null)
-            return false;
-
-        Type? enquiries = ReflectionUtil.SafeGetTypes(assembly)
-            .FirstOrDefault(t => string.Equals(t.Name, "CurrentPlayerSaveEnquiries", StringComparison.Ordinal));
-        if (enquiries == null)
-            return false;
-
-        foreach (MethodInfo method in enquiries.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-        {
-            if (method.ReturnType != typeof(bool))
-                continue;
-            ParameterInfo[] parameters;
-            try { parameters = method.GetParameters(); }
-            catch { continue; }
-            if (parameters.Length != 1 ||
-                !parameters[0].ParameterType.Name.Contains("GameProgressionFlag", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            try
-            {
-                Type flagType = parameters[0].ParameterType;
-                object flagValue = flagType.IsEnum
-                    ? Enum.Parse(flagType, flagName, ignoreCase: false)
-                    : Activator.CreateInstance(flagType, flagName)
-                      ?? throw new InvalidOperationException($"Could not construct {flagType.FullName}.");
-                object? raw = method.Invoke(null, new[] { flagValue });
-                if (raw is bool result)
-                {
-                    value = result;
-                    return true;
-                }
-            }
-            catch { }
-        }
-        return false;
-    }
-
-    private static string ReadSlotString(Dictionary<string, object>? slotData, string key) =>
-        slotData != null && slotData.TryGetValue(key, out object? raw)
-            ? raw?.ToString() ?? string.Empty
-            : string.Empty;
-
-    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
-    {
-        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
-            return false;
-        if (raw is bool value)
-            return value;
-        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
-    }
-}
-
 internal static class BottomHudDiagnostic
 {
     private const string RoomId = "GameRoom_Hub2";
@@ -9785,6 +9551,7 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
     public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
     }
+    private void OnGUI() => ApStars.RenderOverlay();
 
     private void Update()
     {
@@ -9796,6 +9563,9 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
         CassetteReceiptRandomization.TickUnity(elapsed);
         CharacterQuestItems.TickUnity(elapsed);
         QuestChecks.Tick(elapsed);
+        ExpandedChecks.Tick(elapsed);
+        ApStars.TickUnity();
+        RootsBucketRandomization.TickUnity(elapsed);
         GameObject? phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
         CassetteReceiptRandomization.ObserveGameplayReadyMarker(
             phoneBank != null,
@@ -14819,7 +14589,6 @@ internal static class ProgressionPatches
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request prefix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
-        RootsBucketRandomization.TryFlushPendingNativeGrants();
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return true;
@@ -14830,6 +14599,7 @@ internal static class ProgressionPatches
 
         GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);
 
+        ExpandedChecks.BeforeProgressionRequest(req, flag);
         if (!QuestChecks.BeforeProgressionRequest(req, flag)) return false;
         if (QuestChecks.SuppressPlunger(req, flag)) return false;
         if (CharacterQuestItems.ShouldSuppress(req, flag))
@@ -14863,7 +14633,6 @@ internal static class ProgressionPatches
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
         RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
-        RootsBucketRandomization.TryFlushPendingNativeGrants();
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return;
@@ -14900,6 +14669,7 @@ internal static class ProgressionPatches
         SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
         CharacterQuestItems.RecordConsumption(evt, flag);
         QuestChecks.Observe(evt, flag);
+        ExpandedChecks.Observe(evt, flag);
         QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag);
 
     }
@@ -15345,4 +15115,3 @@ internal static class ReflectionUtil
         return null;
     }
 }
-

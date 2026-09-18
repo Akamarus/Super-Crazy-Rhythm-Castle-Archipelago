@@ -8,26 +8,26 @@ class QuestChecksWorldTests(unittest.TestCase):
     make_world = character_tests.CharacterQuestItemWorldTests.make_world
 
     def test_new_pool_contains_three_rewards(self):
-        for difficulty, count in enumerate((125, 183, 241, 277)):
+        for difficulty, count in enumerate((164, 222, 280, 316)):
             world = self.make_world(difficulty)
             names = [item.name for item in world.multiworld.itempool]
             self.assertEqual(len(names), count)
             for name in ('Plunger', 'Meoo', 'Maniac'):
                 self.assertEqual(names.count(name), 1)
-            self.assertEqual(names.count('Stardust'), count - 71)
+            self.assertEqual(names.count('Stardust'), count - 137)
 
     def test_quest_inputs_are_progression_and_characters_are_useful(self):
         world = self.make_world()
-        for name in ('Old Game Data', 'Car Battery'):
+        for name in ('Old Game Data', 'Car Battery', 'Plunger'):
             self.assertEqual(world.create_item(name).classification, 'progression')
-        for name in ('Meoo', 'Maniac', 'Plunger'):
+        for name in ('Meoo', 'Maniac'):
             self.assertEqual(world.create_item(name).classification, 'useful')
 
-    def test_schema17_preserves_character_inputs_and_exports_quest_contract(self):
+    def test_schema18_preserves_character_inputs_and_exports_quest_contract(self):
         data = self.make_world().fill_slot_data()
-        self.assertEqual(data['schema_version'], 17)
+        self.assertEqual(data['schema_version'], 19)
         self.assertEqual(data.get('quest_checks_schema'), 1)
-        self.assertTrue(data['implementation_version'].endswith('-quest-checks-0.26'))
+        self.assertTrue(data['implementation_version'].endswith('-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28'))
         self.assertEqual(set(data.get('quest_items', {})), {'Plunger', 'Meoo', 'Maniac'})
         self.assertEqual(set(data.get('quest_locations', {})), {
             'Lobby - Plunger Pickup', 'Lobby - Car Battery Hand-In',
@@ -46,25 +46,27 @@ class QuestChecksWorldTests(unittest.TestCase):
             self.assertTrue(location.access_rule(State([required, 'Lobby Access'])))
             self.assertTrue(location.item_rule(world.create_item('Plant Pipes')))
 
-    def test_star_eater_is_stardust_only_until_native_stars_modeled(self):
+    def test_star_eater_is_progression_safe_under_ap_star_contract(self):
         world = self.make_world()
         self.assertIn('Roots - Star Eater Fed', world.location_name_to_id)
         source = world.multiworld.get_location('Roots - Star Eater Fed', 1)
         self.assertEqual(source.parent_region.name, 'Roots')
         for name in ('Plant Pipes', 'Old Game Data', 'Car Battery', 'Meoo', 'Maniac'):
-            self.assertFalse(source.item_rule(world.create_item(name)))
+            self.assertTrue(source.item_rule(world.create_item(name)))
         self.assertTrue(source.item_rule(world.create_item('Stardust')))
 
-    def test_plunger_source_is_lobby_bound_and_filler_only_without_inventing_vault_gate(self):
+    def test_plunger_source_requires_conservative_lobby_route_but_not_its_reward(self):
         world = self.make_world()
         self.assertIn('Lobby - Plunger Pickup', world.location_name_to_id)
         source = world.multiworld.get_location('Lobby - Plunger Pickup', 1)
         self.assertEqual(source.parent_region.name, 'Lobby')
         self.assertFalse(source.access_rule(State([])))
-        self.assertTrue(source.access_rule(State(['Lobby Access'])))
+        self.assertFalse(source.access_rule(State(['Lobby Access'])))
+        owned=[name for name in world.item_name_to_id if name!='Plunger']+['Star']*66
+        self.assertTrue(source.access_rule(State(owned)))
         self.assertTrue(source.item_rule(world.create_item('Stardust')))
-        self.assertFalse(source.item_rule(world.create_item('Old Game Data')))
-        self.assertFalse(source.item_rule(world.create_item('Plunger')))
+        self.assertTrue(source.item_rule(world.create_item('Old Game Data')))
+        self.assertTrue(source.item_rule(world.create_item('Plunger')))
 
     def test_new_wire_ids_are_exact_and_do_not_reuse_lobby_reservations(self):
         world = self.make_world()

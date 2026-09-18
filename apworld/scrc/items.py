@@ -111,7 +111,10 @@ QUEST_ITEM_NAME_TO_ID = {
     "Meoo": BASE_ID + 162,
     "Maniac": BASE_ID + 163,
 }
-# Character unlocks and Plunger have no verified AP progression dependencies.
+# Characters remain useful; Plunger gates the modeled Lobby feeding action.
 QUEST_ITEM_CLASSIFICATIONS = {
     name: ItemClassification.useful for name in QUEST_ITEM_NAME_TO_ID
 }
+
+# Plunger now gates the proved Lobby Star Eater action.
+QUEST_ITEM_CLASSIFICATIONS["Plunger"] = ItemClassification.progression

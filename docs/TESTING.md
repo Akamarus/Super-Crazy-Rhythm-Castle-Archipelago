@@ -1,3 +1,37 @@
+> Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
+
+# AP Stars combined candidate — native playthrough acceptance pending
+
+**Client v0.75.0 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
+Use a fresh v0.28 seed and fresh native save for candidate testing. This implementation
+has not been deployed; installed client v0.74.2 and the running test seed remain unchanged.
+The published v0.26.0-dev release is a separate historical baseline.
+
+Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+All 66 AP Stars are active, with generated campaign gates and a Level 22 clear after
+reaching the configured goal (1–66, default 50). An early boss clear followed by later
+Star receipt does not win; another clear is required. Native result stars still report
+performance checks and are never overwritten by AP Stars.
+
+The 39 supplemental sources include Cell Tower Star Eater Fed and King Ferdinand
+Unlocked. The six Bee/Devil completions remain separate binary checks. The user
+confirmed 33 of the prior 37 checks; three Devil runs and the Certificate were skipped
+and remain unverified. No replay of those skipped tests is required in this pass.
+
+Normal has 152 modeled non-filler slots for 137 non-filler items (135 progression plus
+two useful characters), not merely 164 raw checks. Existing item quantities and the
+180-point Music Lab economy are unchanged. Native prerequisite closures are conservative
+candidate rules; full native playthrough validation remains pending. The final world
+passed a 48-case actual generation/playthrough matrix across four difficulties and
+goals 1/25/50/66. A prior near-goal gate curve failed; the corrected curve caps entry
+gates at half the goal while Victory still requires the full goal.
+
+Detailed rules: `apworld/scrc/docs/ap-stars-logic.md`. Native acceptance, deployment
+and release are separate steps. The older version/status sections below are historical
+and do not override this candidate checkpoint.
+
+---
+
 # Current release checkpoint
 
 ## Testing release v0.26.0-dev / Client v0.73.9
@@ -80,7 +114,7 @@ For the accepted Roots repair evidence, use [the v0.67.94 / v0.19 area-arrival r
 Before accepting a Roots milestone, confirm:
 
 - Roots is the precollected starter in the seed.
-- Hub6 → Roots phone works.
+- Hub6 â†’ Roots phone works.
 - First Roots arrival does not steal movement with the displaced vanilla intro cutscene.
 - `FirstAreaGate` is traversable.
 - `StarEaterBlockade/Blockade` is traversable.
@@ -103,7 +137,7 @@ Before accepting a Roots milestone, confirm:
 
 ## Game Garage cartridge persistence checklist
 
-Use a compatible fresh v0.24 seed for the current candidate. Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09 with v0.22. Repeat the same matrix for the remaining randomized cartridges—Bloody Tears, Gradius Remix, Smooch, and Wag the Dog—before closing the broader blocker:
+Use a compatible fresh v0.24 seed for the current candidate. Keep Vampire Killer on its physical vanilla route. Superstar passed the full persistence, insertion, restart/reconnect, save-switch, and entrance-preview acceptance on 2026-09-09 with v0.22. Repeat the same matrix for the remaining randomized cartridgesâ€”Bloody Tears, Gradius Remix, Smooch, and Wag the Dogâ€”before closing the broader blocker:
 
 - the AP receipt appears in the native inventory;
 - the matching cartridge is available for normal insertion in Game Garage;
@@ -161,3 +195,11 @@ A newly generated v0.25 seed is required to test these items. Existing v0.24 see
 retain vanilla item behavior. Validate chest grants suppressed with checks intact,
 received inventory, both hand-ins, reload/reconnect/offline and new-save isolation
 before gameplay acceptance. No live deployment or new-seed replacement is implied.
+
+## v0.74.2 starting-item repair candidate
+
+Hip Glasses and Chicken Bucket now retry on the Unity update against the verified selected save, even without a native progression request. Grant suppression is scoped to the selected-save identity, retaining native consumption guards. Flag reflection metadata is cached; native values are read fresh. The same update retries pending Weed Killer delivery. Runtime regression covers initial delivery, save changes, duplicate prevention and consumed items. Gameplay acceptance pending.
+
+## Temporary Star Eater threshold test — v0.74.2
+
+Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.BunkerStarRequirement controls the Bunker. The user requested25 for both on the retained batch seed to avoid star grinding. The existing proximity-scoped override now selects only the audited Royal or Bunker root, restores native patches on target/scene change, and leaves earned stars, level scores and source flags untouched. The player must perform the native feed interaction; only its resulting native flag sends the AP check. This test does not validate vanilla40/66 thresholds or AP Star progression. Restore Royal40/Bunker66 after the grouped run.

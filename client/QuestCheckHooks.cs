@@ -24,8 +24,8 @@ internal static class QuestCheckHooks
                 count++;
             } catch (Exception ex) { Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest hook {target.Item1}.{target.Item2} unavailable: {ex.GetBaseException().Message}"); }
         }
-        Ready = count == 6 && QuestSharedConditionHook.Ready;
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEST HOOKS ready={Ready} dedicated={count}/6 sharedFlagCondition={QuestSharedConditionHook.Ready}.");
+        Ready = count == 7 && QuestSharedConditionHook.Ready;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEST HOOKS ready={Ready} dedicated={count}/7 sharedFlagCondition={QuestSharedConditionHook.Ready}.");
         return count;
     }
     private static bool CharacterPrefix(object[] __args) => __args.Length != 1 || !QuestChecks.SuppressCharacter(__args[0]);
@@ -38,6 +38,10 @@ internal static class QuestCheckHooks
             _ => true,
         };
     }
+    internal static bool CharacterUnlockStepPrefix(object instance) =>
+        !QuestCharacterRewardPolicy.SuppressNativeStep(QuestChecks.Enabled,
+            QuestChecks.Enabled && QuestChecks.IsCurrentSaveBound(), PathFor(instance));
+
     internal static bool PopupPrefix(object __instance)
     {
         if (!QuestChecks.Enabled || !QuestChecks.IsCurrentSaveBound()) return true;
@@ -47,8 +51,8 @@ internal static class QuestCheckHooks
     }
     internal static bool ConditionPrefix(object __instance, ref bool __result)
     {
-        if (!QuestChecks.Enabled || DeveloperHarness.CurrentRoomId is not ("GameRoom_Hub1A" or "GameRoom_Hub1B")) return true;
-        if (__instance is not Component component || component.name is not ("MeooIsUnlockedCondition" or "HaveMeooBatteryCondition" or "Condition")) return true;
+        if (!QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId)) return true;
+        if (__instance is not Component component || component.name is not ("MeooIsUnlockedCondition" or "HaveMeooBatteryCondition" or "AlreadyHaveCatCharacter" or "Condition")) return true;
         if (!QuestChecks.IsCurrentSaveBound()) return true;
         var state = QuestChecks.State.Snapshot;
         string path = PathFor(__instance);
@@ -58,7 +62,7 @@ internal static class QuestCheckHooks
         if (!result.HasValue) return true;
         __result = result.Value; return false;
     }
-    private static string PathFor(object instance)
+    internal static string PathFor(object instance)
     {
         if (instance is not Component component) throw new InvalidOperationException("Quest hook instance is not a Component");
         var names = new List<string>();

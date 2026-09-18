@@ -1,3 +1,35 @@
+# AP Stars combined candidate — native playthrough acceptance pending
+
+**Client v0.75.0 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
+Use a fresh v0.28 seed and fresh native save for candidate testing. This implementation
+has not been deployed; installed client v0.74.2 and the running test seed remain unchanged.
+The published v0.26.0-dev release is a separate historical baseline.
+
+Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+All 66 AP Stars are active, with generated campaign gates and a Level 22 clear after
+reaching the configured goal (1–66, default 50). An early boss clear followed by later
+Star receipt does not win; another clear is required. Native result stars still report
+performance checks and are never overwritten by AP Stars.
+
+The 39 supplemental sources include Cell Tower Star Eater Fed and King Ferdinand
+Unlocked. The six Bee/Devil completions remain separate binary checks. The user
+confirmed 33 of the prior 37 checks; three Devil runs and the Certificate were skipped
+and remain unverified. No replay of those skipped tests is required in this pass.
+
+Normal has 152 modeled non-filler slots for 137 non-filler items (135 progression plus
+two useful characters), not merely 164 raw checks. Existing item quantities and the
+180-point Music Lab economy are unchanged. Native prerequisite closures are conservative
+candidate rules; full native playthrough validation remains pending. The final world
+passed a 48-case actual generation/playthrough matrix across four difficulties and
+goals 1/25/50/66. A prior near-goal gate curve failed; the corrected curve caps entry
+gates at half the goal while Victory still requires the full goal.
+
+Detailed rules: `apworld/scrc/docs/ap-stars-logic.md`. Native acceptance, deployment
+and release are separate steps. The older version/status sections below are historical
+and do not override this candidate checkpoint.
+
+---
+
 # Super Crazy Rhythm Castle Archipelago setup — v0.26.0 candidate
 
 Client v0.73.9 / APWorld v0.26.0 is an experimental prerelease; new quest features require manual gameplay acceptance. The exact top-level contract is slot-data schema 17 / campaign-mapping schema 1. Use a fresh v0.26 seed and a fresh native save. Broad campaign replay remains pending.

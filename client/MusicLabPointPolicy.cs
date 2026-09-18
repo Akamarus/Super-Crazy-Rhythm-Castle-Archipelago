@@ -92,13 +92,15 @@ internal static class MusicLabPointContract
              Enumerable.Range(15, 7).Any(release => version.EndsWith($"-0.{release}", StringComparison.Ordinal)));
         if (recognizedLegacy)
             return new(MusicLabPointCompatibilityMode.LegacyNative, "recognized pre-v0.23 implementation");
-        bool expandedQuests = version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26", StringComparison.Ordinal);
+        bool apStars = version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28", StringComparison.Ordinal);
+        bool batchChecks = apStars || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27", StringComparison.Ordinal);
+        bool expandedQuests = batchChecks || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26", StringComparison.Ordinal);
         bool characterItems = expandedQuests || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25", StringComparison.Ordinal);
         if (!(characterItems || version.EndsWith(ClaimSuffix, StringComparison.Ordinal) ||
               version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal)))
             return Fail("implementation_version", "supported point implementation", version);
 
-        int expectedSchema = expandedQuests ? 17 : characterItems ? 16 : version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
+        int expectedSchema = apStars ? 19 : batchChecks ? 18 : expandedQuests ? 17 : characterItems ? 16 : version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion))
             return Fail("schema_version", expectedSchema, Actual(slotData, "schema_version"));
         if (schemaVersion != expectedSchema)

@@ -1,3 +1,37 @@
+> Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
+
+# AP Stars combined candidate — native playthrough acceptance pending
+
+**Client v0.75.0 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
+Use a fresh v0.28 seed and fresh native save for candidate testing. This implementation
+has not been deployed; installed client v0.74.2 and the running test seed remain unchanged.
+The published v0.26.0-dev release is a separate historical baseline.
+
+Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+All 66 AP Stars are active, with generated campaign gates and a Level 22 clear after
+reaching the configured goal (1–66, default 50). An early boss clear followed by later
+Star receipt does not win; another clear is required. Native result stars still report
+performance checks and are never overwritten by AP Stars.
+
+The 39 supplemental sources include Cell Tower Star Eater Fed and King Ferdinand
+Unlocked. The six Bee/Devil completions remain separate binary checks. The user
+confirmed 33 of the prior 37 checks; three Devil runs and the Certificate were skipped
+and remain unverified. No replay of those skipped tests is required in this pass.
+
+Normal has 152 modeled non-filler slots for 137 non-filler items (135 progression plus
+two useful characters), not merely 164 raw checks. Existing item quantities and the
+180-point Music Lab economy are unchanged. Native prerequisite closures are conservative
+candidate rules; full native playthrough validation remains pending. The final world
+passed a 48-case actual generation/playthrough matrix across four difficulties and
+goals 1/25/50/66. A prior near-goal gate curve failed; the corrected curve caps entry
+gates at half the goal while Victory still requires the full goal.
+
+Detailed rules: `apworld/scrc/docs/ap-stars-logic.md`. Native acceptance, deployment
+and release are separate steps. The older version/status sections below are historical
+and do not override this candidate checkpoint.
+
+---
+
 # Progression Design
 
 ## Current quest-check candidate (v0.26)
@@ -50,12 +84,12 @@ Always available from Home:
 
 Major AP-routed areas:
 
-- Roots → `GameRoom_Hub2`
-- Lobby → `GameRoom_Hub1A` / Hub1B
-- Meat Dimension → `GameRoom_Hub4`
-- Cell Tower → Hub5A/B
-- Tower of Fear → `GameRoom_Hub3`
-- Royal Corridor → `GameRoom_Hub7`
+- Roots â†’ `GameRoom_Hub2`
+- Lobby â†’ `GameRoom_Hub1A` / Hub1B
+- Meat Dimension â†’ `GameRoom_Hub4`
+- Cell Tower â†’ Hub5A/B
+- Tower of Fear â†’ `GameRoom_Hub3`
+- Royal Corridor â†’ `GameRoom_Hub7`
 
 `Royal Corridor Access` currently means only the phone-side subregion containing the Level 22 entrance. It does not imply access to Level 21, the Royal Star Eater interaction, or the completed bridge back across the corridor. Those states remain deliberately absent from the AP graph until their native events and requirements are mapped.
 
@@ -76,34 +110,34 @@ Meaningful vanilla items should be randomized as real AP progression rather than
 
 Randomized Star requirements are planned after the meaningful item/story graph is mapped reliably.
 
-## Roots — implemented chain
+## Roots â€” implemented chain
 
 ```text
 Roots Access
-    ↓
+    â†“
 Roots traversal baseline
   - first arrival cutscene bypass
   - FirstAreaGate suppressed
   - StarEaterBlockade/Blockade suppressed
-    ↓
+    â†“
 Gecko source
-    ↓ AP location
+    â†“ AP location
 Roots - Gecko's Weed Killer
-    ↓
+    â†“
 Weed Killer [randomized AP item]
-    ↓ native WEED_KILLER_BAG_ITEM
+    â†“ native WEED_KILLER_BAG_ITEM
 Vanilla consumes Weed Killer
-    ↓
+    â†“
 Level 3 becomes enterable
-    ↓
+    â†“
 Frog + Hippo source inside Level 3
-    ↓ AP location
+    â†“ AP location
 Roots - Level 3 - Plant Pipes Pickup
-    ↓
+    â†“
 Plant Pipes [randomized AP item]
-    ↓ native WEED_KILLER_ABILITY
+    â†“ native WEED_KILLER_ABILITY
 Level 3 can be completed
-    ↓
+    â†“
 post-Level-3 / Level 4 progression
 ```
 
@@ -137,21 +171,21 @@ Without Plant Pipes, Level 3 is intentionally enterable but not completable. The
 
 APWorld logic must never require Plant Pipes to reach its own Frog/Hippo source check.
 
-## Roots — confirmed Level 4 to Lift Quest observations
+## Roots â€” confirmed Level 4 to Lift Quest observations
 
 The earlier full-game discovery playthrough recorded this vanilla sequence:
 
 ```text
 Level 4 (`Level_08`)
-    ↓ Hip Glasses awarded immediately before completion
+    â†“ Hip Glasses awarded immediately before completion
 Bucket Minion trade
-    ↓ Hip Glasses exchanged for Chicken Bucket
+    â†“ Hip Glasses exchanged for Chicken Bucket
 bucket blockade removed
-    ↓ King lift conversation
+    â†“ King lift conversation
 Lift Quest / Level 5 (`Level_09`) becomes available
-    ↓ Chicken Bucket used during the level
+    â†“ Chicken Bucket used during the level
 Combo Bucket ability earned
-    ↓ Level 5 completed
+    â†“ Level 5 completed
 lobby progression begins
 ```
 
@@ -209,3 +243,11 @@ ability from being placed on a completion reward behind that same ability.
 Alternative native award routes remain alternatives; special variants retain
 separate prerequisites. The Level 3 in-level Plant Pipes pickup is intentionally
 separate and still requires Weed Killer without requiring Plant Pipes.
+
+## v0.74.2 starting-item repair candidate
+
+Hip Glasses and Chicken Bucket now retry on the Unity update against the verified selected save, even without a native progression request. Grant suppression is scoped to the selected-save identity, retaining native consumption guards. Flag reflection metadata is cached; native values are read fresh. The same update retries pending Weed Killer delivery. Runtime regression covers initial delivery, save changes, duplicate prevention and consumed items. Gameplay acceptance pending.
+
+## Temporary Star Eater threshold test — v0.74.2
+
+Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.BunkerStarRequirement controls the Bunker. The user requested25 for both on the retained batch seed to avoid star grinding. The existing proximity-scoped override now selects only the audited Royal or Bunker root, restores native patches on target/scene change, and leaves earned stars, level scores and source flags untouched. The player must perform the native feed interaction; only its resulting native flag sends the AP check. This test does not validate vanilla40/66 thresholds or AP Star progression. Restore Royal40/Bunker66 after the grouped run.

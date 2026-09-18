@@ -84,22 +84,22 @@ class RepositoryContractTests(unittest.TestCase):
                 self.assertIn(expected, text)
 
     def test_public_docs_report_full_level_mapping_candidate_status(self):
-        self.assert_public_counts("125", "183", "241", "277")
+        self.assert_public_counts("164", "222", "280", "316")
         overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
-        self.assertIn("Client v0.73.9 / APWorld v0.26.0", overview)
-        self.assertIn("special variants are diagnostic-only", overview.lower())
-        self.assertIn("66 AP Stars remain inactive", overview)
+        self.assertIn("Client v0.75.0 / APWorld v0.28.0", overview)
+        self.assertIn("six bee/devil completions", overview.lower())
+        self.assertIn("66 AP Stars are active", overview)
 
         for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
-                self.assertIn("Client v0.73.9 / APWorld v0.26.0", text)
-                self.assertIn("schema 17", text.lower())
+                self.assertIn("Client v0.75.0 / APWorld v0.28.0", text)
+                self.assertIn("schema 19", text.lower())
                 self.assertIn("campaign-mapping schema 1", text.lower())
-                self.assertIn("fresh v0.26 seed", text.lower())
+                self.assertIn("fresh v0.28 seed", text.lower())
 
         testing = (REPO_ROOT / "docs/TESTING.md").read_text(encoding="utf-8")
-        self.assertIn("schema 17 / campaign-mapping schema 1", testing.lower())
+        self.assertIn("schema 19 / campaign-mapping schema 1", testing.lower())
         self.assertNotIn("The exact schema-14/point-schema-1 contract is required", testing)
 
     def run_validator(self, root=REPO_ROOT, *, validate_live=None):
@@ -140,14 +140,16 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.73.9", result.stdout)
-        self.assertIn("APWorld: v0.26.0", result.stdout)
-        self.assertIn('"world_version": "0.26.0"', result.stdout)
+        self.assertIn("Client:  v0.75.0", result.stdout)
+        self.assertIn("APWorld: v0.28.0", result.stdout)
+        self.assertIn('"world_version": "0.28.0"', result.stdout)
         self.assertIn(
-            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26"',
+            '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28"',
             result.stdout,
         )
         self.assertIn('"generation_foundation_version": "generation-foundation-0.16"', result.stdout)
+        self.assertIn('"slot_data_schema": 19', result.stdout)
+        self.assertIn('"expanded_check_count": 39', result.stdout)
         self.assertIn('"star_item_id": 187256118', result.stdout)
         self.assertIn('"hip_glasses_item_id": 187256119', result.stdout)
         self.assertIn('"chicken_bucket_item_id": 187256120', result.stdout)
@@ -179,13 +181,53 @@ class RepositoryContractTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn('"next_item_id": 187256164', result.stdout)
-        self.assertIn('"next_location_id": 187256298', result.stdout)
+        self.assertIn('"next_location_id": 187256336', result.stdout)
         self.assertIn('"campaign_location_count": 88', result.stdout)
         self.assertIn('"new_campaign_location_count": 81', result.stdout)
         self.assertIn('"active_location_totals": {', result.stdout)
         self.assertIn('"live_world_structure_checked": true', result.stdout)
-        self.assertIn('"Normal": 125', result.stdout)
-        self.assertIn('"Perfection": 277', result.stdout)
+        self.assertIn('"Normal": 164', result.stdout)
+        self.assertIn('"Perfection": 316', result.stdout)
+
+    def test_validator_rejects_active_star_contract_drift(self):
+        for before,after in (('"star_items_active": True','"star_items_active": False'),
+                             ('"star_victory_schema": 1','"star_victory_schema": 2'),
+                             ('"victory_level_internal_id": "Level_28"','"victory_level_internal_id": "Level_14"')):
+            root=self.make_fixture();path=root/'apworld/scrc/__init__.py'
+            text=path.read_text();self.assertIn(before,text);path.write_text(text.replace(before,after,1))
+            result=self.run_validator(root)
+            self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('star',result.stderr.lower())
+
+    def test_validator_rejects_expanded_catalog_and_contract_drift(self):
+        mutations = (
+            ("client/ExpandedCheckCatalog.cs", "187256298", "187256334"),
+            ("client/ExpandedCheckCatalog.cs", "LEVEL_09_COMBO_ABILITY_EARNED", "LEVEL_09_COMPLETED"),
+            ("apworld/scrc/expanded_checks.py", "187256298", "187256334"),
+            ("apworld/scrc/__init__.py", '"expanded_checks_schema": 1', '"expanded_checks_schema": 2'),
+            ("client/Plugin.cs", "ExpandedChecks.Observe(evt, flag);", "// supplemental callback removed"),
+            ("client/ExpandedChecksPolicy.cs", "map.Count != entries.Count", "false"),
+        )
+        for relative, old, new in mutations:
+            with self.subTest(path=relative, marker=old):
+                root = self.make_fixture()
+                path = root / relative
+                original = path.read_text(encoding="utf-8")
+                self.assertIn(old, original)
+                path.write_text(original.replace(old, new, 1), encoding="utf-8")
+                result = self.run_validator(root)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("expanded", result.stderr.lower())
+
+    def test_validator_rejects_expanded_progression_placement_drift(self):
+        root = self.make_fixture()
+        path = root / "apworld/scrc/__init__.py"
+        original = path.read_text(encoding="utf-8")
+        self.assertIn("if not entry.progression_safe:", original)
+        path.write_text(original.replace("if not entry.progression_safe:", "if False:"), encoding="utf-8")
+        result = self.run_validator(root, validate_live=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expanded", result.stderr.lower())
 
     def test_validator_rejects_quest_wire_contract_drift(self):
         for path, before, after in (
@@ -207,12 +249,12 @@ class RepositoryContractTests(unittest.TestCase):
         root = self.make_fixture()
         source = root / "apworld/scrc/__init__.py"
         original = source.read_text(encoding="utf-8")
-        before = 'if filler_only:'
+        before = 'source.item_rule = lambda item: item.name == "Stardust"'
         self.assertIn(before, original)
-        source.write_text(original.replace(before, 'if False:'), encoding="utf-8")
+        source.write_text(original.replace(before, 'source.item_rule = lambda item: True'), encoding="utf-8")
         result = self.run_validator(root, validate_live=True)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("quest", result.stderr.lower())
+        self.assertIn("filler-only", result.stderr.lower())
 
     def test_validator_rejects_changed_character_quest_native_flag(self):
         root = self.make_fixture()
@@ -345,7 +387,7 @@ class RepositoryContractTests(unittest.TestCase):
                 '"randomize_hip_glasses_chicken_bucket": False',
             ),
             "native consumed marker": (
-                "client/Plugin.cs",
+                "client/RootsBucketRandomization.cs",
                 'internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";',
                 'internal const string ChickenConsumedFlag = "LEVEL_09_COMPLETED";',
             ),
@@ -455,6 +497,7 @@ class RepositoryContractTests(unittest.TestCase):
             "scrc/__init__.py",
             "scrc/options.py",
             "scrc/items.py",
+            "scrc/expanded_checks.py",
             "scrc/difficulty.py",
             "scrc/starting_areas.py",
             "scrc/star_requirements.py",
@@ -462,7 +505,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.26.0")
+        self.assertEqual(manifest["world_version"], "0.28.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

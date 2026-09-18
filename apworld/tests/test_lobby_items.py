@@ -25,7 +25,7 @@ class LobbyItemWorldTests(unittest.TestCase):
         world.create_items()
         return world
 
-    def test_lobby_pickup_ids_are_reserved_without_activating_unproven_sources(self):
+    def test_lobby_pickup_retains_id_without_randomizing_native_rewards(self):
         world = self.make_world()
         locations = {
             location.name: location
@@ -39,7 +39,7 @@ class LobbyItemWorldTests(unittest.TestCase):
         }
         for name, location_id in expected.items():
             self.assertEqual(self.module.LOCATION_NAME_TO_ID[name], location_id)
-            self.assertNotIn(name, locations)
+            self.assertEqual(name in locations, name == "Lobby - Important Letters Pickup")
 
         pool = [item.name for item in world.multiworld.itempool]
         self.assertEqual(pool.count("Important Letters"), 0)
@@ -60,15 +60,14 @@ class LobbyItemWorldTests(unittest.TestCase):
         )
         self.assertFalse(world.fill_slot_data()["randomize_demolition_certificate"])
 
-    def test_lobby_pickup_sources_stay_out_of_live_region_graph(self):
+    def test_letters_is_one_passive_check_and_bean_award_stays_reserved(self):
         world = self.make_world()
-        for name in ("Lobby - Important Letters Pickup", "Lobby - Bean Trumpet Award"):
-            self.assertIn(name, self.module.LOCATION_NAME_TO_ID)
-            self.assertNotIn(name, {
-                location.name
-                for region in world.multiworld.regions
-                for location in region.locations
-            })
+        names = [location.name for region in world.multiworld.regions for location in region.locations]
+        self.assertEqual(names.count("Lobby - Important Letters Pickup"), 1)
+        self.assertNotIn("Lobby - Bean Trumpet Award", names)
+        source = world.multiworld.get_location("Lobby - Important Letters Pickup", 1)
+        self.assertTrue(source.item_rule(world.create_item("Stardust")))
+        self.assertTrue(source.item_rule(world.create_item("Important Letters")))
 
 
 if __name__ == "__main__":

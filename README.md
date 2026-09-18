@@ -2,18 +2,22 @@
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
-> [!WARNING]
-> This is an experimental development prerelease, not a stable release. Back up your save and expect incomplete logic.
+## v0.28.0 — First Completable Release
 
-## TL;DR
+**Client v0.75.0 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
+All 66 AP Stars are active. Collect the configured goal (1–66, default 50), then clear normal Level 22 to complete your Archipelago slot. An early clear must be replayed after reaching the goal.
 
-- Current testing release: **Client v0.73.9 / APWorld v0.26.0**, schema 17. New quests require a fresh v0.26 seed and native save; their gameplay acceptance remains pending. Garage behavior is accepted on the retained schema-16 seed.
-- Active normal checks are separate Completion and cumulative 1-Star/2-Star/3-Star locations: Normal 125 / Hard 183 / Expert 241 / Perfection 277 addressed locations.
-- Not active yet: all 66 AP Stars, generated Star gates, final Victory, production special-mode locations, full-game logic, balanced item pool, verified local co-op, and stable-release readiness.
-- Testers can download both matching components from the latest GitHub prerelease or build them from source, then generate a fresh seed with the matching APWorld.
-- Start with the installation guide, then use the testing/reporting checklist when something breaks.
+This release adds generated Star gates and 39 quest/source checks. Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
 
-[Latest testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.26.0-dev) · [Installation guide](docs/INSTALL.md) · [Roadmap](docs/ROADMAP.md) · [Testing and issue reports](docs/TESTING_AND_ISSUES.md) · [Project overview](docs/PROJECT_OVERVIEW.md) · [Full-level-mapping acceptance record](docs/testing/2026-09-10-full-level-mapping-acceptance.md)
+**Experimental:** automated tests and 48 real seed generations pass; complete native gameplay acceptance of the new AP Star/victory system is still pending. See the known bugs and testing limits before starting.
+
+Use a fresh v0.28 seed and fresh native save. Connect to the seed before loading the save.
+
+[Download v0.28.0](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0) · [Installation](docs/INSTALL.md) · [Full changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
+
+## Historical release notes
+
+The sections below describe older releases and do not override the current behavior above.
 
 ## Testing release v0.26.0-dev / Client v0.73.9
 

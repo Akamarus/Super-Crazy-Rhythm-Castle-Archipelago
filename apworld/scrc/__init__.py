@@ -43,6 +43,7 @@ from .items import (
     STAR_ITEM_NAME,
     VIOLANCE_ITEM_NAME,
 )
+from .expanded_checks import EXPANDED_CHECKS, EXPANDED_CHECK_LOCATION_NAME_TO_ID
 from .options import SCRCOptions
 from .music_lab_points import (
     MUSIC_LAB_POINT_ITEMS,
@@ -56,6 +57,7 @@ from .music_lab_points import (
 )
 from .placement import filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
+from .native_logic import can_complete, source_rule, SAFE_SOURCES, star_eater_requirements
 from .starting_areas import (
     STARTING_AREA_NAMES,
     VALIDATED_STARTING_AREAS,
@@ -266,6 +268,7 @@ QUEST_LOCATION_NAME_TO_ID = {
     "Roots - Star Eater Fed": BASE_ID + 297,
 }
 LOCATION_NAME_TO_ID.update(QUEST_LOCATION_NAME_TO_ID)
+LOCATION_NAME_TO_ID.update(EXPANDED_CHECK_LOCATION_NAME_TO_ID)
 
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
@@ -367,7 +370,7 @@ class SCRCWebWorld(WebWorld):
 
 class SCRCWorld(World):
     """
-    Area-routing development world.
+    AP Stars candidate world with conservative native route rules.
 
     Archipelago Menu is the required logical root and connects freely to Hub6.
     Hub6 is the in-game logical home region. Music Lab and Game Garage are always
@@ -379,8 +382,9 @@ class SCRCWorld(World):
     v0.16 retains cartridge routing, Gecko Weed Killer randomization, and
     Plant Pipes as a separate randomized progression item. Frog/Hippo's
     Level 3 source check requires Weed Killer, while Level 3 Completion requires
-    both Weed Killer and Plant Pipes. This is still not the final star-logic
-    milestone; cassette and broader vanilla-world prerequisites remain incomplete.
+    both Weed Killer and Plant Pipes. Schema19 adds 66 individual Stars and a
+    repeatable post-threshold King victory. Native route closures remain subject
+    to a fresh full-playthrough acceptance; unsupported sources stay filler-only.
     """
 
     game = GAME_NAME
@@ -409,7 +413,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
-                and name not in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD)
+                and name != LOBBY_BEAN_TRUMPET_AWARD
                 and not name.startswith("Development Cache ")
             )
         )
@@ -514,13 +518,8 @@ class SCRCWorld(World):
         )
         roots.locations.append(bucket_trade_event)
 
-        # Reserve both source IDs, but do not instantiate them until their
-        # collected marker can be bound safely to the active AP seed/save.
-        for name in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD):
-            if is_active(name):
-                source = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], lobby)
-                set_rule(source, lambda state: state.has("Lobby Access", self.player))
-                lobby.locations.append(source)
+        # Letters is now one passive source in EXPANDED_CHECKS. Bean Trumpet's
+        # second reward from that same interaction remains a reserved source.
 
         for name, parent, requirements, filler_only in (
             ("Lobby - Plunger Pickup", lobby, ("Lobby Access",), True),
@@ -593,6 +592,24 @@ class SCRCWorld(World):
             "Royal Corridor": royal,
             "Tower of Fear": tower,
         }
+
+        # Bunker routing is not yet a solver-complete native route. Every
+        # check in this supplemental region is locked to Stardust, so this
+        # organizational connection cannot strand randomized progression.
+        bunker = Region("Secret Bunker", self.player, self.multiworld)
+        lobby.connect(bunker, "Lobby -> Secret Bunker (filler checks)")
+        concrete_regions["Secret Bunker"] = bunker
+
+        for entry in EXPANDED_CHECKS:
+            if not is_active(entry.name):
+                continue
+            parent = concrete_regions[entry.region]
+            source = SCRCLocation(self.player, entry.name, entry.location_id, parent)
+            set_rule(source, lambda state, requirements=entry.required_items: all(
+                state.has(item, self.player) for item in requirements))
+            if not entry.progression_safe:
+                source.item_rule = lambda item: item.name == "Stardust"
+            parent.locations.append(source)
 
         for level in CAMPAIGN_LEVELS:
             for tier in CAMPAIGN_LOCATION_TIERS:
@@ -734,11 +751,11 @@ class SCRCWorld(World):
                 lambda state, item=access_item: state.has(item, self.player),
             )
 
-        victory = SCRCLocation(self.player, "Victory", None, phone_hub)
+        victory = SCRCLocation(self.player, "Victory", None, royal)
         victory.place_locked_item(
             SCRCItem("Victory", ItemClassification.progression, None, self.player)
         )
-        phone_hub.locations.append(victory)
+        royal.locations.append(victory)
 
         self.multiworld.regions += [
             menu,
@@ -751,8 +768,55 @@ class SCRCWorld(World):
             cell,
             tower,
             royal,
+            bunker,
             *cassette_source_regions.values(),
         ]
+        self._set_native_star_rules()
+
+    def _set_native_star_rules(self) -> None:
+        for level in CAMPAIGN_LEVELS:
+            for tier in CAMPAIGN_LOCATION_TIERS:
+                name = level.location_name(tier)
+                if name not in self.active_location_names:
+                    continue
+                location = self.multiworld.get_location(name, self.player)
+                set_rule(location, lambda state, n=level.number: can_complete(self, state, n))
+                # Higher boss ratings remain outside the verified performance model.
+                safe = not (level.number == 22 and tier in {"2 Stars", "3 Stars"})
+                location.item_rule = lambda item, safe=safe: filler_or_safe_required(item, safe)
+        for name in SAFE_SOURCES & self.active_location_names:
+            location = self.multiworld.get_location(name, self.player)
+            set_rule(location, lambda state, name=name: source_rule(self, name, state))
+            location.item_rule = lambda item: True
+        frog = self.multiworld.get_location(ROOTS_LEVEL3_FROG_HIPPO, self.player)
+        set_rule(frog, lambda state: can_complete(self, state, 2)
+            and state.has("Weed Killer", self.player)
+            and state.count(STAR_ITEM_NAME, self.player) >= self.generated_star_requirements["Level 3"])
+        set_rule(self.multiworld.get_location(ROOTS_LEVEL4_HIP_GLASSES, self.player),
+                 lambda state: can_complete(self, state, 4))
+        for name in (ROOTS_BUCKET_MINION_TRADE, "Bucket Minion Trade Complete"):
+            set_rule(self.multiworld.get_location(name, self.player),
+                lambda state: can_complete(self, state, 3) and state.has(HIP_GLASSES_ITEM, self.player))
+        set_rule(self.multiworld.get_location("Combo Bucket Event", self.player),
+            lambda state: can_complete(self, state, 5))
+        # Cassette awards occur on level results and inherit the same generated
+        # gate and native route; aliases remain alternatives rather than extra checks.
+        def cassette_route(state, trigger):
+            if not all(state.has(r.item, self.player) for r in trigger.requirements):
+                return False
+            if trigger.variant == "LevelVariant_Default":
+                number = next(l.number for l in CAMPAIGN_LEVELS if l.internal_id == trigger.level)
+                return can_complete(self, state, number)
+            if trigger.variant == "LevelVariant_BeeMode":
+                number = 2 if trigger.level == "Level_06" else 11
+                return can_complete(self, state, 15) and can_complete(self, state, number)
+            return False
+        for entry in CASSETTES:
+            if entry.source_type == "Music Lab point chest":
+                continue
+            location = self.multiworld.get_location(entry.source_name, self.player)
+            set_rule(location, lambda state, triggers=entry.triggers:
+                any(cassette_route(state, trigger) for trigger in triggers))
 
     def _active_unfilled_location_capacity(self) -> int:
         return sum(
@@ -800,6 +864,8 @@ class SCRCWorld(World):
         progression_items.extend(CHARACTER_QUEST_ITEM_NAME_TO_ID)
         progression_items.extend(QUEST_ITEM_NAME_TO_ID)
 
+        progression_items.extend([STAR_ITEM_NAME] * STAR_ITEM_COUNT)
+
         capacity = self._active_unfilled_location_capacity()
         required_count = len(progression_items)
         if required_count > capacity:
@@ -807,6 +873,13 @@ class SCRCWorld(World):
                 f"{required_count} required progression items exceed "
                 f"{capacity} active locations for {self.difficulty_name}"
             )
+        eligible = sum(location.item_rule(self.create_item(STAR_ITEM_NAME))
+            for region in self.multiworld.regions for location in region.locations
+            if location.player == self.player and location.address is not None and location.item is None)
+        # Unmodeled sources accept Stardust only, so useful character rewards
+        # require the same safe capacity as progression, despite not gating logic.
+        if eligible < required_count:
+            raise ValueError(f"{required_count} non-filler instances exceed {eligible} modeled locations")
         filler_count = capacity - required_count
 
         for name in progression_items:
@@ -830,15 +903,10 @@ class SCRCWorld(World):
         return "Stardust"
 
     def set_rules(self) -> None:
-        # Development completion condition for the routing milestone: obtain
-        # all six Area Access items (one starter + five randomized).
-        set_rule(
-            self.multiworld.get_location("Victory", self.player),
-            lambda state: all(
-                state.has(item_name, self.player)
-                for item_name in AREA_ACCESS_ITEMS
-            ),
-        )
+        self._set_native_star_rules()
+        set_rule(self.multiworld.get_location("Victory", self.player),
+            lambda state: can_complete(self, state, 22)
+            and state.count(STAR_ITEM_NAME, self.player) >= int(self.options.required_stars.value))
 
         self.multiworld.completion_condition[self.player] = (
             lambda state: state.has("Victory", self.player)
@@ -864,7 +932,7 @@ class SCRCWorld(World):
             for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty_value)
             if (
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
-                and name not in (LOBBY_LETTERS_PICKUP, LOBBY_BEAN_TRUMPET_AWARD)
+                and name != LOBBY_BEAN_TRUMPET_AWARD
                 and not name.startswith("Development Cache ")
             )
         )
@@ -898,9 +966,13 @@ class SCRCWorld(World):
             if any(name.endswith(f" - {tier}") for name in active_campaign_locations)
         ]
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 17,
+            "schema_version": 19,
+            "expanded_checks_schema": 1,
+            "expanded_check_locations": dict(EXPANDED_CHECK_LOCATION_NAME_TO_ID),
+            "expanded_special_completions_active": True,
+            "expanded_check_native_rewards_preserved": True,
             "quest_checks_schema": 1,
             "quest_items": dict(QUEST_ITEM_NAME_TO_ID),
             "quest_locations": dict(QUEST_LOCATION_NAME_TO_ID),
@@ -920,10 +992,17 @@ class SCRCWorld(World):
             ],
             "star_item_name": STAR_ITEM_NAME,
             "star_item_count": STAR_ITEM_COUNT,
-            "star_items_active": False,
+            "star_items_active": True,
+            "star_victory_schema": 1,
+            "star_item_id": ITEM_NAME_TO_ID[STAR_ITEM_NAME],
+            "star_item_maximum": STAR_ITEM_COUNT,
+            "post_threshold_victory_active": True,
+            "victory_level_name": "Level 22",
+            "victory_level_internal_id": "Level_28",
+            "star_eater_requirements": star_eater_requirements(generated_requirements) if generated_requirements else {},
             "generated_star_requirements": dict(generated_requirements),
-            "generated_star_requirements_depth_model": "provisional-linear-level-order",
-            "client_star_gate_enforcement_active": False,
+            "generated_star_requirements_depth_model": "conservative-native-routes-v1",
+            "client_star_gate_enforcement_active": True,
             "difficulty_filtering_active": True,
             "active_location_count": len(instantiated_addressed_names),
             "campaign_level_mapping_schema": 1,
@@ -939,7 +1018,7 @@ class SCRCWorld(World):
                 for tier in MEDAL_TIERS
                 if tier in getattr(self, "active_medal_tiers", default_medal_tiers)
             ],
-            "development_area_access_victory_active": True,
+            "development_area_access_victory_active": False,
             "logical_root_region": "Menu",
             "home_region": "Phone Hub",
             "starting_area_item": starter,

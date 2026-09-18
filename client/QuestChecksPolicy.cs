@@ -8,6 +8,7 @@ internal sealed record QuestChecksSnapshot(long Revision, bool Enabled, bool Rea
 
 internal static class QuestChecksPolicy
 {
+    internal static bool IsConditionRoom(string room) => room is "GameRoom_Hub1A" or "GameRoom_Hub1B" or "GameRoom_Hub6";
     internal const string Suffix = "quest-checks-0.26";
     internal const long Plunger = 187256161, Meoo = 187256162, Maniac = 187256163;
     internal const long PlungerPickup = 187256294, BatteryHandIn = 187256295,
@@ -29,8 +30,10 @@ internal static class QuestChecksPolicy
             string? version = root["implementation_version"]?.Type == JTokenType.String ? (string?)root["implementation_version"] : null;
             bool claim = version?.Contains(Suffix, StringComparison.Ordinal) == true || root["quest_checks_schema"] != null;
             if (!claim) return QuestChecksMode.Legacy;
-            if (version?.EndsWith("character-quest-items-0.25-" + Suffix, StringComparison.Ordinal) != true ||
-                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != 17 ||
+            bool apStars = version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27-ap-stars-0.28", StringComparison.Ordinal) == true;
+            bool batchChecks = apStars || version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27", StringComparison.Ordinal) == true;
+            if ((!batchChecks && version?.EndsWith("character-quest-items-0.25-" + Suffix, StringComparison.Ordinal) != true) ||
+                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? 19 : batchChecks ? 18 : 17) ||
                 root["quest_checks_schema"]?.Type != JTokenType.Integer || (int?)root["quest_checks_schema"] != 1)
                 return QuestChecksMode.Invalid;
             foreach (var pair in new[] { ("quest_items", Items), ("quest_locations", Locations) }) {
@@ -49,6 +52,8 @@ internal static class QuestChecksPolicy
         _ => null,
     };
     internal static bool? ConditionResult(string path, IReadOnlySet<long> completed, Func<bool?> batteryHeld, Func<bool?> plungerCollected) => path switch {
+        // Native chest points and collected-flag conditions remain authoritative.
+        "Root/GameRoom_Hub6_Logic/Objects/RewardChests/CatBatteryChest/Interaction/Condition/AlreadyHaveCatCharacter" => false,
         "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/MeooIsUnlockedCondition" => completed.Contains(BatteryHandIn),
         "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/HaveMeooBatteryCondition" => batteryHeld() == true,
         "Root/GameRoom_Hub1B_Logic/Objects/CollectableBagObjects/Plunger/Condition" => !completed.Contains(PlungerPickup) && plungerCollected() == false,

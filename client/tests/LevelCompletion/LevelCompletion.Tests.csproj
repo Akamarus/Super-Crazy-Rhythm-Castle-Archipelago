@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup><Compile Include="../../ApStarPolicy.cs"/><Compile Include="../../ApStarSessionHistory.cs"/>
     <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
     <Compile Include="..\..\CampaignLevelCatalog.cs" Link="CampaignLevelCatalog.cs" />
     <Compile Include="..\..\CampaignLocationContract.cs" Link="CampaignLocationContract.cs" />
@@ -17,7 +17,7 @@
     <Compile Include="..\..\CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
     <Compile Include="..\..\CharacterQuestItemSessionHistory.cs" Link="CharacterQuestItemSessionHistory.cs" />
     <Compile Include="..\..\ReconnectPolicy.cs" Link="ReconnectPolicy.cs" />
-  <Compile Include="../../QuestChecksSession.cs" Link="QuestChecksSession.cs"/><Compile Include="../../QuestChecksPolicy.cs" Link="QuestChecksPolicy.cs"/><Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs"/></ItemGroup>
+  <Compile Include="../../QuestChecksSession.cs" Link="QuestChecksSession.cs"/><Compile Include="../../QuestChecksPolicy.cs" Link="QuestChecksPolicy.cs"/><Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs"/><Compile Include="../../ExpandedCheckCatalog.cs" Link="ExpandedCheckCatalog.cs"/><Compile Include="../../ExpandedChecksPolicy.cs" Link="ExpandedChecksPolicy.cs"/><Compile Include="../../ExpandedChecksJournal.cs" Link="ExpandedChecksJournal.cs"/></ItemGroup>
   <Target Name="ExtractProductionConnection" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>

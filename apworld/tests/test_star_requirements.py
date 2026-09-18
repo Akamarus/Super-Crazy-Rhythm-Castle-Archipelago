@@ -16,6 +16,15 @@ class StarRequirementTests(unittest.TestCase):
         self.assertEqual(values, tuple(sorted(values)))
         self.assertTrue(all(0 <= value < 50 for value in values))
 
+    def test_generated_gates_reserve_half_the_goal_for_native_route_capacity(self):
+        # Regression: real AP restrictive fill failed Normal goal50 seed285001
+        # with the old near-goal linear gates after native closures were enabled.
+        for goal in (1,25,50,66):
+            for seed in range(100):
+                gates=requirements.generate_star_requirements(goal,random.Random(seed))
+                self.assertLessEqual(max(gates.values()),min(goal-1,goal//2))
+                self.assertEqual((gates['Level 1'],gates['Level 2']),(0,0))
+
     def test_same_seed_is_reproducible(self):
         first = requirements.generate_star_requirements(50, random.Random(7))
         second = requirements.generate_star_requirements(50, random.Random(7))

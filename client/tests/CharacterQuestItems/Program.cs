@@ -10,6 +10,24 @@ static Dictionary<string, object> Contract() => new() {
  ["character_quest_items"] = new Dictionary<string,string> { ["Old Game Data"] = "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM", ["Car Battery"] = "CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM" },
  ["character_quest_item_locations"] = new Dictionary<string,string> { ["Old Game Data"] = "Music Lab - 5 Point Chest", ["Car Battery"] = "Music Lab - 20 Point Chest" }
 };
+var batchContract = Contract();
+batchContract["implementation_version"] += "-quest-checks-0.26-check-expansion-0.27";
+batchContract["schema_version"] = 18;
+Check(CharacterQuestItemPolicy.Validate(batchContract) == CharacterQuestItemMode.Enabled, "schema18 retains existing quest behavior");
+batchContract["schema_version"] = 17;
+Check(CharacterQuestItemPolicy.Validate(batchContract) == CharacterQuestItemMode.Invalid, "schema18 suffix rejects old schema number");
+var starContract = new Dictionary<string,object>(batchContract);
+starContract["implementation_version"] += "-ap-stars-0.28";
+starContract["schema_version"] = 19;
+Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Enabled, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 18;
+Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Invalid, "AP Stars suffix requires schema19");
+starContract["schema_version"] = 19;
+starContract["implementation_version"] = batchContract["implementation_version"];
+Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Invalid, "schema19 requires AP Stars suffix");
+starContract["implementation_version"] += "-ap-stars-0.28-extra";
+Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Invalid, "unknown AP Stars suffix extension rejected");
+
 Check(CharacterQuestItemPolicy.Validate(Contract()) == CharacterQuestItemMode.Enabled, "exact contract");
 Check(CharacterQuestItemPolicy.Validate(null) == CharacterQuestItemMode.Legacy, "native unchanged");
 Check(CharacterQuestItemPolicy.Validate(new() { ["implementation_version"] = "full-level-mapping-0.24", ["schema_version"] = 15 }) == CharacterQuestItemMode.Legacy, "old seed unchanged");
