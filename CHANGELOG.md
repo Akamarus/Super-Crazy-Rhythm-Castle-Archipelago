@@ -9,6 +9,8 @@
 
 **Hotfix verification:** 140 APWorld tests, 34 client regression projects, and 12 real generation/playthrough cases across all difficulties and Star goals 1/40/66 pass.
 
+**Hotfix source:** [v0.28.0-hotfix.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/tree/v0.28.0-hotfix.1). The original `v0.28.0` tag and GitHub automatic source archives remain the original release; use the hotfix source tag to build the updated downloads.
+
 **Updating:** replace the client DLLs with the v0.75.4 archive. Existing saves and seeds remain compatible with the client fixes. Install the updated `scrc.apworld` before generating a new seed to get the Plant Pipes rule. Updating files does not rewrite existing seed placements; some older seeds rely on the previous no-pipes boss route and would require a new seed or an explicitly agreed recovery to adopt the stricter rule.
 
 **Still experimental:** the full clean-save victory playthrough is unfinished. The Quicksand/Music Lab chest vanilla-cassette leak and occasional gameplay hitches remain open; see [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/main/docs/KNOWN_ISSUES.md).

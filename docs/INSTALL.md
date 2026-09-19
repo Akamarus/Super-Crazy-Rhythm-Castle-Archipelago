@@ -35,7 +35,7 @@ Clone the repository and run the client build script with the directory that con
 ```powershell
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
 cd .\Super-Crazy-Rhythm-Castle-Archipelago
-git checkout v0.28.0
+git checkout v0.28.0-hotfix.1
 cd client
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
