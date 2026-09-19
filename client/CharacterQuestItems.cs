@@ -31,15 +31,15 @@ internal static class CharacterQuestItems
     }
     internal static void TickUnity(TimeSpan elapsed)
     {
-        var snapshot = State.Snapshot;
-        if (!snapshot.Enabled || !snapshot.Ready || snapshot.Owned.Count == 0) return;
-        if (snapshot.Revision == _revision)
+        if (State.Revision == _revision)
         {
             _untilPoll -= elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
             if (_untilPoll > TimeSpan.Zero) return;
         }
+        var snapshot = State.Snapshot;
         _revision = snapshot.Revision;
         _untilPoll = TimeSpan.FromSeconds(1);
+        if (!snapshot.Enabled || !snapshot.Ready || snapshot.Owned.Count == 0) return;
         // The existing cassette gate proves selected slot/pointer, gameplay readiness,
         // and processor ownership. Hold its gate and the receipt revision across reads/write.
         CassetteReceiptRandomization.WithStableQuestItemSave((processor, identity) =>

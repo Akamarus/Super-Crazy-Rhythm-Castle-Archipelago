@@ -1,6 +1,6 @@
 # AP Stars combined candidate — native playthrough acceptance pending
 
-**Client v0.75.0 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
+**Client v0.75.4 / APWorld v0.28.0** uses schema 19 / campaign-mapping schema 1.
 Use a fresh v0.28 seed and fresh native save for candidate testing. This implementation
 has not been deployed; installed client v0.74.2 and the running test seed remain unchanged.
 The published v0.26.0-dev release is a separate historical baseline.

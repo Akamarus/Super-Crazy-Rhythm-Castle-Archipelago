@@ -4,7 +4,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## v0.28.0 — First Completable Release
 
-**Client v0.75.0 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
+**Client v0.75.4 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
 All 66 AP Stars are active. Collect the configured goal (1–66, default 50), then clear normal Level 22 to complete your Archipelago slot. An early clear must be replayed after reaching the goal.
 
 This release adds generated Star gates and 39 quest/source checks. Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
@@ -14,6 +14,19 @@ This release adds generated Star gates and 39 quest/source checks. Active totals
 Use a fresh v0.28 seed and fresh native save. Connect to the seed before loading the save.
 
 [Download v0.28.0](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0) · [Installation](docs/INSTALL.md) · [Full changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
+
+## September 18 hotfix — Client v0.75.4
+
+- Fixed the unsafe Star Eater reference assignment that caused crashes entering Roots or interacting with its Star Eater. Uses the native object-reference setter, verifies the assignment, and rolls back a failed write.
+- Fixed repeated cassette-save metadata scans and reduced unnecessary scene searches, inventory copying and empty notification work. Live song testing showed cassette reconciliation falling from about 9.7 ms to 0.007 ms per frame. Players report a substantial improvement; occasional note-affecting hitches remain under investigation.
+- Level 22 completion now requires Plant Pipes in generator logic. Its star checks, cassette source, King Ferdinand/keycard rewards and Victory inherit that requirement. Luck-dependent no-pipes clears are not assumed.
+- Optional performance diagnostics are disabled by default. If enabled during troubleshooting, set `Developer.EnablePerformanceDiagnostics=false` and restart for ordinary play.
+
+**Hotfix verification:** 140 APWorld tests, 34 client regression projects, and 12 real generation/playthrough cases across all difficulties and Star goals 1/40/66 pass.
+
+**Updating:** replace the client DLLs with the v0.75.4 archive. Existing saves and seeds remain compatible with the client fixes. Install the updated `scrc.apworld` before generating a new seed to get the Plant Pipes rule. Updating files does not rewrite existing seed placements; some older seeds rely on the previous no-pipes boss route and would require a new seed or an explicitly agreed recovery to adopt the stricter rule.
+
+**Still experimental:** the full clean-save victory playthrough is unfinished. The Quicksand/Music Lab chest vanilla-cassette leak and occasional gameplay hitches remain open; see [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/main/docs/KNOWN_ISSUES.md).
 
 ## Historical release notes
 

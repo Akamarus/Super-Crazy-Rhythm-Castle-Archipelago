@@ -15,6 +15,7 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     public ItemNotificationOverlay(IntPtr pointer) : base(pointer) { }
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("ItemNotificationOverlay.Update");
         if (Input.GetKeyDown(KeyCode.F6)) { _historyOpen = !_historyOpen; _page = 0; }
         if (_historyOpen && Input.GetKeyDown(KeyCode.Escape)) _historyOpen = false;
         ItemNotifications.Feed.Advance(Time.unscaledDeltaTime);
@@ -23,6 +24,7 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     }
     private void OnGUI()
     {
+        using var timing = ClientPerformance.Measure("ItemNotificationOverlay.OnGUI");
         if (_failed) return;
         try { Draw(); }
         catch (Exception ex)
@@ -33,6 +35,7 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     }
     private void Draw()
     {
+        if (!_historyOpen && (!PopupsEnabled || _visible.Length == 0)) return;
         float scale = Math.Clamp(Screen.height / 1080f, 0.6f, 1.6f);
         if (_text == null || Math.Abs(_styleScale - scale) > 0.01f)
         {

@@ -29,13 +29,34 @@ class APStarsTests(unittest.TestCase):
             self.assertEqual(world.generated_star_requirements['Level 2'],0)
             self.assertTrue(all(v<goal for v in world.generated_star_requirements.values()))
             victory=world.multiworld.get_location('Victory',1)
-            state=State(['Royal Corridor Access']+['Star']*(goal-1))
+            state=State(['Royal Corridor Access', 'Plant Pipes']+['Star']*(goal-1))
             self.assertFalse(victory.access_rule(state))
             state.collect('Star')
             self.assertTrue(victory.access_rule(state))
             self.assertEqual(victory.parent_region.name,'Royal Corridor')
             # The event represents a subsequent repeatable clear, not a saved early-clear bit.
             self.assertFalse(world.multiworld.completion_condition[1](state))
+
+    def test_level_22_requires_plant_pipes_for_all_rewards_and_victory(self):
+        for difficulty in range(4):
+            world = self.build_world(difficulty=difficulty)
+            world.set_rules()
+            owned = [name for name in self.module.ITEM_NAME_TO_ID
+                     if name not in ('Star', 'Plant Pipes')]
+            state = State(owned + ['Star'] * 66)
+            names = [name for name in world.active_location_names
+                     if name.startswith('Level 22 - ')]
+            names += ['Victory', 'Royal Corridor - Bunker Keycard Award',
+                      'Royal Corridor - King Ferdinand Unlocked',
+                      'Cassette Source - Another Day In Paradise']
+            for name in names:
+                with self.subTest(difficulty=difficulty, location=name):
+                    rule = world.multiworld.get_location(name, 1).access_rule
+                    self.assertFalse(rule(state), 'Plant Pipes must not be placed behind this route')
+            state.collect('Plant Pipes')
+            for name in names:
+                with self.subTest(difficulty=difficulty, location=name):
+                    self.assertTrue(world.multiworld.get_location(name, 1).access_rule(state))
 
     def test_campaign_gate_boundaries_and_partial_plant_pipes_source(self):
         world=self.build_world()

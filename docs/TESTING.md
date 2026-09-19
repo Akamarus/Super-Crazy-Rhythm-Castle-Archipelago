@@ -203,3 +203,25 @@ Hip Glasses and Chicken Bucket now retry on the Unity update against the verifie
 ## Temporary Star Eater threshold test — v0.74.2
 
 Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.BunkerStarRequirement controls the Bunker. The user requested25 for both on the retained batch seed to avoid star grinding. The existing proximity-scoped override now selects only the audited Royal or Bunker root, restores native patches on target/scene change, and leaves earned stars, level scores and source flags untouched. The player must perform the native feed interaction; only its resulting native flag sends the AP check. This test does not validate vanilla40/66 thresholds or AP Star progression. Restore Royal40/Bunker66 after the grouped run.
+
+## Client v0.75.1 Roots crash repair - 2026-09-18
+
+Two v0.75.0 Windows crash dumps identify `ApStarEaterThresholds.SetReference` called by `Tick`. Installed Il2CppInterop.Runtime metadata confirms the setter ABI is object, field, value, whereas the getter is field, object. Corrected both threshold application and restoration. The focused ABI regression check fails against v0.75.0 before the fix and passes afterward. Build succeeds with zero errors. Native Roots entry and threshold application remain pending; retain the existing Hard / 40-star seed and slot 4 for acceptance.
+
+## Client v0.75.2 Star Eater interaction repair - 2026-09-18
+
+v0.75.1 failed live interaction acceptance after its threshold readback reported a mismatch. The new native crash is at GameAssembly+0xa706 while reading the threshold, with the StarEaterInteraction path on the stack. Read-only export disassembly confirms il2cpp_field_set_value_object at RVA 0x2f8de0 writes R8 directly to instance + field offset and applies the GC write barrier. The old ref IntPtr supplied an address of a temporary instead of the reference itself. Replaced both writes with the installed Il2CppInterop API, removed custom P/Invoke declarations, and added synchronous rollback on failed verification. Nine lifecycle fixture checks cover apply, stable tick, room change, contract removal, foreign ownership, failed readback rollback and retry. Native gameplay acceptance remains pending.
+
+## Full-playthrough deferred follow-ups - 2026-09-18
+
+Player requested that the Quicksand early native cassette grant and lag during Music Lab songs generally (including 10-4 Good Buddy) be recorded for investigation after the full Hard / 40 AP Star playthrough. Track both in KNOWN_ISSUES.md; treat the song lag as a high-priority scoring concern for higher difficulties. Continue the retained seed/save without deploying changes for these reports during this run.
+
+## Client v0.75.3 performance candidate
+
+The full playthrough is paused at the player's request for general gameplay lag. Metadata caches, bounded Hub6-only readiness discovery, and reduced idle allocations are implemented; optional aggregate timings support native diagnosis. Existing APWorld v0.28 seed/save remains compatible. See [performance review and acceptance plan](testing/2026-09-18-client-performance.md). Native smoothness acceptance is pending; no public release or deployment is implied.
+
+Client v0.75.4 performance follow-up is built and locally validated, awaiting installation and native retest. Live v0.75.3 cassette persistence polling cost about 9.7 ms per frame; the remaining uncached adapter type enumeration is now routed through the shared catalog. See [performance review](testing/2026-09-18-client-performance.md).
+
+## Level 22 Plant Pipes logic correction — 2026-09-18
+
+The shared Level 22 completion predicate now requires Plant Pipes. Missing-item tests cover every enabled boss tier, cassette source, character/keycard rewards and Victory on all four difficulties. All 140 APWorld tests pass. The freshly packaged candidate passed 12 actual restrictive-fill/playthrough generations: Normal/Hard/Expert/Perfection at goals 1, 40 and 66. A separate exact-placement replay found the retained Hard/40 seed incompatible with this stricter rule; its original placement/save remains untouched. See the unreleased progression note for the dependency loop. Performance diagnostics-off gameplay comparison remains pending.

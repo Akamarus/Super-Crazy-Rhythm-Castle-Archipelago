@@ -86,14 +86,14 @@ class RepositoryContractTests(unittest.TestCase):
     def test_public_docs_report_full_level_mapping_candidate_status(self):
         self.assert_public_counts("164", "222", "280", "316")
         overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
-        self.assertIn("Client v0.75.0 / APWorld v0.28.0", overview)
+        self.assertIn("Client v0.75.4 / APWorld v0.28.0", overview)
         self.assertIn("six bee/devil completions", overview.lower())
         self.assertIn("66 AP Stars are active", overview)
 
         for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
-                self.assertIn("Client v0.75.0 / APWorld v0.28.0", text)
+                self.assertIn("Client v0.75.4 / APWorld v0.28.0", text)
                 self.assertIn("schema 19", text.lower())
                 self.assertIn("campaign-mapping schema 1", text.lower())
                 self.assertIn("fresh v0.28 seed", text.lower())
@@ -140,7 +140,7 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.75.0", result.stdout)
+        self.assertIn("Client:  v0.75.4", result.stdout)
         self.assertIn("APWorld: v0.28.0", result.stdout)
         self.assertIn('"world_version": "0.28.0"', result.stdout)
         self.assertIn(

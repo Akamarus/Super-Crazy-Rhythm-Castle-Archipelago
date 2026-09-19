@@ -734,10 +734,7 @@ internal static class CassetteSaveTransactionAdapter
                 stage = "processor-identity-incompatible";
                 return false;
             }
-            MethodInfo? obtainState = processor!.GetType().GetMethods(PublicInstance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 0);
+            MethodInfo? obtainState = FindStateGetter(processor!.GetType(), PublicInstance);
             if (obtainState == null) { stage = "processor-identity-obtain-state-missing"; return false; }
             object? currentState = obtainState.Invoke(processor, null);
             if (currentState == null) { stage = "processor-identity-state-null"; return false; }
@@ -2397,10 +2394,7 @@ internal static class CassetteSaveTransactionAdapter
         try
         {
             stage = "cassette-status-obtain-state-find";
-            MethodInfo? obtainState = processor.GetType().GetMethods(AllInstance)
-                .FirstOrDefault(method =>
-                    string.Equals(method.Name, "ObtainState", StringComparison.Ordinal) &&
-                    method.GetParameters().Length == 0);
+            MethodInfo? obtainState = FindStateGetter(processor.GetType(), AllInstance);
             if (obtainState == null) { stage = "cassette-status-obtain-state-missing"; return false; }
             stage = "cassette-status-obtain-state-invoke";
             object? state = obtainState.Invoke(processor, null);
@@ -2480,17 +2474,31 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
+    private static readonly Dictionary<(Assembly, string), Type> PreferredTypes = new();
+    private static readonly Dictionary<(Type, BindingFlags), MethodInfo> StateGetters = new();
+    private static MethodInfo? FindStateGetter(Type owner, BindingFlags flags)
+    {
+        lock (StateGetters) {
+            var key = (owner, flags);
+            if (StateGetters.TryGetValue(key, out var cached)) return cached;
+            MethodInfo? method = owner.GetMethods(flags).FirstOrDefault(m => m.Name == "ObtainState" && m.GetParameters().Length == 0);
+            if (method != null) StateGetters[key] = method;
+            return method;
+        }
+    }
     private static Type? FindType(string exactName, Assembly? preferredAssembly = null)
     {
-        if (preferredAssembly != null)
-        {
-            Type? preferred = GetLoadableTypes(preferredAssembly)
-                .FirstOrDefault(type => string.Equals(type.Name, exactName, StringComparison.Ordinal));
-            if (preferred != null) return preferred;
-        }
-
         lock (TypeCache)
         {
+            if (preferredAssembly != null)
+            {
+                var key = (preferredAssembly, exactName);
+                if (PreferredTypes.TryGetValue(key, out Type? preferred)) return preferred;
+                try { preferred = preferredAssembly.GetType(exactName, throwOnError: false); }
+                catch { preferred = null; } // Preserve partial-load fallback for generated interop types.
+                preferred ??= GetLoadableTypes(preferredAssembly).FirstOrDefault(t => t.Name == exactName);
+                if (preferred != null) { PreferredTypes[key] = preferred; return preferred; }
+            }
             if (TypeCache.TryGetValue(exactName, out Type? cached)) return cached;
             Type? found = AppDomain.CurrentDomain.GetAssemblies()
                 .SelectMany(GetLoadableTypes)
@@ -2500,12 +2508,10 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
-    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
-    {
-        try { return assembly.GetTypes(); }
-        catch (ReflectionTypeLoadException ex) { return ex.Types.OfType<Type>(); }
-        catch { return Array.Empty<Type>(); }
-    }
+    // Preferred-assembly misses also occur for framework/interop types. Reuse the
+    // shared catalog so these misses never rebuild the game type list each frame.
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly) =>
+        ReflectionUtil.SafeGetTypes(assembly);
 
     private static object? UnwrapNullable(object? value)
     {

@@ -27,7 +27,7 @@ internal static class ApStarEaterThresholds
         (!Targets.Any(t => t.Room == room) || (_replacement != null && _replacement.Component != null));
 
     // null means restore legacy state; callers must pass only a fully validated new-contract map.
-    internal static void Tick(string room, IReadOnlyDictionary<string, int>? requirements)
+    internal static unsafe void Tick(string room, IReadOnlyDictionary<string, int>? requirements)
     {
         if (requirements == null || !string.Equals(room, _room, StringComparison.Ordinal))
         {
@@ -70,19 +70,23 @@ internal static class ApStarEaterThresholds
             IntPtr newPointer = IL2CPP.il2cpp_object_new(valueClass);
             if (newPointer == IntPtr.Zero) throw new InvalidOperationException("DefinedInt allocation failed");
             var value = new Il2CppSystem.Object(newPointer); // Roots the newly allocated native object.
-            IntPtr argument = Marshal.AllocHGlobal(sizeof(int));
-            try
-            {
-                Marshal.WriteInt32(argument, required);
-                RuntimeInvoke(constructor, newPointer, new[] { argument }, out IntPtr exception);
-                if (exception != IntPtr.Zero) throw new InvalidOperationException("DefinedInt constructor rejected value");
-            }
-            finally { Marshal.FreeHGlobal(argument); }
-            // Assign through IL2CPP's field API, preserving its reference write barrier.
-            SetReference(field, component.Pointer, ref newPointer);
+            void** args = stackalloc void*[1];
+            args[0] = &required;
+            IntPtr exception = IntPtr.Zero;
+            IL2CPP.il2cpp_runtime_invoke(constructor, newPointer, args, ref exception);
+            if (exception != IntPtr.Zero) throw new InvalidOperationException("DefinedInt constructor rejected value");
+            // Use the dedicated reference setter: (object, field, object pointer).
+            // Passing ref IntPtr stores the address of a temporary, corrupting the field.
+            IL2CPP.il2cpp_field_set_value_object(component.Pointer, field, newPointer);
             _replacement = new(component, field, original, value, required);
             if (IL2CPP.il2cpp_field_get_value_object(field, component.Pointer) != newPointer)
+            {
+                // Roll back synchronously; native interaction can run before the next retry.
+                IL2CPP.il2cpp_field_set_value_object(component.Pointer, field, original.Pointer);
+                if (IL2CPP.il2cpp_field_get_value_object(field, component.Pointer) == original.Pointer)
+                    _replacement = null;
                 throw new InvalidOperationException("Threshold reference write did not persist");
+            }
             CurrentRoomReady = true;
             _lastFailure = "";
             Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP STAR EATER requirement applied area='{target.Area}' required={required} exactPath='{target.Path}'.");
@@ -113,7 +117,7 @@ internal static class ApStarEaterThresholds
                 if (current == replacement.Value.Pointer)
                 {
                     IntPtr original = replacement.Original.Pointer;
-                    SetReference(replacement.Field, replacement.Component.Pointer, ref original);
+                    IL2CPP.il2cpp_field_set_value_object(replacement.Component.Pointer, replacement.Field, original);
                 }
             }
             _replacement = null;
@@ -135,8 +139,4 @@ internal static class ApStarEaterThresholds
         }
         throw new MissingFieldException(name);
     }
-    [DllImport("GameAssembly", CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_field_set_value")]
-    private static extern void SetReference(IntPtr field, IntPtr instance, ref IntPtr value);
-    [DllImport("GameAssembly", CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_runtime_invoke")]
-    private static extern IntPtr RuntimeInvoke(IntPtr method, IntPtr instance, IntPtr[] args, out IntPtr exception);
 }

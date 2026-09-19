@@ -55,6 +55,7 @@ internal sealed class CharacterQuestItemState
     private long _generation, _revision;
     private bool _enabled, _ready;
     private HashSet<long> _owned = new();
+    internal long Revision { get { lock (_sync) return _revision; } }
     internal CharacterQuestItemSnapshot Snapshot { get { lock (_sync) return new(_revision, _enabled, _ready, new HashSet<long>(_owned)); } }
     internal void Configure(long generation, bool enabled)
     {

@@ -131,6 +131,9 @@ foreach (var rejectedFactory in new[]
 Equal(0, RequestSystem.SubmitCount, "semantic cassette request construction never reaches global persist submission");
 string pluginSource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 string requestFactorySource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
+var adapterTypesMethod = typeof(CassetteSaveTransactionAdapter).GetMethod("GetLoadableTypes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+var adapterTypesArgs = new object[] { typeof(CassetteSaveTransactionAdapter).Assembly };
+Equal(true, ReferenceEquals(adapterTypesMethod.Invoke(null, adapterTypesArgs), adapterTypesMethod.Invoke(null, adapterTypesArgs)), "adapter fallback lookup reuses type catalog even for types from other assemblies");
 string transactionAdapterSource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string cassetteSaveDesignSource = ReadTextNormalized(Path.Combine(
     Directory.GetCurrentDirectory(), "docs", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));

@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.75.0";
+    public const string PluginVersion = "0.75.4";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -30,6 +30,9 @@ public sealed class Plugin : BasePlugin
     public override void Load()
     {
         LoggerInstance = Log;
+        ClientPerformance.Configure(Config.Bind("Developer", "EnablePerformanceDiagnostics", false,
+            "Aggregate main-thread component timing and frame intervals every 30 seconds; no per-frame logging.").Value,
+            message => Log.LogInfo(message));
 
         var enabled = Config.Bind("Archipelago", "Enabled", false,
             "Enable the Archipelago network connection.");
@@ -2332,6 +2335,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("BunkerStarRequirementKeeper.Update");
         if (ApStars.State.Active)
         {
             RestoreStarEaterInteractionPatches("AP Star contract active");
@@ -7445,6 +7449,7 @@ internal sealed class MusicLabBarrierKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("MusicLabBarrierKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 30;
@@ -9310,6 +9315,7 @@ internal sealed class BottomHudDiagnosticKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("BottomHudDiagnosticKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9507,6 +9513,7 @@ internal sealed class PreviewAbilityReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("PreviewAbilityReconciliationKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9526,6 +9533,7 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("PlantPipesReconciliationKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9547,6 +9555,8 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 {
     private const string Hub6PhoneBankRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
     private long _lastTimestamp;
+    private GameObject? _phoneBank;
+    private readonly HubReadinessProbePolicy _phoneProbe = new();
 
     public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
@@ -9555,18 +9565,25 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("CassetteReceiptReconciliationKeeper.Update");
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         TimeSpan elapsed = _lastTimestamp == 0
             ? TimeSpan.Zero
             : TimeSpan.FromSeconds((double)(now - _lastTimestamp) / System.Diagnostics.Stopwatch.Frequency);
         _lastTimestamp = now;
-        CassetteReceiptRandomization.TickUnity(elapsed);
-        CharacterQuestItems.TickUnity(elapsed);
-        QuestChecks.Tick(elapsed);
-        ExpandedChecks.Tick(elapsed);
-        ApStars.TickUnity();
-        RootsBucketRandomization.TickUnity(elapsed);
-        GameObject? phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
+        ClientPerformance.Frame(elapsed.TotalSeconds, DeveloperHarness.CurrentRoomId);
+        using (ClientPerformance.Measure("Reconcile.Cassettes")) { CassetteReceiptRandomization.TickUnity(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.CharacterItems")) { CharacterQuestItems.TickUnity(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.Quests")) { QuestChecks.Tick(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.Expanded")) { ExpandedChecks.Tick(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.Stars")) { ApStars.TickUnity(); }
+        using (ClientPerformance.Measure("Reconcile.Roots")) { RootsBucketRandomization.TickUnity(elapsed); }
+        string room = DeveloperHarness.CurrentRoomId;
+        if (room != "GameRoom_Hub6") _phoneBank = null;
+        bool live = _phoneBank != null && _phoneBank.activeInHierarchy;
+        if (_phoneProbe.ShouldSearch(room, Time.unscaledTime, live))
+            _phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
+        GameObject? phoneBank = _phoneBank != null && _phoneBank.activeInHierarchy ? _phoneBank : null;
         CassetteReceiptRandomization.ObserveGameplayReadyMarker(
             phoneBank != null,
             phoneBank?.GetInstanceID() ?? 0);
@@ -10296,6 +10313,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
     public GarageCartridgeAccessKeeper(IntPtr pointer) : base(pointer) { }
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("GarageCartridgeAccessKeeper.Update");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal)) {
             GarageCartridgeAccess.ResetNativeBagObservations(
@@ -10482,6 +10500,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
+        using var timing = ClientPerformance.Measure("RootsAreaBaselineKeeper.LateUpdate");
         RootsIntroCutsceneBypass.TickPending();
 
         bool shouldOwnRootsBaseline =
@@ -10643,6 +10662,7 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
+        using var timing = ClientPerformance.Measure("MeatAreaBaselineKeeper.LateUpdate");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, MeatAreaPresentationPolicy.RoomId, StringComparison.Ordinal))
         {
@@ -10736,6 +10756,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
+        using var timing = ClientPerformance.Measure("MeatMouseEscortRecoveryKeeper.LateUpdate");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, MeatMouseEscortRecoveryPolicy.RoomId, StringComparison.Ordinal))
         {
@@ -11647,6 +11668,7 @@ internal sealed class AreaPhoneAccessKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("AreaPhoneAccessKeeper.Update");
         if (!AreaAccessPrototype.Enabled)
             return;
 
@@ -11801,6 +11823,7 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("DeveloperHotkeys.Update");
         if (!DeveloperHarness.Enabled)
             return;
 
@@ -12152,6 +12175,7 @@ internal sealed class MusicLabDiagnosticKeeper : MonoBehaviour
 
     private void Update()
     {
+        using var timing = ClientPerformance.Measure("MusicLabDiagnosticKeeper.Update");
         if (!DeveloperHarness.Enabled)
             return;
 
@@ -15015,103 +15039,5 @@ internal static class SaveDataProbe
             $"[SCRC-AP] SAVE {name}=<{t.FullName}> {unwrapped}");
 
         DumpInterestingMembers(unwrapped, name, depth + 1);
-    }
-}
-
-internal static class ReflectionUtil
-{
-    public static Assembly? GameAssembly => AppDomain.CurrentDomain.GetAssemblies()
-        .FirstOrDefault(a => string.Equals(
-            a.GetName().Name, "Assembly-CSharp", StringComparison.OrdinalIgnoreCase));
-
-    public static IEnumerable<Type> SafeGetTypes(Assembly assembly)
-    {
-        try { return assembly.GetTypes(); }
-        catch (ReflectionTypeLoadException ex) { return ex.Types.Where(t => t != null)!; }
-        catch { return Array.Empty<Type>(); }
-    }
-
-    public static object? FindArg(object[]? args, string typeName) =>
-        args?.FirstOrDefault(a => a != null && a.GetType().Name == typeName);
-
-    public static object? ReadMember(object? obj, string name)
-    {
-        if (obj == null) return null;
-        Type t = obj.GetType();
-
-        try
-        {
-            PropertyInfo? p = t.GetProperty(
-                name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (p != null && p.GetIndexParameters().Length == 0)
-                return p.GetValue(obj);
-        }
-        catch { }
-
-        try
-        {
-            FieldInfo? f =
-                t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                ?? t.GetField(
-                    $"<{name}>k__BackingField",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-            if (f != null) return f.GetValue(obj);
-        }
-        catch { }
-
-        return null;
-    }
-
-    public static bool? ReadBool(object obj, string name)
-    {
-        object? v = ReadMember(obj, name);
-        if (v is bool b) return b;
-        return bool.TryParse(v?.ToString(), out bool parsed) ? parsed : null;
-    }
-
-    public static int? ReadInt(object obj, string name)
-    {
-        object? v = ReadMember(obj, name);
-        if (v is int i) return i;
-        return int.TryParse(v?.ToString(), out int parsed) ? parsed : null;
-    }
-
-    public static object? UnwrapNullable(object? value)
-    {
-        if (value == null) return null;
-        Type t = value.GetType();
-        string name = t.FullName ?? t.Name;
-
-        if (!name.Contains("Nullable`1", StringComparison.Ordinal))
-            return value;
-
-        object? hasValue = ReadMember(value, "HasValue");
-        if (hasValue is bool b && !b) return null;
-
-        object? inner = ReadMember(value, "Value");
-        return inner ?? value;
-    }
-
-    public static string? ExtractIdentifier(object? value)
-    {
-        value = UnwrapNullable(value);
-        if (value == null) return null;
-        if (value is string s) return s;
-
-        foreach (string n in new[] { "id", "ID", "Id", "value", "Value" })
-        {
-            object? member = ReadMember(value, n);
-            if (member is string ms && !string.IsNullOrWhiteSpace(ms))
-                return ms;
-        }
-
-        string text = value.ToString() ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(text)
-            && text != value.GetType().Name
-            && text != value.GetType().FullName)
-            return text;
-
-        return null;
     }
 }

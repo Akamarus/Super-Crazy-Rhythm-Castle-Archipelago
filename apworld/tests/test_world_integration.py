@@ -952,8 +952,8 @@ class WorldIntegrationTests(unittest.TestCase):
         world = self.build_world(); world.set_rules()
         rule = world.multiworld.get_location("Victory", 1).access_rule
         self.assertFalse(rule(State(self.module.AREA_ACCESS_ITEMS)))
-        self.assertFalse(rule(State(["Royal Corridor Access"] + ["Star"] * 49)))
-        self.assertTrue(rule(State(["Royal Corridor Access"] + ["Star"] * 50)))
+        self.assertFalse(rule(State(["Royal Corridor Access", "Plant Pipes"] + ["Star"] * 49)))
+        self.assertTrue(rule(State(["Royal Corridor Access", "Plant Pipes"] + ["Star"] * 50)))
         self.assertFalse(rule(State(["Star"] * 66)))
         self.assertTrue(world.multiworld.completion_condition[1](State(["Victory"])))
         self.assertFalse(world.multiworld.completion_condition[1](State([])))
@@ -995,7 +995,7 @@ class WorldIntegrationTests(unittest.TestCase):
     def test_royal_access_reaches_phone_side_royal_campaign_routes(self):
         world = self.build_world()
         world.set_rules()
-        state = State(["Royal Corridor Access"] + ["Star"] * world.generated_star_requirements["Level 22"])
+        state = State(["Royal Corridor Access", "Plant Pipes"] + ["Star"] * world.generated_star_requirements["Level 22"])
         reachable = self.reachable_regions(world, state)
 
         self.assertIn("Royal Corridor", reachable)

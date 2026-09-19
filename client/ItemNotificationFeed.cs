@@ -17,7 +17,7 @@ internal sealed class ItemNotificationFeed
     private int _nextReceipt;
     private bool _baseline;
     internal ItemNotification[] History { get { lock (_sync) return _history.AsEnumerable().Reverse().ToArray(); } }
-    internal ItemNotification[] Visible { get { lock (_sync) return _visible.Select(v => v.Entry).ToArray(); } }
+    internal ItemNotification[] Visible { get { lock (_sync) return _visible.Count == 0 ? Array.Empty<ItemNotification>() : _visible.Select(v => v.Entry).ToArray(); } }
     internal void Connect(long generation, string identity)
     {
         lock (_sync)

@@ -67,7 +67,9 @@ Royal feeding additionally requires the Tower/Locker Room route on its side of t
 broken bridge. Bunker feeding has no progression items behind it.
 
 The addressless Victory event lives in Royal Corridor. Its rule requires the
-repeatable Level 22 route and the full configured AP Star total. This is solver
+repeatable Level 22 route, including Plant Pipes, and the full configured AP Star total.
+All Level 22 completion, enabled star and downstream reward checks require Plant Pipes;
+the generator never assumes a luck-dependent no-pipes clear. This is solver
 modeling of a subsequent clear; the client must snapshot synchronized Stars during
 a new successful persisted Level 22 result. A prior clear followed by a Star receipt
 never qualifies by itself. Ordinary Level 22 checks remain available below the goal.

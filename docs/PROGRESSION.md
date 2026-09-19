@@ -1,3 +1,11 @@
+Current hotfix: **Client v0.75.4 / APWorld v0.28.0**. See [release notes](releases/v0.28.0.md).
+
+## September 18 release hotfix: Level 22 requires Plant Pipes
+
+Level 22 now requires Plant Pipes in addition to Royal Corridor Access and its generated Star gate. A no-pipes clear is technically possible but relies too heavily on luck to be an expected route. This shared completion rule covers enabled Level 22 completion/star checks, Another Day In Paradise cassette source, Bunker Keycard Award, King Ferdinand Unlocked and the subsequent Victory route. Victory still requires the configured total of AP Stars. No extra native entry block or client result suppression is added; this is a generator logic requirement.
+
+New seeds generated with this revision respect the prerequisite. Existing seed placements are not rewritten; older seeds may depend on a no-pipes boss route and need a separate recovery or a fresh seed to adopt this rule.
+
 > Current published scope: **v0.28.0 / Client v0.75.0 — First Completable Release**. See the [release notes](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/releases/v0.28.0.md) and [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/v0.28.0/docs/KNOWN_ISSUES.md). Native AP Star/victory acceptance remains pending; older candidate and deployment statements below record historical checkpoints.
 
 # AP Stars combined candidate — native playthrough acceptance pending

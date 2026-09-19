@@ -24,6 +24,8 @@ LEVEL_ITEMS = {
     17: ('Hypno Pan',),18: ('Violance','Plant Pipes'),
     19: ('Violance',),20: ('Violance','Hypno Pan'),
     21: ('Violance','Plant Pipes','Weed Killer'),
+    # No-pipes boss clears depend on luck; never require that route in logic.
+    22: ('Plant Pipes',),
 }
 
 
