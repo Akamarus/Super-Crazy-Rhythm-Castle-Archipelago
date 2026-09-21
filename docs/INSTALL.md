@@ -1,7 +1,7 @@
 # Current downloads
 
 Use [v0.28.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1):
-**RhythmCastleAP-v0.75.13.zip** and **scrc.apworld** (APWorld v0.28.0).
+**RhythmCastleAP-v0.75.13.zip** and **scrc.apworld** (APWorld v0.28.1).
 Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain compatible.
 
 # Public development-test installation
@@ -11,7 +11,7 @@ Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain c
 
 This is the canonical installation guide for public development testing. The component guides keep their developer details: [client notes](../client/README.md), [APWorld notes](../apworld/README.md), and the [APWorld setup page](../apworld/scrc/docs/setup_en.md).
 
-Current release: **Client v0.75.13 / APWorld v0.28.0** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Hard40 Victory is gameplay verified; broader acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
+Current release: **Client v0.75.13 / APWorld v0.28.1** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Hard40 Victory is gameplay verified; broader acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
 
 ## Before you begin
 
@@ -129,3 +129,6 @@ To uninstall, remove only:
 - `<Archipelago>\custom_worlds\scrc.apworld`—commonly `C:\ProgramData\Archipelago\custom_worlds\scrc.apworld` when using the default Archipelago installation
 
 Do not delete the repository's `dist\scrc.apworld` when uninstalling; that is the build output, not the installed custom world. Keep your saves and BepInEx installation intact. Do not delete BepInEx core files, game files, or IL2CPP assemblies.
+
+
+Universal Tracker: install the updated APWorld locally and follow the [tracker setup](UNIVERSAL_TRACKER.md). Existing v0.28 seeds remain compatible.

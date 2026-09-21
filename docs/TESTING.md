@@ -1,3 +1,28 @@
+
+
+## Universal Tracker compatibility update — September 21
+
+Install the updated **scrc.apworld (APWorld v0.28.1)** on the computer running
+Universal Tracker. Client v0.75.13 is unchanged. Existing v0.28/schema-19 seeds
+already contain the necessary data and do not need regeneration or a save reset.
+
+The APWorld now implements UT's YAML-less regeneration hooks. It restores the
+server's exact starting area, AP difficulty, victory goal and all generated Star
+gates instead of rolling new requirements. Malformed or older unsupported slot
+contracts fail with an explicit error. IDs, placement rules and normal seed
+generation remain unchanged.
+
+Verified with the actual Universal Tracker v0.3.3 core on Archipelago 0.6.7:
+12 difficulty/goal combinations plus the retained Hard40 seed. Exact gate values,
+location counts, item-driven reachability, Victory logic and checked-location
+removal were verified headlessly. This is logic-tracker support, not a custom map
+or an embedded in-game tracker; GUI/network interaction was not exercised by this
+test. See [Universal Tracker setup](UNIVERSAL_TRACKER.md).
+
+Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
+use the hotfix tag or main to build the updated APWorld download.
+
+
 # Current release: v0.28.1 / Client v0.75.13
 
 Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. APWorld remains v0.28.0 / schema 19. See [current release notes](releases/v0.28.1.md). Earlier candidate statuses below are historical.

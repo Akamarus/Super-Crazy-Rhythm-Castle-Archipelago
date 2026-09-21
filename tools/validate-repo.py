@@ -30,7 +30,7 @@ OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
     "client_version": "0.75.13",
-    "world_version": "0.28.0",
+    "world_version": "0.28.1",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"

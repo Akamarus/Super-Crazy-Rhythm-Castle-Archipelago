@@ -1,11 +1,36 @@
 # v0.28.1 — First Verified Victory
 
-**Client v0.75.13 / APWorld v0.28.0 · September 21, 2026**
+**Client v0.75.13 / APWorld v0.28.1 · September 21, 2026**
 
 A fresh-save Hard playthrough with a 40 AP Star goal has now completed without
 server assistance. King Ferdinand I was cleared with 41 AP Stars; the client saved
 the qualifying result and the server recorded CLIENT_GOAL (30). This verifies one
 complete route, not every seed, difficulty or multiplayer configuration.
+
+
+
+## Universal Tracker compatibility update — September 21
+
+Install the updated **scrc.apworld (APWorld v0.28.1)** on the computer running
+Universal Tracker. Client v0.75.13 is unchanged. Existing v0.28/schema-19 seeds
+already contain the necessary data and do not need regeneration or a save reset.
+
+The APWorld now implements UT's YAML-less regeneration hooks. It restores the
+server's exact starting area, AP difficulty, victory goal and all generated Star
+gates instead of rolling new requirements. Malformed or older unsupported slot
+contracts fail with an explicit error. IDs, placement rules and normal seed
+generation remain unchanged.
+
+Verified with the actual Universal Tracker v0.3.3 core on Archipelago 0.6.7:
+12 difficulty/goal combinations plus the retained Hard40 seed. Exact gate values,
+location counts, item-driven reachability, Victory logic and checked-location
+removal were verified headlessly. This is logic-tracker support, not a custom map
+or an embedded in-game tracker; GUI/network interaction was not exercised by this
+test. See [Universal Tracker setup](docs/UNIVERSAL_TRACKER.md).
+
+Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
+use the hotfix tag or main to build the updated APWorld download.
+
 
 ## Changes since the September 18 v0.28.0 hotfix
 
@@ -25,7 +50,7 @@ complete route, not every seed, difficulty or multiplayer configuration.
 
 Close the game and replace the three plugin DLLs using **RhythmCastleAP-v0.75.13.zip**.
 Existing v0.28 seeds and saves remain compatible. The included **scrc.apworld** keeps
-the v0.28.0 / schema-19 contract; no new IDs, progression placements or goal rules
+the existing schema-19 contract; no new IDs, progression placements or goal rules
 are introduced by this maintenance release. Connect to your seed before loading.
 Existing boss clears whose completion was discarded are not reconstructed from
 save flags; a qualifying clear on the repaired client reports Victory normally.

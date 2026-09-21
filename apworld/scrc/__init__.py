@@ -45,6 +45,7 @@ from .items import (
 )
 from .expanded_checks import EXPANDED_CHECKS, EXPANDED_CHECK_LOCATION_NAME_TO_ID
 from .options import SCRCOptions
+from .universal_tracker import tracker_slot_data
 from .music_lab_points import (
     MUSIC_LAB_POINT_ITEMS,
     MUSIC_LAB_POINT_POOL,
@@ -396,17 +397,33 @@ class SCRCWorld(World):
     item_name_to_id = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
 
+    ut_can_gen_without_yaml = True
+
+    @staticmethod
+    def interpret_slot_data(slot_data: dict) -> dict:
+        return tracker_slot_data(slot_data)
+
     def generate_early(self) -> None:
+        passthrough = getattr(self.multiworld, "re_gen_passthrough", {}) or {}
+        tracker = tracker_slot_data(passthrough[self.game]) if self.game in passthrough else None
+        if tracker is not None:
+            self.options.required_stars.value = tracker["required_stars"]
+            self.options.difficulty.value = tracker["difficulty"]["value"]
+            self.options.starting_area.value = tracker["starting_area_option"]
         requested_start = int(self.options.starting_area.value)
         required_stars = int(self.options.required_stars.value)
         difficulty = self.options.difficulty.value
         active_campaign_star_tiers = campaign_star_tiers(difficulty)
         active_medal_tiers = medal_tiers(difficulty)
 
-        self.starting_area_item = resolve_starting_area(requested_start, self.random)
-        self.generated_star_requirements = generate_star_requirements(
-            required_stars, self.random
-        )
+        if tracker is not None:
+            self.starting_area_item = tracker["starting_area_item"]
+            self.generated_star_requirements = tracker["generated_star_requirements"]
+        else:
+            self.starting_area_item = resolve_starting_area(requested_start, self.random)
+            self.generated_star_requirements = generate_star_requirements(
+                required_stars, self.random
+            )
         self.difficulty_name = DIFFICULTY_NAMES[difficulty]
         self.active_location_names = frozenset(
             name

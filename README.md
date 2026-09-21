@@ -4,7 +4,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 ## Current release: v0.28.1 — First Verified Victory
 
-**Client v0.75.13 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
+**Client v0.75.13 / APWorld v0.28.1**, schema 19 / campaign-mapping schema 1.
 
 Randomize area access, progression items, Music Lab cassettes, Game Garage cartridges,
 and supported character unlocks. Campaign results, quests, pickups and Music Lab
@@ -27,14 +27,29 @@ The project remains experimental; see the known bugs and validation limits below
 - Close the game and replace the three plugin DLLs using **RhythmCastleAP-v0.75.13.zip**.
 - Existing v0.28 seeds and saves remain compatible. Connect to the seed before loading the save.
 - For a new run, install the included **scrc.apworld** and use a fresh native save.
-- This maintenance release retains APWorld v0.28.0, its IDs and schema-19 contract. Updating the client does not rewrite seed placements.
+- This maintenance release updates APWorld to v0.28.1 while retaining its IDs and schema-19 contract. Updating the client does not rewrite seed placements.
 - An earlier boss clear discarded by the old Victory bug is not reconstructed automatically. A qualifying clear on the repaired client reports Victory normally.
+
+## Universal Tracker
+
+**YAML-less Universal Tracker support is available in APWorld v0.28.1.** Install
+the updated `scrc.apworld` on your tracker computer and connect to your existing
+v0.28 seed. The tracker restores the exact server-generated Star gates, goal,
+difficulty and starting area. No new seed or game-client update is needed.
+
+Tested with UT v0.3.3 and v0.2.32 on Archipelago 0.6.7 in 13 headless integration cases,
+including the completed Hard40 seed. See [setup and verification scope](docs/UNIVERSAL_TRACKER.md).
+Updated APWorld source is tagged `v0.28.1-hotfix.1`; the original release tag is unchanged.
 
 ## Changelog — v0.28.1 (September 21, 2026)
 
 These are all release changes since the September 18 v0.28.0 hotfix. Detailed
 implementation and acceptance evidence is linked in the [release notes](docs/releases/v0.28.1.md)
 and [testing record](docs/TESTING.md).
+
+### Tracker support
+
+- Added exact slot-data restoration through Universal Tracker regeneration hooks; no YAML required. Existing schema-19 seeds are supported, and malformed/older contracts produce an error instead of incorrect logic.
 
 ### Victory and progression fixes
 
