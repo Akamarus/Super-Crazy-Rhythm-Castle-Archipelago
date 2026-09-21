@@ -673,7 +673,7 @@ SequenceEqual(new[]{"Music Lab - 32 Point Chest","Music Lab - 64 Point Chest","M
 var d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_Default",true,new Dictionary<string,string>{{"I_GOT_MONEY",CassetteRandomizationPolicy.Invalid}});
 Equal(false,d.AllowNative,"Money suppresses native"); SequenceEqual(new[]{"Level 2 - Money Cassette"},d.SourceLocationsToQueue,"Money source queued"); SequenceEqual(new[]{"I_GOT_MONEY"},d.NativeSongsToSuppress,"Money suppressed");
 foreach(var status in new[]{CassetteRandomizationPolicy.Invalid,CassetteRandomizationPolicy.HaveNotEarned}) Equal(false,CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_BeeMode",true,new Dictionary<string,string>{{"I_GOT_MONEY",status}}).AllowNative,$"Bee alias {status}");
-foreach(var status in new[]{CassetteRandomizationPolicy.HaveInBag,CassetteRandomizationPolicy.HaveDeposited}) { d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_Default",true,new Dictionary<string,string>{{"I_GOT_MONEY",status}}); Equal(true,d.AllowNative,$"owned {status}"); Equal(0,d.SourceLocationsToQueue.Count,"owned queues none"); }
+foreach(var status in new[]{CassetteRandomizationPolicy.HaveInBag,CassetteRandomizationPolicy.HaveDeposited}) { d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_Default",true,new Dictionary<string,string>{{"I_GOT_MONEY",status}}); Equal(true,d.AllowNative,$"owned {status}"); SequenceEqual(new[]{"Level 2 - Money Cassette"},d.SourceLocationsToQueue,"AP receipt before source still queues source"); }
 Equal(true,CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_Default",false,new Dictionary<string,string>{{"I_GOT_MONEY",CassetteRandomizationPolicy.Invalid}}).AllowNative,"failure native");
 Equal(true,CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVariant_DevilMode",true,new Dictionary<string,string>{{"I_GOT_MONEY",CassetteRandomizationPolicy.Invalid}}).AllowNative,"wrong variant native");
 Equal(true,CassetteRandomizationPolicy.DecideLevelEvaluation("Level_99","LevelVariant_Default",true,new Dictionary<string,string>()).AllowNative,"unrelated native");
@@ -682,6 +682,16 @@ Equal(true,CassetteRandomizationPolicy.DecideLevelEvaluation("Level_06","LevelVa
 d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_09","LevelVariant_Default",true,new Dictionary<string,string>{{"BADASS",CassetteRandomizationPolicy.Invalid},{"HEAVY_METAL",CassetteRandomizationPolicy.HaveNotEarned}});
 Equal(false,d.AllowNative,"multi suppresses"); SequenceEqual(new[]{"Cassette Source - Badass","Cassette Source - Heavy Metal"},d.SourceLocationsToQueue,"multi sources"); SequenceEqual(new[]{"BADASS","HEAVY_METAL"},d.NativeSongsToSuppress,"multi songs");
 d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_09","LevelVariant_Default",true,new Dictionary<string,string>{{"BADASS",CassetteRandomizationPolicy.Invalid}}); Equal(true,d.AllowNative,"partial unreadable native"); Equal(0,d.SourceLocationsToQueue.Count,"unsafe partial queues none");
+d=CassetteRandomizationPolicy.DecideLevelEvaluation("Level_09","LevelVariant_Default",true,new Dictionary<string,string>{{"BADASS",CassetteRandomizationPolicy.HaveDeposited},{"HEAVY_METAL",CassetteRandomizationPolicy.HaveNotEarned}});
+SequenceEqual(new[]{"Cassette Source - Badass","Cassette Source - Heavy Metal"},d.SourceLocationsToQueue,"mixed AP-owned and unearned songs report both sources");
+SequenceEqual(new[]{"HEAVY_METAL"},d.NativeSongsToSuppress,"mixed source suppresses only unearned reward");
+foreach (var entry in CassetteCatalog.All.Where(x=>x.SourceType==CassetteSourceType.LevelEarnedReward))
+foreach (var trigger in entry.Triggers)
+{
+    var allOwned = CassetteCatalog.ForLevelSource(trigger.Level,trigger.Variant).ToDictionary(x=>x.NativeSong,_=>CassetteRandomizationPolicy.HaveInBag);
+    var earlyReceipt = CassetteRandomizationPolicy.DecideLevelEvaluation(trigger.Level,trigger.Variant,true,allOwned);
+    Equal(true,earlyReceipt.SourceLocationsToQueue.Contains(entry.SourceName),$"early receipt cannot erase {entry.SourceName} on {trigger.Level}/{trigger.Variant}");
+}
 Equal(false,CassetteRandomizationPolicy.UseSelectedSaveChangedEventHook,"crashing hook disabled");
 Equal(true, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:false), "native point-chest Quicksand bag grant is randomized");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:true), "AP receipt may grant Quicksand later");
@@ -1674,6 +1684,14 @@ var eligibleAcceptance = new CassettePersistenceAcceptanceEligibilityEvidence(
 Equal(true, CassettePersistenceAcceptanceEligibility.Evaluate(eligibleAcceptance, out string eligibleAcceptanceStage),
     "every approved public gate admits exactly one pointer-bound acceptance trial");
 Equal("success", eligibleAcceptanceStage, "complete acceptance evidence reports success");
+Equal(true, CassettePersistenceAcceptanceEligibility.Evaluate(
+    eligibleAcceptance with { RequiresWriteToDisk = true }, out string pendingWriteStage),
+    "a pending native disk write must not strand a verified cassette in DEFAULT and block Cassette Lord deposit");
+Equal("success", pendingWriteStage, "requires-write is a dirty flag, not an in-flight lock");
+Equal(false, CassettePersistenceAcceptanceEligibility.Evaluate(
+    eligibleAcceptance with { RequiresWriteToDisk = true, SelectedPointerMatches = false }, out _),
+    "pending-write admission retains selected-save ownership protection");
+
 Equal(true, CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
     hasRegisteredPointer: true, registeredPointer: 0x900,
     hasRetainedPointer: true, retainedPointer: 0x900,
@@ -1717,7 +1735,6 @@ foreach ((string Case, CassettePersistenceAcceptanceEligibilityEvidence Evidence
     ("status", eligibleAcceptance with { StatusesRetainedInBag = false }, "acceptance-status-not-retained"),
     ("unstaged", eligibleAcceptance with { HasUnstagedChanges = false }, "acceptance-no-unstaged-changes"),
     ("changes", eligibleAcceptance with { HasChanges = false }, "acceptance-no-changes"),
-    ("write-in-flight", eligibleAcceptance with { RequiresWriteToDisk = true }, "acceptance-write-already-required"),
 })
 {
     Equal(false, CassettePersistenceAcceptanceEligibility.Evaluate(gateFailure.Evidence, out string gateStage),

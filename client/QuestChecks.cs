@@ -51,9 +51,15 @@ internal static class QuestChecks
     {
         CassetteReceiptRandomization.WithStableSelectedQuestSave((processor, identity, slot) => {
             try {
-                if (State.Snapshot.NativeSlot == null &&
-                    (ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED") == true || ReadFlag("ROOTS_HUB_STAR_EATER_FED") == true)) {
-                    Log("binding", "New quest seed needs a fresh native save; refusing existing completed source flags."); return;
+                if (State.NativeSlot == null) {
+                    bool? plungerCollected = ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED");
+                    bool? rootsFed = ReadFlag("ROOTS_HUB_STAR_EATER_FED");
+                    if (plungerCollected == true || rootsFed == true) {
+                        Log("binding", "New quest seed needs a fresh native save; refusing existing completed source flags."); return;
+                    }
+                    if (plungerCollected != false || rootsFed != false) {
+                        Log("binding", "Quest save binding deferred until source freshness flags are readable."); return;
+                    }
                 }
                 if (!State.BindSlot(slot, Journal.Save)) { Log("binding", "Selected save differs from this quest seed's bound slot."); return; }
                 action(processor, identity);

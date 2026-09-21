@@ -76,6 +76,24 @@ Console.WriteLine("Character quest item contract, receipt history, isolation and
 // Execute production Unity reconciliation against isolated native boundaries.
 CharacterQuestItems.State.Configure(50,true);
 CharacterQuestItems.State.Publish(50,new long[]{187256159,187256160});
+// Unrelated global progression traffic must not copy inventory or inspect requests.
+var unrelatedRequest = new Request { Value = true };
+var unrelatedEvent = new ConsumptionEvent();
+CharacterQuestItems.ShouldSuppress(unrelatedRequest, "UNRELATED_FLAG");
+CharacterQuestItems.RecordConsumption(unrelatedEvent, "UNRELATED_FLAG");
+int readsBefore = ReflectionUtil.BoolReads;
+long bytesBefore = GC.GetAllocatedBytesForCurrentThread();
+for (int i = 0; i < 100; i++) {
+ Check(!CharacterQuestItems.ShouldSuppress(unrelatedRequest, "UNRELATED_FLAG"), "unrelated grant preserved");
+ CharacterQuestItems.RecordConsumption(unrelatedEvent, "UNRELATED_FLAG");
+}
+Check(ReflectionUtil.BoolReads == readsBefore, "unrelated events skip request reflection");
+Check(GC.GetAllocatedBytesForCurrentThread() - bytesBefore == 0, "unrelated events allocate no ownership snapshots");
+DeveloperHarness.CurrentRoomId = "GameRoom_27";
+Check(!CharacterQuestItems.ShouldSuppress(unrelatedRequest, "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM"), "off-source native grant preserved");
+Check(ReflectionUtil.BoolReads == readsBefore, "off-source grant skips request reflection");
+DeveloperHarness.CurrentRoomId = "GameRoom_Hub6";
+Check(CharacterQuestItems.ShouldSuppress(unrelatedRequest, "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM"), "matching source grant remains suppressed");
 RootsBucketRandomization.Flags["LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM"]=false;
 RootsBucketRandomization.Flags["CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM"]=false;
 RootsBucketRandomization.Flags["PLAYABLE_CHARACTER_UNLOCKED_MEOO"]=false;

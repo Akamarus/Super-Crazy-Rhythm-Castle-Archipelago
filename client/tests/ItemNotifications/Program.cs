@@ -35,6 +35,27 @@ Check(feed.History[0].Text.Contains("New arrival"),"expired popup stays in histo
 feed.Reset();Check(feed.History.Length==0,"shutdown clears feed");
 Console.WriteLine("PASS: item history, live receipts, replay deduplication, offline arrivals, self finds, sends, identity isolation, burst bounds, expiry.");
 
+var burst = new ItemNotificationFeed();burst.Connect(1,"burst");burst.Receive(1,0,Array.Empty<NotificationReceipt>());
+burst.Receive(1,0,Enumerable.Range(0,125).Select(i=>R("Reward "+i)).ToArray());
+burst.Advance(0);Check(burst.Visible[0].Text.Contains("Reward 0"),"burst queue must retain its earliest unseen reward");
+burst.Advance(20,0);Check(burst.Visible[0].Text.Contains("Reward 0"),"hidden popups must not expire");
+burst.Advance(6.1,1);Check(burst.Visible[0].Text.Contains("Reward 1"),"only the card that fit on screen should expire");
+var displayed = new List<string>{"Received Reward 0 from Alex"};
+while(burst.Visible.Length>0){displayed.Add(burst.Visible[0].Text);burst.Advance(6.1,1);}
+Check(displayed.SequenceEqual(Enumerable.Range(0,125).Select(i=>"Received Reward "+i+" from Alex")),"every reward in a burst must receive visible time in arrival order");
+Check(burst.History.Length==100,"unseen popup retention must not unbound recent history");
 AdapterTests.Run();
+
+var sentReplay = new ItemNotificationFeed();
+sentReplay.Connect(1, "perfection");
+for (int i = 0; i < 316; i++) sentReplay.Send(1, "location:" + i, "Reward " + i, "Sam", "Source " + i);
+sentReplay.Connect(2, "perfection");
+for (int i = 0; i < 316; i++) sentReplay.Send(2, "location:" + i, "Reward " + i, "Sam", "Source " + i);
+Check(sentReplay.OutstandingCount == 316, "replaying a full Perfection seed must not requeue sent rewards after 256 sends");
+sentReplay.Connect(3, "different-seed");
+sentReplay.Send(3, "location:0", "New reward", "Sam", "Source 0");
+Check(sentReplay.OutstandingCount == 1, "send deduplication must reset for another authenticated identity");
+Console.WriteLine("PASS: full-seed send replay deduplication and identity reset");
+OverlayTests.Run();
 
 

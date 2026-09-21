@@ -3,7 +3,7 @@ namespace RhythmCastleAP;
 internal sealed record NotificationReceipt(string Item, string Player, string Location, bool Own);
 internal sealed record ItemNotification(string Text, string Location, bool Sent);
 
-// Network callbacks only update this bounded managed model. Unity draws snapshots.
+// Network callbacks update managed state. History is bounded; unseen popups are retained until displayed.
 internal sealed class ItemNotificationFeed
 {
     private readonly object _sync = new();
@@ -11,11 +11,11 @@ internal sealed class ItemNotificationFeed
     private readonly Queue<ItemNotification> _pending = new();
     private readonly List<(ItemNotification Entry, double Remaining)> _visible = new();
     private readonly HashSet<string> _sent = new(StringComparer.Ordinal);
-    private readonly Queue<string> _sentOrder = new();
     private string? _identity;
     private long _generation;
     private int _nextReceipt;
     private bool _baseline;
+    internal int OutstandingCount { get { lock (_sync) return _pending.Count + _visible.Count; } }
     internal ItemNotification[] History { get { lock (_sync) return _history.AsEnumerable().Reverse().ToArray(); } }
     internal ItemNotification[] Visible { get { lock (_sync) return _visible.Count == 0 ? Array.Empty<ItemNotification>() : _visible.Select(v => v.Entry).ToArray(); } }
     internal void Connect(long generation, string identity)
@@ -51,16 +51,16 @@ internal sealed class ItemNotificationFeed
         lock (_sync)
         {
             if (_identity == null || generation != _generation || !_sent.Add(key)) return;
-            _sentOrder.Enqueue(key);
-            while (_sentOrder.Count > 256) _sent.Remove(_sentOrder.Dequeue());
+            // Keep source keys for this identity: a full seed exceeds 256 checks,
+            // and reconnect replay must not requeue already-announced rewards.
             Add(new($"Sent {Clean(item)} to {Clean(player)}", Clean(location), true), true);
         }
     }
-    internal void Advance(double seconds)
+    internal void Advance(double seconds, int displayedCount = 3)
     {
         lock (_sync)
         {
-            for (int i = _visible.Count - 1; i >= 0; i--)
+            for (int i = Math.Min(_visible.Count, Math.Max(0, displayedCount)) - 1; i >= 0; i--)
             {
                 var v = _visible[i]; double remaining = v.Remaining - Math.Max(0, seconds);
                 if (remaining <= 0) _visible.RemoveAt(i); else _visible[i] = (v.Entry, remaining);
@@ -73,11 +73,11 @@ internal sealed class ItemNotificationFeed
     {
         _history.Add(entry); if (_history.Count > 100) _history.RemoveAt(0);
         if (!popup) return;
-        _pending.Enqueue(entry); while (_pending.Count > 100) _pending.Dequeue();
+        _pending.Enqueue(entry); // Never silently discard a reward before its popup has been displayed.
     }
     private void Clear()
     {
-        _history.Clear(); _pending.Clear(); _visible.Clear(); _sent.Clear(); _sentOrder.Clear();
+        _history.Clear(); _pending.Clear(); _visible.Clear(); _sent.Clear();
         _nextReceipt = 0; _baseline = false;
     }
     private static string Clean(string value)

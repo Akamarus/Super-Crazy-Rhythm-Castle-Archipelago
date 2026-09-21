@@ -1,3 +1,11 @@
+# Current release: v0.28.1 / Client v0.75.13
+
+Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. APWorld remains v0.28.0 / schema 19. See [current release notes](releases/v0.28.1.md). Earlier candidate statuses below are historical.
+
+## Current audit candidate — Client v0.75.6
+
+The September 20 audit candidate is installed with approval; it is not published. Both native cassette hooks and the retained seed connection were verified at startup. Gameplay acceptance and residual-lag profiling remain pending. It repairs cassette-source reward leaks and early-receipt check loss, invalid AP Star history authority, uncertain fresh-save binding, notification replay/layout, and avoidable character-event allocations. Obsolete automatic save dumps are removed. See [audit findings and remaining acceptance](testing/2026-09-20-full-mod-audit.md). The published release remains v0.28.0 / Client v0.75.4; older candidate/deployment statements below are historical.
+
 Current hotfix: **Client v0.75.4 / APWorld v0.28.0**. See [release notes](releases/v0.28.0.md).
 
 ## September 18 release hotfix: Level 22 requires Plant Pipes
@@ -971,3 +979,52 @@ Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.Bunk
 ## Client v0.75.3 performance candidate
 
 The full playthrough is paused at the player's request for general gameplay lag. Metadata caches, bounded Hub6-only readiness discovery, and reduced idle allocations are implemented; optional aggregate timings support native diagnosis. Existing APWorld v0.28 seed/save remains compatible. See [performance review and acceptance plan](testing/2026-09-18-client-performance.md). Native smoothness acceptance is pending; no public release or deployment is implied.
+
+## Client v0.75.5 candidate — visible blocked-entry feedback
+
+AP Star denial now displays a prominent top-center six-second banner with the verified campaign title, required/current AP Stars and remaining amount. Repeated attempts refresh one banner and suppress repeated log lines. Enough Stars, room/identity changes and native save boundaries invalidate stale denial feedback; unsynchronized and incompatible states explain their cause rather than claiming missing Stars. Uses the existing OnGUI path, independent of item-popup settings, without scans or save writes. Existing gate/victory rules are unchanged. Build and automated runtime tests pass; installation and native readability acceptance are pending. Published release remains Client v0.75.4.
+
+### v0.75.5 candidate: readable reward bursts
+
+Reward popups now measure wrapped item/player and location text and fit whole cards within the current screen height, leaving overflow in the queue with a visible remaining count. Only cards drawn in the preceding repaint accrue display time; item-history view, disabled popups and loss of focus pause timers. Long frame gaps are capped for notification aging so a load stall cannot consume a full popup lifetime. The unseen queue no longer silently drops rewards after 100 pending entries; recent history remains capped at 100 and connection/identity replay protection is retained. A 125-reward regression verifies exact arrival order and full display time with only one card fitting at a time. Item notification and real packet adapter tests pass; the combined client builds with existing warnings. Native layout/readability testing is pending. No game install or release publication has been performed for this candidate.
+
+
+## September 21: v0.75.12 nullable victory event repair (installed; gameplay pending)
+
+The v0.75.11 live replay captured a successful King Ferdinand I result with 41/40
+AP Stars, matching admitted/applied Level_28 and LevelVariant_Default. The native
+LevelResultWasPersistedEvent exposed an empty nullable LevelVariant, so strict
+variant equality rejected the qualified completion before journal/goal delivery.
+v0.75.12 accepts an omitted event variant only with a matching level and an already
+bound applied-score candidate. Explicit variant conflicts, unbound results, changed
+saves, early clears and duplicate delivery remain rejected. Runtime fixtures now
+use production ReflectionUtil and cover nullable native-shaped event variants.
+No goal is restored from logs or manually granted; native gameplay acceptance is
+still required. Existing completion-retention and official StatusUpdate(30) remain.
+
+## September 21: first confirmed unassisted AP Victory
+
+Client v0.75.12 passed live Victory acceptance on seed 23131899417402815337,
+player Jack, native slot 4, Hard difficulty, 40 AP Star goal. The final clear
+started and persisted with 41 AP Stars. Trace verified successful saved result,
+matching Level_28/default applied result, empty optional event variant, same-save
+commit, durable goal journal and AP STAR VICTORY send. The server save recorded
+client_game_state[(0, 1)] = 30 (CLIENT_GOAL), and the server announced that the team
+completed all games. No manual goal, injected victory journal or server assistance
+was used to award completion. Automatic release of remaining items followed goal.
+The victory regression is gameplay accepted; unrelated movement/performance issues
+remain open. No additional boss replay is required. Release publication is pending.
+Local evidence retained outside the repository: victory-07512-success.log and
+victory-07512-success.apsave in the task workspace work/audit20260920 directory.
+
+## September 21: Tower of Fear exterior softlock (v0.75.13 candidate)
+
+GameRoom_Hub5C is now part of Tower of Fear access alongside GameRoom_Hub3.
+Previously Royal Corridor could enter this unmapped exterior without Tower Access,
+leaving no usable return door or reachable phone. The existing destination guard
+now redirects unowned exterior arrivals (including restore transitions) to Music
+Lab. With Tower Access, native travel is preserved. Vanilla mode is unchanged.
+No door/story flags, items, checks or APWorld rules are altered. This follows the
+user's requested option to classify the entrance room as Tower of Fear.
+Regression reproduced the old unguarded destination; native route acceptance is
+pending. Installed v0.75.13 with approval. Live route test was explicitly deferred for release.

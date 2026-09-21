@@ -26,3 +26,13 @@ Equal(false, MusicLabBarrierPolicy.ShouldDisable(true, true, "GameRoom_Hub6",
     "cassette machine is untouched");
 
 Console.WriteLine("Music Lab barrier policy tests passed.");
+
+Equal(true, RoyalCorridorTraversalPolicy.ShouldOpen(true, true, true, "GameRoom_Hub7"), "Royal Access opens traversal below feeding threshold");
+Equal(false, RoyalCorridorTraversalPolicy.ShouldOpen(false, true, true, "GameRoom_Hub7"), "disabled routing preserves vanilla");
+Equal(false, RoyalCorridorTraversalPolicy.ShouldOpen(true, false, true, "GameRoom_Hub7"), "incompatible seed preserves vanilla");
+Equal(false, RoyalCorridorTraversalPolicy.ShouldOpen(true, true, false, "GameRoom_Hub7"), "no Royal Access preserves blocker");
+Equal(false, RoyalCorridorTraversalPolicy.ShouldOpen(true, true, true, "GameRoom_Hub6"), "other rooms unaffected");
+Equal(false, RoyalCorridorTraversalPolicy.ShouldOpen(true, true, true, null), "unknown room unaffected");
+Equal("StarEater/BlockingCollision", RoyalCorridorTraversalPolicy.BlockerChild, "only native RemoveHoleBlocker target disabled");
+Equal("BridgeAcrossGap", RoyalCorridorTraversalPolicy.BridgeChild, "native alternate bridge supplies walkable route");
+Console.WriteLine("Royal Corridor traversal policy tests passed.");

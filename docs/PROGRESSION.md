@@ -1,3 +1,7 @@
+# Current release: v0.28.1 / Client v0.75.13
+
+Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. APWorld remains v0.28.0 / schema 19. See [current release notes](releases/v0.28.1.md). Earlier candidate statuses below are historical.
+
 Current hotfix: **Client v0.75.4 / APWorld v0.28.0**. See [release notes](releases/v0.28.0.md).
 
 ## September 18 release hotfix: Level 22 requires Plant Pipes
@@ -259,3 +263,16 @@ Hip Glasses and Chicken Bucket now retry on the Unity update against the verifie
 ## Temporary Star Eater threshold test — v0.74.2
 
 Developer.RoyalStarRequirement defaults to native40; existing QualityOfLife.BunkerStarRequirement controls the Bunker. The user requested25 for both on the retained batch seed to avoid star grinding. The existing proximity-scoped override now selects only the audited Royal or Bunker root, restores native patches on target/scene change, and leaves earned stars, level scores and source flags untouched. The player must perform the native feed interaction; only its resulting native flag sends the AP check. This test does not validate vanilla40/66 thresholds or AP Star progression. Restore Royal40/Bunker66 after the grouped run.
+
+
+## September 21: Tower of Fear exterior softlock (v0.75.13 candidate)
+
+GameRoom_Hub5C is now part of Tower of Fear access alongside GameRoom_Hub3.
+Previously Royal Corridor could enter this unmapped exterior without Tower Access,
+leaving no usable return door or reachable phone. The existing destination guard
+now redirects unowned exterior arrivals (including restore transitions) to Music
+Lab. With Tower Access, native travel is preserved. Vanilla mode is unchanged.
+No door/story flags, items, checks or APWorld rules are altered. This follows the
+user's requested option to classify the entrance room as Tower of Fear.
+Regression reproduced the old unguarded destination; native route acceptance is
+pending. Installed v0.75.13 with approval. Live route test was explicitly deferred for release.

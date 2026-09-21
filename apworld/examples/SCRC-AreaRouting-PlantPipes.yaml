@@ -1,5 +1,5 @@
 name: Jack
-description: Super Crazy Rhythm Castle Roots bucket progression v0.21
+description: Super Crazy Rhythm Castle AP Stars progression v0.28
 game: Super Crazy Rhythm Castle
 
 Super Crazy Rhythm Castle:
@@ -8,7 +8,8 @@ Super Crazy Rhythm Castle:
 
   # AP performance difficulty choices: normal, hard, expert, perfection.
   # This filters existing AP locations only; it does not set native REG/PRO.
-  # Stars, client Star-gate enforcement, and final Star victory remain previews.
+  # Collect this many AP Stars, then clear Level 22 again to win.
+  # Generated Star gates are active; Level 22 requires Plant Pipes in logic.
   required_stars: 50
   difficulty: normal
   # Use the explicit validated start. In Archipelago player YAML, the scalar

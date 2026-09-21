@@ -98,8 +98,11 @@ internal static class CassetteRandomizationPolicy
             if(!nativeStatuses.TryGetValue(entry.NativeSong,out var status) || (!IsUnearned(status)&&!IsOwned(status))) return Allow($"native status unreadable for {entry.NativeSong}");
             if(IsUnearned(status)) newlyEarned.Add(entry);
         }
-        if(newlyEarned.Count==0) return Allow("all mapped cassettes already owned");
-        return new(false,newlyEarned.Select(x=>x.SourceName).ToArray(),newlyEarned.Select(x=>x.NativeSong).ToArray(),$"intercepted {newlyEarned.Count} newly earned cassette(s)");
+        // AP ownership is independent of completing this native source. A cassette
+        // received early must not erase its source check; AP queueing is idempotent.
+        string[] sources = mapped.Select(x=>x.SourceName).ToArray();
+        if(newlyEarned.Count==0) return new(true,sources,Array.Empty<string>(),"all mapped cassettes already owned; source checks retained");
+        return new(false,sources,newlyEarned.Select(x=>x.NativeSong).ToArray(),$"intercepted {newlyEarned.Count} newly earned cassette(s)");
     }
     internal static bool IsUnearned(string? s)=>string.Equals(s,Invalid,StringComparison.OrdinalIgnoreCase)||string.Equals(s,HaveNotEarned,StringComparison.OrdinalIgnoreCase);
     internal static bool IsOwned(string? s)=>string.Equals(s,HaveInBag,StringComparison.OrdinalIgnoreCase)||string.Equals(s,HaveDeposited,StringComparison.OrdinalIgnoreCase);
@@ -1502,7 +1505,9 @@ internal static class CassettePersistenceAcceptanceEligibility
         if (!evidence.StatusesRetainedInBag) { stage = "acceptance-status-not-retained"; return false; }
         if (!evidence.HasUnstagedChanges) { stage = "acceptance-no-unstaged-changes"; return false; }
         if (!evidence.HasChanges) { stage = "acceptance-no-changes"; return false; }
-        if (evidence.RequiresWriteToDisk) { stage = "acceptance-write-already-required"; return false; }
+        // RequiresWriteToDisk is a pending-write flag, not an in-flight lock.
+        // Native PersistSaveChangeBundleRequest also stages bundles while it is set;
+        // deferring here strands AP receipts and blocks the Cassette Lord bundle.
         stage = "success";
         return true;
     }

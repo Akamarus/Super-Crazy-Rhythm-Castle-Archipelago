@@ -36,7 +36,27 @@ static class Program {
  h.ApplySlotData(Contract(),"packet-slot");Check(packetState.Total==1,"prelogin packet retained until config");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=1, Items=new[]{new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId}} });Check(packetState.Total==2,"incremental packet appended");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=4, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });Check(packetState.Total==2,"gap retains prior authoritative total");
+ Check(packetState.Mode==ApStarMode.Awaiting&&!packetState.CanEnter("Level_05","LevelVariant_Default")&&packetState.ResolveTotal(99)==0,"gap suspends gate and HUD authority until full replay");
+ h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=2, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
+ Check(packetState.Mode==ApStarMode.Awaiting,"incremental packet cannot repair a missing history segment");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });Check(packetState.Total==0,"empty replay clears old count");
+ Check(packetState.Mode==ApStarMode.Ready&&packetState.CanEnter("Level_05","LevelVariant_Default"),"complete empty replay restores authority");
+ h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Enumerable.Repeat(new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId},50).ToArray() });
+ h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=-1, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
+ var invalidClear=packetState.Capture("native","Level_28","LevelVariant_Default",1);
+ Check(packetState.Mode==ApStarMode.Awaiting&&!packetState.Commit(invalidClear,"native"),"negative packet index cannot qualify victory using prior Stars");
+ packetState.Disconnect(1);Check(!packetState.CanEnter("Level_05","LevelVariant_Default"),"disconnect after invalid history must not restore gate authority");
+ h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Enumerable.Repeat(new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId},50).ToArray() });
+ Check(packetState.Mode==ApStarMode.Ready&&!packetState.Commit(invalidClear,"native"),"valid replay cannot retroactively qualify an invalid-history clear");
+ var replay=new ApStarSessionHistory(2,packetState);
+ replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=null });
+ replay.ApplySlotData(Contract(),"packet-slot");
+ Check(packetState.Mode==ApStarMode.Awaiting,"invalid prelogin history remains suspended after configuration");
+ replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
+ h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=-1, Items=null });
+ Check(packetState.Mode==ApStarMode.Ready,"retired generation cannot suspend current authoritative history");
+ replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=null });
+ Check(packetState.Mode==ApStarMode.Awaiting,"null item history suspends an already configured session");
  Check(!state.CanEnter("",""),"unknown entry blocked under claimed contract");
  Console.WriteLine($"{passed} AP Star assertions passed.");
  }

@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\MusicLabBarrierPolicy.cs" Link="MusicLabBarrierPolicy.cs" />
+    <Compile Include="../../RoyalCorridorTraversalPolicy.cs" Link="RoyalCorridorTraversalPolicy.cs" />
   </ItemGroup>
 </Project>

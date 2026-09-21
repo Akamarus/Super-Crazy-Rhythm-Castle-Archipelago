@@ -16,15 +16,18 @@ internal static class CharacterQuestItems
     internal static bool TryHandleItemName(string name) => CharacterQuestItemPolicy.All.Any(item => item.Name == name);
 
     internal static bool ShouldSuppress(object request, string flag) => !_applying &&
-        CharacterQuestItemPolicy.ShouldSuppress(State.Snapshot.Enabled, DeveloperHarness.CurrentRoomId, flag,
-            ReflectionUtil.ReadBool(request, "Value") == true);
+        DeveloperHarness.CurrentRoomId == "GameRoom_Hub6" && CharacterQuestItemPolicy.IsBagFlag(flag) &&
+        State.Enabled && ReflectionUtil.ReadBool(request, "Value") == true;
 
     internal static void RecordConsumption(object evt, string flag)
     {
-        if (_applying || !State.Snapshot.Enabled ||
-            !CharacterQuestItemPolicy.All.Any(item => item.BagFlag == flag) ||
+        if (_applying || !CharacterQuestItemPolicy.IsBagFlag(flag) || !State.Enabled ||
             ReflectionUtil.ReadBool(evt, "FlagWasSet") != true ||
             ReflectionUtil.ReadBool(evt, "FlagIsSet") != false) return;
+        RecordConsumedInSave(flag);
+    }
+    private static void RecordConsumedInSave(string flag)
+    {
         // Two bounded entries, scoped to the exact native save epoch. This closes
         // the interval between bag consumption and a later native unlock event.
         CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) => ConsumedInSave[flag] = identity);

@@ -37,6 +37,16 @@ class APStarsTests(unittest.TestCase):
             # The event represents a subsequent repeatable clear, not a saved early-clear bit.
             self.assertFalse(world.multiworld.completion_condition[1](state))
 
+    def test_routing_note_matches_active_star_contract(self):
+        data = self.build_world().fill_slot_data()
+        note = data['routing_logic_note']
+        self.assertTrue(data['client_star_gate_enforcement_active'])
+        self.assertTrue(data['post_threshold_victory_active'])
+        self.assertIn('generated Star gates are active', note)
+        self.assertIn('Plant Pipes', note)
+        self.assertIn('subsequent Level 22 clear', note)
+        self.assertNotIn('inactive previews', note)
+
     def test_level_22_requires_plant_pipes_for_all_rewards_and_victory(self):
         for difficulty in range(4):
             world = self.build_world(difficulty=difficulty)

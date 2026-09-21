@@ -509,6 +509,24 @@ Equal(true,
     pluginSource.Contains("AreaAccessPrototype.EndAuthenticatedSession();", StringComparison.Ordinal),
     "session teardown clears authenticated Area Access compatibility");
 
+// Exercise the destination guard with the shipped area mapping, including the
+// exterior reached from Royal Corridor before the Tower phone is accessible.
+string towerDefinition = areaAccessSource.Split('\n').Single(line =>
+    line.Contains("new(\"Tower of Fear\",", StringComparison.Ordinal));
+foreach (string towerRoom in new[] { "GameRoom_Hub3", "GameRoom_Hub5C" })
+{
+    bool mapped = towerDefinition.Contains("\"" + towerRoom + "\"", StringComparison.Ordinal);
+    Equal(AreaAccessDestinationDecision.RedirectToMusicLab,
+        AreaAccessDestinationPolicy.Decide(true, true, towerRoom, mapped, false),
+        "unowned Tower interior/exterior cannot trap a Royal Corridor arrival: " + towerRoom);
+    Equal(AreaAccessDestinationDecision.Preserve,
+        AreaAccessDestinationPolicy.Decide(true, true, towerRoom, mapped, true),
+        "owned Tower arrival retains native route: " + towerRoom);
+    Equal(AreaAccessDestinationDecision.Preserve,
+        AreaAccessDestinationPolicy.Decide(false, false, towerRoom, mapped, false),
+        "vanilla Tower travel unchanged: " + towerRoom);
+}
+
 int transitionPatchStart = pluginSource.IndexOf(
     "internal static class IntroRoomToHubRedirectPatches", StringComparison.Ordinal);
 int transitionPatchEnd = pluginSource.IndexOf(

@@ -92,6 +92,17 @@ internal sealed class ApStarState
         }
     }
     internal void Disconnect(long generation){lock(_sync)if(generation==_generation&&_settings.Mode==ApStarMode.Awaiting)_mode=_synced?ApStarMode.Disconnected:ApStarMode.Awaiting;}
+    internal void SuspendHistory(long generation)
+    {
+        lock (_sync)
+        {
+            if (generation != _generation || _settings.Mode != ApStarMode.Awaiting) return;
+            // A malformed replay is different from an ordinary disconnect: its
+            // missing history must not authorize new entries or qualifying clears.
+            _synced = false;
+            _mode = ApStarMode.Awaiting;
+        }
+    }
     internal void Reset(){lock(_sync){_generation=0;_identity="";_total=0;_synced=_goalPending=_goalSent=false;_settings=new(ApStarMode.Native);_mode=ApStarMode.Native;_consumedAttempt=_attempt;}}
     internal int ResolveTotal(int native){lock(_sync)return _mode==ApStarMode.Native?native:(_synced?_total:0);}
     internal int ResolveHud(string room,int native)=>room=="GameRoom_Hub6"?native:ResolveTotal(native);

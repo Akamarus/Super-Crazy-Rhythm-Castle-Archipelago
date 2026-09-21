@@ -140,7 +140,7 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.75.4", result.stdout)
+        self.assertIn("Client:  v0.75.13", result.stdout)
         self.assertIn("APWorld: v0.28.0", result.stdout)
         self.assertIn('"world_version": "0.28.0"', result.stdout)
         self.assertIn(

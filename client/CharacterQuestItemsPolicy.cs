@@ -43,7 +43,13 @@ internal static class CharacterQuestItemPolicy
         catch { return CharacterQuestItemMode.Invalid; }
     }
     internal static bool ShouldSuppress(bool enabled, string room, string flag, bool value) =>
-        enabled && value && room == "GameRoom_Hub6" && All.Any(item => item.BagFlag == flag);
+        enabled && value && room == "GameRoom_Hub6" && IsBagFlag(flag);
+    internal static bool IsBagFlag(string flag)
+    {
+        foreach (var item in All)
+            if (item.BagFlag == flag) return true;
+        return false;
+    }
     internal static bool ShouldGrant(bool owned, bool? held, bool? consumed) => owned && held == false && consumed == false;
 }
 
@@ -55,6 +61,7 @@ internal sealed class CharacterQuestItemState
     private long _generation, _revision;
     private bool _enabled, _ready;
     private HashSet<long> _owned = new();
+    internal bool Enabled { get { lock (_sync) return _enabled; } }
     internal long Revision { get { lock (_sync) return _revision; } }
     internal CharacterQuestItemSnapshot Snapshot { get { lock (_sync) return new(_revision, _enabled, _ready, new HashSet<long>(_owned)); } }
     internal void Configure(long generation, bool enabled)

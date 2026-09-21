@@ -2,49 +2,33 @@
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
-## v0.28.0 — First Completable Release
+## v0.28.1 — First Verified Victory
 
-**Client v0.75.4 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
-All 66 AP Stars are active. Collect the configured goal (1–66, default 50), then clear normal Level 22 to complete your Archipelago slot. An early clear must be replayed after reaching the goal.
+**Client v0.75.13 / APWorld v0.28.0**, schema 19 / campaign-mapping schema 1.
+Collect your configured AP Star goal (1–66, default 50), then successfully clear
+**Level 22: King Ferdinand I**. An early clear must be replayed after reaching the goal.
 
-This release adds generated Star gates and 39 quest/source checks. Active totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
+**A fresh-save Hard / 40-star run is now verified complete without server assistance.**
+The server recorded Victory after the qualifying boss clear. The project remains
+experimental: movement/performance issues and broader multiplayer testing are open.
 
-**Experimental:** automated tests and 48 real seed generations pass; complete native gameplay acceptance of the new AP Star/victory system is still pending. See the known bugs and testing limits before starting.
+This release fixes Victory reporting and the Tower entrance softlock, improves
+notifications and locked-level messages, repairs cassette reward/check handling,
+and reduces unnecessary diagnostic work. The Tower entrance fix has automated
+coverage; its live test was deferred.
 
-Use a fresh v0.28 seed and fresh native save. Connect to the seed before loading the save.
+All 66 AP Stars remain active. Addressed checks: Normal 164 / Hard 222 / Expert 280 / Perfection 316. Existing v0.28 seeds/saves are compatible; connect before loading.
+For a new run, use the included APWorld and a fresh native save.
 
-[Download v0.28.0](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0) · [Installation](docs/INSTALL.md) · [Full changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
+[Download v0.28.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1) · [Installation](docs/INSTALL.md) · [Release notes](docs/releases/v0.28.1.md) · [Changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
 
-## September 18 hotfix — Client v0.75.4
+## Current priorities
 
-- Fixed the unsafe Star Eater reference assignment that caused crashes entering Roots or interacting with its Star Eater. Uses the native object-reference setter, verifies the assignment, and rolls back a failed write.
-- Fixed repeated cassette-save metadata scans and reduced unnecessary scene searches, inventory copying and empty notification work. Live song testing showed cassette reconciliation falling from about 9.7 ms to 0.007 ms per frame. Players report a substantial improvement; occasional note-affecting hitches remain under investigation.
-- Level 22 completion now requires Plant Pipes in generator logic. Its star checks, cassette source, King Ferdinand/keycard rewards and Victory inherit that requirement. Luck-dependent no-pipes clears are not assumed.
-- Optional performance diagnostics are disabled by default. If enabled during troubleshooting, set `Developer.EnablePerformanceDiagnostics=false` and restart for ordinary play.
+1. Player/NPC movement and frame-pacing investigation.
+2. Delayed cassette delivery and broader native source acceptance.
+3. Additional seed/difficulty and multiworld/co-op testing.
 
-**Hotfix verification:** 140 APWorld tests, 34 client regression projects, and 12 real generation/playthrough cases across all difficulties and Star goals 1/40/66 pass.
-
-**Hotfix source:** [v0.28.0-hotfix.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/tree/v0.28.0-hotfix.1). The original `v0.28.0` tag and GitHub automatic source archives remain the original release; use the hotfix source tag to build the updated downloads.
-
-**Updating:** replace the client DLLs with the v0.75.4 archive. Existing saves and seeds remain compatible with the client fixes. Install the updated `scrc.apworld` before generating a new seed to get the Plant Pipes rule. Updating files does not rewrite existing seed placements; some older seeds rely on the previous no-pipes boss route and would require a new seed or an explicitly agreed recovery to adopt the stricter rule.
-
-**Still experimental:** the full clean-save victory playthrough is unfinished. The Quicksand/Music Lab chest vanilla-cassette leak and occasional gameplay hitches remain open; see [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/main/docs/KNOWN_ISSUES.md).
-
-## Historical release notes
-
-The sections below describe older releases and do not override the current behavior above.
-
-## Testing release v0.26.0-dev / Client v0.73.9
-
-This experimental prerelease adds randomized Old Game Data and Car Battery, in-game item popups and F6 history, corrected location names and cassette prerequisites, performance/reconnect repairs, and native Game Garage cartridge insertion and medal-preview fixes. It also includes new Plunger/Meoo/Maniac AP rewards and four quest checks awaiting fresh-seed gameplay acceptance.
-
-Use Client v0.73.9 and APWorld v0.26.0 together with a fresh v0.26 seed and fresh native save for the new quest features. Existing schema-16 seeds retain their earlier behavior; updating files does not add checks to an old seed. Connect to the AP seed before loading the save.
-
-Gameplay confirmed: Old Game Data/Car Battery hand-ins and persistence under schema 16, improved performance, local cold-start reconnect, and Bloody Tears/Gradius Garage insertion, availability and medal previews. v0.73.9 cleanup passed the Garage entry/exit check. New schema-17 quest flows and true cross-player notifications still need live testing. AP Stars, generated Star gates, final Victory and production Bee/Devil checks remain inactive.
-
-New checks: Lobby - Plunger Pickup; Lobby - Car Battery Hand-In; Game Garage - Old Game Data Hand-In; Roots - Star Eater Fed. Active totals: Normal 125 / Hard 183 / Expert 241 / Perfection 277. Plunger Pickup and Roots Star Eater Fed are Stardust-only pending fuller prerequisite modeling; feeding still checks three native stars without spending them.
-
-Next: validate new quest rewards/checks on a fresh seed, including early receipt and offline/reconnect isolation, then continue remaining quest logic and Star/Victory work.
+The versioned sections below record earlier development milestones.
 
 ## Previous testing release — v0.24.0-dev
 

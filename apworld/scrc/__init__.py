@@ -1139,10 +1139,11 @@ class SCRCWorld(World):
             },
             "routing_logic_complete": False,
             "routing_logic_note": (
-                "APWorld v0.21.0 retains Roots-first area routing, randomized Weed "
-                "Killer, and split Level 3 Plant Pipes logic. Vampire Killer is "
-                "native for immediate Garage access. Difficulty filtering is active. "
-                "Star requirements remain inactive previews, and live "
-                "Star gates plus remaining full-game prerequisites are deferred."
+                "Roots-first area routing, difficulty filtering, AP Stars and "
+                "generated Star gates are active. Level 3 retains its partial "
+                "Plant Pipes source route. Victory requires the configured AP "
+                "Star goal and a subsequent Level 22 clear with Plant Pipes. "
+                "Native route rules remain conservative pending full-playthrough "
+                "acceptance; unsupported sources cannot hold progression."
             ),
         }

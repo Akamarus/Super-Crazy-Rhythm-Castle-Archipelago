@@ -19,17 +19,20 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.75.4";
+    public const string PluginVersion = "0.75.13";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
     internal static ArchipelagoClient? AP;
+    internal static bool VerboseDiscovery;
 
     private Harmony? _harmony;
 
     public override void Load()
     {
         LoggerInstance = Log;
+        VerboseDiscovery = Config.Bind("Developer", "EnableVerboseDiscovery", false,
+            "Enable detailed Music Lab object/member dumps for maintainer investigations. Disabled during ordinary play.").Value;
         ClientPerformance.Configure(Config.Bind("Developer", "EnablePerformanceDiagnostics", false,
             "Aggregate main-thread component timing and frame intervals every 30 seconds; no per-frame logging.").Value,
             message => Log.LogInfo(message));
@@ -114,7 +117,7 @@ public sealed class Plugin : BasePlugin
         int patched = 0;
 
         patched += PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
-            nameof(GamePatches.PersistResultPrefix), nameof(GamePatches.PersistResultPostfix));
+            nameof(GamePatches.PersistResultPrefix), null);
         ApStars.Configure(identity => AP?.SendStarGoal(identity) == true);
         patched += ApStarNativeHooks.Install(_harmony, ApStars.ResolveTotal, ApStars.CanEnter,
             ApStars.ReportBlocked, ApStars.OnAdmittedStart, ApStars.OnPreviewObserved);
@@ -125,6 +128,7 @@ public sealed class Plugin : BasePlugin
             nameof(GamePatches.ApplyResultPostfix));
         patched += PatchCassetteEvaluation();
         patched += PatchCassetteStatusRequest();
+        patched += CassetteChestRewardHooks.Install();
         patched += PatchExactMethod("SaveDataRequestProcessor", "ChangeSelectedPlayerSaveSlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
@@ -182,6 +186,7 @@ public sealed class Plugin : BasePlugin
         {
             AddComponent<GarageCartridgeAccessKeeper>();
             AddComponent<MusicLabBarrierKeeper>();
+            AddComponent<RoyalCorridorTraversalKeeper>();
             Log.LogWarning(
                 "[SCRC-AP] RANDOMIZED GAME GARAGE CARTRIDGE ROUTING READY: waits for APWorld slot data. APWorld v0.13+ randomizes cartridge sources as AP checks: vanilla cartridge collected markers are retained, vanilla bag grants are suppressed outside Game Garage, and only AP-owned cartridges are released in GameRoom_27.");
         }
@@ -241,6 +246,7 @@ public sealed class Plugin : BasePlugin
         if (developerHarness.Value)
         {
             AddComponent<DeveloperHotkeys>();
+            AddComponent<MovementCapture>();
             AddComponent<MusicLabDiagnosticKeeper>();
             Log.LogWarning(
                 "[SCRC-AP] MUSIC LAB TRACKING ENABLED: Garage cartridge-state identity, cumulative Garage sticker AP checks on real results, and all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from native Hub6 chest metadata. Hub6 F5 forces reconciliation and prints mapping/status.");
@@ -292,7 +298,7 @@ public sealed class Plugin : BasePlugin
 
 
     private int PatchMethodsByParameterWithPrefixAndPostfix(
-        string methodName, string parameterTypeName, string prefixName, string postfixName)
+        string methodName, string parameterTypeName, string prefixName, string? postfixName)
     {
         int count = 0;
         Assembly? gameAssembly = ReflectionUtil.GameAssembly;
@@ -325,13 +331,13 @@ public sealed class Plugin : BasePlugin
                         ?? FindPatchMethod(typeof(ProgressionPatches), prefixName)
                         ?? FindPatchMethod(typeof(CassetteSaveTransactionPatches), prefixName);
 
-                    MethodInfo? postfix =
+                    MethodInfo? postfix = postfixName == null ? null :
                         FindPatchMethod(typeof(GamePatches), postfixName)
                         ?? FindPatchMethod(typeof(ProgressionPatches), postfixName)
                         ?? FindPatchMethod(typeof(IntroRoomToHubRedirectPatches), postfixName)
                         ?? FindPatchMethod(typeof(CassetteSaveTransactionPatches), postfixName);
 
-                    if (prefix == null || postfix == null)
+                    if (prefix == null || (postfixName != null && postfix == null))
                     {
                         Log.LogError(
                             $"[SCRC-AP] Could not find prefix/postfix '{prefixName}'/'{postfixName}'.");
@@ -341,7 +347,7 @@ public sealed class Plugin : BasePlugin
                     _harmony!.Patch(
                         method,
                         prefix: new HarmonyMethod(prefix),
-                        postfix: new HarmonyMethod(postfix));
+                        postfix: postfix == null ? null : new HarmonyMethod(postfix));
 
                     Log.LogInfo(
                         $"[SCRC-AP] Hooked {type.FullName}.{method.Name}({parameterTypeName}) with progression prefix/postfix");
@@ -4642,30 +4648,12 @@ internal static class GamePatches
     public static void PersistResultPrefix(object[]? __args) =>
         ApStars.BeforePersistResult(ReflectionUtil.FindArg(__args, "PersistLevelResultRequest"));
 
-    public static void PersistResultPostfix(object[]? __args)
-    {
-        object? request = ReflectionUtil.FindArg(__args, "PersistLevelResultRequest");
-        if (request == null) return;
-
-        bool? success = ReflectionUtil.ReadBool(request, "DidPlayersSucceed");
-        bool? shouldSave = ReflectionUtil.ReadBool(request, "ShouldSaveScore");
-
-        Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] RESULT REQUEST success={success?.ToString() ?? "?"} saveScore={shouldSave?.ToString() ?? "?"}");
-    }
-
     public static void SetScoredSongRequestPostfix(object[]? __args)
     {
         object? request = ReflectionUtil.FindArg(__args, "SetScoredSongInCurrentLevelRequest");
         if (request == null) return;
 
         MusicLabDiscovery.RecordScoredSongRequest(request);
-    }
-
-    public static void SelectedSaveChangedEventPostfix()
-    {
-        // Intentionally empty: patching SelectedPlayerSaveSlotChangedEvent.HandleEvent
-        // is prohibited because its IL2CPP payload previously crashed startup.
     }
 
     public static void ApplyResultPrefix(object? __instance, object[]? __args)
@@ -4797,16 +4785,6 @@ internal static class GamePatches
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] NON-DEFAULT VARIANT COMPLETION internal={level} variant={variant}: base-level AP location check suppressed.");
-        }
-
-        try
-        {
-            SaveDataProbe.ProbePersistedLevel(evt, level);
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SAVE PROBE failed for {level}: {ex.GetBaseException().Message}");
         }
 
         if (CampaignLevelCatalog.TryGet(level, out _))
@@ -7016,6 +6994,11 @@ internal static class WeedKillerRandomization
             // Ensure the semantic values are correct even if a permissive/default
             // constructor was selected. Generated IL2CPP wrappers expose these
             // backing fields in the current game build.
+            if (request == null)
+            {
+                detail = "native request construction returned null";
+                return false;
+            }
             TryWriteMember(request, "Flag", flagValue);
             TryWriteMember(request, "_Flag_k__BackingField", flagValue);
             TryWriteMember(request, "Value", value);
@@ -7530,9 +7513,9 @@ internal static class CassetteSourceRandomization
             statuses[cassette.NativeSong]=status!;
         }
         CassetteSourceDecision decision=CassetteRandomizationPolicy.DecideLevelEvaluation(level,variant,succeeded==true,statuses);
-        if(decision.AllowNative)return true;
         foreach(string location in decision.SourceLocationsToQueue)
             QueueCatalogSourceByLocation(location,$"level='{level}' variant='{variant}'");
+        if(decision.AllowNative)return true;
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE NATIVE EVALUATOR SUPPRESSED level='{level}' variant='{variant}' songs='{string.Join(",",decision.NativeSongsToSuppress)}' detail='{decision.Detail}'.");
         return false;
     }
@@ -9060,6 +9043,11 @@ internal static class PlantPipesRandomization
                 }
             }
 
+            if (request == null)
+            {
+                detail = "native request construction returned null";
+                return false;
+            }
             TryWriteMember(request, "Flag", flagValue);
             TryWriteMember(request, "_Flag_k__BackingField", flagValue);
             TryWriteMember(request, "Value", value);
@@ -9165,7 +9153,7 @@ internal static class BottomHudDiagnostic
             : string.Empty;
         lock (Sync)
         {
-            _enabled = implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+            _enabled = Plugin.VerboseDiscovery && implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
             if (_enabled)
                 EnqueueLocked("direct-start");
         }
@@ -11378,7 +11366,8 @@ internal static class AreaAccessPrototype
         // Hub6's internal "Prison" phone is the Cell Tower route seen in the travel scan.
         new("Cell Tower", "Cell Tower Access", "BoxDoor_Prison", "Geom/HR06_PhoneTableCloth.02-tofb", new[] { "GameRoom_Hub5A", "GameRoom_Hub5B" }),
         // Hub6's internal "Madness" phone is the Tower of Fear route seen in the travel scan.
-        new("Tower of Fear", "Tower of Fear Access", "BoxDoor_Madness", "Geom/HR06_PhoneTableCloth.03-tofb", new[] { "GameRoom_Hub3" }),
+        // Hub5C is the exterior entrance reached from Royal Corridor; its phone is inside Hub3.
+        new("Tower of Fear", "Tower of Fear Access", "BoxDoor_Madness", "Geom/HR06_PhoneTableCloth.03-tofb", new[] { "GameRoom_Hub3", "GameRoom_Hub5C" }),
         new("Royal Corridor", "Royal Corridor Access", "BoxDoor_Royal", "Geom/HR06_PhoneTableCloth.03-tofb", new[] { "GameRoom_Hub7" }),
     };
 
@@ -12924,7 +12913,7 @@ internal static class MusicLabDiscovery
                     try { candidate = ReflectionUtil.UnwrapNullable(field.GetValue(request)); } catch { }
                     string? text = ReflectionUtil.ExtractIdentifier(candidate);
                     Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST FIELD name='{fieldName}' type='{field.FieldType.FullName}' value='{text ?? "<null/unreadable>"}'.");
+                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST FIELD name='{fieldName}' type='{field.FieldType?.FullName}' value='{text ?? "<null/unreadable>"}'.");
 
                     if (songValue == null && candidate != null && !string.IsNullOrWhiteSpace(text))
                     {
@@ -12952,7 +12941,7 @@ internal static class MusicLabDiscovery
                     try { candidate = ReflectionUtil.UnwrapNullable(property.GetValue(request)); } catch { }
                     string? text = ReflectionUtil.ExtractIdentifier(candidate);
                     Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST PROPERTY name='{propertyName}' type='{property.PropertyType.FullName}' value='{text ?? "<null/unreadable>"}'.");
+                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST PROPERTY name='{propertyName}' type='{property.PropertyType?.FullName}' value='{text ?? "<null/unreadable>"}'.");
 
                     if (songValue == null && candidate != null && !string.IsNullOrWhiteSpace(text))
                     {
@@ -14316,6 +14305,7 @@ internal static class MusicLabDiscovery
         string label,
         IEnumerable<string> keywords)
     {
+        if (!Plugin.VerboseDiscovery) return;
         string[] loweredKeywords = keywords.Select(k => k.ToLowerInvariant()).ToArray();
         Type type = obj.GetType();
         int emitted = 0;
@@ -14725,319 +14715,4 @@ internal static class ProgressionPatches
 
     }
 
-}
-
-internal static class SaveDataProbe
-{
-    public static void ProbePersistedLevel(object persistedEvent, string fallbackLevel)
-    {
-        object? levelObj = ReflectionUtil.UnwrapNullable(
-            ReflectionUtil.ReadMember(persistedEvent, "Level"));
-
-        if (levelObj == null)
-        {
-            Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: persisted event did not expose a LevelIdentifier.");
-            return;
-        }
-
-        string variantText = "LevelVariant_Default";
-        object? variantObj = ReflectionUtil.UnwrapNullable(
-            ReflectionUtil.ReadMember(persistedEvent, "LevelVariant"));
-
-        Assembly? asm = ReflectionUtil.GameAssembly;
-        if (asm == null) return;
-
-        try
-        {
-            Type? enquiriesType = ReflectionUtil.SafeGetTypes(asm)
-                .FirstOrDefault(t => t.Name == "CurrentPlayerSaveEnquiries");
-
-            if (enquiriesType == null)
-            {
-                Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: CurrentPlayerSaveEnquiries type not found.");
-                return;
-            }
-
-            object? save = TryGetSelectedSave(enquiriesType);
-            if (save == null)
-            {
-                Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: selected player save was unavailable.");
-                return;
-            }
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] SAVE PROBE selectedSaveType={save.GetType().FullName}");
-
-            MethodInfo? getLevelVariant = save.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(m =>
-                {
-                    if (m.Name != "GetLevelVariant") return false;
-                    var ps = m.GetParameters();
-                    return ps.Length == 2
-                        && ps[0].ParameterType.Name == "LevelIdentifier"
-                        && ps[1].ParameterType.Name == "LevelVariantIdentifier";
-                });
-
-            if (getLevelVariant == null)
-            {
-                Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: selected save has no usable GetLevelVariant method.");
-                return;
-            }
-
-            var parameters = getLevelVariant.GetParameters();
-
-            if (variantObj == null || !parameters[1].ParameterType.IsInstanceOfType(variantObj))
-                variantObj = TryBuildIdentifier(parameters[1].ParameterType, variantText);
-
-            if (variantObj == null)
-            {
-                Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: could not construct LevelVariant_Default identifier.");
-                return;
-            }
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] SAVE PROBE begin internal={fallbackLevel} variant={ReflectionUtil.ExtractIdentifier(variantObj) ?? variantText}");
-
-            object? levelState = getLevelVariant.Invoke(save, new[] { levelObj, variantObj });
-
-            if (levelState == null)
-            {
-                Plugin.LoggerInstance?.LogWarning("[SCRC-AP] SAVE PROBE: GetLevelVariant returned null.");
-                return;
-            }
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] SAVE PROBE levelStateType={levelState.GetType().FullName}");
-
-            DumpInterestingMembers(levelState, "LevelState", depth: 0);
-            ProbeCharacterRatings(levelState);
-            ProbeStarDictionary(levelState);
-        }
-        catch (TargetInvocationException tie)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SAVE PROBE invocation failed: {tie.InnerException?.Message ?? tie.Message}");
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SAVE PROBE failed: {ex.GetBaseException().Message}");
-        }
-    }
-
-    private static object? TryGetSelectedSave(Type enquiriesType)
-    {
-        foreach (string methodName in new[]
-        {
-            "GetSelectedSlotSaveFileState",
-            "TryGetSelectedSlotSaveFileState"
-        })
-        {
-            MethodInfo? m = enquiriesType.GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(x => x.Name == methodName && x.GetParameters().Length == 0);
-
-            if (m == null) continue;
-
-            try
-            {
-                object? result = m.Invoke(null, null);
-                if (result != null)
-                {
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] SAVE PROBE source=CurrentPlayerSaveEnquiries.{methodName}()");
-                    return result;
-                }
-            }
-            catch (TargetInvocationException tie)
-            {
-                Plugin.LoggerInstance?.LogDebug(
-                    $"[SCRC-AP] SAVE PROBE {methodName} threw: {tie.InnerException?.Message ?? tie.Message}");
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogDebug(
-                    $"[SCRC-AP] SAVE PROBE {methodName} failed: {ex.Message}");
-            }
-        }
-
-        return null;
-    }
-
-    private static object? TryBuildIdentifier(Type identifierType, string text)
-    {
-        foreach (ConstructorInfo ctor in identifierType.GetConstructors(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-        {
-            ParameterInfo[] ps;
-            try { ps = ctor.GetParameters(); }
-            catch { continue; }
-
-            if (ps.Length == 1 && ps[0].ParameterType == typeof(string))
-            {
-                try { return ctor.Invoke(new object[] { text }); }
-                catch { }
-            }
-        }
-
-        foreach (MethodInfo m in identifierType.GetMethods(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-        {
-            if (m.ReturnType != identifierType) continue;
-            ParameterInfo[] ps;
-            try { ps = m.GetParameters(); }
-            catch { continue; }
-
-            if (ps.Length == 1 && ps[0].ParameterType == typeof(string))
-            {
-                try { return m.Invoke(null, new object[] { text }); }
-                catch { }
-            }
-        }
-
-        return null;
-    }
-
-    private static void ProbeCharacterRatings(object state)
-    {
-        MethodInfo? getter = state.GetType().GetMethods(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-            .FirstOrDefault(m =>
-                m.Name == "GetStarRatingForCharacter" &&
-                m.GetParameters().Length == 1 &&
-                m.GetParameters()[0].ParameterType.Name == "ePlayableCharacter");
-
-        if (getter == null)
-        {
-            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] SAVE PROBE: GetStarRatingForCharacter was not found.");
-            return;
-        }
-
-        Type enumType = getter.GetParameters()[0].ParameterType;
-        if (!enumType.IsEnum) return;
-
-        foreach (object character in Enum.GetValues(enumType))
-        {
-            try
-            {
-                object? rating = getter.Invoke(state, new[] { character });
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] SAVE CharacterStarRating[{character}]={rating}");
-            }
-            catch { }
-        }
-    }
-
-    private static void ProbeStarDictionary(object state)
-    {
-        object? dict = ReflectionUtil.ReadMember(state, "StarRatingPerCharacter");
-        if (dict == null)
-        {
-            Plugin.LoggerInstance?.LogInfo("[SCRC-AP] SAVE StarRatingPerCharacter=<null/unavailable>");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] SAVE StarRatingPerCharacter type={dict.GetType().FullName}");
-
-        try
-        {
-            if (dict is System.Collections.IEnumerable enumerable)
-            {
-                int count = 0;
-                foreach (object? entry in enumerable)
-                {
-                    if (entry == null) continue;
-
-                    object? key = ReflectionUtil.ReadMember(entry, "Key");
-                    object? value = ReflectionUtil.ReadMember(entry, "Value");
-
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] SAVE StarRatingPerCharacter[{key ?? "?"}]={value ?? entry}");
-                    count++;
-
-                    if (count >= 32) break;
-                }
-
-                if (count == 0)
-                    Plugin.LoggerInstance?.LogInfo("[SCRC-AP] SAVE StarRatingPerCharacter was enumerable but yielded no entries.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogDebug(
-                $"[SCRC-AP] SAVE StarRatingPerCharacter enumeration failed: {ex.Message}");
-        }
-    }
-
-    private static void DumpInterestingMembers(object obj, string prefix, int depth)
-    {
-        if (depth > 2 || obj == null) return;
-
-        Type t = obj.GetType();
-        string[] keywords =
-        {
-            "Star", "Score", "Medal", "Result", "Best", "Character",
-            "Player", "Completed", "Success", "Variant", "Level"
-        };
-
-        var seen = new HashSet<string>();
-
-        foreach (PropertyInfo p in t.GetProperties(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-        {
-            if (p.GetIndexParameters().Length != 0) continue;
-            if (!keywords.Any(k => p.Name.Contains(k, StringComparison.OrdinalIgnoreCase))) continue;
-            if (!seen.Add(p.Name)) continue;
-
-            object? value;
-            try { value = p.GetValue(obj); }
-            catch { continue; }
-
-            LogValue($"{prefix}.{p.Name}", value, depth);
-        }
-
-        foreach (FieldInfo f in t.GetFields(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-        {
-            if (!keywords.Any(k => f.Name.Contains(k, StringComparison.OrdinalIgnoreCase))) continue;
-            if (!seen.Add(f.Name)) continue;
-
-            object? value;
-            try { value = f.GetValue(obj); }
-            catch { continue; }
-
-            LogValue($"{prefix}.{f.Name}", value, depth);
-        }
-    }
-
-    private static void LogValue(string name, object? value, int depth)
-    {
-        if (value == null)
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SAVE {name}=<null>");
-            return;
-        }
-
-        object? unwrapped = ReflectionUtil.UnwrapNullable(value);
-        if (unwrapped == null)
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SAVE {name}=<nullable-null>");
-            return;
-        }
-
-        Type t = unwrapped.GetType();
-
-        if (t.IsPrimitive || t.IsEnum || unwrapped is string || unwrapped is decimal)
-        {
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SAVE {name}={unwrapped}");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] SAVE {name}=<{t.FullName}> {unwrapped}");
-
-        DumpInterestingMembers(unwrapped, name, depth + 1);
-    }
 }

@@ -29,7 +29,7 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.75.4",
+    "client_version": "0.75.13",
     "world_version": "0.28.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
@@ -818,6 +818,6 @@ print(json.dumps({
     "next_item_id": EXPECTED["next_item_id"],
     "next_location_id": EXPECTED["next_location_id"],
 }, indent=2))
-print("v0.28 AP Stars, generated gates and post-threshold Level 22 Victory are candidate features; native playthrough acceptance remains pending.")
+print("v0.28 AP Stars and post-threshold Level 22 Victory passed a Hard40 native playthrough; broader acceptance remains pending.")
 print(f"Next safe item ID:     {EXPECTED['next_item_id']}")
 print(f"Next safe location ID: {EXPECTED['next_location_id']}")

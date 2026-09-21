@@ -21,13 +21,49 @@ Setup("apply-mismatch");Start();Complete();ApStars.BeforeApplyResult(new {LevelI
 Setup("unready");CassetteReceiptRandomization.Ready=false;Start();Complete();Persist();Tick();Check(sends==2,"unstable native save cannot qualify");
 Directory.CreateDirectory(dir);string bad=Path.Combine(dir,"not-a-directory");File.WriteAllText(bad,"block");Setup("diskfail",25,bad);Start();Complete();Persist();Tick();Check(sends==2,"journal failure prevents goal delivery");
 Setup("getter");DeveloperHarness.CurrentRoomId="GameRoom_Hub2";ApStarEaterThresholds.CurrentRoomReady=false;Check(ApStars.ResolveTotal(66)==0,"unapplied eater threshold fails closed");ApStarEaterThresholds.CurrentRoomReady=true;Check(ApStars.ResolveTotal(66)==25,"ready eater uses AP currency");Check(!ApStars.CanEnter("",""),"active unknown identity denied");
+Setup("blocked-banner",3);
+ApStars.State.Configure(2,"blocked-banner",new(ApStarMode.Awaiting,40,new Dictionary<string,int>{{"Level 11",8}},new Dictionary<string,int>()));
+ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,3));
+ApStars.ReportBlocked("Level_12","LevelVariant_Default");GUI.Last="";ApStars.RenderOverlay();
+Check(GUI.Last.Contains("Act 1: Flavor") && GUI.Last.Contains("8 AP Stars") && GUI.Last.Contains("5 more"),"blocked entry explains level, requirement and missing Stars");
+Time.unscaledTime+=3;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("Act 1: Flavor"),"blocked notice remains visible beyond old two-second preview");
+ApStars.ReportBlocked("Level_12","LevelVariant_Default");Time.unscaledTime+=4;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("Act 1: Flavor"),"repeated attempt refreshes one notice");
+ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,8));GUI.Last="";ApStars.RenderOverlay();Check(!GUI.Last.Contains("collect"),"receiving enough Stars removes stale denial");
+ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,3));ApStars.ReportBlocked("Level_12","LevelVariant_Default");Time.unscaledTime+=7;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","blocked notice expires");
+ApStars.ReportBlocked("Level_12","LevelVariant_Default");ApStars.OnNativeBoundary();GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","save boundary clears stale entry feedback");
+ApStars.State.Configure(3,"awaiting-banner",new(ApStarMode.Awaiting,40,new Dictionary<string,int>{{"Level 11",8}},new Dictionary<string,int>()));ApStars.ReportBlocked("Level_12","LevelVariant_Default");GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("synchronize") && !GUI.Last.Contains("collect"),"unsynchronized state explains waiting instead of inventing a shortage");
+DeveloperHarness.CurrentRoomId="GameRoom_Hub6";GUI.Last="";ApStars.RenderOverlay();Check(!GUI.Last.Contains("Entry locked"),"room change hides old blocked banner");
+ApStars.State.Reset();GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","native play shows no AP denial banner");
+Setup("delayed-save");Start();Complete();int baseline=sends;
+CassetteReceiptRandomization.Ready=false;Persist();Tick();Check(sends==baseline,"unverified save cannot send");
+CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline+1,"confirmed clear survives temporary save unavailability");
+Persist();Tick();Check(sends==baseline+1,"deferred clear sends once");
+Setup("delayed-other-save");Start();Complete();baseline=sends;
+CassetteReceiptRandomization.Ready=false;Persist();CassetteReceiptRandomization.Save="epoch:b";CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"deferred clear rejects changed save");
+Setup("delayed-boundary");Start();Complete();baseline=sends;
+CassetteReceiptRandomization.Ready=false;Persist();ApStars.OnNativeBoundary();CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"explicit boundary invalidates deferred evidence");
+Setup("delayed-early",24);Start();Complete();baseline=sends;
+CassetteReceiptRandomization.Ready=false;Persist();ApStars.State.Publish(1,Enumerable.Repeat(ApStarContract.StarId,25));CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"later Stars do not qualify deferred early clear");
+Setup("delayed-start-again");Start();Complete();baseline=sends;
+CassetteReceiptRandomization.Ready=false;Persist();CassetteReceiptRandomization.Ready=true;Start();Tick();Check(sends==baseline+1,"starting another level preserves already confirmed completion");
+Setup("native-null-variant");Start();Complete();baseline=sends;
+ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=(string?)null});Tick();Check(sends==baseline+1,"native omitted variant uses verified applied result");
+ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=(string?)null});Tick();Check(sends==baseline+1,"null variant duplicate sends once");
+Setup("null-variant-no-apply");Start();ApStars.BeforePersistResult(new {DidPlayersSucceed=true,ShouldSaveScore=true});baseline=sends;
+ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=(string?)null});Tick();Check(sends==baseline,"null variant requires bound applied result");
+Setup("null-variant-wrong-level");Start();Complete();baseline=sends;
+ApStars.OnResultPersisted(new {Level="Level_14",LevelVariant=(string?)null});Tick();Check(sends==baseline,"null variant cannot authorize different level");
+Setup("native-nullable-variant");Start();Complete();baseline=sends;
+ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.Nullable<string>(false, null)});Tick();Check(sends==baseline+1,"native nullable without value accepts bound completion");
+Setup("native-nullable-conflict");Start();Complete();baseline=sends;
+ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.Nullable<string>(true, "LevelVariant_DevilMode")});Tick();Check(sends==baseline,"native nullable conflicting variant rejected");
 Console.WriteLine($"{checks} AP Star runtime checks passed");
 namespace RhythmCastleAP {
  internal static class Plugin {internal static Log? LoggerInstance;}internal class Log{public void LogInfo(string s){}public void LogError(string s){}}
  internal static class DeveloperHarness{internal static string CurrentRoomId="GameRoom_Hub7";}
  internal static class CassetteReceiptRandomization{internal static bool Ready=true;internal static string Save="epoch:a";internal static void WithStableQuestItemSave(Action<object,string>a){if(Ready)a(new object(),Save);}}
  internal static class ApStarEaterThresholds{internal static bool CurrentRoomReady=true;internal static bool IsReadyForRoom(string room)=>CurrentRoomReady;internal static void Tick(string r,IReadOnlyDictionary<string,int>? m){}}
- internal static class ReflectionUtil{internal static object? ReadMember(object? o,string m)=>o?.GetType().GetProperty(m)?.GetValue(o);internal static bool? ReadBool(object?o,string m)=>ReadMember(o,m) as bool?;internal static string? ExtractIdentifier(object?o)=>o?.ToString();}
 }
 namespace BepInEx{public static class Paths{public static string ConfigPath=>Path.GetTempPath();}}
-namespace UnityEngine{public static class Time{public static float unscaledTime;}public static class Screen{public static int height=>1080;}public struct Rect{public Rect(int a,int b,int c,int d){}}public static class GUI{public static void Box(Rect r,string s){}}}
+namespace UnityEngine{public static class Time{public static float unscaledTime;}public static class Screen{public static int height=>1080;public static int width=>1920;}public struct Rect{public Rect(int a,int b,int c,int d){}}public enum TextAnchor{MiddleCenter}public class GUIStyle{public GUIStyle(object o){}public int fontSize;public bool wordWrap,richText;public TextAnchor alignment;}public class GUISkin{public object box=new();}public static class GUI{public static int depth;public static GUISkin skin=new();public static string Last="";public static void Box(Rect r,string s){Last=s;}public static void Box(Rect r,string s,GUIStyle style){Last=s;}}}
+namespace NativeFixture { internal sealed record Nullable<T>(bool HasValue, T? Value); }

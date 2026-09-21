@@ -4,9 +4,10 @@ internal static class Plugin { internal static TestLog LoggerInstance = new(); }
 internal sealed class TestLog { internal void LogInfo(string value) { } }
 internal static class DeveloperHarness { internal static string CurrentRoomId = "GameRoom_Hub6"; }
 internal static class ReflectionUtil {
+ internal static int BoolReads;
  internal static Assembly GameAssembly => typeof(CurrentPlayerSaveEnquiries).Assembly;
  internal static IEnumerable<Type> SafeGetTypes(Assembly assembly) => assembly.GetTypes();
- internal static bool? ReadBool(object obj,string name) => obj.GetType().GetProperty(name)?.GetValue(obj) as bool?;
+ internal static bool? ReadBool(object obj,string name) { BoolReads++; return obj.GetType().GetProperty(name)?.GetValue(obj) as bool?; }
 }
 internal enum ePlayableCharacter { GUITAR_MANIAC = 7 }
 internal static class CurrentPlayerSaveEnquiries {

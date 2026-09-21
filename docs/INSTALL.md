@@ -1,3 +1,9 @@
+# Current downloads
+
+Use [v0.28.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1):
+**RhythmCastleAP-v0.75.13.zip** and **scrc.apworld** (APWorld v0.28.0).
+Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain compatible.
+
 # Public development-test installation
 
 > [!WARNING]
@@ -5,7 +11,7 @@
 
 This is the canonical installation guide for public development testing. The component guides keep their developer details: [client notes](../client/README.md), [APWorld notes](../apworld/README.md), and the [APWorld setup page](../apworld/scrc/docs/setup_en.md).
 
-Current release: **Client v0.75.4 / APWorld v0.28.0** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Native gameplay acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
+Current release: **Client v0.75.13 / APWorld v0.28.0** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Hard40 Victory is gameplay verified; broader acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
 
 ## Before you begin
 
@@ -20,13 +26,13 @@ An `.apworld` is executable custom-world code. Build it from this repository or 
 
 ## Install the client
 
-Download `RhythmCastleAP-v0.75.4.zip` from the [v0.28.0 testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0). Close the game, then extract the three DLLs from the archive directly into:
+Download `RhythmCastleAP-v0.75.13.zip` from the [v0.28.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1). Close the game, then extract the three DLLs from the archive directly into:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
 ```
 
-Replace the existing files when prompted. Do not put the ZIP itself or an extra `RhythmCastleAP-v0.75.4` directory inside the plugin directory. The release archive contains only the SCRC plugin and its two application dependencies; BepInEx, Harmony, and IL2CPP interop files continue to come from the BepInEx installation.
+Replace the existing files when prompted. Do not put the ZIP itself or an extra `RhythmCastleAP-v0.75.13` directory inside the plugin directory. The release archive contains only the SCRC plugin and its two application dependencies; BepInEx, Harmony, and IL2CPP interop files continue to come from the BepInEx installation.
 
 ### Build from source instead
 
@@ -52,7 +58,7 @@ It removes stale `.dll` files from that plugin directory before copying the new 
 Launch the game normally once and inspect `<GameDir>\BepInEx\LogOutput.log`. A successful client load includes:
 
 ```text
-[SCRC-AP] v0.75.4 loading.
+[SCRC-AP] v0.75.13 loading.
 ```
 
 ## Configure the current development client
@@ -82,7 +88,7 @@ Treat the room password as a secret. Put it in the local config only when the ro
 
 ## Install and generate the APWorld
 
-Download `scrc.apworld` from the [v0.28.0 testing release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.0). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
+Download `scrc.apworld` from the [v0.28.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
 
 ### Build from source instead
 
@@ -103,7 +109,7 @@ Host the generated `AP_XXXXX.zip` with a local Archipelago server or an appropri
 
 Set the YAML `difficulty` to `normal`, `hard`, `expert`, or `perfection` to filter AP performance locations. In v0.28, Normal addresses 125 locations; Hard 183; Expert 241; Perfection 277. Inactive checks are absent from the seed, not filler. This does not alter the native REG/PRO choice.
 
-Install APWorld v0.28, generate a newly created v0.28 seed, and start a fresh in-game save for acceptance. Replacing the world does not upgrade an old seed or make an old save an acceptance baseline. Client v0.75.4 requires top-level schema 17, campaign-mapping schema 1, and point schema 1. Recognized v0.23/schema-14 seeds retain their historical mapping and AP Music Lab Points behavior; recognized v0.22 and non-AP play retain native Music Lab scoring. Malformed or unsupported AP contracts report incompatibility and keep the affected randomized system inactive.
+Install APWorld v0.28, generate a newly created v0.28 seed, and start a fresh in-game save for acceptance. Replacing the world does not upgrade an old seed or make an old save an acceptance baseline. Client v0.75.13 requires top-level schema 17, campaign-mapping schema 1, and point schema 1. Recognized v0.23/schema-14 seeds retain their historical mapping and AP Music Lab Points behavior; recognized v0.22 and non-AP play retain native Music Lab scoring. Malformed or unsupported AP contracts report incompatibility and keep the affected randomized system inactive.
 
 The 10 one-point items, 3 ten-point bundles, and 7 twenty-point large bundles total 180 points. They replace 20 Stardust; the last chest costs 140, leaving 40 slack. Thresholds are 5/10/20/32/46/64/89/111/140, with no milestone or duplicate cassette/cartridge checks. AP totals apply only through the existing managed getter in `GameRoom_Hub6`, remain zero before synchronization, and retain the last synchronized total during a temporary disconnect. Native medals add no points. The diagnostic-first investigation rejected chest/native detours; no native score/save write or forced chest interaction is used. The existing display, all thresholds, and persistence still need live acceptance; the developer Shift+F4 override cannot supersede compatible AP points.
 

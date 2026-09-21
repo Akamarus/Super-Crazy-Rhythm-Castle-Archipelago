@@ -823,9 +823,8 @@ class WorldIntegrationTests(unittest.TestCase):
             "LEVEL_09_COMBO_ABILITY_EARNED",
         )
         self.assertFalse(data["starting_area_forced"])
-        self.assertIn("v0.21.0", data["routing_logic_note"])
-        self.assertIn("Difficulty filtering is active", data["routing_logic_note"])
-        self.assertIn("preview", data["routing_logic_note"])
+        self.assertIn("difficulty filtering", data["routing_logic_note"])
+        self.assertNotIn("inactive previews", data["routing_logic_note"])
 
     def test_slot_data_publishes_the_strict_music_lab_point_contract(self):
         data = self.build_world().fill_slot_data()

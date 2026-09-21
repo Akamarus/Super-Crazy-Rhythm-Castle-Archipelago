@@ -33,6 +33,29 @@ static class Program {
  }
  static void Main() {
   try {
+   foreach (string freshnessFlag in new[] {"OUTSIDE_HUB_PLUNGER_COLLECTED", "ROOTS_HUB_STAR_EATER_FED"}) {
+    Start(QuestChecksPolicy.Meoo);
+    RootsBucketRandomization.Flags.Remove(freshnessFlag);
+    Tick();
+    Check(QuestChecks.State.NativeSlot==null,"unknown freshness must defer binding: "+freshnessFlag);
+    Check(CassetteReceiptRandomization.Processor.Grants==0&&WeedKillerRandomization.Grants==0,"unknown freshness must defer native grants");
+    RootsBucketRandomization.Flags[freshnessFlag]=false;
+    Tick();
+    Check(QuestChecks.State.NativeSlot==4,"readable fresh flags permit retry binding");
+    Check(CurrentPlayerSaveEnquiries.IsCharacterUnlocked(ePlayableCharacter.GHOST_CAT),"deferred character grant recovers");
+    RootsBucketRandomization.Flags.Remove(freshnessFlag);
+    Check(QuestChecks.IsCurrentSaveBound(),"already bound save survives unavailable freshness read");
+    QuestChecks.State.Publish(generation,new[]{QuestChecksPolicy.Meoo,QuestChecksPolicy.Maniac},Array.Empty<long>());
+    Tick();
+    Check(QuestChecks.State.NativeSlot==4,"reconciliation retains prior save binding");
+    Check(CurrentPlayerSaveEnquiries.IsCharacterUnlocked(ePlayableCharacter.GUITAR_MANIAC),"already bound save still grants later receipts");
+
+    Start(QuestChecksPolicy.Meoo);
+    RootsBucketRandomization.Flags[freshnessFlag]=true;
+    Tick();
+    Check(QuestChecks.State.NativeSlot==null,"completed source must reject initial binding: "+freshnessFlag);
+    Check(Plugin.AP.Queued.Count==0&&CassetteReceiptRandomization.Processor.Grants==0,"completed source cannot grant or queue on unbound save");
+   }
    foreach(var target in new[] {
     ("Root/GameRoom_Hub1_Logic/GameRoom_Hub1A_Script/MiscSequences/UnlockGhostCat/UnlockGhostCatCharacter", ePlayableCharacter.GHOST_CAT),
     ("Root/GameRoom_27_Logic/GameRoom_27_Script/MiscSequences/UnlockManiac/UnlockManiacCharacter", ePlayableCharacter.GUITAR_MANIAC) }) {
