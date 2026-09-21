@@ -32,7 +32,7 @@ The project remains experimental; see the known bugs and validation limits below
 
 ## Universal Tracker
 
-**YAML-less Universal Tracker support is available in APWorld v0.28.1.** Install
+**Universal Tracker support is available in APWorld v0.28.1.** Install
 the updated `scrc.apworld` on your tracker computer and connect to your existing
 v0.28 seed. The tracker restores the exact server-generated Star gates, goal,
 difficulty and starting area. No new seed or game-client update is needed.
@@ -49,7 +49,7 @@ and [testing record](docs/TESTING.md).
 
 ### Tracker support
 
-- Added exact slot-data restoration through Universal Tracker regeneration hooks; no YAML required. Existing schema-19 seeds are supported, and malformed/older contracts produce an error instead of incorrect logic.
+- Added exact slot-data restoration through Universal Tracker regeneration hooks. Existing schema-19 seeds are supported, and malformed/older contracts produce an error instead of incorrect logic.
 
 ### Victory and progression fixes
 
