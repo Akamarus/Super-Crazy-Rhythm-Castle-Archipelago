@@ -1,3 +1,11 @@
+# v0.28.2 status - September 29, 2026
+
+This APWorld-only release fixes the reported Ionium option-validation and
+seed-generation failures. The full browser suite passed 205 unit tests and
+14,500 fuzz runs, including multiworld and Universal Tracker checks. This does
+not constitute index approval or a 1,900-player live playtest. Existing client
+issues below remain open; client v0.75.13 is unchanged.
+
 
 
 ## Universal Tracker compatibility update — September 21

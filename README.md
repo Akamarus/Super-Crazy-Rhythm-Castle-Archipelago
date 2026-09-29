@@ -2,9 +2,14 @@
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
-## Current release: v0.28.1 — First Verified Victory
+## Current release: v0.28.2 - Generation and Multiworld Compatibility
 
-**Client v0.75.13 / APWorld v0.28.1**, schema 19 / campaign-mapping schema 1.
+**Client v0.75.13 / APWorld v0.28.2**, schema 19 / campaign-mapping schema 1.
+
+This APWorld-only update fixes option validation, rare seed-generation failures
+and cross-world filler placement. It passed 205 Ionium unit tests and all 14,500
+fuzz runs, including 500 Universal Tracker checks. The game client is unchanged.
+See the [changelog](CHANGELOG.md) and [validation record](docs/testing/2026-09-29-ionium-compatibility.md).
 
 Randomize area access, progression items, Music Lab cassettes, Game Garage cartridges,
 and supported character unlocks. Campaign results, quests, pickups and Music Lab
@@ -20,26 +25,27 @@ A fresh-save **Hard / 40-star run** is now verified complete without server
 assistance. The final clear used 41 AP Stars, and the server recorded Victory.
 The project remains experimental; see the known bugs and validation limits below.
 
-[Download v0.28.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1) · [Installation](docs/INSTALL.md) · [Full changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
+[Download v0.28.2](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.2) · [Installation](docs/INSTALL.md) · [Full changelog](CHANGELOG.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Progression](docs/PROGRESSION.md)
 
 ## Updating or starting a run
 
-- Close the game and replace the three plugin DLLs using **RhythmCastleAP-v0.75.13.zip**.
+- Install **scrc.apworld v0.28.2** on the generator/tracker computer.
+- If already using client v0.75.13, keep it. New installations should use **RhythmCastleAP-v0.75.13.zip**; close the game before replacing DLLs.
 - Existing v0.28 seeds and saves remain compatible. Connect to the seed before loading the save.
 - For a new run, install the included **scrc.apworld** and use a fresh native save.
-- This maintenance release updates APWorld to v0.28.1 while retaining its IDs and schema-19 contract. Updating the client does not rewrite seed placements.
+- This maintenance release updates APWorld to v0.28.2 while retaining its IDs and schema-19 contract. Updating the client does not rewrite seed placements.
 - An earlier boss clear discarded by the old Victory bug is not reconstructed automatically. A qualifying clear on the repaired client reports Victory normally.
 
 ## Universal Tracker
 
-**Universal Tracker support is available in APWorld v0.28.1.** Install
+**Universal Tracker support is retained in APWorld v0.28.2.** Install
 the updated `scrc.apworld` on your tracker computer and connect to your existing
 v0.28 seed. The tracker restores the exact server-generated Star gates, goal,
 difficulty and starting area. No new seed or game-client update is needed.
 
 Tested with UT v0.3.3 and v0.2.32 on Archipelago 0.6.7 in 13 headless integration cases,
 including the completed Hard40 seed. See [setup and verification scope](docs/UNIVERSAL_TRACKER.md).
-Updated APWorld source is tagged `v0.28.1-hotfix.1`; the original release tag is unchanged.
+Current APWorld source is tagged `v0.28.2`; earlier release tags remain unchanged.
 
 ## Changelog — v0.28.1 (September 21, 2026)
 

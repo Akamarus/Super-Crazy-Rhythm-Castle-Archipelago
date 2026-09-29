@@ -49,8 +49,8 @@ the Cell introduction and their base route; unsupported Devil aliases do not ope
 an independent solver path.
 
 Six supplemental special completions, two Bunker actions, the untested Certificate
-award and three cartridge pickups remain Stardust-only. Higher boss 2/3-star checks
-also remain Stardust-only. Their raw presence never contributes non-filler capacity.
+award and three cartridge pickups remain filler/trap-only. Higher boss 2/3-star checks
+also remain filler/trap-only. Their raw presence never contributes non-filler capacity.
 
 ## Gate generation and Victory
 

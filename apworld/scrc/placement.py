@@ -26,3 +26,12 @@ def filler_or_safe_required(item, safe_for_required: bool) -> bool:
         return not bool(classification & progression)
     except TypeError:
         return classification != progression
+
+
+def filler_item_allowed(item) -> bool:
+    """Accept any world's filler/traps without stranding useful or progression items."""
+    classification = item.classification
+    try:
+        return not bool(classification & (ItemClassification.progression | ItemClassification.useful))
+    except TypeError:
+        return classification not in (ItemClassification.progression, ItemClassification.useful)

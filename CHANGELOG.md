@@ -1,3 +1,29 @@
+# v0.28.2 - Generation and Multiworld Compatibility
+
+September 29, 2026
+
+Client v0.75.13 and schema 19 remain unchanged. This update changes new seed
+placement; existing seed placements are not rewritten.
+
+- Fixed import rejection by current Archipelago option validation: the reserved
+  `random` choice is no longer manually declared. `validated_random` retains
+  numeric value 0, and Roots remains the only supported starting area. Standard
+  YAML `random` still works and chooses among supported values.
+- Removed unimplemented starting areas from selectable YAML options and added
+  descriptions for all game-specific options.
+- Ordered Stars, Music Lab points, song unlocks and single-hand-in items ahead
+  of broad access items during reverse fill, preventing reported generation dead
+  ends without removing items or weakening access rules.
+- Allowed other worlds' filler/traps at unmodeled filler-only checks. Progression
+  and useful items remain prohibited there; a multiworld no longer depends on
+  SCRC Stardust remaining in its own world.
+- Added regression coverage for supported options, fill ordering, cross-world
+  filler and preserved progression restrictions.
+
+Validation details: [September 29 compatibility tests](docs/testing/2026-09-29-ionium-compatibility.md).
+
+---
+
 # v0.28.1 — First Verified Victory
 
 **Client v0.75.13 / APWorld v0.28.1 · September 21, 2026**

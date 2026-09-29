@@ -1,8 +1,8 @@
 # Current downloads
 
-Use [v0.28.1](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1):
-**RhythmCastleAP-v0.75.13.zip** and **scrc.apworld** (APWorld v0.28.1).
-Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain compatible.
+Use [v0.28.2](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.2):
+**RhythmCastleAP-v0.75.13.zip** and **scrc.apworld** (APWorld v0.28.2).
+The v0.75.13 game client is unchanged; existing users only need the updated APWorld. Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain compatible.
 
 # Public development-test installation
 
@@ -11,7 +11,7 @@ Close the game before replacing plugin DLLs. Existing v0.28 seeds/saves remain c
 
 This is the canonical installation guide for public development testing. The component guides keep their developer details: [client notes](../client/README.md), [APWorld notes](../apworld/README.md), and the [APWorld setup page](../apworld/scrc/docs/setup_en.md).
 
-Current release: **Client v0.75.13 / APWorld v0.28.1** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Hard40 Victory is gameplay verified; broader acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
+Current release: **Client v0.75.13 / APWorld v0.28.2** — first completable AP Stars release. It adds 66 received Stars, generated campaign gates, post-threshold Level 22 victory and 39 supplemental checks. Use both matching components with a fresh v0.28 seed and fresh native save. Connect the AP seed before loading. Hard40 Victory is gameplay verified; broader acceptance remains pending; see [known issues](KNOWN_ISSUES.md) and the [changelog](../CHANGELOG.md).
 
 ## Before you begin
 
@@ -26,7 +26,7 @@ An `.apworld` is executable custom-world code. Build it from this repository or 
 
 ## Install the client
 
-Download `RhythmCastleAP-v0.75.13.zip` from the [v0.28.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1). Close the game, then extract the three DLLs from the archive directly into:
+Download `RhythmCastleAP-v0.75.13.zip` from the [v0.28.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.2). Close the game, then extract the three DLLs from the archive directly into:
 
 ```text
 <GameDir>\BepInEx\plugins\RhythmCastleAP
@@ -88,7 +88,7 @@ Treat the room password as a secret. Put it in the local config only when the ro
 
 ## Install and generate the APWorld
 
-Download `scrc.apworld` from the [v0.28.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
+Download `scrc.apworld` from the [v0.28.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.2). In Archipelago Launcher, choose **Install APWorld**, select the downloaded file, and restart Archipelago Launcher.
 
 ### Build from source instead
 

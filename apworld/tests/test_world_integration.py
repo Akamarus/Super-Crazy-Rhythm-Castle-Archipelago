@@ -1124,6 +1124,17 @@ class WorldIntegrationTests(unittest.TestCase):
             self.collect_placement_spheres(world, impossible_state, impossible_chain)
         )
 
+    def test_unmodeled_checks_accept_other_world_filler_but_not_important_items(self):
+        from types import SimpleNamespace
+        world = self.build_world(difficulty=0)
+        filler = SimpleNamespace(name="Other world filler", player=2,
+                                 classification=world.create_item("Stardust").classification)
+        for name in ("Demonic Tower - Completion", "Cartridge Pickup - Smooch"):
+            source = world.multiworld.get_location(name, 1)
+            self.assertTrue(source.item_rule(filler), name)
+            self.assertFalse(source.item_rule(world.create_item("Plant Pipes")), name)
+            self.assertFalse(source.item_rule(world.create_item("Meoo")), name)
+
     def test_safe_location_rules_allow_filler_and_point_chests_allow_progression(self):
         world = self.build_world(difficulty=0)
         progression = world.create_item("Plant Pipes")

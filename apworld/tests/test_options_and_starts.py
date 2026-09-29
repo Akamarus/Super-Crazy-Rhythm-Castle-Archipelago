@@ -78,12 +78,19 @@ class OptionDefinitionTests(unittest.TestCase):
         self.assertEqual(option_definitions.Difficulty.option_expert, 2)
         self.assertEqual(option_definitions.Difficulty.option_perfection, 3)
         self.assertEqual(option_definitions.Difficulty.default, 0)
-        self.assertEqual(option_definitions.StartingArea.option_random, 0)
+        self.assertEqual(option_definitions.StartingArea.option_validated_random, 0)
         self.assertEqual(option_definitions.StartingArea.option_roots, 1)
-        self.assertEqual(option_definitions.StartingArea.option_lobby, 2)
-        self.assertEqual(option_definitions.StartingArea.option_meat_dimension, 3)
-        self.assertEqual(option_definitions.StartingArea.option_cell_tower, 4)
+        choices = {name: value for name, value in vars(option_definitions.StartingArea).items()
+                   if name.startswith("option_")}
+        self.assertNotIn("option_random", choices)
+        for value in choices.values():
+            self.assertEqual(starts.resolve_starting_area(value, random.Random(1)), "Roots Access")
         self.assertEqual(option_definitions.StartingArea.default, 0)
+
+    def test_game_options_explain_their_effect(self):
+        definitions = load_scrc_module("options")
+        for option in (definitions.RequiredStars, definitions.Difficulty, definitions.StartingArea):
+            self.assertTrue(option.__doc__ and option.__doc__.strip())
 
     def test_options_dataclass_adds_three_game_fields(self):
         option_definitions = load_scrc_module("options")

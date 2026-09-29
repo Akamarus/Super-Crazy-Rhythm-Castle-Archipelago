@@ -84,7 +84,7 @@ and 20-point source checks retain their IDs and do not gain duplicate locations.
 
 `Lobby - Plunger Pickup` is a Lobby check restricted to Stardust until its native
 phone/button route is fully modeled. Plunger has no inferred Vault or cassette
-gate. `Roots - Star Eater Fed` is also Stardust-only: the native 3-star threshold
+gate. `Roots - Star Eater Fed` is also filler/trap-only: the native 3-star threshold
 is unchanged, but native earned stars are not modeled by AP logic. Its logical
 Roots reachability is therefore an approximation, never a progression route.
 AP Stars, generated Star gates, and final Star Victory remain inactive.

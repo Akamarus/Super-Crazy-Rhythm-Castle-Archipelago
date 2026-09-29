@@ -56,7 +56,7 @@ from .music_lab_points import (
     MUSIC_LAB_POINT_THRESHOLDS,
     weighted_music_lab_points,
 )
-from .placement import filler_or_safe_required, required_progression_allowed
+from .placement import filler_item_allowed, filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
 from .native_logic import can_complete, source_rule, SAFE_SOURCES, star_eater_requirements
 from .starting_areas import (
@@ -261,7 +261,7 @@ LOCATION_NAME_TO_ID[LOBBY_LETTERS_PICKUP] = BASE_ID + 292
 LOCATION_NAME_TO_ID[LOBBY_BEAN_TRUMPET_AWARD] = BASE_ID + 293
 
 # The Plunger pickup route and native Star Eater threshold remain incomplete
-# solver models. Their sources are Stardust-only until independently verified.
+# solver models. Their sources are filler-only until independently verified.
 QUEST_LOCATION_NAME_TO_ID = {
     "Lobby - Plunger Pickup": BASE_ID + 294,
     "Lobby - Car Battery Hand-In": BASE_ID + 295,
@@ -550,7 +550,7 @@ class SCRCWorld(World):
             set_rule(location, lambda state, required=requirements: all(
                 state.has(item, self.player) for item in required))
             if filler_only:
-                location.item_rule = lambda item: item.name == "Stardust"
+                location.item_rule = filler_item_allowed
             parent.locations.append(location)
 
         combo_bucket_event = SCRCLocation(
@@ -582,7 +582,7 @@ class SCRCWorld(World):
         # generation may never strand progression on an inaccurately modeled source.
         for name in RANDOMIZED_CARTRIDGE_SOURCE_LOCATIONS.values():
             location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], phone_hub)
-            location.item_rule = lambda item: item.name == "Stardust"
+            location.item_rule = filler_item_allowed
             phone_hub.locations.append(location)
 
         # Hub6 side content is always logically reachable. v0.14 intentionally
@@ -611,7 +611,7 @@ class SCRCWorld(World):
         }
 
         # Bunker routing is not yet a solver-complete native route. Every
-        # check in this supplemental region is locked to Stardust, so this
+        # check in this supplemental region is restricted to filler, so this
         # organizational connection cannot strand randomized progression.
         bunker = Region("Secret Bunker", self.player, self.multiworld)
         lobby.connect(bunker, "Lobby -> Secret Bunker (filler checks)")
@@ -625,7 +625,7 @@ class SCRCWorld(World):
             set_rule(source, lambda state, requirements=entry.required_items: all(
                 state.has(item, self.player) for item in requirements))
             if not entry.progression_safe:
-                source.item_rule = lambda item: item.name == "Stardust"
+                source.item_rule = filler_item_allowed
             parent.locations.append(source)
 
         for level in CAMPAIGN_LEVELS:
@@ -847,6 +847,25 @@ class SCRCWorld(World):
             )
         )
 
+    def fill_hook(self, progitempool, usefulitempool, filleritempool, fill_locations):
+        # Reverse fill consumes the end first. Place counted currencies and
+        # single-song unlocks while broad access items are still assumed.
+        # Only reorder this player's positions; preserve every item instance
+        # and other worlds' relative fill order.
+        def priority(item):
+            if item.name == STAR_ITEM_NAME:
+                return 3
+            if item.name in MUSIC_LAB_POINT_POOL:
+                return 2
+            if item.name in ("Old Game Data", "Car Battery") or item.name.endswith((" Cassette", " Cartridge")):
+                return 1
+            return 0
+
+        indexes = [i for i, item in enumerate(progitempool) if item.player == self.player]
+        own_items = sorted((progitempool[i] for i in indexes), key=priority)
+        for index, item in zip(indexes, own_items):
+            progitempool[index] = item
+
     def create_items(self) -> None:
         starter = getattr(self, "starting_area_item", AREA_ACCESS_ITEMS[0])
 
@@ -893,7 +912,7 @@ class SCRCWorld(World):
         eligible = sum(location.item_rule(self.create_item(STAR_ITEM_NAME))
             for region in self.multiworld.regions for location in region.locations
             if location.player == self.player and location.address is not None and location.item is None)
-        # Unmodeled sources accept Stardust only, so useful character rewards
+        # Unmodeled sources accept filler only, so useful character rewards
         # require the same safe capacity as progression, despite not gating logic.
         if eligible < required_count:
             raise ValueError(f"{required_count} non-filler instances exceed {eligible} modeled locations")

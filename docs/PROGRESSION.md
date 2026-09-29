@@ -1,6 +1,18 @@
-# Current release: v0.28.1 / Client v0.75.13
+# Current release: v0.28.2 / Client v0.75.13
 
-Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. APWorld remains v0.28.0 / schema 19. See [current release notes](releases/v0.28.1.md). Earlier candidate statuses below are historical.
+Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. Published APWorld is v0.28.2 / schema 19. See [current release notes](releases/v0.28.2.md). Earlier candidate statuses below are historical.
+
+## v0.28.2 generation compatibility
+
+Roots is the only supported start. `validated_random` preserves legacy numeric
+value 0; standard YAML `random` now uses Archipelago's built-in selection.
+Unsupported area choices are no longer advertised. Access rules, item quantities,
+IDs and schema remain unchanged. Reverse fill prioritizes counted currencies,
+song unlocks and single-hand-in items before broad access items. Unmodeled checks
+accept any world's filler/traps while rejecting progression and useful items.
+See [compatibility validation](testing/2026-09-29-ionium-compatibility.md).
+
+The remaining milestone sections below are historical.
 
 Current hotfix: **Client v0.75.4 / APWorld v0.28.0**. See [release notes](releases/v0.28.0.md).
 
