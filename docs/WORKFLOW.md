@@ -1,38 +1,26 @@
-# Repository Workflow
+# Development workflow
 
-## Suggested branch model
+Keep the accepted baseline separate from candidate work in an isolated Git worktree. Read AGENTS.md and the current overview, IDs, progression and testing documents before changing player-facing behavior. Preserve permanent network IDs and do not commit game assemblies, logs, credentials or generated distributions.
 
-Keep `main` as the last accepted/tested baseline. Create a short-lived branch for each milestone, for example:
+## Build and validate
 
-```text
-feature/roots-level4-glasses
-fix/roots-phone-visual-overlap
-feature/star-requirements
+From the repository root, with the .NET SDK and Python installed:
+
+```powershell
+./client/build.ps1 -GameDir "D:/SteamLibrary/steamapps/common/Titus" -SkipInstall
+python tools/validate-repo.py
+python -m unittest discover -s tools/tests
+./tools/build-apworld.ps1
 ```
 
-After local compilation and gameplay testing, merge the branch into `main`.
+Replace the example game path with your installation. The client references your separately installed BepInEx/IL2CPP runtime. Download users do not need the SDK or Git.
 
-## Commit style
+Run regression projects relevant to the change and record native acceptance separately. Never deploy a candidate over the user's game without explicit confirmation. Prepare distributions with the allowlisted [packager](PACKAGING.md), including licenses, source provenance and checksums.
 
-Prefer small commits that describe the actual behavior change, for example:
+## Documentation and publication
 
-```text
-feat(apworld): add Plant Pipes progression item
-feat(client): randomize Frog/Hippo Plant Pipes reward
-fix(client): bypass displaced Roots intro cutscene
- docs: record permanent AP IDs
-```
+Update the overview, changelog and current issue/testing pages with player-facing changes. Keep dated evidence under testing; move superseded development records to the indexed archive and repair links. Release notes describe what shipped; later acceptance belongs in the current test record.
 
-## Working with ChatGPT
+Review the diff and package contents before requesting publication approval. Merging, pushing, changing public releases and removing worktrees require explicit authorization. Keep the AI disclosure accessible and include it with public release communications.
 
-For future development, provide the GitLab repository URL and the branch/commit that should be treated as the baseline. A public repository can be read directly. If the repository is private and no authenticated GitLab connector is available, provide a source archive or the relevant files/diff in the conversation.
-
-For runtime bugs, upload `BepInEx\LogOutput.log` from the exact build/seed being tested.
-
-Generated game DLLs, interop assemblies, credentials, and private tokens must not be added to the repository or uploaded as source artifacts.
-
-## Living project documentation
-
-Any milestone that changes player-facing randomizer behavior must update `docs/PROJECT_OVERVIEW.md` in the same commit. This includes new/renamed items or checks, progression requirements, area routing, difficulty rules, Star-gating behavior, and implemented-system status.
-
-`docs/IDS.md` remains authoritative for permanent network IDs; `docs/PROGRESSION.md` remains the concise logic reference.
+For collaboration, provide the GitHub URL and exact branch/commit; for runtime reports, provide the relevant log privately if it contains sensitive room details. Historical GitLab setup remains in the [archive](archive/checkpoints/GITLAB_SETUP.md).

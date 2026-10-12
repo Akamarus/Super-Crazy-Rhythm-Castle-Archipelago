@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.76.0";
+    public const string PluginVersion = "0.76.1";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -115,6 +115,7 @@ public sealed class Plugin : BasePlugin
 
         _harmony = new Harmony(PluginGuid);
         MontageAnimalTick.Install();
+        PlayerMovementTiming.Install();
         int patched = 0;
 
         patched += PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
@@ -945,6 +946,8 @@ public sealed class Plugin : BasePlugin
         AP?.Shutdown();
         ApStarEaterThresholds.Restore();
         ApStars.OnNativeBoundary();
+        PlayerMovementTiming.Shutdown();
+        MovementTimingProbe.Shutdown();
         MontageAnimalTick.Shutdown();
         _harmony?.UnpatchSelf();
         return true;
@@ -4588,6 +4591,7 @@ internal static class CassetteSaveTransactionPatches
     {
         RootsPortalPresentation.Reset();
         MontageAnimalTick.Reset();
+        PlayerMovementTiming.Reset();
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
         GarageCartridgeAccess.ResetNativeBagObservations("selected save slot mutation");
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{__originalMethod?.Name ?? "<unknown>"}(Int32)";
@@ -4620,6 +4624,7 @@ internal static class CassetteSaveTransactionPatches
     {
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
         MontageAnimalTick.Reset();
+        PlayerMovementTiming.Reset();
         GarageCartridgeAccess.ResetNativeBagObservations("player save state rebuilt");
         const string requestIdentity = "BuildPlayerSaveStateFromFileRequest";
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
@@ -5234,6 +5239,7 @@ internal static class DeveloperHarness
 
         BunkerStarRequirementKeeper.ResetForSceneChange();
         MontageAnimalTick.Reset();
+        PlayerMovementTiming.Reset();
 
         bool firstCapture;
 

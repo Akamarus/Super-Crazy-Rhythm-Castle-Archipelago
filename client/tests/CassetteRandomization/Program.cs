@@ -160,7 +160,7 @@ var adapterTypesArgs = new object[] { typeof(CassetteSaveTransactionAdapter).Ass
 Equal(true, ReferenceEquals(adapterTypesMethod.Invoke(null, adapterTypesArgs), adapterTypesMethod.Invoke(null, adapterTypesArgs)), "adapter fallback lookup reuses type catalog even for types from other assemblies");
 string transactionAdapterSource = ReadTextNormalized(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
 string cassetteSaveDesignSource = ReadTextNormalized(Path.Combine(
-    Directory.GetCurrentDirectory(), "docs", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
+    Directory.GetCurrentDirectory(), "docs", "archive", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
 int acceptanceEventGuard = pluginSource.IndexOf("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal);
 int acceptanceEventHook = pluginSource.IndexOf("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
 Equal(true, acceptanceEventGuard >= 0 && acceptanceEventHook > acceptanceEventGuard, "write-completed event observation is narrowly installed only after the acceptance opt-in guard");

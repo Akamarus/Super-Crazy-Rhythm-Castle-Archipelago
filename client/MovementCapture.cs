@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace RhythmCastleAP;
 
-// Opt-in, bounded observation. No motor hooks or physics writes. Actor-local rebinding only during capture.
+// Opt-in, bounded observation. Primitive player update timing observer; no physics writes.
 internal sealed class MovementCapture : MonoBehaviour
 {
     private const int MaxBodies = 12;
@@ -55,6 +55,7 @@ internal sealed class MovementCapture : MonoBehaviour
         catch (Exception ex)
         {
             _active = false;
+            MovementTimingProbe.Stop();
             ReleaseProbes();
             _bodies.Clear();
             _output.Clear();
@@ -83,11 +84,13 @@ internal sealed class MovementCapture : MonoBehaviour
         _samples = 0;
         BindPlayerInputs();
         BindMotorProbes(true);
+        MovementTimingProbe.Begin();
         _output.AppendLine($"targetFrameRate={Application.targetFrameRate} vSyncCount={QualitySettings.vSyncCount}");
         _output.AppendLine(MontageAnimalTick.Summary);
+        _output.AppendLine(PlayerMovementTiming.Summary);
         _output.AppendLine("inputBinding=" + _inputStatus);
-        _output.AppendLine("movementCallCount=unavailable requestedDisplacementPerCall=unavailable Character state/leader/look demand require a bound native cachedState; missing fields are unavailable. Facing records show cached automatic rotation and last enacted look demand, not all current overrides. New actors after initial scene selection are not discovered. Rebind every 10 samples (~1s), at most 16 transforms per selected actor; fields/type metadata cached. rootForward is NOT visual facing.");
-        _output.AppendLine("motorDeltaTime=unavailable (not retained by motor; Unity sample delta is not motor-call delta). Restrictor identities are sampled; pointer IDs are capture-local, not persistent. Contacts omit triggers/casts and do not establish absence of restrictions.");
+        _output.AppendLine("playerUpdateCallCount=recorded-at-end requestedDisplacementPerCall=unavailable Character state/leader/look demand require a bound native cachedState; missing fields are unavailable. Facing records show cached automatic rotation and last enacted look demand, not all current overrides. New actors after initial scene selection are not discovered. Rebind every 10 samples (~1s), at most 16 transforms per selected actor; fields/type metadata cached. rootForward is NOT visual facing.");
+        _output.AppendLine("playerUpdateDeltaTime=recorded-at-end (native player update argument; Unity sample delta is not motor-call delta). Restrictor identities are sampled; pointer IDs are capture-local, not persistent. Contacts omit triggers/casts and do not establish absence of restrictions.");
         _output.AppendLine($"version={Plugin.PluginVersion} room={_room} activeBodies={bodies.Length} capturedBodies={_bodies.Count} cap={MaxBodies}");
         _output.AppendLine("sample|realtime|frame|fixedTicks|timeScale|fixedDelta|delta|maxFrameDelta|focused|body|position|rootTransformPosition|velocity|rootForward|kinematic|gravity|sleeping|constraints|detectCollisions");
         _samples = 0;
@@ -311,6 +314,7 @@ internal sealed class MovementCapture : MonoBehaviour
                     if (property.Property == null) { _output.Append("unavailable"); continue; }
                     object? value = property.Property.GetValue(entry.Motor);
                     if (value is Vector3 vector) _output.Append(V(vector));
+                    else if (value is Vector2 vector2) _output.Append(InputVector(vector2));
                     else if (value is Transform visual) _output.Append("transform#").Append(visual.GetInstanceID()).Append(" localScale=").Append(V(visual.localScale)).Append(" forward=").Append(V(visual.forward));
                     else if (property.Name == "motorRestrictors")
                         _output.Append(MovementCaptureFormatting.Restrictors(value));
@@ -337,14 +341,16 @@ internal sealed class MovementCapture : MonoBehaviour
         _motors.Clear();
     }
 
-    private void OnDestroy() => ReleaseProbes();
+    private void OnDestroy() { MovementTimingProbe.Stop(); ReleaseProbes(); }
 
     private void Finish(string reason)
     {
         _active = false;
         ReleaseProbes();
+        MovementTimingProbe.AppendTo(_output);
         _output.AppendLine("end=" + reason);
         _output.AppendLine(MontageAnimalTick.Summary);
+        _output.AppendLine(PlayerMovementTiming.Summary);
         string directory = System.IO.Path.Combine(Paths.BepInExRootPath, "diagnostics");
         System.IO.Directory.CreateDirectory(directory);
         string path = System.IO.Path.Combine(directory, "movement-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + ".txt");

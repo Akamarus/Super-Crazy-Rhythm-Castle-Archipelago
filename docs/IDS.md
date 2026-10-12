@@ -1,4 +1,4 @@
-## Schema20 cassette bundle items (unreleased 0.29.0)
+## Schema20 cassette bundle items (published APWorld 0.29.0)
 
 Confirmed scope: existing 30 native cassette mappings, random pairs or triples per seed.
 Permanent item IDs **187256164–187256178** map in order to **Cassette Bundle 01–15**.
@@ -296,7 +296,7 @@ entries above. Original `character_quest_items` and
 `character_quest_item_locations` maps remain unchanged. New quests require a
 fresh v0.26 seed; schema-16 seeds are not upgraded. The candidate is uninstalled
 and gameplay acceptance is pending. Native mapping and scope limitations are
-recorded in [the acceptance record](testing/2026-09-16-quest-checks-candidate.md).
+recorded in [the acceptance record](archive/testing/2026-09-16-quest-checks-candidate.md).
 
 
 ## v0.27 supplemental checks (schema 18 candidate)

@@ -1,249 +1,27 @@
-## v0.29.0 / Client 0.76.0 release checkpoint — October 12
+# Known issues and coverage limits
 
-The [release notes](releases/v0.29.0.md) are the current summary of changes, compatibility, validation and known issues. Older entries below preserve development history. Cold Storage/Cell Tower Star Eater investigation remains deferred at the user's request; do not interpret that deferral as native verification.
+Current release: **v0.29.1 / Client 0.76.1 / APWorld 0.29.0**.
 
-## October 12 release package prepared and APWorld installed locally
+## Open reports and modeling limits
 
-The final audited APWorld was installed into the local Archipelago custom_worlds folder for Universal Tracker. Installed and packaged SHA-256 match. Restart Universal Tracker to load it. Existing seeds, server state, saves and installed client were not modified.
+| Area | Current status |
+| --- | --- |
+| Performance | Intermittent note-affecting song/windowed/Combo Bucket hitches remain under investigation. One recent conversion was smooth; that does not close all performance reports. |
+| Player movement | The captured short-update stalls are repaired and targeted gameplay accepted in the 0.76.1 client. Extended-session and multiplayer coverage remains incomplete. Older client 0.76.0 does not contain this player repair. |
+| Cold Storage / Cell Tower Star Eater | Further native prerequisite investigation was deferred; do not treat this as verification. |
+| School Trip / cassette aliases | School Trip Plant Pipes requirements and Gold/On the Way alternatives remain under review. |
+| Late King Ferdinand ratings | Depend on late-game Gecko content not fully modeled; these checks remain filler-only and are not guaranteed reachable. |
+| Bunker scope | Bunker Keycard, Notepad, Data Stick and Demon Key are not all implemented as separate randomized items/checks; conservative Bunker/Demonic assumptions remain. |
+| Hypno Pan crafting | Crafting can be unavailable when already owned; native alternative recipes are not comprehensively modeled. Ability use passed targeted testing. |
+| Old-save cassette leaks | Previously leaked vanilla ownership is not automatically removed from existing saves. |
+| Display startup | A fullscreen/fallback warning loop was reported historically. The mod does not force fullscreen or alter display preferences; a general native/driver fix is not established. |
 
-APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog, AI disclosure and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](releases/v0.29.0.md).
+## Accepted fixes and remaining coverage
 
-## October 12 user-reviewed prerequisite corrections (candidate)
+Montage animal movement at normal high frame rates, early Regular/Pro selection, Roots booth visibility, inventory-independent cartridge chests, entrance retry after new Stars, and the tested item delivery paths have user acceptance. Quicksand and Bloody Tears source tests passed without vanilla rewards or duplicate grants after returning. These should not remain labeled wholly unresolved.
 
-Direct Plunger/Bees/Frying Pan/Smooch pickups, Bucket Minion trade, Boring Room certificate source, bee access, Fish Tears via the Cell Tower return, Lift Quest via Lobby, Cold Storage Plant Pipes and Royal Star Eater access now follow the reviewed workbook. Loneliness and Party Non Stop retain Hypno Pan per the user's correction. Existing IDs, location counts and placement safety remain unchanged.
+Native acceptance does not cover every item/order combination. Triple bundles and large notification batches have automated coverage; pairs and the tested receipts have native acceptance. More seeds/difficulties, cross-player delivery, local co-op, online co-op and long sessions remain useful broader testing.
 
-All 190 APWorld tests, 54 AP 0.6.8 generation cases and 1,888 actual Universal Tracker states pass. Candidate only, not installed or published. Native uncertainty remains for School Trip, Cold Storage/Cell Tower Star Eater, Bunker keycard randomization, late-game Gecko and two cassette aliases. See [audit dispositions and evidence](testing/2026-10-12-user-rule-audit.md).
+Tracker/world rule agreement does not establish every native prerequisite. Existing seeds retain their placements when logic is updated.
 
-## October 11 corrected independent Lobby routes
-
-User-confirmed native behavior: Lobby Access independently opens Boring Room, Minim Tower and The Vault; none requires Lift Quest or another Lobby level. Each retains its own generated AP Star entry gate. Plunger hand-in requires Lobby Access and Plunger only. Lobby Star Eater requires those plus its seed-authored Star threshold (4 in the current test seed). Other Lobby story dependencies remain explicit and are not silently removed.
-
-Regression tests reproduce the old failures and cover independent level gates, absent area access, Plunger and below-threshold Stars. All 181 APWorld tests pass. Actual UT replay covers 12 worlds / 1,888 inventory states with zero reconstruction defects; current test inventory now exposes 48 unchecked locations rather than 25. Existing placements, IDs and saved Star requirements are preserved. This supersedes the historical conservative Lift Quest prerequisite and the earlier claim that matching tracker/world predicates alone validated native access.
-
-## October 11 release integration checkpoint
-
-Montage animal timing is now enabled normally, retaining the gameplay-accepted implementation. The rejected nullable motor hook, its clock and tests, and the temporary F9 frame-rate probe and tests were removed. F8 observation remains for other movement reports. No frame cap or fullscreen override is added. This cleanup build is not installed or published; the accepted test DLL remains installed.
-
-Accepted in gameplay: Montage improvement at approximately 165–171 FPS, and the initial Regular/Pro Change-button repair. Automated coverage alone does not close the remaining reports.
-
-Still awaiting targeted native acceptance:
-- Triple-bundle coverage and other delayed item types remain to verify; live pair-bundle receipt, notification, deposit, immediate song selection and persistence after restart/reconnect are user-accepted, with both songs verified HAVE_DEPOSITED in the new launch log.
-- Roots booth pickup visibility is user-accepted from their earlier observation, confirmed October 11; the Bloody Tears 46-point chest while carrying its cartridge also passed, including its AP check.
-- Entering a star-blocked level immediately after receiving enough AP Stars without reloading the area.
-- Lobby Meoo/Plunger/Star Eater checks on the new readiness path, and a live Universal Tracker comparison.
-
-Still open investigations: early Lobby and native Hypno recipe route requirements, movement outside the accepted Montage scope, and intermittent song/windowed/Combo Bucket performance. Earlier historical status entries below may describe superseded builds; this checkpoint and the linked acceptance evidence take precedence. Local packaging does not constitute release approval.
-
-## October 11 release candidate — APWorld 0.29.0 / client 0.76.0
-
-Not installed or published. Candidate changes include randomized cassette pairs/triples, exclusion-aware generation capacity, Level 15/16 Plant Pipes logic and Cell Tower Violance gating; Regular/Pro availability; Roots booth visibility; item-delivery verification and retry; and inventory-independent cartridge chest collection.
-
-New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
-
-Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
-## October 6 display-mode inspection
-
-No active fullscreen override was found in the mod, Steam launch options,
-shortcuts or wrapper. Saved Unity display mode is Windowed. No display setting
-was changed. The earlier recommendation to keep fullscreen is withdrawn; the
-reported native fullscreen warning loop remains unconfirmed on current launch.
-
-## October 6 cassette bundle candidate
-
-- APWorld 0.29.0/client 0.76.0 random cassette bundles and exclusion-aware generation are prepared,
-  not installed. Actual generation/UT tests pass; native receive, deposit, popup and reconnect
-  acceptance on a separate save is still required.
-- Point consolidation preserves the total but makes some Music Lab chest unlocks arrive in
-  larger jumps. It is used only when the selected exclusions otherwise exceed modeled capacity.
-- The original Normal/40 YAML generation-capacity failure is fixed in this candidate in all
-  three cassette modes. Impossible more restrictive configurations produce an explicit error.
-- Earlier movement and restart-dependent cassette reports remain open; these new tests do not
-  establish that those gameplay defects are resolved.
-
-## October 6 development status
-
-Movement remains unresolved; improved diagnostics are prepared but uninstalled.
-Native acceptance is pending for the new Regular/Pro availability, consumable
-receipt retry, Roots booth visual and cartridge chest corrections. The specific
-Zen/cassette delivery report and Archipelago 0.6.8 compatibility testing remain open.
-These development changes do not alter the installed async build or existing seed.
-
-# v0.28.2 status - September 29, 2026
-
-This APWorld-only release fixes the reported Ionium option-validation and
-seed-generation failures. The full browser suite passed 205 unit tests and
-14,500 fuzz runs, including multiworld and Universal Tracker checks. This does
-not constitute index approval or a 1,900-player live playtest. Existing client
-issues below remain open; client v0.75.13 is unchanged.
-
-
-
-## Universal Tracker compatibility update — September 21
-
-Install the updated **scrc.apworld (APWorld v0.28.1)** on the computer running
-Universal Tracker. Client v0.75.13 is unchanged. Existing v0.28/schema-19 seeds
-already contain the necessary data and do not need regeneration or a save reset.
-
-The APWorld now implements UT's YAML-less regeneration hooks. It restores the
-server's exact starting area, AP difficulty, victory goal and all generated Star
-gates instead of rolling new requirements. Malformed or older unsupported slot
-contracts fail with an explicit error. IDs, placement rules and normal seed
-generation remain unchanged.
-
-Verified with the actual Universal Tracker v0.3.3 core on Archipelago 0.6.7:
-12 difficulty/goal combinations plus the retained Hard40 seed. Exact gate values,
-location counts, item-driven reachability, Victory logic and checked-location
-removal were verified headlessly. This is logic-tracker support, not a custom map
-or an embedded in-game tracker; GUI/network interaction was not exercised by this
-test. See [Universal Tracker setup](UNIVERSAL_TRACKER.md).
-
-Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
-use the hotfix tag or main to build the updated APWorld download.
-
-
-# Known issues — v0.28.1 / Client v0.75.13
-
-Victory is gameplay verified: Hard difficulty, 40 AP Star goal, fresh-save run,
-server CLIENT_GOAL (30). The previous general statement that Victory is unverified
-is superseded. See the [release notes](releases/v0.28.1.md) for the current summary.
-
-Current open issues: intermittent player/NPC movement faults; windowed/song and
-Combo Bucket hitches; exclusive-fullscreen retry warnings at startup; delayed Zen
-cassette delivery requiring restart in one report; already-owned Hypno Pan crafting.
-Broader native cassette-source, seed/difficulty and multiplayer acceptance remains
-incomplete. Tower entrance routing is regression/build-tested only, by user choice.
-Existing leaked cassette ownership is not automatically removed.
-
-## Historical investigation records
-
-The entries below retain their original dates and candidate statuses. Use the
-current release notes and later acceptance entries for present status.
-
-# Known issues — v0.28.0 / Client v0.75.4
-
-Current release status; older testing checklists are historical evidence.
-
-## Known bugs
-
-- **Temporary severe lag around Combo Bucket conversion / Lift Quest:** reported during the broad playtest, recovering partway through the level. The cause and a complete fix are not established.
-- **Hypno Pan crafting when already owned:** pre-granting Hypno Pan can make Frog and Hippo's crafting interaction unavailable. Ability use was confirmed working. A separate crafting check has not been added because its independent completion marker and safe reward replacement remain unresolved.
-
-## Follow-ups deferred until after the full playthrough
-
-Recorded 2026-09-18 during the Hard / 40 AP Star run on Client v0.75.2. The Quicksand investigation was resumed in the September 20 full-mod audit. The player subsequently paused the playthrough to prioritize lag throughout the game; v0.75.4 performance changes are installed and substantially improved live play; residual hitches remain under investigation.
-
-- **Quicksand cassette appears to leak its vanilla reward:** the 32-point chest correctly sent its randomized Gradius Remix Cartridge, but Quicksand was already marked `HAVE_DEPOSITED` when its actual AP item arrived later from Fumblin Around - Bronze. Logs support the reported early native grant; the September 20 native trace identified inlined request dispatch bypassing the managed hook. Review the shared reward path for all five Music Lab cassette chests, preserving legitimate AP receipt and insertion behavior. Keep the current seed/save.
-- **General gameplay lag, including Music Lab songs (active high-priority scoring issue):** the player reports lag everywhere, with Music Lab and 10-4 Good Buddy as specific examples, and warns that it makes good scores impractical at higher difficulties. Client v0.75.4 removes the measured repeated cassette scan cost (roughly 9.7 ms to 0.007 ms per frame), and live testing is substantially smoother. Occasional hitches still cost notes; their remaining cause is not established. Profile multiple Music Lab songs, investigate shared gameplay overhead, and verify that timing is stable enough for higher-difficulty medal requirements. Do not assume it shares the earlier Combo Bucket lag cause.
-
-## Testing limits and remaining work
-
-- The new AP Star HUD, native entry gates, new Star Eater thresholds, Cell Tower feed check, King unlock check and post-threshold victory still need final in-game acceptance together on a fresh seed/save. Generation success does not prove every native prerequisite or UI boundary.
-- 33 of the previous 37 supplemental checks were confirmed in the broad gameplay pass. Demonic Tower, Demonic Escape, Demonic Lockers and Demolition Certificate are implemented but were not manually played in that pass. Royal/Bunker feeding was tested with temporary 25-star thresholds, not the original 40/66 thresholds.
-- Failed special-level attempts, full save/seed-isolation gameplay, true cross-player notification coverage and the complete native campaign/cassette route matrix remain incompletely verified. Automated tests cover relevant policy and isolation cases.
-- Local co-op and online co-op are not verified release features.
-- Remaining source investigations: separate Hypno Pan crafting; Bizzle/Clive switches; independent Super Nectar component awards; Demon Key acquisition/use; final demon interaction versus its existing cartridge source. Bean Trumpet is still native and shares the Letters pickup; Notepad/Data Stick share the Gecko interaction; Bizzle/Clive acquisition shares Meet the Bees. These are not additional independent checks in this release.
-
-## Fixed in the September 18 hotfix
-
-The Roots-entry/Star Eater interaction crash was traced to unsafe native reference assignment. Client v0.75.4 includes the direct object-reference setter and verified rollback repair, along with the tested metadata-cache performance fixes. Continue reporting any new crash with the client version and log.
-
-## September 20 audit candidate (not yet accepted in game)
-
-Client v0.75.6 intercepts the five audited cassette chest reward reactors, fixes missing cassette source checks after early AP receipt, suspends invalid AP Star history, defers uncertain first-save binding, and improves notification history/replay. Automatic save/member diagnostics and unrelated character-event allocations are reduced. [Full audit](testing/2026-09-20-full-mod-audit.md).
-
-Quicksand's bypass is fixed in the candidate code and regression tests; live chest/native insertion acceptance remains pending. Existing leaked cassette ownership is unchanged. Remaining song hitches, Combo Bucket lag, Hypno Pan crafting and unverified gameplay routes are still open, rather than being declared resolved by code review alone.
-
-## Fullscreen comparison — September 20, Client v0.75.6
-
-The player repeated the affected Fumblin Around section in fullscreen and reported no issues. Fullscreen is a confirmed workaround for this reproduction, not proof that all performance issues are resolved. The preceding windowed trace showed continued game frame submission during a roughly4.3-second pause in displayed-frame statistics, without a corresponding long CPU scheduling pause. The comparison supports investigating the windowed presentation/compositor path; the exact driver, overlay or compositor cause remains unproven.
-
-Historical workaround only; do not force fullscreen. Retain the player's chosen display mode. Windowed-mode stutter remains open. Combo Bucket conversion and other songs still require separate acceptance. Temporary performance diagnostics are disabled in configuration for the next launch; the running game is unchanged. No driver/registry changes, save repair, restart or release publication was performed.
-
-## Pending cassette receipt — September 20, Client v0.75.7 candidate
-
-Zen from Wiggle Bronze was received by AP but remained staged in the default native save bundle. Cassette Lord could be interacted with but would not deposit it: the native deposit bundle rejects a song already changed by another pending bundle. Restarting recovered the player's cassette and the fresh session confirmed persistence.
-
-The candidate removes an incorrect persistence gate that treated `RequiresWriteToDisk` as an in-flight lock. Native code uses it as a pending urgent-write flag and permits ordinary bundle persistence while it is set. The existing selected-slot, pointer, ownership, readiness and receipt checks remain. A regression covers pending-write admission and selected-save mismatch rejection. Build and automated validation do not replace live acceptance of receiving and depositing a cassette without restarting. This candidate is not installed or published yet.
-
-## Movement interruptions across areas and NPCs — September 20, Clients v0.75.6–v0.75.7
-
-The player reports repeated movement stops resembling collisions after completing a Music Lab song. Animations remain smooth; leaving Music Lab and returning restores normal movement. The captured session returned from Zen (silver, 564322) with no associated exception. Cause is unconfirmed and tracked separately from windowed presentation stutter. Existing logs do not capture movement/collision state. On recurrence, compare whether stops occur at fixed floor locations and whether keyboard and controller both reproduce before modifying movement or colliders. Workaround: leave and re-enter Music Lab.
-
-## Royal Corridor Star Eater traversal — Client v0.75.7 candidate
-
-Royal Corridor Access now opens the exact native BridgeAcrossGap route and disables only StarEater/BlockingCollision, following the Roots area-access traversal rule. The native feeding requirement, interaction, fed flag, and AP check remain unchanged. Asset inspection confirmed the native RemoveHoleBlocker target and alternate bridge route. Runtime uses exact child bindings including the inactive bridge and throttled retries; no global scene scans or save mutations. Live acceptance remains pending: cross before feeding, leave/re-enter, then feed at the generated requirement and verify the check. Existing seed placements are unchanged.
-
-Royal Corridor traversal live acceptance: v0.75.7 installed September 20; player confirmed crossing works with the current below-threshold star count. Feeding at the generated threshold and receipt of its check remain separate acceptance steps. The cassette persistence fix is installed in the same build; a new receipt/deposit without restart still needs confirmation.
-
-Expanded movement report on v0.75.7: the player confirms this is not limited to Music Lab and also affects NPC movement, especially in Meat Dimension. The earlier Music Lab report had smooth animations and recovered after leaving/re-entering; those properties are not yet confirmed for Meat Dimension. Treat this as a shared movement investigation, not a proven Music Lab return bug or a confirmed physics defect. The captured Meat Dimension session logs escort recovery as skipped, with no associated exception found. No movement fix has been applied. NPC identity, fixed-location versus open-space interruption, and recovery after room re-entry remain requested reproduction details.
-
-Movement reproduction clarified: primarily Act 3: Montage (Level_22 / GameRoom_22), not just the Meat Dimension hub. Meat dogs and the cat move slowly while facing the wrong direction; Hypno Minims drift off the stage as though floating. Player observes irregular movement while overall rendering remains smooth, explicitly unlike frame drops. The hub-only mouse-escort recovery investigation does not cover this level. Current log confirms entry to GameRoom_22 and Hypno Pan ownership verified at login, but records no NPC steering, collision, facing or simulation-step data. Root cause and relation to the earlier Music Lab movement report remain unconfirmed. Prioritize controlled Act 3 reproduction and shared movement/native-hook investigation; do not mark this resolved by fullscreen or the Royal Corridor fix.
-
-Hypno Pan investigation: native leadership feeds DirectableCharacterMotor.UpdateMovement, then FollowingAIControlCharacterMotor target-position and floor-following calculations. The reviewed hooks do not directly patch these functions, and AP ability reconciliation only sets PIED_PIPER_ABILITY. No repeated grants were observed in the captured session. This does not rule out indirect mod effects. A separate address-sharing risk was found in the Roots-only DifficultyTogglerState.get_CurrentPhase override (shared with 24 other getters); investigate an exact instance guard separately, without claiming it explains Meat Dimension.
-
-Client v0.75.8 diagnostic candidate adds an F8-triggered 12-second movement capture under the existing developer harness, available in any gameplay room. It scans active rigidbodies once per explicit capture, prioritizes player-character bodies and records at most 12 bodies and 120 samples at 0.1-second intervals, stops on room change, and records transform/body position, velocity, facing, body settings, frame and physics counts, time settings, focus, maximum frame delta between samples, and native accepted/Rewired player movement inputs when readable. Files are local under BepInEx/diagnostics; no gameplay/save/physics state is written. Captured bodies are capped and may not include every NPC. This is instrumentation, not a movement fix; live reproduction and comparison remain required. Build passed with only the existing NU1900 package-audit connectivity warning. Not installed yet.
-
-September 20 live diagnostic: v0.75.8 captured the reported faulty player movement in Music Lab for 12.375 seconds (120 samples). Frame count advanced 1552 and FixedUpdate advanced 620 times; maximum recorded frame delta was 34.15 ms. Rigidbody settings remained dynamic, gravity/collision enabled, rotation frozen. This supports the player's distinction from a sustained frame freeze, but does not establish why movement feels wrong. Player input was unavailable because the diagnostic consulted network-player records. v0.75.9 candidate switches to PlayerEnquiries.GetAllLocalPlayers and records input vectors explicitly. The body-root forward vector is not proof of visual character facing. Input/native runtime acceptance remains pending; movement is not fixed.
-
-Launch lag on v0.75.8: Unity Player.log recorded 187 SetFullscreenState failures (887a0022), repeated fallback from ExclusiveFullscreen to FullscreenWindow, and refresh-rate timing drift. The mod log contained no exceptions/errors and 121 warnings, predominantly existing status diagnostics. Treat the exclusive-fullscreen retry loop as a concrete startup finding and a likely contributor, not proof of the Hypno Pan movement cause. Movement capture had not run during startup. No display settings or registry values were changed.
-
-v0.75.9 live movement capture succeeded, including native single-player input. Player reports faulty movement only at the beginning, then normal movement in the same capture. Music Lab capture duration 12.261 seconds: 1900 rendered frames (~155 FPS), 614 FixedUpdate ticks (~50 Hz), maximum sampled frame delta 19.03 ms. Accepted and Rewired movement input match at all 120 samples. During approximately 0.8–2.8 seconds, nonzero/full-strength input coincides with repeated zero or low horizontal rigidbody velocity; normal speed approaches 5.97 units/s later. A sustained near-right input from ~2.0 seconds continues across the recovery around ~2.9–3.1 seconds. Rigidbody kinematic/gravity/rotation-constraint/collision settings remain unchanged. This localizes the observed interruption downstream of the recorded input, without identifying whether motor restrictions, collision contacts, or another actor is responsible. Current capture lacks desired motor velocity and contact identities; root-body forward is not visual facing. Do not claim a controller failure, frame freeze, or confirmed collision cause. Next investigation boundary is desired versus actual motor velocity and contemporaneous contact identities, using the early faulty section and later normal section as a paired comparison.
-
-Movement research follow-up: native player movement applies a list of PlayerMotorRestrictor objects to intended/actual movement; player and follower motors ultimately share Motor.FixedUpdate. That shared motor can cancel motion when the room is not running, apply queued desired velocity/position, or preserve the current state. No reviewed direct mod hook targets those motor methods. None of those branches or collision contacts were recorded by v0.75.9, so the cause cannot yet be assigned. Published developer notes and targeted issue searches did not establish a matching documented fix.
-
-Uninstalled v0.75.10 candidate extends the same bounded F8 capture with reflected native motor fields (desired velocity/position, intended movement, queued physics action, movement permission, restriction count), room-running state, and recent collision-object identities/normals/separation. Temporary collision observers are attached only during an explicit capture and removed when it ends; they do not alter physics. Native field availability and contact callback counts are reported explicitly. Build succeeds; live diagnostic acceptance remains pending. This is not a movement repair.
-
-## September 21: first unassisted Hard/40 King clear did not report Victory
-
-Client 0.75.10 logs show 40 received Star items before GameRoom_28A and before the Level_28 result. The saved default-variant result scored 111 and one Star; completion, one-Star, character-unlock, keycard and cassette-source checks reached the retained server. Server save client_game_state remained 5, with no local ap-star-goals journal. This is not accepted as AP Victory.
-
-The exact rejected stage is not recoverable from existing logs. Native ProcessRequest(PersistLevelResultRequest) applies the score before emitting LevelResultWasPersistedEvent; required hooks installed. Reflection supports nullable identifiers. The native success request is a two-Boolean value type, whereas runtime tests use anonymous managed objects, so those tests do not validate the live ABI/hook sequence. A separate confirmed code weakness consumes the admitted candidate before attempting the final stable-save callback, dropping it if readiness is temporarily unavailable; causality for this run remains unproven.
-
-Candidate 0.75.11 adds event-only GOAL TRACE messages for admission, success flags, result binding, persisted identifiers, commit/save readiness, and journal write. No qualification rule, server state, save, or installed plugin was changed. Release build succeeded and 27 AP Star runtime checks passed. Deployment and live acceptance pending. Evidence archived in workspace work/audit20260920/victory-missing-client.log and victory-missing.apsave.
-
-## September 21 — v0.75.11 victory retention repair
-
-Matched, qualified persisted result evidence is now retained across temporary stable-save unavailability and retried on the existing one-second goal tick. New level admission clears only the in-flight attempt; explicit native/session boundaries invalidate deferred evidence. A verified different save rejects it. Star qualification remains frozen at result capture; subsequent Star receipt cannot upgrade an early clear. Journal and official StatusUpdate/ClientGoal delivery remain unchanged. Event-only goal tracing is included for live acceptance.
-
-The new recovery regression failed before the repair and passed afterward. 34 AP Star runtime checks, including changed-save rejection, explicit boundary rejection, duplicate persistence, later Stars, and starting another level while pending, passed. Connection/goal-packet tests and Release build passed. Build warning NU1900 reflects unavailable package vulnerability service. Previous discarded clear cannot be recovered automatically. Live King clear remains pending; do not claim the user's original failure cause is proven.
-
-
-## September 21: v0.75.12 nullable victory event repair (installed; gameplay pending)
-
-The v0.75.11 live replay captured a successful King Ferdinand I result with 41/40
-AP Stars, matching admitted/applied Level_28 and LevelVariant_Default. The native
-LevelResultWasPersistedEvent exposed an empty nullable LevelVariant, so strict
-variant equality rejected the qualified completion before journal/goal delivery.
-v0.75.12 accepts an omitted event variant only with a matching level and an already
-bound applied-score candidate. Explicit variant conflicts, unbound results, changed
-saves, early clears and duplicate delivery remain rejected. Runtime fixtures now
-use production ReflectionUtil and cover nullable native-shaped event variants.
-No goal is restored from logs or manually granted; native gameplay acceptance is
-still required. Existing completion-retention and official StatusUpdate(30) remain.
-
-## September 21: first confirmed unassisted AP Victory
-
-Client v0.75.12 passed live Victory acceptance on seed 23131899417402815337,
-player Jack, native slot 4, Hard difficulty, 40 AP Star goal. The final clear
-started and persisted with 41 AP Stars. Trace verified successful saved result,
-matching Level_28/default applied result, empty optional event variant, same-save
-commit, durable goal journal and AP STAR VICTORY send. The server save recorded
-client_game_state[(0, 1)] = 30 (CLIENT_GOAL), and the server announced that the team
-completed all games. No manual goal, injected victory journal or server assistance
-was used to award completion. Automatic release of remaining items followed goal.
-The victory regression is gameplay accepted; unrelated movement/performance issues
-remain open. No additional boss replay is required. Release publication is pending.
-Local evidence retained outside the repository: victory-07512-success.log and
-victory-07512-success.apsave in the task workspace work/audit20260920 directory.
-
-## September 21: Tower of Fear exterior softlock (v0.75.13 candidate)
-
-GameRoom_Hub5C is now part of Tower of Fear access alongside GameRoom_Hub3.
-Previously Royal Corridor could enter this unmapped exterior without Tower Access,
-leaving no usable return door or reachable phone. The existing destination guard
-now redirects unowned exterior arrivals (including restore transitions) to Music
-Lab. With Tower Access, native travel is preserved. Vanilla mode is unchanged.
-No door/story flags, items, checks or APWorld rules are altered. This follows the
-user's requested option to classify the entrance room as Tower of Fear.
-Regression reproduced the old unguarded destination; native route acceptance is
-pending. Installed v0.75.13 with approval. Live route test was explicitly deferred for release.
+See [test evidence](TESTING.md), [release history](../CHANGELOG.md), and [historical issue records](archive/checkpoints/docs-KNOWN_ISSUES.md).

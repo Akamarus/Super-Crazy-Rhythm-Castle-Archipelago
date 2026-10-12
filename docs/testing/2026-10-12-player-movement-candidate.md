@@ -1,0 +1,13 @@
+# Player movement timing candidate — October 12
+
+Evidence: 45 sampled full-input stops in three diagnostic captures all follow a native player-update delta below 0.01/6 seconds and show timeSpendMoving=0. Normal capture has no such short updates. Native updater reads Unity Time.deltaTime, and player input movement multiplies supplied elapsed by speed; very small displacements reset acceleration.
+
+Candidate batches only PlayerCharacter.UpdateMovementFromPlayerInput calls while total pending elapsed is below 2 ms. It forwards the accumulated time once the minimum is met. Whole-character updates, abilities, rendering and global clocks remain untouched. Native restrictions still execute on admitted movement updates. The admitted call observes the latest native input; input changes during a deferred interval are sampled on the next admitted call, rather than replayed individually. This needs manual stop/turn/analogue/collision acceptance, and is not a universal repair for arbitrarily low analogue input or modified movement speeds.
+
+Native ABI confirmed from call-site and callee: this pointer, float elapsed in XMM1, PlayerIdentifier in R8B, method info. Runtime validation requires exact void(float, PlayerIdentifier) declaration and one-byte value-type identifier; no Harmony bridge for nullable/vector arguments. Failure disables the candidate and passes original arguments through. Original exceptions are never caught and retried.
+
+State bounded to four actors; pause/nonpositive/invalid/large time, frame gaps, backwards frames, room changes and save boundaries clear pending elapsed. No saves or progression flags changed. F8 logs candidate admission/defer counts alongside the existing raw player-update timing.
+
+Automated policy tests exercise tiny-time carry, pause, gaps, scene reset, invalid values and actor isolation; three real faulty timing streams replay with no admitted interval below 2 ms and elapsed conserved except bounded trailing residual. Build and native gameplay outcomes must be recorded separately. Candidate was installed with approval and has targeted native acceptance; it is included in release v0.29.1 as Client 0.76.1.
+
+Native acceptance: user confirmed normal movement initially, after a Music Lab song, across room changes, after restart, and while moving NPCs with Hypno Pan. F8 confirmed the candidate active, 130 short updates combined, and zero near-zero desired movement samples among 119 full-input samples. Final focused acceptance passed: the user confirmed releasing the stick, reversing direction, gentle analogue input, walking into a solid wall and away, and pause/resume. The targeted native movement checklist is complete; extended-session and multiplayer coverage are not claimed. Retain rollback DLL.
