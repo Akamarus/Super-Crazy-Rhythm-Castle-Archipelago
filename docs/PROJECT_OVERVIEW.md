@@ -140,6 +140,10 @@ This changes generation and Universal Tracker logic, not native entry or score
 handling. Existing async placements are not rewritten. No client update, live
 installation, server change or save modification is part of this correction.
 
+## October 11, 2026 — Licensing and packaging correction
+
+Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation and clarified AI review scope. See [packaging](PACKAGING.md) and [AI disclosure](AI_DISCLOSURE.md).
+
 
 
 ## Universal Tracker compatibility update — September 21

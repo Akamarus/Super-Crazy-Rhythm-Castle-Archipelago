@@ -18,6 +18,3 @@ internal static class MetadataInspection
         }
     }
 }
-
-
-

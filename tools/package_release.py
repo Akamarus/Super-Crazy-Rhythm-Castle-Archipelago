@@ -106,7 +106,10 @@ def validate(path):
     for name, data in entries.items():
         if expected[name] != digest(data): raise ValueError('Hash mismatch: ' + name)
     for name in NOTICE_FILES:
-        if entries.pop(prefix + name, None) != (ROOT / name).read_bytes():
+        actual = entries.pop(prefix + name, None)
+        expected_notice = (ROOT / name).read_bytes()
+        # Git checkouts may normalize line endings; the manifest still verifies exact archive bytes.
+        if actual is None or actual.replace(b'\r\n', b'\n') != expected_notice.replace(b'\r\n', b'\n'):
             raise ValueError('Missing or altered required notice: ' + name)
     check_payload(entries, kind)
     if kind == 'client' and manifest.get('dependencies') != DEPENDENCIES:

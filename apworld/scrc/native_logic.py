@@ -113,6 +113,3 @@ def source_rule(world, name, state):
     raise ValueError(f'No modeled native route for {name}')
 
 SAFE_SOURCES=frozenset(SOURCE_PATHS)|frozenset(f'{area} - Star Eater Fed' for area in ('Roots','Lobby','Cell Tower','Royal Corridor'))
-
-
-

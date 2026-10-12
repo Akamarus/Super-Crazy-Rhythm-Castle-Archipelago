@@ -210,6 +210,6 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 4. Keep AP reachability logic consistent with what the client can actually do in-game.
 5. Update `CHANGELOG.md`, `docs/IDS.md`, and `docs/PROGRESSION.md` when a milestone changes them.
 
-## License and third-party software
+## License and development disclosure
 
-Original project contributions are licensed under [MIT](LICENSE), as approved by the maintainer. Third-party software retains its own terms; the license does not cover the game's assets or trademarks. See [third-party notices](THIRD_PARTY_NOTICES.md) and [release packaging](docs/PACKAGING.md).
+Original project contributions are licensed under [MIT](LICENSE). Third-party software retains its own terms; this license does not cover game assets or trademarks. See [third-party notices](THIRD_PARTY_NOTICES.md), [packaging](docs/PACKAGING.md), and the [AI disclosure](docs/AI_DISCLOSURE.md), which distinguishes gameplay validation from human source review.

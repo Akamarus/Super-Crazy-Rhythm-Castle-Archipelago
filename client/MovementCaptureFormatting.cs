@@ -99,5 +99,3 @@ internal static class MovementCaptureFormatting
         return name + "#identity-unavailable";
     }
 }
-
-
