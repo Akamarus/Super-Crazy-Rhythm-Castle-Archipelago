@@ -1,42 +1,20 @@
 param(
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    [string]$Python = "python",
+    [string]$SourceRevision = ""
 )
-
 $ErrorActionPreference = "Stop"
-
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sourceDir = Join-Path $repoRoot "apworld\scrc"
-
-if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "dist"
+if ([string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir = Join-Path $repoRoot "dist" }
+if ([string]::IsNullOrWhiteSpace($SourceRevision)) {
+    $SourceRevision = & git -C $repoRoot rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw "Specify -SourceRevision when building outside Git" }
+    $dirty = & git -C $repoRoot status --porcelain
+    if ($LASTEXITCODE -ne 0) { throw "Cannot determine source state" }
+    if ($dirty) { $SourceRevision += "+dirty-local" }
 }
-
-if (!(Test-Path $sourceDir)) {
-    throw "APWorld source directory not found: $sourceDir"
-}
-
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("scrc-apworld-" + [guid]::NewGuid().ToString("N"))
-$tempPackage = Join-Path $tempRoot "scrc"
-New-Item -ItemType Directory -Force -Path $tempPackage | Out-Null
-
-try {
-    Copy-Item (Join-Path $sourceDir "*") $tempPackage -Recurse -Force
-    Get-ChildItem -LiteralPath $tempPackage -Directory -Filter "__pycache__" -Recurse |
-        Remove-Item -Recurse -Force
-
-    $zipPath = Join-Path $OutputDir "scrc.zip"
-    $apworldPath = Join-Path $OutputDir "scrc.apworld"
-
-    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-    Remove-Item $apworldPath -Force -ErrorAction SilentlyContinue
-
-    Compress-Archive -Path $tempPackage -DestinationPath $zipPath -CompressionLevel Optimal
-    Move-Item $zipPath $apworldPath -Force
-
-    Write-Host "Built:" $apworldPath
-}
-finally {
-    Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-}
+$sourceDir = Join-Path $repoRoot "apworld/scrc"
+$metadata = Get-Content (Join-Path $sourceDir "archipelago.json") -Raw | ConvertFrom-Json
+$release = "APWorld " + $metadata.world_version
+& $Python (Join-Path $PSScriptRoot "package_release.py") --kind apworld --input $sourceDir --output (Join-Path $OutputDir "scrc.apworld") --source-revision $SourceRevision --release $release
+if ($LASTEXITCODE -ne 0) { throw "APWorld package validation failed" }

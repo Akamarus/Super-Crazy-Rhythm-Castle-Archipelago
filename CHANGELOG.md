@@ -1,3 +1,7 @@
+## October 11, 2026 — Licensing and packaging correction
+
+Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation and clarified AI review scope. See [packaging](docs/PACKAGING.md) and [AI disclosure](docs/AI_DISCLOSURE.md).
+
 # v0.28.2 - Generation and Multiworld Compatibility
 
 September 29, 2026

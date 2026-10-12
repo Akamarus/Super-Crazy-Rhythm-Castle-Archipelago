@@ -1,0 +1,130 @@
+[
+  {
+    "release": "v0.21.0-dev",
+    "file": "RhythmCastleAP-0.67.95.zip",
+    "sha256": "79efcb8ca8014cd3ddeb17b4135a09d107b749fe1a4bd36e3d929ee87816050e",
+    "original_sha256": "681e476798a87b0ef7c115d13e909e687d209b214f68c12a871e313ef43a3aba",
+    "unchanged_original_members": 3,
+    "source": "2921408abef7d31364595d4a50193630ba1c4488"
+  },
+  {
+    "release": "v0.21.0-dev",
+    "file": "scrc.apworld",
+    "sha256": "110d9c0b47021d46f0b0810e268bd2dcd16c8365bada7df487b94e9fd654deee",
+    "original_sha256": "e666b7e99817b44c8fca2640a2a3a2f425a7c7c1f84557573be77ee5c28e40e2",
+    "unchanged_original_members": 10,
+    "source": "1ca910fad1d935c03a75564e6a3547a4d74ac10d"
+  },
+  {
+    "release": "v0.22.0-dev",
+    "file": "RhythmCastleAP-0.68.0.zip",
+    "sha256": "7e416032bc14d6e340674bec6c984a34bf02afb7831ded651c2231347205ef77",
+    "original_sha256": "b2477c150045cd4361f5ac7fbd2e9f214f9287d12aa18ce2e7b068f78314c8af",
+    "unchanged_original_members": 3,
+    "source": "05d7e5e915efaeea10427c9039fb91feba934923"
+  },
+  {
+    "release": "v0.22.0-dev",
+    "file": "scrc.apworld",
+    "sha256": "4ea25c429479ba3fe5eab85ec8de64ca1e83839425d275460e3d4b2c60281714",
+    "original_sha256": "6c3d2fd47f4ec500389b78d9e28063ffd48e2c263bdd4fe9f841d90302dbeefa",
+    "unchanged_original_members": 11,
+    "source": "v0.22.0-dev"
+  },
+  {
+    "release": "v0.23.0-dev",
+    "file": "RhythmCastleAP-0.69.0.zip",
+    "sha256": "8523df9d194c18f91f275dc6d728eccd8c78dbf6273a3d6e9502690dd1f1d94c",
+    "original_sha256": "63248a1b73f34f75247ace75d648f1e095909716734147448e7da14033b393cb",
+    "unchanged_original_members": 3,
+    "source": "0c82e5398865f844fa1104494d6f2363b34c6e4d"
+  },
+  {
+    "release": "v0.23.0-dev",
+    "file": "scrc.apworld",
+    "sha256": "85f4f05b9fdf5c6815cf875b1e160580cf5d25cd7f0ebe7894dd0261b70f742a",
+    "original_sha256": "b8c4a16e3196a80f30eca4342f80dbab1e290100e667fcdefa75827faa54c22f",
+    "unchanged_original_members": 12,
+    "source": "v0.23.0-dev"
+  },
+  {
+    "release": "v0.24.0-dev",
+    "file": "RhythmCastleAP-v0.70.0.zip",
+    "sha256": "a77bdbd6796f7a8726f4f5419b33df18dd6e4589ba1e65e5d4a7a41d17bbc938",
+    "original_sha256": "5f163c8f50030fe38f098f42d8264104a36ce2130341479a756b9beb258cc7be",
+    "unchanged_original_members": 3,
+    "source": "ea1344bb776e89c8e9ed23f2aa453d0191a229b6"
+  },
+  {
+    "release": "v0.24.0-dev",
+    "file": "scrc.apworld",
+    "sha256": "863799c0b2144764f9934eb678658555fbe7f43e337451596cecfc45f52ae5ad",
+    "original_sha256": "7cf276074a4f05dc9a232239d7944846b6c8c7537d9459db248ac7d22ab9f575",
+    "unchanged_original_members": 13,
+    "source": "v0.24.0-dev"
+  },
+  {
+    "release": "v0.26.0-dev",
+    "file": "RhythmCastleAP-v0.73.9.zip",
+    "sha256": "0a4fef9a6550c2f08b1f7c25153830faff67facf6e94e8b2eaf2e45a1afee0e7",
+    "original_sha256": "f7778542788c4b137b43247d42b2417cc77fbe7d83ba82e283143bc958221ce1",
+    "unchanged_original_members": 3,
+    "source": "8083140db735f29a3bfe8f16bf3e7576d39b17f1"
+  },
+  {
+    "release": "v0.26.0-dev",
+    "file": "scrc.apworld",
+    "sha256": "b42d2c9362a51b857043f10bdb5ddd686c4735fc93ef521c5a9c9ba1ebf5ca36",
+    "original_sha256": "e87ae68898a801d37d4bc94d8ca5c5db412a7494cf2eade358c489742f080531",
+    "unchanged_original_members": 13,
+    "source": "v0.26.0-dev"
+  },
+  {
+    "release": "v0.28.0",
+    "file": "RhythmCastleAP-v0.75.4.zip",
+    "sha256": "db5d68e852ca7a73345f0f2bae06ed2fc337e19e6e3dc15393a07c1fb1f58378",
+    "original_sha256": "ed13bbdcdec006258cc4dd376ec540acf050bc7a65f93da0fea515401cd35fea",
+    "unchanged_original_members": 3,
+    "source": "65dffc320e673be5bebe7a9e5966d36d2fa2be2b"
+  },
+  {
+    "release": "v0.28.0",
+    "file": "scrc.apworld",
+    "sha256": "b2df1701a3b05d0c95d454c8b60a1ae212811751da0610333902ac9f960be039",
+    "original_sha256": "082875536e61b75cc6ef8435ea9c7ae92bac07b244bb1f2daa32f677aacbca9e",
+    "unchanged_original_members": 16,
+    "source": "v0.28.0-hotfix.1"
+  },
+  {
+    "release": "v0.28.1",
+    "file": "RhythmCastleAP-v0.75.13.zip",
+    "sha256": "6e2f71a2b5c73992eeb91f0c91d91f4636a149cb4c469a00e92a0ae636b6bc41",
+    "original_sha256": "a7bd86abed2ee4f9ff4d6a37fe96963db304d8321fb322cd8a58c4d8ce6a3010",
+    "unchanged_original_members": 3,
+    "source": "2e32f83b56e0133ae441f346f269c3bf41bc535f"
+  },
+  {
+    "release": "v0.28.1",
+    "file": "scrc.apworld",
+    "sha256": "84a1102f8c9152fc00efc309407e89241de1364dc847786c9a09abe313f51c9d",
+    "original_sha256": "db1b8a2d6772d2dcb400b021179b187132fe1ac78f4bde5af6277c7907953a40",
+    "unchanged_original_members": 17,
+    "source": "v0.28.1-hotfix.1"
+  },
+  {
+    "release": "v0.28.2",
+    "file": "RhythmCastleAP-v0.75.13.zip",
+    "sha256": "23cda5266ada7cd7e68626b8fac014ee42282b4919823510d98179e7b1c302a3",
+    "original_sha256": "a7bd86abed2ee4f9ff4d6a37fe96963db304d8321fb322cd8a58c4d8ce6a3010",
+    "unchanged_original_members": 3,
+    "source": "2e32f83b56e0133ae441f346f269c3bf41bc535f"
+  },
+  {
+    "release": "v0.28.2",
+    "file": "scrc.apworld",
+    "sha256": "57f8383e322c70d1c630ffef8996acbf3e999e6de8a00ebd0d9f358d0c0887b0",
+    "original_sha256": "158c95e55dd96c76d07fb0bc4e06669741b7febd11c36f257aee625587050f1e",
+    "unchanged_original_members": 17,
+    "source": "v0.28.2"
+  }
+]

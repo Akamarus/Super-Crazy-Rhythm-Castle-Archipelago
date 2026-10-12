@@ -24,6 +24,15 @@ if (!(Test-Path $dll)) {
     throw "Build succeeded but RhythmCastleAP.dll was not found."
 }
 
+# Keep notices alongside build and installed DLLs, including local installs.
+$repoRoot = Split-Path -Parent $PSScriptRoot
+foreach ($notice in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot $notice) -Destination $outDir -Recurse -Force
+}
+$approvedDlls = @('RhythmCastleAP.dll', 'Archipelago.MultiClient.Net.dll', 'Newtonsoft.Json.dll')
+$unexpectedDlls = @(Get-ChildItem $outDir -File -Filter '*.dll' | Where-Object { $_.Name -notin $approvedDlls })
+if ($unexpectedDlls.Count) { throw 'Unexpected DLL in build output; review before packaging or installing.' }
+
 if ($SkipInstall) {
     Write-Host "Build complete; installation skipped."
     return
@@ -36,19 +45,13 @@ New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
 Get-ChildItem $pluginDir -File -Filter "*.dll" -ErrorAction SilentlyContinue |
     Remove-Item -Force
 
-# Copy the plugin and NuGet runtime dependencies from the build output.
-# Do NOT copy BepInEx/Harmony/Il2CppInterop because those come from BepInEx\core.
-Get-ChildItem $outDir -File | Where-Object {
-    $_.Extension -eq ".dll" -and
-    $_.Name -notlike "BepInEx.*" -and
-    $_.Name -ne "0Harmony.dll" -and
-    $_.Name -ne "Il2CppInterop.Runtime.dll"
-} | ForEach-Object {
-    $dest = Join-Path $pluginDir $_.Name
-    Copy-Item $_.FullName $dest -Force
-    Write-Host "Installed:" $dest
+# Install only approved DLLs and their accompanying notices.
+foreach ($name in $approvedDlls) {
+    Copy-Item -LiteralPath (Join-Path $outDir $name) -Destination $pluginDir -Force
 }
-
+foreach ($notice in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses')) {
+    Copy-Item -LiteralPath (Join-Path $outDir $notice) -Destination $pluginDir -Recurse -Force
+}
 Write-Host ""
 Write-Host "Next:"
 Write-Host "1. Launch Rhythm Castle.exe normally (File Explorer is fine)."
