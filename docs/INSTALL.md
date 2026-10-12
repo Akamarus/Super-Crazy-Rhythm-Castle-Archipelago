@@ -75,7 +75,7 @@ EnableAreaAccessPrototype = true
 PrototypeStartingArea = AP
 ```
 
-Replace the two placeholders:
+Enter your connection details:
 
 | Setting | What to enter |
 | --- | --- |
