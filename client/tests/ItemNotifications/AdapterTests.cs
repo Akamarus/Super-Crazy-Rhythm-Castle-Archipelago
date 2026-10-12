@@ -92,6 +92,15 @@ internal static class AdapterTests
         adapter.HandlePacket(new ReceivedItemsPacket { Index = 0, Items = new[]{new NetworkItem { Item = 123, Location = -1, Player = 0 }} });
         if (feed.History.Length != 1) throw new Exception("real packet adapter duplicates full-history replay");
         Console.WriteLine("PASS: real MultiClient.Net received-packet adapter");
+        var bundleFeed=new ItemNotificationFeed();
+        var bundleAdapter=new ItemNotificationSession(session,2,bundleFeed,action=>action());
+        var bundleData=new Dictionary<string,object>{["schema_version"]=20,["cassette_bundle_size"]=2,["cassette_bundles"]=Enumerable.Range(0,15).ToDictionary(n=>$"Cassette Bundle {n+1:00}",n=>CassetteCatalog.All.Skip(n*2).Take(2).Select(c=>c.ItemName).ToArray())};
+        bundleAdapter.HandlePacket(new ReceivedItemsPacket{Index=0,Items=Array.Empty<NetworkItem>()});
+        bundleAdapter.Configure("bundle-seed",0,1,bundleData);
+        bundleAdapter.HandlePacket(new ReceivedItemsPacket{Index=0,Items=new[]{new NetworkItem{Item=187256164,Location=-1,Player=0}}});
+        bundleFeed.Advance(0);
+        Check(bundleFeed.History.Single().Text.Contains("The Little Things, No Plan B"),"bundle receipt history resolves songs by permanent ID even before data-package names are available");
+        Check(bundleFeed.Visible.Single().Text.Contains("The Little Things, No Plan B"),"bundle popup names every received song");
         CheckSentMessages();
     }
 }

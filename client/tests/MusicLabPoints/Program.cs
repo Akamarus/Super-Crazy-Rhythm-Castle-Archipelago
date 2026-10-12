@@ -136,6 +136,8 @@ var starContract = new Dictionary<string,object>(batchPoints);
 starContract["implementation_version"] += "-ap-stars-0.28";
 starContract["schema_version"] = 19;
 Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(starContract).Mode, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 20;
+Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(starContract).Mode, "schema20 preserves existing subsystem contract");
 starContract["schema_version"] = 18;
 Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, MusicLabPointContract.ValidateSlotData(starContract).Mode, "AP Stars suffix requires schema19");
 starContract["schema_version"] = 19;

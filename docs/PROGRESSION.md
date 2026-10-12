@@ -1,3 +1,63 @@
+## October 12 user-reviewed prerequisite corrections (candidate)
+
+Direct Plunger/Bees/Frying Pan/Smooch pickups, Bucket Minion trade, Boring Room certificate source, bee access, Fish Tears via the Cell Tower return, Lift Quest via Lobby, Cold Storage Plant Pipes and Royal Star Eater access now follow the reviewed workbook. Loneliness and Party Non Stop retain Hypno Pan per the user's correction. Existing IDs, location counts and placement safety remain unchanged.
+
+All 190 APWorld tests, 54 AP 0.6.8 generation cases and 1,888 actual Universal Tracker states pass. Candidate only, not installed or published. Native uncertainty remains for School Trip, Cold Storage/Cell Tower Star Eater, Bunker keycard randomization, late-game Gecko and two cassette aliases. See [audit dispositions and evidence](testing/2026-10-12-user-rule-audit.md).
+
+## October 11 corrected independent Lobby routes
+
+User-confirmed native behavior: Lobby Access independently opens Boring Room, Minim Tower and The Vault; none requires Lift Quest or another Lobby level. Each retains its own generated AP Star entry gate. Plunger hand-in requires Lobby Access and Plunger only. Lobby Star Eater requires those plus its seed-authored Star threshold (4 in the current test seed). Other Lobby story dependencies remain explicit and are not silently removed.
+
+Regression tests reproduce the old failures and cover independent level gates, absent area access, Plunger and below-threshold Stars. All 181 APWorld tests pass. Actual UT replay covers 12 worlds / 1,888 inventory states with zero reconstruction defects; current test inventory now exposes 48 unchecked locations rather than 25. Existing placements, IDs and saved Star requirements are preserved. This supersedes the historical conservative Lift Quest prerequisite and the earlier claim that matching tracker/world predicates alone validated native access.
+
+## Unreleased cassette bundles and capacity — October 6, 2026
+
+Candidate APWorld **0.29.0 / client 0.76.0**, not installed or published.
+`cassette_bundle_size` accepts `individual` (default), `pairs`, or `triples`.
+Each seed shuffles all 30 cassettes into 15 pairs or 10 triples. The complete
+mapping is stored in slot data; reconnects and Universal Tracker reuse it.
+All cassette source and Music Lab medal checks remain. Individual cassette
+starting items are still recognized. Bundle receipts supply their component
+cassettes through the existing native deposit flow; received notifications and
+history list the songs. Native bundle delivery still needs gameplay acceptance.
+
+Bundled seeds use schema 20 and require client 0.76.0. Individual seeds retain
+schema 19. Existing seeds are not regrouped and their placements are unchanged.
+The legacy cassette item IDs remain; 15 new ordinal bundle IDs are registered.
+
+Generation counts excluded modeled locations before filling. When necessary,
+it combines existing Music Lab point denominations while preserving all 180 points,
+66 Stars, other items, exclusions, AP difficulty and victory goal. Normal's
+original 19-exclusion configuration fits with 128 non-filler items instead of 137;
+its point rewards arrive in larger increments. Pairs/triples already free enough
+space for that configuration without point consolidation. Unresolvable capacity
+fails with a clear error; no progression is deleted or placed in excluded checks.
+
+Isolated official AP 0.6.8 validation passed 54 generation cases, including original
+Normal settings in all 3 modes, and 37 Universal Tracker 0.2.32 cases. See
+[validation](testing/2026-10-06-cassette-bundles.md). Current installed async files
+remain unchanged; no native gameplay acceptance is claimed.
+
+## Cell Tower Star Eater correction — October 6, 2026 (unreleased)
+
+In addition to the existing Level 16 route and AP Star threshold, require received
+Violance. Native activation Compound3697 requires not-fed823 and ability30 (VIOLIN).
+Despite its name, ViolinHeistCompletedCondition3744 checks ability ownership, not
+vanilla Lobby completion. Do not add Lobby Access when the randomized ability has
+already arrived. Existing async placements remain unchanged.
+
+## Cell Tower Plant Pipes logic — October 3, 2026 (unreleased)
+
+Level 15 completion and all of its rating rewards require Plant Pipes. Routes
+that depend on completing Level 15 inherit this requirement. Level 16 additionally
+requires Plant Pipes explicitly for its two- and three-star rewards; its own
+completion and one-star conditions are otherwise unchanged. The current route to
+Level 16 already includes Level 15, so it also inherits that prerequisite.
+
+This changes generation and Universal Tracker logic, not native entry or score
+handling. Existing async placements are not rewritten. No client update, live
+installation, server change or save modification is part of this correction.
+
 # Current release: v0.28.2 / Client v0.75.13
 
 Victory is gameplay verified on a fresh-save Hard / 40 AP Star run, without server assistance. Tower entrance access mapping is regression-tested; live acceptance was deferred. Published APWorld is v0.28.2 / schema 19. See [current release notes](releases/v0.28.2.md). Earlier candidate statuses below are historical.

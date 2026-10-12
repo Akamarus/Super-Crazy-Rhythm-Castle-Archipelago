@@ -8,11 +8,11 @@ they never synthesize a native story flag. Vanilla consumables are not AP items.
 """
 from .campaign_levels import CAMPAIGN_LEVELS
 
-# Ordered successful native actions required before each level. The conservative
-# Lobby route includes Lift Quest even when an arrival normalization skips it.
+# Ordered successful native actions required before each level.
+# Lobby Access permits direct entry; its native route does not require Lift Quest.
 LEVEL_PREDECESSORS = {
     1: (), 2: (1,), 3: (2,), 4: (3,), 5: (4,),
-    6: (5,), 7: (6,), 8: (7,), 9: (7,), 10: (8,9),
+    6: (), 7: (6,), 8: (), 9: (7,), 10: (),
     11: (), 12: (11,), 13: (12,), 14: (13,),
     15: (), 16: (15,2,11), 17: (7,16),
     18: (), 19: (), 20: (), 21: (18,19,20), 22: (),
@@ -21,7 +21,8 @@ LEVEL_ITEMS = {
     3: ('Weed Killer','Plant Pipes'), 4: ('Weed Killer','Plant Pipes'),
     5: ('Hip Glasses','Chicken Bucket'),
     12: ('Hypno Pan',),13: ('Hypno Pan',),14: ('Hypno Pan',),
-    17: ('Hypno Pan',),18: ('Violance','Plant Pipes'),
+    15: ('Plant Pipes',),
+    17: ('Hypno Pan','Plant Pipes'),18: ('Violance','Plant Pipes'),
     19: ('Violance',),20: ('Violance','Hypno Pan'),
     21: ('Violance','Plant Pipes','Weed Killer'),
     # No-pipes boss clears depend on luck; never require that route in logic.
@@ -44,6 +45,9 @@ def can_complete(world, state, number):
     level=CAMPAIGN_LEVELS[number-1]
     if not state.has(f'{level.area} Access',player): return False
     if state.count('Star',player)<world.generated_star_requirements[f'Level {number}']: return False
+    # Reviewed Lobby return enters directly in front of Lift Quest, bypassing
+    # the forward Roots blockers while retaining area ownership and its Star gate.
+    if number == 5 and state.has('Lobby Access', player): return True
     if not all(state.has(item,player) for item in LEVEL_ITEMS.get(number,())): return False
     return all(can_complete(world,state,prior) for prior in LEVEL_PREDECESSORS[number])
 
@@ -55,13 +59,13 @@ SOURCE_PATHS = {
  'Roots - Combo Bucket Conversion': ((5,),('Hip Glasses','Chicken Bucket')),
  'Lobby - Important Letters Pickup': ((6,),()),
  'Lobby - Important Letters Delivery': ((6,),()),
- 'Lobby - Plunger Pickup': ((6,),()),
- 'Lobby - Plunger Hand-In': ((6,),('Plunger',)),
+ 'Lobby - Plunger Pickup': ((),('Lobby Access',)),
+ 'Lobby - Plunger Hand-In': ((),('Lobby Access','Plunger')),
  'Lobby - Fish Tears Delivery': ((8,9,10,14),()),
  'Meat Dimension - Wooden Spoon Pickup': ((),()),
  'Meat Dimension - Saw Disc Pickup': ((),()),
  'Meat Dimension - Act 1 Music Delivery': ((),()),
- 'Meat Dimension - Frying Pan Pickup': ((11,),()),
+ 'Meat Dimension - Frying Pan Pickup': ((),('Meat Dimension Access',)),
  'Meat Dimension - Act 2 Music Delivery': ((11,),('Hypno Pan',)),
  'Meat Dimension - Return Cat': ((11,),('Hypno Pan',)),
  'Meat Dimension - Act 3 Music Delivery': ((12,),('Hypno Pan',)),
@@ -69,7 +73,7 @@ SOURCE_PATHS = {
  'Meat Dimension - Act 4 Music Delivery': ((13,),('Hypno Pan',)),
  'Meat Dimension - Mouse Revolution': ((13,),('Hypno Pan',)),
  'Meat Dimension - Fish Tears Award': ((14,),()),
- 'Cell Tower - Meet the Bees': ((15,),()),
+ 'Cell Tower - Meet the Bees': ((),('Cell Tower Access',)),
  'Cell Tower - Deliver Super Nectar': ((15,2,11),()),
  'Tower of Fear - Eye Pickup': ((19,),()),
  'Tower of Fear - Mind Pickup': ((20,),()),
@@ -84,6 +88,11 @@ SOURCE_PATHS = {
 
 
 def source_rule(world, name, state):
+    if name == 'Lobby - Fish Tears Delivery':
+        # Fish Tears remains a native Act 4 award, not a received AP item.
+        return (state.has('Lobby Access', world.player) and can_complete(world, state, 14)
+                and (state.has('Cell Tower Access', world.player)
+                     or all(can_complete(world, state, n) for n in (8,9,10))))
     if name in SOURCE_PATHS:
         levels,items=SOURCE_PATHS[name]
         return all(can_complete(world,state,n) for n in levels) and all(
@@ -94,11 +103,16 @@ def source_rule(world, name, state):
     if name=='Lobby - Star Eater Fed':
         return source_rule(world,'Lobby - Plunger Hand-In',state) and state.count('Star',world.player)>=requirements['Lobby']
     if name=='Cell Tower - Star Eater Fed':
-        return can_complete(world,state,16) and state.count('Star',world.player)>=requirements['Cell Tower']
+        # Native activation requires VIOLIN (Violance), regardless of its randomized source.
+        return (can_complete(world,state,16) and state.has('Violance',world.player)
+                and state.count('Star',world.player)>=requirements['Cell Tower'])
     if name=='Royal Corridor - Star Eater Fed':
-        # Royal phone arrives on the opposite side of the bridge. Traverse all
-        # Tower branches and Locker Room; the boss never depends on this route.
-        return can_complete(world,state,21) and state.count('Star',world.player)>=requirements['Royal Corridor']
+        # User-reviewed direct hub interaction; no Locker Room clear required.
+        return (state.has('Royal Corridor Access', world.player)
+                and state.count('Star',world.player)>=requirements['Royal Corridor'])
     raise ValueError(f'No modeled native route for {name}')
 
 SAFE_SOURCES=frozenset(SOURCE_PATHS)|frozenset(f'{area} - Star Eater Fed' for area in ('Roots','Lobby','Cell Tower','Royal Corridor'))
+
+
+

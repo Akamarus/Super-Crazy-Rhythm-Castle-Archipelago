@@ -50,7 +50,7 @@ internal static class CampaignLocationContract
         if (!characterItems && !version.EndsWith(ClaimSuffix, StringComparison.Ordinal))
             return Fail("implementation_version");
 
-        if (!TryReadNumber(slotData, "schema_version", out int schemaVersion) || schemaVersion != (apStars ? 19 : batchChecks ? 18 : expandedQuests ? 17 : characterItems ? 16 : SchemaVersion))
+        if (!TryReadNumber(slotData, "schema_version", out int schemaVersion) || schemaVersion != (apStars ? (schemaVersion == 20 ? 20 : 19) : batchChecks ? 18 : expandedQuests ? 17 : characterItems ? 16 : SchemaVersion))
             return Fail("schema_version");
         if (!TryReadNumber(slotData, "campaign_level_mapping_schema", out int mappingSchema) || mappingSchema != MappingSchema)
             return Fail("campaign_level_mapping_schema");

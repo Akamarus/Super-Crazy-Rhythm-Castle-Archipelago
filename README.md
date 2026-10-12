@@ -1,15 +1,18 @@
+> Development transparency: [AI disclosure](docs/AI_DISCLOSURE.md). See the release notes for gameplay acceptance and remaining testing limits.
+
 # Super Crazy Rhythm Castle Archipelago
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
-## Current release: v0.28.2 - Generation and Multiworld Compatibility
+## Current release: v0.29.0 — Cassette Bundles, Movement and Access Rules
 
-**Client v0.75.13 / APWorld v0.28.2**, schema 19 / campaign-mapping schema 1.
+**Client v0.76.0 / APWorld v0.29.0**, supporting individual cassettes (schema 19) and random pairs/triples (schema 20).
 
-This APWorld-only update fixes option validation, rare seed-generation failures
-and cross-world filler placement. It passed 205 Ionium unit tests and all 14,500
-fuzz runs, including 500 Universal Tracker checks. The game client is unchanged.
-See the [changelog](CHANGELOG.md) and [validation record](docs/testing/2026-09-29-ionium-compatibility.md).
+This update adds optional cassette bundles, repairs generation capacity, improves Montage movement and item delivery, makes Regular/Pro selection available before Level 1, fixes Roots booth visibility and owned-cartridge chests, and incorporates the user-reviewed access rules.
+
+Download the [latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.29.0), then follow the [installation guide](docs/INSTALL.md). See the [complete changelog and known issues](docs/releases/v0.29.0.md) and [AI disclosure](docs/AI_DISCLOSURE.md).
+
+Archipelago 0.6.8 generation and Universal Tracker 0.2.32 were tested. Bundled seeds require Client 0.76.0. Updating an existing seed does not change its placements or Star gates. Restart Universal Tracker after installing the APWorld, and follow its normal player-YAML setup.
 
 Randomize area access, progression items, Music Lab cassettes, Game Garage cartridges,
 and supported character unlocks. Campaign results, quests, pickups and Music Lab
@@ -206,3 +209,7 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 3. Preserve meaningful vanilla progression instead of replacing it with generic unlock flags when possible.
 4. Keep AP reachability logic consistent with what the client can actually do in-game.
 5. Update `CHANGELOG.md`, `docs/IDS.md`, and `docs/PROGRESSION.md` when a milestone changes them.
+
+## License and third-party software
+
+Original project contributions are licensed under [MIT](LICENSE), as approved by the maintainer. Third-party software retains its own terms; the license does not cover the game's assets or trademarks. See [third-party notices](THIRD_PARTY_NOTICES.md) and [release packaging](docs/PACKAGING.md).

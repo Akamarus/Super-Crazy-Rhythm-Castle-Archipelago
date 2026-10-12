@@ -20,10 +20,9 @@ internal static class RootsBucketRandomization
     private static bool _compatible;
     private static int _hipGlassesReceived;
     private static int _chickenBucketReceived;
-    private static bool _hipGrantAppliedThisProcess;
-    private static bool _chickenGrantAppliedThisProcess;
     private static bool _nativeProbePendingLogged;
     private static string? _selectedSaveIdentity;
+    private static readonly Dictionary<string, string> ConsumedInSave = new(StringComparer.Ordinal);
     private static TimeSpan _pollRemaining;
     private static MethodInfo? _flagGetter;
     private static readonly Dictionary<string, object> FlagArguments = new(StringComparer.Ordinal);
@@ -40,10 +39,9 @@ internal static class RootsBucketRandomization
             _compatible = false;
             _hipGlassesReceived = 0;
             _chickenBucketReceived = 0;
-            _hipGrantAppliedThisProcess = false;
-            _chickenGrantAppliedThisProcess = false;
             _nativeProbePendingLogged = false;
             _selectedSaveIdentity = null;
+            ConsumedInSave.Clear();
             _pollRemaining = TimeSpan.Zero;
         }
     }
@@ -108,6 +106,20 @@ internal static class RootsBucketRandomization
             _playerSaveRequestProcessor = instance;
     }
 
+    internal static void RecordConsumption(object evt, string flag)
+    {
+        if (_applyingArchipelagoGrant != 0 ||
+            (flag != HipGlassesNativeFlag && flag != ChickenBucketNativeFlag) ||
+            (ReflectionUtil.ReadBool(evt, "FlagWasSet") ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField")) != true ||
+            (ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")) != false) return;
+        lock (Sync) if (!_slotDataSynchronized || !_compatible) return;
+        // Keep only the two bag identities; native consequence flags handle reloads.
+        CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) =>
+        {
+            lock (Sync) ConsumedInSave[flag] = identity;
+        });
+    }
+
     // Only the Unity update may deliver items, using the verified selected save.
     internal static void TickUnity(TimeSpan elapsed)
     {
@@ -121,15 +133,10 @@ internal static class RootsBucketRandomization
                 if (_selectedSaveIdentity != identity)
                 {
                     _selectedSaveIdentity = identity;
-                    _hipGrantAppliedThisProcess = false;
-                    _chickenGrantAppliedThisProcess = false;
                     _nativeProbePendingLogged = false;
                 }
                 _playerSaveRequestProcessor = processor;
             }
-            // The legacy consumable also needs a retry without a native progression event.
-            WeedKillerRandomization.CapturePlayerSaveRequestProcessor(processor);
-            WeedKillerRandomization.TryFlushPendingNativeGrant();
             TryFlushPendingNativeGrants();
         });
     }
@@ -144,8 +151,6 @@ internal static class RootsBucketRandomization
         bool compatible;
         int hipReceived;
         int chickenReceived;
-        bool hipApplied;
-        bool chickenApplied;
         lock (Sync)
         {
             processor = _playerSaveRequestProcessor;
@@ -153,8 +158,6 @@ internal static class RootsBucketRandomization
             compatible = _compatible;
             hipReceived = _hipGlassesReceived;
             chickenReceived = _chickenBucketReceived;
-            hipApplied = _hipGrantAppliedThisProcess;
-            chickenApplied = _chickenGrantAppliedThisProcess;
         }
 
         if (!synchronized || !compatible || processor == null || (hipReceived <= 0 && chickenReceived <= 0))
@@ -177,7 +180,11 @@ internal static class RootsBucketRandomization
         }
 
         lock (Sync)
+        {
             _nativeProbePendingLogged = false;
+            hipConsumed |= ConsumedInSave.TryGetValue(HipGlassesNativeFlag, out string? hipIdentity) && hipIdentity == _selectedSaveIdentity;
+            chickenConsumed |= ConsumedInSave.TryGetValue(ChickenBucketNativeFlag, out string? chickenIdentity) && chickenIdentity == _selectedSaveIdentity;
+        }
 
         RootsBucketReconciliation result = RootsBucketRandomizationPolicy.Reconcile(
             synchronized,
@@ -185,21 +192,20 @@ internal static class RootsBucketRandomization
             new RootsBucketLifecycleState(
                 hipReceived,
                 chickenReceived,
-                hipHeld || hipApplied,
+                hipHeld,
                 hipConsumed,
-                chickenHeld || chickenApplied,
+                chickenHeld,
                 chickenConsumed));
 
-        ApplyGrantDecision(processor, HipGlassesItem, HipGlassesNativeFlag, result.HipGlasses, hip: true);
-        ApplyGrantDecision(processor, ChickenBucketItem, ChickenBucketNativeFlag, result.ChickenBucket, hip: false);
+        ApplyGrantDecision(processor, HipGlassesItem, HipGlassesNativeFlag, result.HipGlasses);
+        ApplyGrantDecision(processor, ChickenBucketItem, ChickenBucketNativeFlag, result.ChickenBucket);
     }
 
     private static void ApplyGrantDecision(
         object processor,
         string itemName,
         string flagName,
-        RootsBucketGrantDecision decision,
-        bool hip)
+        RootsBucketGrantDecision decision)
     {
         if (decision == RootsBucketGrantDecision.Consumed)
         {
@@ -220,22 +226,15 @@ internal static class RootsBucketRandomization
             _applyingArchipelagoGrant--;
         }
 
-        if (!submitted)
+        if (!submitted || !TryReadProgressionFlag(flagName, out bool held) || !held)
         {
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] ROOTS BUCKET native grant pending item='{itemName}' flag='{flagName}'. {detail}");
             return;
         }
 
-        lock (Sync)
-        {
-            if (hip)
-                _hipGrantAppliedThisProcess = true;
-            else
-                _chickenGrantAppliedThisProcess = true;
-        }
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS BUCKET NATIVE GRANT APPLIED item='{itemName}' flag='{flagName}'. {detail}");
+            $"[SCRC-AP] ROOTS BUCKET NATIVE GRANT VERIFIED item='{itemName}' flag='{flagName}'. {detail}");
     }
 
     internal static bool ShouldSuppressVanillaGrant(object request, string flag)

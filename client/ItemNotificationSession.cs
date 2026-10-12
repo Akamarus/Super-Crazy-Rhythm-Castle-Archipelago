@@ -20,6 +20,7 @@ internal sealed class ItemNotificationSession
     private readonly List<object> _beforeLogin = new();
     private bool _ready;
     private int _slot;
+    private CassetteBundleContract? _cassettes;
     internal ItemNotificationSession(ArchipelagoSession session, long generation, ItemNotificationFeed feed, Action<Action> dispatch)
     {
         _session = session; _generation = generation; _feed = feed;
@@ -34,10 +35,11 @@ internal sealed class ItemNotificationSession
     {
         if (packet is ReceivedItemsPacket) Accept(packet);
     }
-    internal void Configure(string seed, int team, int slot)
+    internal void Configure(string seed, int team, int slot, Dictionary<string,object>? slotData = null)
     {
         lock (_sync)
         {
+            _cassettes = CassetteBundleContract.Parse(slotData);
             _slot = slot;
             _feed.Connect(_generation, System.Text.Json.JsonSerializer.Serialize(new { seed, team, slot }));
             _ready = true;
@@ -75,7 +77,7 @@ internal sealed class ItemNotificationSession
                 string name = item.Player == 0 ? "Server" : player?.Alias ?? player?.Name ?? "Unknown player";
                 string location = item.Location < 0 ? "Archipelago" :
                     _session.Locations.GetLocationNameFromId(item.Location, player?.Game ?? Plugin.GameName);
-                return new NotificationReceipt(_session.Items.GetItemName(item.Item, Plugin.GameName), name, location, item.Player == _slot);
+                return new NotificationReceipt(_cassettes?.Display(item.Item, _session.Items.GetItemName(item.Item, Plugin.GameName)) ?? _session.Items.GetItemName(item.Item, Plugin.GameName), name, location, item.Player == _slot);
             }).ToArray();
             _feed.Receive(_generation, received.Index, entries);
         }

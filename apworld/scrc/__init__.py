@@ -2,6 +2,8 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
+from .cassette_bundles import BUNDLE_ITEM_NAME_TO_ID, generate_bundles, bundle_for_cassette
+
 from .difficulty import (
     DIFFICULTY_NAMES,
     MEDAL_TIERS,
@@ -44,6 +46,7 @@ from .items import (
     VIOLANCE_ITEM_NAME,
 )
 from .expanded_checks import EXPANDED_CHECKS, EXPANDED_CHECK_LOCATION_NAME_TO_ID
+from .pool_capacity import fit_non_filler_pool
 from .options import SCRCOptions
 from .universal_tracker import tracker_slot_data
 from .music_lab_points import (
@@ -59,6 +62,7 @@ from .music_lab_points import (
 from .placement import filler_item_allowed, filler_or_safe_required, required_progression_allowed
 from .star_requirements import generate_star_requirements
 from .native_logic import can_complete, source_rule, SAFE_SOURCES, star_eater_requirements
+from .optional_routes import OPTIONAL_ROUTE_CHECKS, optional_route
 from .starting_areas import (
     STARTING_AREA_NAMES,
     VALIDATED_STARTING_AREAS,
@@ -321,6 +325,7 @@ ITEM_NAME_TO_ID = {
     **LOBBY_ITEM_NAME_TO_ID,
     **CHARACTER_QUEST_ITEM_NAME_TO_ID,
     **QUEST_ITEM_NAME_TO_ID,
+    **BUNDLE_ITEM_NAME_TO_ID,
 }
 
 HIP_GLASSES_ITEM = "Hip Glasses"
@@ -342,6 +347,7 @@ ITEM_CLASSIFICATIONS = {
     **LOBBY_ITEM_CLASSIFICATIONS,
     **CHARACTER_QUEST_ITEM_CLASSIFICATIONS,
     **QUEST_ITEM_CLASSIFICATIONS,
+    **{name: ItemClassification.progression for name in BUNDLE_ITEM_NAME_TO_ID},
 }
 
 
@@ -424,6 +430,13 @@ class SCRCWorld(World):
             self.generated_star_requirements = generate_star_requirements(
                 required_stars, self.random
             )
+        self.cassette_bundle_size = (tracker["cassette_bundle_size"] if tracker is not None else
+            getattr(getattr(self.options, "cassette_bundle_size", None), "value", 1))
+        self.cassette_bundles = (tracker["cassette_bundles"] if tracker is not None else
+            generate_bundles(self.cassette_bundle_size, self.random))
+        self.cassette_bundle_by_item = bundle_for_cassette(self.cassette_bundles)
+        if hasattr(self.options, "cassette_bundle_size"):
+            self.options.cassette_bundle_size.value = self.cassette_bundle_size
         self.difficulty_name = DIFFICULTY_NAMES[difficulty]
         self.active_location_names = frozenset(
             name
@@ -720,7 +733,9 @@ class SCRCWorld(World):
                 location = SCRCLocation(self.player, name, LOCATION_NAME_TO_ID[name], music_lab)
                 set_rule(
                     location,
-                    lambda state, item=cassette_item: state.has(item, self.player),
+                    lambda state, item=cassette_item: (state.has(item, self.player) or
+                        (item in self.cassette_bundle_by_item and
+                         state.has(self.cassette_bundle_by_item[item], self.player))),
                 )
                 safe = required_progression_allowed(name, active_names)
                 location.item_rule = lambda item, allowed=safe: filler_or_safe_required(item, allowed)
@@ -797,7 +812,10 @@ class SCRCWorld(World):
                 if name not in self.active_location_names:
                     continue
                 location = self.multiworld.get_location(name, self.player)
-                set_rule(location, lambda state, n=level.number: can_complete(self, state, n))
+                set_rule(location, lambda state, n=level.number, tier=tier:
+                    can_complete(self, state, n) and
+                    (n != 16 or tier not in {"2 Stars", "3 Stars"} or
+                     state.has("Plant Pipes", self.player)))
                 # Higher boss ratings remain outside the verified performance model.
                 safe = not (level.number == 22 and tier in {"2 Stars", "3 Stars"})
                 location.item_rule = lambda item, safe=safe: filler_or_safe_required(item, safe)
@@ -805,6 +823,11 @@ class SCRCWorld(World):
             location = self.multiworld.get_location(name, self.player)
             set_rule(location, lambda state, name=name: source_rule(self, name, state))
             location.item_rule = lambda item: True
+        for name in OPTIONAL_ROUTE_CHECKS & self.active_location_names:
+            location = self.multiworld.get_location(name, self.player)
+            set_rule(location, lambda state, name=name: optional_route(self, name, state))
+            # Keep the existing filler-only item rule: improving access
+            # accuracy does not promote optional routes to progression checks.
         frog = self.multiworld.get_location(ROOTS_LEVEL3_FROG_HIPPO, self.player)
         set_rule(frog, lambda state: can_complete(self, state, 2)
             and state.has("Weed Killer", self.player)
@@ -813,20 +836,25 @@ class SCRCWorld(World):
                  lambda state: can_complete(self, state, 4))
         for name in (ROOTS_BUCKET_MINION_TRADE, "Bucket Minion Trade Complete"):
             set_rule(self.multiworld.get_location(name, self.player),
-                lambda state: can_complete(self, state, 3) and state.has(HIP_GLASSES_ITEM, self.player))
+                lambda state: state.has('Roots Access', self.player) and state.has(HIP_GLASSES_ITEM, self.player))
         set_rule(self.multiworld.get_location("Combo Bucket Event", self.player),
-            lambda state: can_complete(self, state, 5))
+            lambda state: source_rule(self, "Roots - Combo Bucket Conversion", state))
         # Cassette awards occur on level results and inherit the same generated
         # gate and native route; aliases remain alternatives rather than extra checks.
         def cassette_route(state, trigger):
+            if trigger.level == 'Level_09' and trigger.variant == 'LevelVariant_Default':
+                # Use both reviewed approaches to Lift Quest; forward-route
+                # inventory requirements must not suppress the Lobby entrance.
+                return can_complete(self, state, 5)
             if not all(state.has(r.item, self.player) for r in trigger.requirements):
                 return False
             if trigger.variant == "LevelVariant_Default":
                 number = next(l.number for l in CAMPAIGN_LEVELS if l.internal_id == trigger.level)
                 return can_complete(self, state, number)
-            if trigger.variant == "LevelVariant_BeeMode":
-                number = 2 if trigger.level == "Level_06" else 11
-                return can_complete(self, state, 15) and can_complete(self, state, number)
+            if trigger.variant in ("LevelVariant_BeeMode", "LevelVariant_DevilMode"):
+                check = next((entry.name for entry in EXPANDED_CHECKS
+                              if entry.level == trigger.level and entry.variant == trigger.variant), None)
+                return check is not None and optional_route(self, check, state)
             return False
         for entry in CASSETTES:
             if entry.source_type == "Music Lab point chest":
@@ -857,7 +885,7 @@ class SCRCWorld(World):
                 return 3
             if item.name in MUSIC_LAB_POINT_POOL:
                 return 2
-            if item.name in ("Old Game Data", "Car Battery") or item.name.endswith((" Cassette", " Cartridge")):
+            if item.name in ("Old Game Data", "Car Battery") or item.name.endswith((" Cassette", " Cartridge")) or item.name in BUNDLE_ITEM_NAME_TO_ID:
                 return 1
             return 0
 
@@ -894,7 +922,8 @@ class SCRCWorld(World):
         progression_items.append(CHICKEN_BUCKET_ITEM)
         progression_items.append(HYPNO_PAN_ITEM_NAME)
         progression_items.append(VIOLANCE_ITEM_NAME)
-        progression_items.extend(entry.item_name for entry in CASSETTES)
+        progression_items.extend(self.cassette_bundles if self.cassette_bundles else
+                                 (entry.item_name for entry in CASSETTES))
         progression_items.extend(MUSIC_LAB_POINT_POOL)
         # Character hand-in inputs and randomized quest rewards each appear once.
         progression_items.extend(CHARACTER_QUEST_ITEM_NAME_TO_ID)
@@ -903,6 +932,14 @@ class SCRCWorld(World):
         progression_items.extend([STAR_ITEM_NAME] * STAR_ITEM_COUNT)
 
         capacity = self._active_unfilled_location_capacity()
+        eligible_names = [location.name
+            for region in self.multiworld.regions for location in region.locations
+            if location.player == self.player and location.address is not None
+            and location.item is None and location.item_rule(self.create_item(STAR_ITEM_NAME))]
+        excluded = getattr(getattr(self.options, "exclude_locations", None), "value", set())
+        progression_items = fit_non_filler_pool(progression_items, eligible_names, excluded)
+        self.music_lab_point_pool_counts = {
+            entry.name: progression_items.count(entry.name) for entry in MUSIC_LAB_POINT_ITEMS}
         required_count = len(progression_items)
         if required_count > capacity:
             raise ValueError(
@@ -1004,7 +1041,9 @@ class SCRCWorld(World):
         return {
             "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28",
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 19,
+            "schema_version": 19 if getattr(self, "cassette_bundle_size", 1) == 1 else 20,
+            "cassette_bundle_size": getattr(self, "cassette_bundle_size", 1),
+            "cassette_bundles": {name: list(songs) for name, songs in getattr(self, "cassette_bundles", {}).items()},
             "expanded_checks_schema": 1,
             "expanded_check_locations": dict(EXPANDED_CHECK_LOCATION_NAME_TO_ID),
             "expanded_special_completions_active": True,
@@ -1121,7 +1160,11 @@ class SCRCWorld(World):
             "music_lab_point_counts": {
                 entry.name: entry.count for entry in MUSIC_LAB_POINT_ITEMS
             },
+            # Nominal catalog remains the legacy client validation contract;
+            # actual seed pool counts may consolidate denominations for exclusions.
             "music_lab_point_total_instances": MUSIC_LAB_POINT_TOTAL_INSTANCES,
+            "music_lab_point_pool_counts": getattr(self, "music_lab_point_pool_counts",
+                {entry.name: entry.count for entry in MUSIC_LAB_POINT_ITEMS}),
             "music_lab_point_total_value": MUSIC_LAB_POINT_TOTAL_VALUE,
             "music_lab_point_max_effective": MUSIC_LAB_POINT_MAX_EFFECTIVE,
             "music_lab_point_thresholds": dict(MUSIC_LAB_POINT_THRESHOLDS),

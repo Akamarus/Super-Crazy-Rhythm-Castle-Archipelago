@@ -26,15 +26,15 @@ class ExpandedChecksTests(unittest.TestCase):
         world=self.make_world()
         owned=[name for name in world.item_name_to_id]+['Star']*66
         cases={
-            'Roots - Combo Bucket Conversion': ('Weed Killer','Plant Pipes','Hip Glasses','Chicken Bucket'),
-            'Lobby - Important Letters Delivery': ('Roots Access','Lobby Access','Chicken Bucket'),
+            'Roots - Combo Bucket Conversion': ('Roots Access','Hip Glasses','Chicken Bucket'),
+            'Lobby - Important Letters Delivery': ('Lobby Access',),
             'Lobby - Plunger Hand-In': ('Lobby Access','Plunger'),
             'Meat Dimension - Return Scruffy': ('Meat Dimension Access','Hypno Pan'),
             'Cell Tower - Deliver Super Nectar': ('Cell Tower Access','Roots Access','Meat Dimension Access'),
             'Tower of Fear - Restore Eye Statue': ('Tower of Fear Access','Plant Pipes','Violance'),
             'Tower of Fear - Restore Mind Statue': ('Tower of Fear Access','Hypno Pan','Violance'),
             'Tower of Fear - Restore Heart Statue': ('Tower of Fear Access','Plant Pipes','Hypno Pan','Violance'),
-            'Royal Corridor - Star Eater Fed': ('Royal Corridor Access','Tower of Fear Access','Violance','Weed Killer','Plant Pipes'),
+            'Royal Corridor - Star Eater Fed': ('Royal Corridor Access',),
             'Royal Corridor - King Ferdinand Unlocked': ('Royal Corridor Access',),
         }
         for name,required in cases.items():

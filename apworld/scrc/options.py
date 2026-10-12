@@ -35,8 +35,20 @@ class StartingArea(Choice):
     default = 0
 
 
+class CassetteBundleSize(Choice):
+    """Group cassettes into seed-specific random pairs or triples. Each received
+    bundle grants all its songs. Individual preserves separate cassette items.
+    """
+    display_name = "Cassette Bundle Size"
+    option_individual = 1
+    option_pairs = 2
+    option_triples = 3
+    default = 1
+
+
 @dataclass
 class SCRCOptions(PerGameCommonOptions):
     required_stars: RequiredStars
     difficulty: Difficulty
     starting_area: StartingArea
+    cassette_bundle_size: CassetteBundleSize

@@ -268,7 +268,10 @@ internal sealed class AreaAccessPrototype : NativeSubsystem
 internal sealed class IntroHubSkip : NativeSubsystem { }
 internal sealed class RootsStartupBootstrap : NativeSubsystem { }
 internal sealed class GarageCartridgeAccess : NativeSubsystem { }
-internal sealed class WeedKillerRandomization : NativeSubsystem { }
+internal sealed class WeedKillerRandomization : NativeSubsystem
+{
+    internal static readonly WeedKillerReceiptState History = new();
+}
 internal sealed class PlantPipesRandomization : NativeSubsystem { }
 internal sealed class CassetteReceiptRandomization : NativeSubsystem { }
 internal sealed class CassetteSourceRandomization : NativeSubsystem { }
@@ -291,5 +294,5 @@ internal sealed class TestNotificationFeed { internal void Reset() { } }
 internal sealed class TestNotificationSession
 {
     internal void HandlePacket(object packet) { }
-    internal void Configure(string seed, int team, int slot) { }
+    internal void Configure(string seed, int team, int slot, Dictionary<string,object>? slotData = null) { }
 }

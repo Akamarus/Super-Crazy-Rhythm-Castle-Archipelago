@@ -33,7 +33,7 @@ internal static class QuestChecksPolicy
             bool apStars = version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27-ap-stars-0.28", StringComparison.Ordinal) == true;
             bool batchChecks = apStars || version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27", StringComparison.Ordinal) == true;
             if ((!batchChecks && version?.EndsWith("character-quest-items-0.25-" + Suffix, StringComparison.Ordinal) != true) ||
-                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? 19 : batchChecks ? 18 : 17) ||
+                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? ((int?)root["schema_version"] == 20 ? 20 : 19) : batchChecks ? 18 : 17) ||
                 root["quest_checks_schema"]?.Type != JTokenType.Integer || (int?)root["quest_checks_schema"] != 1)
                 return QuestChecksMode.Invalid;
             foreach (var pair in new[] { ("quest_items", Items), ("quest_locations", Locations) }) {
@@ -51,7 +51,11 @@ internal static class QuestChecksPolicy
         ("GameRoom_27", "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM", true, false) => MemoryHandIn,
         _ => null,
     };
-    internal static bool? ConditionResult(string path, IReadOnlySet<long> completed, Func<bool?> batteryHeld, Func<bool?> plungerCollected) => path switch {
+    internal static bool? ConditionResult(string path, IReadOnlySet<long> completed, Func<bool?> batteryHeld, Func<bool?> plungerCollected, Func<string, bool?>? chestCollected = null) => path switch {
+        // The exact cartridge compounds OR ownership with source collection. Replace
+        // only that OR with its native source flag; an unreadable flag falls back.
+        "Root/GameRoom_Hub6_Logic/Objects/RewardChests/GarageCartridgeChest_BloodyTears/Interaction/Condition" => chestCollected?.Invoke("LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED"),
+        "Root/GameRoom_Hub6_Logic/Objects/RewardChests/GarageCartridgeChest_Gradius/Interaction/Condition.01" => chestCollected?.Invoke("LEVEL_27_CARTRIDGE_GRADIUS_COLLECTED"),
         // Native chest points and collected-flag conditions remain authoritative.
         "Root/GameRoom_Hub6_Logic/Objects/RewardChests/CatBatteryChest/Interaction/Condition/AlreadyHaveCatCharacter" => false,
         "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/MeooIsUnlockedCondition" => completed.Contains(BatteryHandIn),

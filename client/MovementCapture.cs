@@ -9,14 +9,15 @@ using UnityEngine;
 
 namespace RhythmCastleAP;
 
-// Opt-in, bounded observation. No motor hooks, physics writes, or recurring discovery.
+// Opt-in, bounded observation. No motor hooks or physics writes. Actor-local rebinding only during capture.
 internal sealed class MovementCapture : MonoBehaviour
 {
     private const int MaxBodies = 12;
     private const int MaxSamples = 120;
     private readonly List<(Rigidbody Body, string Path)> _bodies = new();
     private readonly StringBuilder _output = new();
-    private readonly List<(Rigidbody Body, object Motor, PropertyInfo[] Properties)> _motors = new();
+    private readonly List<(Rigidbody Body, string Label, object Motor, (string Name, PropertyInfo? Property)[] Properties)> _motors = new();
+    private readonly Dictionary<string, (Type Type, (string Name, PropertyInfo? Property)[] Properties)> _schemas = new();
     private readonly List<MovementContactProbe> _contacts = new();
     private static bool _contactTypeRegistered;
     private MethodInfo? _roomRunning;
@@ -75,15 +76,20 @@ internal sealed class MovementCapture : MonoBehaviour
         var bodies = UnityEngine.Object.FindObjectsOfType<Rigidbody>()
             .Where(body => body != null && body.gameObject.activeInHierarchy)
             .Select(body => (Body: body, Path: BodyPath(body)))
-            .OrderByDescending(entry => entry.Path.Contains("/PlayerCharacter", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(entry => MovementCaptureFormatting.ActorPriority(entry.Path))
             .ThenBy(entry => (entry.Body.position - origin).sqrMagnitude).ToArray();
         foreach (var entry in bodies.Take(MaxBodies))
-            _bodies.Add(entry);
+            _bodies.Add((entry.Body, MovementCaptureFormatting.ActorLabel(entry.Path, entry.Body.GetInstanceID())));
+        _samples = 0;
         BindPlayerInputs();
-        BindMotorProbes();
+        BindMotorProbes(true);
+        _output.AppendLine($"targetFrameRate={Application.targetFrameRate} vSyncCount={QualitySettings.vSyncCount}");
+        _output.AppendLine(MontageAnimalTick.Summary);
         _output.AppendLine("inputBinding=" + _inputStatus);
+        _output.AppendLine("movementCallCount=unavailable requestedDisplacementPerCall=unavailable Character state/leader/look demand require a bound native cachedState; missing fields are unavailable. Facing records show cached automatic rotation and last enacted look demand, not all current overrides. New actors after initial scene selection are not discovered. Rebind every 10 samples (~1s), at most 16 transforms per selected actor; fields/type metadata cached. rootForward is NOT visual facing.");
+        _output.AppendLine("motorDeltaTime=unavailable (not retained by motor; Unity sample delta is not motor-call delta). Restrictor identities are sampled; pointer IDs are capture-local, not persistent. Contacts omit triggers/casts and do not establish absence of restrictions.");
         _output.AppendLine($"version={Plugin.PluginVersion} room={_room} activeBodies={bodies.Length} capturedBodies={_bodies.Count} cap={MaxBodies}");
-        _output.AppendLine("sample|realtime|frame|fixedTicks|timeScale|fixedDelta|delta|maxFrameDelta|focused|body|position|visualPosition|velocity|forward|kinematic|gravity|sleeping|constraints|detectCollisions");
+        _output.AppendLine("sample|realtime|frame|fixedTicks|timeScale|fixedDelta|delta|maxFrameDelta|focused|body|position|rootTransformPosition|velocity|rootForward|kinematic|gravity|sleeping|constraints|detectCollisions");
         _samples = 0;
         _maxFrameDelta = 0;
         _physicsTicks = 0;
@@ -98,6 +104,7 @@ internal sealed class MovementCapture : MonoBehaviour
     private void Sample()
     {
         string prefix = FormattableString.Invariant($"{_samples}|{Time.realtimeSinceStartup:F3}|{Time.frameCount}|{_physicsTicks}|{Time.timeScale:F4}|{Time.fixedDeltaTime:F5}|{Time.unscaledDeltaTime:F5}|{_maxFrameDelta:F5}|{Application.isFocused}|");
+        if (_samples > 0 && _samples % 10 == 0) BindMotorProbes(false);
         CaptureInputs(prefix);
         CaptureMotors(prefix);
         _maxFrameDelta = 0;
@@ -181,42 +188,112 @@ internal sealed class MovementCapture : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    private void BindMotorProbes()
+    private void BindMotorProbes(bool initial)
     {
-        ReleaseProbes();
-        if (!_contactTypeRegistered)
+        if (initial)
         {
-            ClassInjector.RegisterTypeInIl2Cpp<MovementContactProbe>();
-            _contactTypeRegistered = true;
+            ReleaseProbes();
+            _schemas.Clear();
+            if (!_contactTypeRegistered)
+            {
+                ClassInjector.RegisterTypeInIl2Cpp<MovementContactProbe>();
+                _contactTypeRegistered = true;
+            }
         }
+        else _motors.Clear();
         var game = ReflectionUtil.GameAssembly;
         _roomRunning = game?.GetType("GameRoomEnquiries")?.GetMethod("InARunningRoom", Type.EmptyTypes);
         foreach (var entry in _bodies)
         {
-            // Attach observers only to real moving bodies, not kinematic detector slaves.
-            if (entry.Body.isKinematic) continue;
-            foreach (string typeName in new[] { "PlayerControlCharacterMotor", "Motor" })
+            if (entry.Body == null) continue;
+            bool motorFound = false;
+            foreach (string typeName in new[] { "PlayerControlCharacterMotor", "DirectableCharacterMotor", "FollowingAIControlCharacterMotor", "Motor" })
             {
                 var type = game?.GetType(typeName);
                 if (type == null) continue;
                 var component = entry.Body.gameObject.GetComponent(Il2CppType.From(type));
                 if (component == null) continue;
-                object? motor = type.GetConstructor(new[] { typeof(IntPtr) })?.Invoke(new object[] { component.Pointer });
-                if (motor == null) continue;
-                var fields = new[] { "desiredVelocity", "desiredPosition", "fixedUpdateAction",
-                    "ControlledInducedMovementLastUpdate", "MovementIntentionLastUpdate", "CanMoveSelf",
-                    "CanBeControlled", "motorRestrictors", "mostRecentlyAppliedRigidbodyPropertiesId" };
-                var properties = fields.Select(name => type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance))
-                    .Where(property => property != null).Cast<PropertyInfo>().ToArray();
-                _motors.Add((entry.Body, motor, properties));
-                _output.AppendLine("motorBound=" + entry.Path + " type=" + typeName + " fields=" + string.Join(",", properties.Select(p => p.Name)));
+                BindObservation(entry.Body, entry.Path, component.Pointer, type, new[] {
+                    "desiredVelocity", "desiredPosition", "fixedUpdateAction", "ControlledInducedMovementLastUpdate",
+                    "MovementIntentionLastUpdate", "CanMoveSelf", "CanBeControlled", "motorRestrictors",
+                    "mostRecentlyAppliedRigidbodyPropertiesId", "moveSpeed", "moveSpeedRatio", "accelerationTime",
+                    "timeSpendMoving", "speed", "Speed", "distanceToMaintainFromLeader", "canMoveSelf",
+                    "dontFollowIfFloorAbsent", "currentTargetDistanceAlongSpline", "thisIdentifiableCharacter" });
+                motorFound = true;
                 break;
             }
-            var probe = entry.Body.gameObject.AddComponent<MovementContactProbe>();
-            _contacts.Add(probe);
+            if (!motorFound) _output.AppendLine("binding sample=" + _samples + " actor=" + entry.Path + " motor=unavailable");
+            // Search at most 16 transforms under this body; no repeated whole-scene scans.
+            var facingType = game?.GetType("AutomaticCharacter2DRotationView");
+            bool facingFound = false;
+            if (facingType != null)
+            {
+                var pending = new Queue<Transform>();
+                pending.Enqueue(entry.Body.transform);
+                for (int visited = 0; pending.Count > 0 && visited < 16; visited++)
+                {
+                    var node = pending.Dequeue();
+                    var facing = node.gameObject.GetComponent(Il2CppType.From(facingType));
+                    if (facing != null)
+                    {
+                        BindObservation(entry.Body, entry.Path, facing.Pointer, facingType, new[] {
+                            "cachedHorizontalMovingDirectionSign", "cachedWorldMovementDirection",
+                            "timeSpentMovingInCachedHorizontalDirection", "movementTimeRequiredForDirectionChange",
+                            "speedRequiredToBeConsideredMoving", "timeOfLastLookAtPositionDemandEnacted",
+                            "lastLookDirectionApplied", "frameCountOfLastLookDirectionApplied",
+                            "currentHorizontalFacingDirectionSign", "childToFlip", "childToPointAnyway" });
+                        facingFound = true;
+                        break;
+                    }
+                    for (int child = 0; child < node.childCount && pending.Count + visited < 16; child++)
+                        pending.Enqueue(node.GetChild(child));
+                }
+            }
+            if (!facingFound) _output.AppendLine("binding sample=" + _samples + " actor=" + entry.Path + " automatic2DFacing=unavailable (body/first16descendants)");
+            if (initial && !entry.Body.isKinematic)
+                _contacts.Add(entry.Body.gameObject.AddComponent<MovementContactProbe>());
         }
     }
 
+    [HideFromIl2Cpp]
+    private void BindObservation(Rigidbody body, string label, IntPtr pointer, Type type, string[] names)
+    {
+        if (!_schemas.TryGetValue(type.FullName!, out var schema))
+        {
+            schema = (type, names.Select(name => (name, type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance))).ToArray());
+            _schemas.Add(type.FullName!, schema);
+        }
+        object? instance = type.GetConstructor(new[] { typeof(IntPtr) })?.Invoke(new object[] { pointer });
+        if (instance == null) { _output.AppendLine("binding actor=" + label + " type=" + type.Name + " unavailable"); return; }
+        _motors.Add((body, label, instance, schema.Properties));
+        if (type.Name.EndsWith("Motor", StringComparison.Ordinal)) BindCharacterState(body, label, instance, type);
+        _output.AppendLine("binding sample=" + _samples + " actor=" + label + " type=" + type.Name + " component=0x" + pointer.ToInt64().ToString("x"));
+    }
+    [HideFromIl2Cpp]
+    private void BindCharacterState(Rigidbody body, string label, object motor, Type motorType)
+    {
+        try
+        {
+            object? character = motorType.GetProperty("thisIdentifiableCharacter")?.GetValue(motor);
+            object? nativeType = character?.GetType().GetMethod("GetIl2CppType", Type.EmptyTypes)?.Invoke(character, null);
+            string? name = nativeType?.GetType().GetProperty("FullName")?.GetValue(nativeType)?.ToString();
+            var actualType = name == null ? null : ReflectionUtil.GameAssembly?.GetType(name);
+            object? pointer = character?.GetType().GetProperty("Pointer")?.GetValue(character);
+            object? actual = pointer is IntPtr address ? actualType?.GetConstructor(new[] { typeof(IntPtr) })?.Invoke(new object[] { address }) : null;
+            object? state = actualType?.GetProperty("cachedState")?.GetValue(actual);
+            if (state == null) throw new InvalidOperationException();
+            var stateType = state.GetType();
+            var names = new[] { "CurrentBehaviour", "BehaviourMode", "LeaderCharacterToFollow", "LeaderCharacterEntity",
+                "LookAtPositionDemand", "MostRecentMotionReport", "MotionReportsTerminated", "RoomTimeOfLastSignificantMovement" };
+            if (!_schemas.TryGetValue(stateType.FullName!, out var schema))
+            {
+                schema = (stateType, names.Select(field => (field, stateType.GetProperty(field))).ToArray());
+                _schemas.Add(stateType.FullName!, schema);
+            }
+            _motors.Add((body, label, state, schema.Properties));
+        }
+        catch { _output.AppendLine("binding sample=" + _samples + " actor=" + label + " characterState=unavailable"); }
+    }
     [HideFromIl2Cpp]
     private void CaptureMotors(string prefix)
     {
@@ -225,24 +302,30 @@ internal sealed class MovementCapture : MonoBehaviour
         foreach (var entry in _motors)
         {
             if (entry.Body == null) continue;
-            _output.Append(prefix).Append("MOTOR ").Append(entry.Body.name);
+            _output.Append(prefix).Append("OBSERVATION ").Append(entry.Label).Append(" type=").Append(entry.Motor.GetType().Name);
             foreach (var property in entry.Properties)
             {
                 _output.Append(' ').Append(property.Name).Append('=');
                 try
                 {
-                    object? value = property.GetValue(entry.Motor);
+                    if (property.Property == null) { _output.Append("unavailable"); continue; }
+                    object? value = property.Property.GetValue(entry.Motor);
                     if (value is Vector3 vector) _output.Append(V(vector));
-                    else if (property.Name == "motorRestrictors" && value != null)
-                        _output.Append("count:").Append(value.GetType().GetProperty("Count")?.GetValue(value) ?? "unavailable");
-                    else _output.Append(value ?? "unavailable");
+                    else if (value is Transform visual) _output.Append("transform#").Append(visual.GetInstanceID()).Append(" localScale=").Append(V(visual.localScale)).Append(" forward=").Append(V(visual.forward));
+                    else if (property.Name == "motorRestrictors")
+                        _output.Append(MovementCaptureFormatting.Restrictors(value));
+                    else if (property.Name == "mostRecentlyAppliedRigidbodyPropertiesId")
+                        _output.Append(MovementCaptureFormatting.NullableInt(value));
+                    else if (value is IFormattable scalar)
+                        _output.Append(scalar.ToString(null, CultureInfo.InvariantCulture));
+                    else _output.Append(property.Property == null ? "unavailable" : MovementCaptureFormatting.Details(value));
                 }
                 catch { _output.Append("unavailable"); }
             }
             _output.AppendLine();
         }
         foreach (var probe in _contacts)
-            if (probe != null) _output.Append(prefix).Append("CONTACT ").Append(probe.name).Append(' ').AppendLine(probe.Snapshot());
+            if (probe != null) _output.Append(prefix).Append("CONTACT ").Append(MovementCaptureFormatting.ActorLabel(BodyPath(probe.GetComponent<Rigidbody>()), probe.GetComponent<Rigidbody>().GetInstanceID())).Append(' ').AppendLine(probe.Snapshot());
     }
 
     [HideFromIl2Cpp]
@@ -261,6 +344,7 @@ internal sealed class MovementCapture : MonoBehaviour
         _active = false;
         ReleaseProbes();
         _output.AppendLine("end=" + reason);
+        _output.AppendLine(MontageAnimalTick.Summary);
         string directory = System.IO.Path.Combine(Paths.BepInExRootPath, "diagnostics");
         System.IO.Directory.CreateDirectory(directory);
         string path = System.IO.Path.Combine(directory, "movement-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff") + ".txt");

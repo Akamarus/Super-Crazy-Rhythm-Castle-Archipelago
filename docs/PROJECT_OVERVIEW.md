@@ -1,3 +1,145 @@
+## v0.29.0 / Client 0.76.0 release checkpoint — October 12
+
+The [release notes](releases/v0.29.0.md) are the current summary of changes, compatibility, validation and known issues. Older entries below preserve development history. Cold Storage/Cell Tower Star Eater investigation remains deferred at the user's request; do not interpret that deferral as native verification.
+
+## October 12 release package prepared and APWorld installed locally
+
+The final audited APWorld was installed into the local Archipelago custom_worlds folder for Universal Tracker. Installed and packaged SHA-256 match. Restart Universal Tracker to load it. Existing seeds, server state, saves and installed client were not modified.
+
+APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog, AI disclosure and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](releases/v0.29.0.md).
+
+## October 12 user-reviewed prerequisite corrections (candidate)
+
+Direct Plunger/Bees/Frying Pan/Smooch pickups, Bucket Minion trade, Boring Room certificate source, bee access, Fish Tears via the Cell Tower return, Lift Quest via Lobby, Cold Storage Plant Pipes and Royal Star Eater access now follow the reviewed workbook. Loneliness and Party Non Stop retain Hypno Pan per the user's correction. Existing IDs, location counts and placement safety remain unchanged.
+
+All 190 APWorld tests, 54 AP 0.6.8 generation cases and 1,888 actual Universal Tracker states pass. Candidate only, not installed or published. Native uncertainty remains for School Trip, Cold Storage/Cell Tower Star Eater, Bunker keycard randomization, late-game Gecko and two cassette aliases. See [audit dispositions and evidence](testing/2026-10-12-user-rule-audit.md).
+
+## October 11 corrected independent Lobby routes
+
+User-confirmed native behavior: Lobby Access independently opens Boring Room, Minim Tower and The Vault; none requires Lift Quest or another Lobby level. Each retains its own generated AP Star entry gate. Plunger hand-in requires Lobby Access and Plunger only. Lobby Star Eater requires those plus its seed-authored Star threshold (4 in the current test seed). Other Lobby story dependencies remain explicit and are not silently removed.
+
+Regression tests reproduce the old failures and cover independent level gates, absent area access, Plunger and below-threshold Stars. All 181 APWorld tests pass. Actual UT replay covers 12 worlds / 1,888 inventory states with zero reconstruction defects; current test inventory now exposes 48 unchecked locations rather than 25. Existing placements, IDs and saved Star requirements are preserved. This supersedes the historical conservative Lift Quest prerequisite and the earlier claim that matching tracker/world predicates alone validated native access.
+
+## October 11 release integration checkpoint
+
+Montage animal timing is now enabled normally, retaining the gameplay-accepted implementation. The rejected nullable motor hook, its clock and tests, and the temporary F9 frame-rate probe and tests were removed. F8 observation remains for other movement reports. No frame cap or fullscreen override is added. This cleanup build is not installed or published; the accepted test DLL remains installed.
+
+Accepted in gameplay: Montage improvement at approximately 165–171 FPS, and the initial Regular/Pro Change-button repair. Automated coverage alone does not close the remaining reports.
+
+Still awaiting targeted native acceptance:
+- Triple-bundle coverage and other delayed item types remain to verify; live pair-bundle receipt, notification, deposit, immediate song selection and persistence after restart/reconnect are user-accepted, with both songs verified HAVE_DEPOSITED in the new launch log.
+- Roots booth pickup visibility is user-accepted from their earlier observation, confirmed October 11; the Bloody Tears 46-point chest while carrying its cartridge also passed, including its AP check.
+- Entering a star-blocked level immediately after receiving enough AP Stars without reloading the area.
+- Lobby Meoo/Plunger/Star Eater checks on the new readiness path, and a live Universal Tracker comparison.
+
+Still open investigations: early Lobby and native Hypno recipe route requirements, movement outside the accepted Montage scope, and intermittent song/windowed/Combo Bucket performance. Earlier historical status entries below may describe superseded builds; this checkpoint and the linked acceptance evidence take precedence. Local packaging does not constitute release approval.
+
+## October 11 Montage movement accepted at normal frame rates
+
+The user signed off after the installed primitive animal-update candidate worked much better in Montage. Captures confirm the hook active for three animals while rendering at approximately 171 and 165 FPS; no 50 FPS cap was needed. The accepted binary and local evidence are recorded in [the movement test report](testing/2026-10-11-montage-animal-tick-candidate.md). Next is release integration and removal of obsolete experimental code; other movement reports are not automatically closed by this scoped acceptance.
+
+## October 11 primitive animal-update candidate (built, not installed)
+
+The rejected nullable motor hook is replaced experimentally by a disabled-by-default primitive native animal-update hook scoped to Montage. It preserves elapsed time while pacing animal updates to physics without changing render FPS. Review corrected unload, save-boundary reset and bounded actor-cache lifecycle. All 28 timing checks and three primitive ABI round trips pass; the client builds, but native acceptance remains pending. The installed working build remains unchanged. See [candidate evidence and test plan](testing/2026-10-11-montage-animal-tick-candidate.md).
+
+## October 11 licensing and packaging correction (published)
+
+Original project contributions are now MIT licensed. Full notices for the two shipped MIT libraries and separately installed LGPL runtime references accompany release packages. The packager enforces approved files, reviewed dependency hashes and complete notices. Historical correction packages preserve all original DLL/source bytes; no gameplay or seed changes are included. The source correction and all eight historical release package corrections were published with matching checksums; downloaded assets were verified. See [packaging](PACKAGING.md).
+
+## October 11 movement candidate rejected after native crash
+
+The uncapped candidate caused repeated IL2CPP native-to-managed UpdateMovement trampoline failures in Buffer.Memmove before the managed prefix could execute. Managed fixture tests did not cover this boundary. Startup activation has been removed, and the installed DLL was rolled back to SHA256 DF60F8020BEA0A15DDE4FE239AAF0FCF70B040294CB0F942866424E91EC7600C with its candidate setting disabled. Saves were not modified. The uncapped movement fix remains unresolved; do not reinstall the rejected binary. A safe native hook boundary must be established before another live trial.
+
+## October 11 uncapped movement candidate (built, not installed)
+
+The 50 FPS experiment was installed and user-confirmed to resolve Montage movement; both captures verify approximately 50 FPS. A disabled-by-default candidate now preserves accumulated movement time for the kinematic Montage cat while keeping rendering uncapped. Managed tests pass; native acceptance remains pending. Dynamic dogs, facing and other movement defects remain open. See testing/2026-10-11-kinematic-movement-candidate.md.
+
+## October 11 Montage comparison (prepared, not installed)
+
+New captures show sustained cat underspeed with fast rendering and stable physics; sampled dogs reach their configured speed, so their reported objective/facing issue remains open. User approved an explicit F9 two-minute 50 FPS diagnostic with automatic restoration. F8 capture headers identify the test mode. This is an experiment, not a movement fix. See testing/2026-10-11-montage-comparison.md.
+
+## October 11 star-blocked entrance retry (built, not installed)
+
+The level-preview start action now checks AP Stars before native door-opening side effects. The final StartLevelRequest guard remains. This prevents an unsuccessful entry from disabling the entrance until room reload; it adds no polling, scores, or save mutations. Regression fixture and release build pass; native acceptance pending. See testing/2026-10-11-star-entrance-retry.md.
+
+## October 11 selector entry follow-up (installed, accepted)
+
+Live testing found the intro-to-hub redirect retained IN_LEVEL state, blocking Change despite verified assignment completion. The candidate queues native level closure during that exact redirect; build and focused tests pass. User confirmed Change works before Level 1 after installation. See testing/2026-10-11-selector-entry.md.
+
+## October 11 release candidate — APWorld 0.29.0 / client 0.76.0
+
+Not installed or published. Candidate changes include randomized cassette pairs/triples, exclusion-aware generation capacity, Level 15/16 Plant Pipes logic and Cell Tower Violance gating; Regular/Pro availability; Roots booth visibility; item-delivery verification and retry; and inventory-independent cartridge chest collection.
+
+New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
+
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+## Unreleased cassette bundles and capacity — October 6, 2026
+
+Candidate APWorld **0.29.0 / client 0.76.0**, not installed or published.
+`cassette_bundle_size` accepts `individual` (default), `pairs`, or `triples`.
+Each seed shuffles all 30 cassettes into 15 pairs or 10 triples. The complete
+mapping is stored in slot data; reconnects and Universal Tracker reuse it.
+All cassette source and Music Lab medal checks remain. Individual cassette
+starting items are still recognized. Bundle receipts supply their component
+cassettes through the existing native deposit flow; received notifications and
+history list the songs. Native bundle delivery still needs gameplay acceptance.
+
+Bundled seeds use schema 20 and require client 0.76.0. Individual seeds retain
+schema 19. Existing seeds are not regrouped and their placements are unchanged.
+The legacy cassette item IDs remain; 15 new ordinal bundle IDs are registered.
+
+Generation counts excluded modeled locations before filling. When necessary,
+it combines existing Music Lab point denominations while preserving all 180 points,
+66 Stars, other items, exclusions, AP difficulty and victory goal. Normal's
+original 19-exclusion configuration fits with 128 non-filler items instead of 137;
+its point rewards arrive in larger increments. Pairs/triples already free enough
+space for that configuration without point consolidation. Unresolvable capacity
+fails with a clear error; no progression is deleted or placed in excluded checks.
+
+Isolated official AP 0.6.8 validation passed 54 generation cases, including original
+Normal settings in all 3 modes, and 37 Universal Tracker 0.2.32 cases. See
+[validation](testing/2026-10-06-cassette-bundles.md). Current installed async files
+remain unchanged; no native gameplay acceptance is claimed.
+
+## Async-safe development repairs — October 6, 2026 (not installed)
+
+The isolated development client now reconciles Weed Killer only from a contiguous,
+authenticated-session receipt history through the stable selected-save Unity gate.
+Inventory readback, not a submitted write, proves delivery. Hip Glasses and Chicken
+Bucket also retry unverified writes. All three remember native consumption in the
+current save epoch so delayed door/trade/conversion flags cannot refill spent items.
+This repairs specific paths; restart-dependent Zen/cassette delivery remains open.
+
+Regular/Pro availability now initializes only the existing assignment-complete
+bookkeeping flag after compatible authentication and stable-save readiness. It does
+not select a chart difficulty or write scores. The Roots booth portal renderer is
+hidden until Gecko's pickup source is collected; its collider and teleport remain
+native. Bloody Tears and Gradius chests use their source-collected flags rather than
+bag ownership to decide whether the source is already collected, preserving point
+thresholds. Movement captures now report restrictor identities, nullable property
+IDs and speed/acceleration fields; the movement defect itself remains unresolved.
+
+Cell Tower Star Eater logic additionally requires Violance: native activation checks
+ability30 (VIOLIN), not completion of its vanilla Lobby source. New generation and
+tracker logic can adopt this; current async placements are not rewritten.
+
+No installation, live config/save changes, game/server restart or publication was
+performed. All client changes require later native acceptance on a separate test
+save. See testing/2026-10-06-item-delivery.md, testing/2026-10-06-difficulty-selection.md,
+testing/2026-10-06-chest-cell-audit.md and testing/2026-10-06-movement.md.
+
+## Cell Tower Plant Pipes logic — October 3, 2026 (unreleased)
+
+Level 15 completion and all of its rating rewards require Plant Pipes. Routes
+that depend on completing Level 15 inherit this requirement. Level 16 additionally
+requires Plant Pipes explicitly for its two- and three-star rewards; its own
+completion and one-star conditions are otherwise unchanged. The current route to
+Level 16 already includes Level 15, so it also inherits that prerequisite.
+
+This changes generation and Universal Tracker logic, not native entry or score
+handling. Existing async placements are not rewritten. No client update, live
+installation, server change or save modification is part of this correction.
+
 
 
 ## Universal Tracker compatibility update — September 21

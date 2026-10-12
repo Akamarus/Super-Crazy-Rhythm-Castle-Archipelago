@@ -55,13 +55,13 @@ class QuestChecksWorldTests(unittest.TestCase):
             self.assertTrue(source.item_rule(world.create_item(name)))
         self.assertTrue(source.item_rule(world.create_item('Stardust')))
 
-    def test_plunger_source_requires_conservative_lobby_route_but_not_its_reward(self):
+    def test_plunger_source_requires_lobby_access_but_not_its_reward(self):
         world = self.make_world()
         self.assertIn('Lobby - Plunger Pickup', world.location_name_to_id)
         source = world.multiworld.get_location('Lobby - Plunger Pickup', 1)
         self.assertEqual(source.parent_region.name, 'Lobby')
         self.assertFalse(source.access_rule(State([])))
-        self.assertFalse(source.access_rule(State(['Lobby Access'])))
+        self.assertTrue(source.access_rule(State(['Lobby Access'])))
         owned=[name for name in world.item_name_to_id if name!='Plunger']+['Star']*66
         self.assertTrue(source.access_rule(State(owned)))
         self.assertTrue(source.item_rule(world.create_item('Stardust')))

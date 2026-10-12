@@ -68,6 +68,44 @@ class APStarsTests(unittest.TestCase):
                 with self.subTest(difficulty=difficulty, location=name):
                     self.assertTrue(world.multiworld.get_location(name, 1).access_rule(state))
 
+    def test_cell_tower_plant_pipes_requirements(self):
+        for difficulty in range(4):
+            world = self.build_world(difficulty=difficulty)
+            world.set_rules()
+            owned = [n for n in self.module.ITEM_NAME_TO_ID if n not in ('Star', 'Plant Pipes')]
+            state = State(owned + ['Star'] * 66)
+            names = [n for n in world.active_location_names if n.startswith('Level 15 - ') or n in ('Level 16 - 2 Stars', 'Level 16 - 3 Stars')]
+            names += ['Cell Tower - Deliver Super Nectar']
+            for name in names:
+                self.assertFalse(world.multiworld.get_location(name, 1).access_rule(state), name)
+            state.collect('Plant Pipes')
+            for name in names:
+                self.assertTrue(world.multiworld.get_location(name, 1).access_rule(state), name)
+
+    def test_level_16_rating_requirement_is_separate_from_completion(self):
+        from unittest.mock import patch
+        world = self.build_world(difficulty=3)
+        world.set_rules()
+        state = State([n for n in self.module.ITEM_NAME_TO_ID if n not in ('Star', 'Plant Pipes')] + ['Star'] * 66)
+        # Isolate the rating requirement from the Level 15 predecessor requirement.
+        with patch.dict(self.module.can_complete.__globals__['LEVEL_PREDECESSORS'], {16: ()}):
+            for tier in ('Completion', '1 Star'):
+                self.assertTrue(world.multiworld.get_location('Level 16 - ' + tier, 1).access_rule(state))
+            for tier in ('2 Stars', '3 Stars'):
+                self.assertFalse(world.multiworld.get_location('Level 16 - ' + tier, 1).access_rule(state))
+            state.collect('Plant Pipes')
+            for tier in ('Completion', '1 Star', '2 Stars', '3 Stars'):
+                self.assertTrue(world.multiworld.get_location('Level 16 - ' + tier, 1).access_rule(state))
+
+    def test_cell_star_eater_requires_received_violance_not_lobby_route(self):
+        world = self.build_world()
+        rule = world.multiworld.get_location('Cell Tower - Star Eater Fed', 1).access_rule
+        owned = [n for n in self.module.ITEM_NAME_TO_ID if n not in ('Star', 'Violance', 'Lobby Access', 'Hip Glasses', 'Chicken Bucket')]
+        state = State(owned + ['Star'] * 66)
+        self.assertFalse(rule(state))
+        state.collect('Violance')
+        self.assertTrue(rule(state), 'Randomized Violance must not require completing its vanilla Lobby source')
+
     def test_campaign_gate_boundaries_and_partial_plant_pipes_source(self):
         world=self.build_world()
         owned=[name for name in self.module.ITEM_NAME_TO_ID if name!='Star']
@@ -93,8 +131,8 @@ class APStarsTests(unittest.TestCase):
         world=self.build_world()
         locations=[l for r in world.multiworld.regions for l in r.locations if l.address is not None]
         for index,location in enumerate(locations):
-            location.item_rule=lambda item,index=index: index<136 or item.name=='Stardust'
-        with self.assertRaisesRegex(ValueError,'137.*136'):
+            location.item_rule=lambda item,index=index: index<125 or item.name=='Stardust'
+        with self.assertRaisesRegex(ValueError,'126.*125'):
             world.create_items()
 
 if __name__=='__main__': unittest.main()

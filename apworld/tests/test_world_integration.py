@@ -31,6 +31,47 @@ class WorldIntegrationTests(unittest.TestCase):
         self.difficulty = load_scrc_module("difficulty")
         self.points = load_scrc_module("music_lab_points")
 
+    def test_lobby_access_does_not_inherit_roots_route(self):
+        world = self.build_world()
+        world.set_rules()
+        state = State(["Lobby Access", "Plunger"] + ["Star"] * 40)
+        for name in ("Level 6 - Completion", "Level 8 - Completion", "Level 10 - Completion",
+                     "Lobby - Plunger Hand-In", "Lobby - Star Eater Fed"):
+            with self.subTest(name=name):
+                self.assertTrue(self.location_is_reachable(world, world.multiworld.get_location(name, 1), state))
+        self.assertFalse(self.location_is_reachable(world,
+            world.multiworld.get_location("Level 5 - Completion", 1), state))
+
+    def test_lobby_route_keeps_access_plunger_and_star_gates(self):
+        world = self.build_world()
+        world.set_rules()
+        checks = (("Level 6 - Completion", ["Plunger"] + ["Star"] * 40),
+                  ("Level 6 - Completion", ["Lobby Access", "Plunger"]),
+                  ("Lobby - Plunger Hand-In", ["Lobby Access"] + ["Star"] * 40),
+                  ("Lobby - Star Eater Fed", ["Lobby Access", "Plunger"]))
+        for name, items in checks:
+            with self.subTest(name=name, items=items):
+                self.assertFalse(self.location_is_reachable(world,
+                    world.multiworld.get_location(name, 1), State(items)))
+
+    def test_independent_lobby_interactions_ignore_other_level_gates(self):
+        world = self.build_world()
+        world.set_rules()
+        # Isolate each entry from the previous shared chain, including unusually
+        # high other gates; the target level's own Star gate must still apply.
+        for level in (6, 8, 10):
+            world.generated_star_requirements = {f"Level {n}": 60 for n in range(1, 23)}
+            world.generated_star_requirements[f"Level {level}"] = 4
+            location = world.multiworld.get_location(f"Level {level} - Completion", 1)
+            self.assertTrue(self.location_is_reachable(world, location, State(["Lobby Access"] + ["Star"] * 4)))
+            self.assertFalse(self.location_is_reachable(world, location, State(["Lobby Access"] + ["Star"] * 3)))
+        world.generated_star_requirements["Level 7"] = 4
+        hand_in = world.multiworld.get_location("Lobby - Plunger Hand-In", 1)
+        eater = world.multiworld.get_location("Lobby - Star Eater Fed", 1)
+        self.assertTrue(self.location_is_reachable(world, hand_in, State(["Lobby Access", "Plunger"])))
+        self.assertTrue(self.location_is_reachable(world, eater, State(["Lobby Access", "Plunger"] + ["Star"] * 4)))
+        self.assertFalse(self.location_is_reachable(world, eater, State(["Lobby Access", "Plunger"] + ["Star"] * 3)))
+
     def make_world(
         self,
         seed=22,
@@ -378,7 +419,8 @@ class WorldIntegrationTests(unittest.TestCase):
                     self.assertTrue(self.location_is_reachable(world, source, self.full_state()))
                 for missing in required:
                     with self.subTest(difficulty=difficulty, song=song, missing=missing):
-                        self.assertFalse(self.location_is_reachable(world, source, self.full_state((missing,))))
+                        self.assertFalse(self.location_is_reachable(world, source,
+                            self.full_state((missing, "Lobby Access") if song in ("Badass", "Heavy Metal") else (missing,))))
 
     def test_normal_cassette_routes_include_campaign_requirements(self):
         for entry in self.catalog.CASSETTES:
@@ -421,7 +463,7 @@ class WorldIntegrationTests(unittest.TestCase):
                             self.location_is_reachable(
                                 world,
                                 source,
-                                self.full_state((missing,)),
+                                self.full_state((missing, "Lobby Access") if trigger.level == "Level_09" else (missing,)),
                             ),
                             f"{entry.source_name} without {missing}",
                         )
@@ -615,7 +657,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 if location.address is None or location.name in retained_names
             ]
 
-        with self.assertRaisesRegex(ValueError, "required progression items.*active locations"):
+        with self.assertRaisesRegex(ValueError, "non-filler instances.*modeled non-excluded locations"):
             world.create_items()
 
     def test_cassette_prerequisite_abilities_are_generated_once(self):

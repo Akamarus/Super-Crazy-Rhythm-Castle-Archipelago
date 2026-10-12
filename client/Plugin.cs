@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.75.13";
+    public const string PluginVersion = "0.76.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -114,6 +114,7 @@ public sealed class Plugin : BasePlugin
         Log.LogInfo($"[SCRC-AP] v{PluginVersion} loading.");
 
         _harmony = new Harmony(PluginGuid);
+        MontageAnimalTick.Install();
         int patched = 0;
 
         patched += PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
@@ -944,6 +945,7 @@ public sealed class Plugin : BasePlugin
         AP?.Shutdown();
         ApStarEaterThresholds.Restore();
         ApStars.OnNativeBoundary();
+        MontageAnimalTick.Shutdown();
         _harmony?.UnpatchSelf();
         return true;
     }
@@ -1085,6 +1087,8 @@ internal sealed class ArchipelagoClient
             var pointHistory = new MusicLabPointSessionHistory(generation);
             var starHistory = new ApStarSessionHistory(generation, ApStars.State);
             var questHistory = new CharacterQuestItemSessionHistory(generation, CharacterQuestItems.State);
+            var weedKillerHistory = new WeedKillerSessionHistory(generation);
+            var cassetteBundleHistory = new CassetteBundleSessionHistory(generation, CassetteReceiptRandomization.TryApplyItem);
             var questChecks = new QuestChecksSession(generation);
             var notificationSession = ItemNotifications.CreateSession(session, generation, action =>
             {
@@ -1182,7 +1186,7 @@ internal sealed class ArchipelagoClient
                                     PlantPipesRandomization.TryApplyItem,
                                     PreviewAbilityRandomization.TryApplyItem,
                                     RootsBucketRandomization.TryApplyItem,
-                                    CassetteReceiptRandomization.TryApplyItem,
+                                    cassetteBundleHistory.TryApplyItem,
                                     MusicLabPointRandomization.TryHandleItemName,
                                     NativeProgression.ApplyArchipelagoItem);
                             }
@@ -1211,6 +1215,8 @@ internal sealed class ArchipelagoClient
                     pointHistory.HandlePacket(packet);
                     starHistory.HandlePacket(packet);
                     questHistory.HandlePacket(packet);
+                    weedKillerHistory.HandlePacket(packet);
+                    cassetteBundleHistory.HandlePacket(packet);
                     questChecks.HandlePacket(packet);
                     notificationSession.HandlePacket(packet);
                 }
@@ -1227,11 +1233,15 @@ internal sealed class ArchipelagoClient
                         !ReferenceEquals(previousSession.Session, session))
                     {
                         GarageCartridgeAccess.EndServerSync(previousSession.Generation);
+                        WeedKillerRandomization.History.End(previousSession.Generation);
+                CassetteBundleSessionHistory.End(previousSession.Generation);
                         MusicLabPointRandomization.OnDisconnected(previousSession.Generation);
                     }
                 }, out GenerationSession<ArchipelagoSession> replaced))
             {
                 GarageCartridgeAccess.EndServerSync(generation);
+                WeedKillerRandomization.History.End(generation);
+                CassetteBundleSessionHistory.End(generation);
                 ObserveDisconnect(session);
                 return false;
             }
@@ -1276,6 +1286,7 @@ internal sealed class ArchipelagoClient
                 {
                     using (loginLease)
                     {
+                        CassetteBundleContract.Parse(loginSuccess.SlotData); // Reject malformed bundles before enabling native subsystems.
                         ExpandedChecksMode expandedMode = ExpandedChecksPolicy.Validate(loginSuccess.SlotData);
                         if (expandedMode == ExpandedChecksMode.Invalid)
                             throw new InvalidOperationException("Expanded check contract is incompatible.");
@@ -1331,6 +1342,8 @@ internal sealed class ArchipelagoClient
                         if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
                             throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
                         questHistory.Configure(questMode == CharacterQuestItemMode.Enabled);
+                        weedKillerHistory.Configure();
+                        cassetteBundleHistory.Configure(loginSuccess.SlotData);
                         questChecks.Configure(string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
                             checksMode == QuestChecksMode.Enabled, session.Locations.AllLocationsChecked);
                         ExpandedChecks.Configure(generation,
@@ -1341,7 +1354,7 @@ internal sealed class ArchipelagoClient
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
                                 $"Garage inserted-state synchronization generation {generation} was already ended.");
-                        notificationSession.Configure(session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
+                        notificationSession.Configure(session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot, loginSuccess.SlotData);
                         _connected = true;
                         _reconnectPolicy.OnConnected();
                         Plugin.LoggerInstance?.LogInfo(
@@ -1376,6 +1389,8 @@ internal sealed class ArchipelagoClient
                 {
                     ConnectionLifecycle.Abandon(generation);
                     GarageCartridgeAccess.EndServerSync(generation);
+                    WeedKillerRandomization.History.End(generation);
+                CassetteBundleSessionHistory.End(generation);
                 }
                 ObserveDisconnect(session);
             }
@@ -1383,6 +1398,8 @@ internal sealed class ArchipelagoClient
             {
                 ConnectionLifecycle.Abandon(generation);
                 GarageCartridgeAccess.EndServerSync(generation);
+                WeedKillerRandomization.History.End(generation);
+                CassetteBundleSessionHistory.End(generation);
             }
             Plugin.LoggerInstance?.LogError(
                 $"[SCRC-AP] NET inner exception type={ex.GetType().FullName}: {ex}");
@@ -1422,6 +1439,8 @@ internal sealed class ArchipelagoClient
             _shutdownToken.Cancel();
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
+            WeedKillerRandomization.History.End(current.Generation);
+                CassetteBundleSessionHistory.End(current.Generation);
         });
         ArchipelagoSession? session = current.Session;
         if (session != null)
@@ -1438,6 +1457,8 @@ internal sealed class ArchipelagoClient
             _connected = false;
             AreaAccessPrototype.EndAuthenticatedSession();
             GarageCartridgeAccess.EndServerSync(generation);
+            WeedKillerRandomization.History.End(generation);
+                CassetteBundleSessionHistory.End(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
             ApStars.State.Disconnect(generation);
             CampaignLevelRandomization.OnDisconnected();
@@ -4565,6 +4586,8 @@ internal static class CassetteSaveTransactionPatches
 
     public static void SelectedSlotMutationPostfix(object[]? __args, MethodBase __originalMethod, object? __instance)
     {
+        RootsPortalPresentation.Reset();
+        MontageAnimalTick.Reset();
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
         GarageCartridgeAccess.ResetNativeBagObservations("selected save slot mutation");
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "<unknown>"}.{__originalMethod?.Name ?? "<unknown>"}(Int32)";
@@ -4596,6 +4619,7 @@ internal static class CassetteSaveTransactionPatches
         object? __instance)
     {
         CassetteReceiptRandomization.SuspendGameplayReadinessForBoundary();
+        MontageAnimalTick.Reset();
         GarageCartridgeAccess.ResetNativeBagObservations("player save state rebuilt");
         const string requestIdentity = "BuildPlayerSaveStateFromFileRequest";
         string methodIdentity = $"{__originalMethod?.DeclaringType?.Name ?? "SaveDataRequestProcessor"}.{__originalMethod?.Name ?? "ProcessRequest"}({requestIdentity})";
@@ -5209,6 +5233,7 @@ internal static class DeveloperHarness
             $"room transition to {observedRoom}");
 
         BunkerStarRequirementKeeper.ResetForSceneChange();
+        MontageAnimalTick.Reset();
 
         bool firstCapture;
 
@@ -6748,16 +6773,17 @@ internal static class PhoneBoothDiagnostic
 
 internal static class WeedKillerRandomization
 {
+    internal static readonly WeedKillerReceiptState History = new();
     public const string ItemName = "Weed Killer";
     public const string SourceLocationName = "Roots - Gecko's Weed Killer";
     public const string NativeBagFlag = "WEED_KILLER_BAG_ITEM";
     public const string NativeCollectedFlag = "ROOTS_HUB_WEED_KILLER_COLLECTED";
 
     private static readonly object Sync = new();
-    private static object? _playerSaveRequestProcessor;
-    private static bool _owned;
-    private static bool _pendingNativeGrant;
-    private static bool _nativeGrantApplied;
+    private static TimeSpan _pollRemaining;
+    private static string? _lastDeliveryStatus;
+    private static string? _consumedSaveIdentity;
+    internal const string NativeConsumedFlag = "ROOTS_HUB_LEVEL_07_DOOR_REVEALED";
 
     [ThreadStatic]
     private static bool _applyingNativeGrant;
@@ -6771,10 +6797,9 @@ internal static class WeedKillerRandomization
         {
             Enabled = false;
             ImplementationVersion = string.Empty;
-            _playerSaveRequestProcessor = null;
-            _owned = false;
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = false;
+            _pollRemaining = TimeSpan.Zero;
+            _lastDeliveryStatus = null;
+            _consumedSaveIdentity = null;
         }
     }
 
@@ -6809,7 +6834,6 @@ internal static class WeedKillerRandomization
                 ? $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}'. Gecko source check is live; vanilla Weed Killer grant is suppressed and AP delivery grants the native consumable."
                 : $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION disabled implementation='{implementation}' requested={requested}; Gecko/Weed Killer remain vanilla for this seed.");
 
-        TryFlushPendingNativeGrant();
     }
 
     public static bool TryApplyItem(string itemName)
@@ -6817,56 +6841,68 @@ internal static class WeedKillerRandomization
         if (!string.Equals(itemName, ItemName, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        lock (Sync)
-        {
-            _owned = true;
-            _pendingNativeGrant = true;
-        }
-
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS WEED KILLER RECEIVED item='{ItemName}' routingEnabled={Enabled}. Native flag '{NativeBagFlag}' will be applied immediately when PlayerSaveRequestProcessor is available.");
+            $"[SCRC-AP] ROOTS WEED KILLER RECEIVED item='{ItemName}' routingEnabled={Enabled}. Native flag '{NativeBagFlag}' is queued for a stable selected save on the Unity thread.");
 
-        TryFlushPendingNativeGrant();
         return true;
     }
 
-    public static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null || !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
+    // Legacy request hooks must never write native state.
+    public static void CapturePlayerSaveRequestProcessor(object? instance) { }
+    public static void TryFlushPendingNativeGrant() { }
 
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
+    internal static void RecordConsumption(object evt, string flag)
+    {
+        if (_applyingNativeGrant || !Enabled || !string.Equals(flag, NativeBagFlag, StringComparison.Ordinal) ||
+            (ReflectionUtil.ReadBool(evt, "FlagWasSet") ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField")) != true ||
+            (ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")) != false) return;
+        // Vanilla removes the bag before its delayed door-reveal sequence completes.
+        CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) =>
+        {
+            lock (Sync) _consumedSaveIdentity = identity;
+        });
     }
 
-    public static void TryFlushPendingNativeGrant()
+    internal static void TickUnity(TimeSpan elapsed)
     {
-        object? processor;
-        bool shouldGrant;
+        if (_applyingNativeGrant) return;
+        _pollRemaining -= elapsed;
+        if (_pollRemaining > TimeSpan.Zero) return;
+        _pollRemaining = TimeSpan.FromSeconds(1);
         lock (Sync)
+            if (!Enabled || !History.Owned) return;
+
+        CassetteReceiptRandomization.WithStableQuestItemSave((processor, identity) => History.WithOwned(() =>
         {
-            shouldGrant = Enabled && _owned && _pendingNativeGrant && !_nativeGrantApplied;
-            processor = _playerSaveRequestProcessor;
-        }
+            // Source collected is not consumption: the native door consequence is.
+            // Unknown native state must never restore a potentially consumed item.
+            if (!RootsBucketRandomization.TryReadProgressionFlag(NativeConsumedFlag, out bool consumed) ||
+                !RootsBucketRandomization.TryReadProgressionFlag(NativeBagFlag, out bool held))
+            {
+                ReportDelivery(identity, "waiting for native inventory/consumption state");
+                return;
+            }
+            lock (Sync) consumed |= _consumedSaveIdentity == identity;
+            if (consumed || held)
+            {
+                ReportDelivery(identity, consumed ? "consumed" : "verified held");
+                return;
+            }
+            bool submitted = TrySubmitProgressionFlag(processor, NativeBagFlag, true, out string detail);
+            bool verified = submitted && RootsBucketRandomization.TryReadProgressionFlag(NativeBagFlag, out bool after) && after;
+            ReportDelivery(identity, verified ? "verified held" : "pending native readback", detail);
+            // Submission alone is never delivery. Re-read on the next bounded tick,
+            // including after scene/save replacement, without another receipt.
+        }));
+    }
 
-        if (_applyingNativeGrant || !shouldGrant || processor == null)
-            return;
-
-        if (!TrySubmitProgressionFlag(processor, NativeBagFlag, true, out string detail))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS WEED KILLER native grant pending: could not submit '{NativeBagFlag}' yet. {detail}");
-            return;
-        }
-
-        lock (Sync)
-        {
-            _pendingNativeGrant = false;
-            _nativeGrantApplied = true;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS WEED KILLER NATIVE GRANT APPLIED flag='{NativeBagFlag}'. Vanilla may consume this bag item normally when opening Level 3. {detail}");
+    private static void ReportDelivery(string identity, string status, string detail = "")
+    {
+        string key = identity + ":" + status;
+        if (_lastDeliveryStatus == key) return;
+        _lastDeliveryStatus = key;
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] ROOTS WEED KILLER reconciliation save='{identity}' result='{status}'. {detail}");
     }
 
     public static bool ShouldSuppressGeckoVanillaGrant(object request, string flag)
@@ -7614,9 +7650,12 @@ internal static class CassetteReceiptRandomization
     private static object? _playerSaveRequestProcessor;
     private static object? _joinedSaveDataRequestProcessor;
     private static bool _slotDataSynchronized;
+    private static bool _bundleRouting;
+    private static IReadOnlyList<string>? _lastBundleSongs;
     private static CassetteSaveEpochRuntime _runtime = new();
     private static CassetteProcessorSaveIdentityStabilizer _saveIdentity = new();
     private static CassetteGameplayReadyGate _gameplayReady = new();
+    private static CassetteReconciliationRetry _reconciliationRetry = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
     private static long _activeSaveGeneration;
     private static long _activeSavePointer;
@@ -7646,9 +7685,10 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
-            Enabled = false; _slotDataSynchronized = false;
+            Enabled = false; _slotDataSynchronized = false; _bundleRouting = false; _lastBundleSongs = null;
             _playerSaveRequestProcessor = null; _joinedSaveDataRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _gameplayReady = new CassetteGameplayReadyGate();
+            _reconciliationRetry = new CassetteReconciliationRetry();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
             _activeSaveGeneration = 0; _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
@@ -7680,6 +7720,10 @@ internal static class CassetteReceiptRandomization
         if (!enabled) CancelPointerBoundPersistence("cassette-routing-disabled");
         lock (Sync)
         {
+            bool bundled = CassetteBundleContract.Parse(slotData).Bundled;
+            if (_bundleRouting || bundled) _runtime.ReplaceOwnedSongs(Array.Empty<string>());
+            _bundleRouting = bundled;
+            _lastBundleSongs = null;
             Enabled = enabled;
             _slotDataSynchronized = true;
             if (!enabled)
@@ -7699,7 +7743,11 @@ internal static class CassetteReceiptRandomization
         bool recognized;
         recognized = CassetteCatalog.ByItemName.TryGetValue(itemName, out CassetteDefinition? entry);
         if (!recognized) return false;
-        lock (Sync) _runtime.Receive(entry!.NativeSong);
+        lock (Sync)
+        {
+            if (_bundleRouting) return true; // Only the authenticated bundle history authorizes songs in schema 20.
+            _runtime.Receive(entry!.NativeSong);
+        }
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE RECEIVED item='{entry.ItemName}' nativeSong='{entry.NativeSong}' routingEnabled={Enabled}; Unity-thread reconciliation requested.");
         RequestUnityReconciliation("AP cassette receipt");
         return true;
@@ -8106,8 +8154,8 @@ internal static class CassetteReceiptRandomization
         if (!opened) return;
 
         Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] CASSETTE GAMEPLAY READY epoch={observation.Identity.Epoch} slot={observation.Identity.Slot} pointer=0x{observation.Identity.Pointer:X}; live Hub6 phone bank observed and pending AP ownership retained for reconciliation.");
-        RequestUnityReconciliation("live Hub6 gameplay ready");
+            $"[SCRC-AP] CASSETTE GAMEPLAY READY epoch={observation.Identity.Epoch} slot={observation.Identity.Slot} pointer=0x{observation.Identity.Pointer:X}; live player in a running gameplay room observed and pending AP ownership retained for reconciliation.");
+        RequestUnityReconciliation("live player gameplay ready");
     }
 
     internal static void ObserveGameplayReadyMarker(bool phoneBankLive, int markerIdentity)
@@ -8116,6 +8164,20 @@ internal static class CassetteReceiptRandomization
     }
 
     internal static void TickUnity(TimeSpan elapsed)
+    {
+        CassetteBundleSessionHistory.WithSongs((managed, songs) =>
+        {
+            if (managed && !ReferenceEquals(_lastBundleSongs, songs))
+            {
+                _lastBundleSongs = songs;
+                lock (Sync) _runtime.ReplaceOwnedSongs(songs);
+                RequestUnityReconciliation("authenticated cassette bundle history");
+            }
+            TickUnityCore(elapsed);
+        });
+    }
+
+    private static void TickUnityCore(TimeSpan elapsed)
     {
         CassetteRegularSavePointerJoinSnapshot joinSnapshot;
         lock (Sync) joinSnapshot = _regularSavePointerJoinProbe.Capture();
@@ -8181,6 +8243,19 @@ internal static class CassetteReceiptRandomization
         }
 
         PollPointerBoundPersistence(elapsed, "UPDATE");
+
+        lock (Sync)
+        {
+            bool readyForRetry = !_saveIdentity.Pending && _slotDataSynchronized && Enabled &&
+                _runtime.HasActiveSave && _gameplayReady.IsOpen(new(
+                    _activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot!.Value, _activeSavePointer));
+            if (_reconciliationRetry.Tick(elapsed, readyForRetry,
+                    !_saveSynchronizationReady || _runtime.PendingSongs.Count > 0))
+            {
+                _unityReconciliationRequested = true;
+                _unityReconciliationReason = "bounded pending delivery retry";
+            }
+        }
 
         string? reason = null;
         lock (Sync)
@@ -9541,10 +9616,12 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 
 internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 {
-    private const string Hub6PhoneBankRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
+    private const string GameplayPlayerPath = "GameRoomContainer/GameRoomSystems(Clone)/SpawnedEntityContainer/PlayerCharacter(Clone)";
+    private MethodInfo? _roomRunning;
+    private double _nextReadinessObservation;
     private long _lastTimestamp;
-    private GameObject? _phoneBank;
-    private readonly HubReadinessProbePolicy _phoneProbe = new();
+    private GameObject? _gameplayPlayer;
+    private readonly HubReadinessProbePolicy _playerProbe = new();
 
     public CassetteReceiptReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
@@ -9566,16 +9643,33 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
         using (ClientPerformance.Measure("Reconcile.Expanded")) { ExpandedChecks.Tick(elapsed); }
         using (ClientPerformance.Measure("Reconcile.Stars")) { ApStars.TickUnity(); }
         using (ClientPerformance.Measure("Reconcile.Roots")) { RootsBucketRandomization.TickUnity(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.WeedKiller")) { WeedKillerRandomization.TickUnity(elapsed); }
+        using (ClientPerformance.Measure("Reconcile.DifficultySelection")) { DifficultySelectionAvailability.TickUnity(elapsed); }
+        SelectorAvailabilityDiagnostics.TickUnity(elapsed);
+        // A live player in a running room proves gameplay has initialized without
+        // requiring a Music Lab visit. Exact save epoch and marker lifetime checks
+        // still run before any save/status access. Probe at most four times/second.
+        double readinessTime = Time.unscaledTime;
+        if (readinessTime < _nextReadinessObservation) return;
+        _nextReadinessObservation = readinessTime + 0.25;
         string room = DeveloperHarness.CurrentRoomId;
-        if (room != "GameRoom_Hub6") _phoneBank = null;
-        bool live = _phoneBank != null && _phoneBank.activeInHierarchy;
-        if (_phoneProbe.ShouldSearch(room, Time.unscaledTime, live))
-            _phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
-        GameObject? phoneBank = _phoneBank != null && _phoneBank.activeInHierarchy ? _phoneBank : null;
-        CassetteReceiptRandomization.ObserveGameplayReadyMarker(
-            phoneBank != null,
-            phoneBank?.GetInstanceID() ?? 0);
-        if (phoneBank != null &&
+        bool running = false;
+        try
+        {
+            _roomRunning ??= ReflectionUtil.GameAssembly?.GetType("GameRoomEnquiries")
+                ?.GetMethod("InARunningRoom", Type.EmptyTypes);
+            running = _roomRunning?.Invoke(null, null) is true;
+        }
+        catch { /* Missing native readiness evidence keeps the gate closed. */ }
+        if (!running || !room.StartsWith("GameRoom_", StringComparison.Ordinal))
+            _gameplayPlayer = null;
+        else if (_playerProbe.ShouldSearch(room, readinessTime,
+                     _gameplayPlayer != null && _gameplayPlayer.activeInHierarchy))
+            _gameplayPlayer = GameObject.Find(GameplayPlayerPath);
+        GameObject? marker = running && _gameplayPlayer != null && _gameplayPlayer.activeInHierarchy
+            ? _gameplayPlayer : null;
+        CassetteReceiptRandomization.ObserveGameplayReadyMarker(marker != null, marker?.GetInstanceID() ?? 0);
+        if (marker != null &&
             CassetteReceiptRandomization.TryCaptureGameplayReadyObservation(out CassetteGameplayReadyObservation observation))
             CassetteReceiptRandomization.ObserveGameplayReady(observation);
     }
@@ -10489,6 +10583,7 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
     private void LateUpdate()
     {
         using var timing = ClientPerformance.Measure("RootsAreaBaselineKeeper.LateUpdate");
+        RootsPortalPresentation.Tick(TimeSpan.FromSeconds(Time.unscaledDeltaTime));
         RootsIntroCutsceneBypass.TickPending();
 
         bool shouldOwnRootsBaseline =
@@ -12046,6 +12141,11 @@ internal static class IntroRoomToHubRedirectPatches
         WriteMember(request, "PartOfLoadLevel", false);
         WriteMember(request, "_PartOfLoadLevel_k__BackingField", false);
 
+        // Changing PartOfLoadLevel does not clear the queued/active tutorial.
+        // Queue the native close action at its intended room-transition boundary.
+        bool closeQueued = IntroLevelClose.TryQueue(ReflectionUtil.GameAssembly, out string closeDetail);
+        if (closeQueued) Plugin.LoggerInstance?.LogInfo("[SCRC-AP] INTRO LEVEL CLOSE: " + closeDetail);
+        else Plugin.LoggerInstance?.LogWarning("[SCRC-AP] INTRO LEVEL CLOSE unavailable: " + closeDetail);
         DeveloperHarness.SetCurrentRoomForRedirect(IntroHubSkip.TargetRoomId);
 
         if (redirectFreshSave)
@@ -14682,6 +14782,8 @@ internal static class ProgressionPatches
         MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag);
         SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
         CharacterQuestItems.RecordConsumption(evt, flag);
+        WeedKillerRandomization.RecordConsumption(evt, flag);
+        RootsBucketRandomization.RecordConsumption(evt, flag);
         QuestChecks.Observe(evt, flag);
         ExpandedChecks.Observe(evt, flag);
         QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag);

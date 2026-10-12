@@ -1,6 +1,30 @@
-using RhythmCastleAP;
 using Newtonsoft.Json.Linq;
 using System.Text.Json;
+using RhythmCastleAP;
+
+var retryOverlap = new CassetteSaveEpochRuntime();
+retryOverlap.ActivateSave(4);
+retryOverlap.Receive("ZEN");
+retryOverlap.RecordSubmission("ZEN");
+retryOverlap.Observe("ZEN", "HAVE_IN_BAG");
+if (!retryOverlap.IsPending("ZEN")) throw new Exception("ordinary reconciliation must not consume pending delayed verification");
+if (!retryOverlap.Tick(TimeSpan.FromSeconds(2)).Contains("ZEN")) throw new Exception("long-frame retry preserves verification timer");
+retryOverlap.RecordVerification("ZEN", "HAVE_IN_BAG");
+if (!retryOverlap.TryConsumeNewlyVerifiedGrantDiagnosticWave(1, 0x700, out var retryWave) || !retryWave.Songs.Contains("ZEN"))
+    throw new Exception("delayed verification must retain persistence wave after retry overlap");
+var bundleRuntime = new CassetteSaveEpochRuntime();
+bundleRuntime.ActivateSave(1);
+bundleRuntime.ReplaceOwnedSongs(new[]{"THE_LITTLE_THINGS","NO_PLAN_B"});
+if(bundleRuntime.PendingSongs.Count!=2)throw new Exception("bundle songs enter normal reconciliation");
+bundleRuntime.Observe("THE_LITTLE_THINGS","HAVE_DEPOSITED");
+bundleRuntime.ReplaceOwnedSongs(new[]{"THE_LITTLE_THINGS","NO_PLAN_B"});
+if(bundleRuntime.PendingSongs.Count!=1)throw new Exception("bundle replay preserves deposited verification");
+bundleRuntime.ReplaceOwnedSongs(Array.Empty<string>());
+if(bundleRuntime.PendingSongs.Count!=0)throw new Exception("invalid receipt history removes pending bundle grants");
+bundleRuntime.ReplaceOwnedSongs(new[]{"JOLT_CITY"});
+if(bundleRuntime.PendingSongs.Single()!="JOLT_CITY")throw new Exception("new bundle map cannot retain old queued songs");
+bundleRuntime.ActivateSave(2);
+if(bundleRuntime.PendingSongs.Single()!="JOLT_CITY")throw new Exception("new save reconciles authenticated bundle songs");
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
@@ -236,7 +260,7 @@ Equal(false, receiptApplySlotData.Contains("TryReconcile(", StringComparison.Ord
 string receiptTryApply = ExtractMethods(receiptRandomizationSource, "internal static bool TryApplyItem(").Single();
 Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette receipt\")", StringComparison.Ordinal), "active-save AP receipt schedules prompt Unity-thread reconciliation");
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
-string unityTick = ExtractMethods(receiptRandomizationSource, "internal static void TickUnity(").Single();
+string unityTick = ExtractMethods(receiptRandomizationSource, "private static void TickUnityCore(").Single();
 Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
 Equal(true, unityTick.IndexOf("if (!_saveSynchronizationReady) return", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "deferred synchronization freezes semantic grant verification until an observation proves readiness");
 Equal(false, unityTick.Contains("TickDiskCommit", StringComparison.Ordinal), "Unity keeper does not run a synthetic disk-commit timer");
@@ -375,14 +399,15 @@ Equal(false, receiptRandomizationSource.Contains("new CassettePersistenceWaveQue
              receiptRandomizationSource.Contains("new CassettePersistenceAcceptanceMarkerJournal", StringComparison.Ordinal),
     "Plugin does not duplicate the coordinator's queue, runtime, or marker state");
 string keeperSource = ExtractClass(pluginSource, "CassetteReceiptReconciliationKeeper");
+Equal(true, keeperSource.Contains("InARunningRoom", StringComparison.Ordinal), "a player object alone cannot establish a running room");
 Equal(true, keeperSource.Contains("Stopwatch.GetTimestamp()", StringComparison.Ordinal), "keeper uses a monotonic production clock");
 Equal(true, keeperSource.Contains("CassetteReceiptRandomization.TickUnity(elapsed)", StringComparison.Ordinal), "keeper passes actual elapsed time every Unity update");
-Equal(true, keeperSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", StringComparison.Ordinal), "keeper observes the exact live Hub6 phone-bank marker");
+Equal(true, keeperSource.Contains("GameRoomContainer/GameRoomSystems(Clone)/SpawnedEntityContainer/PlayerCharacter(Clone)", StringComparison.Ordinal), "keeper observes the live player marker in every gameplay area");
 Equal(true, keeperSource.Contains("TryCaptureGameplayReadyObservation", StringComparison.Ordinal), "keeper only probes the marker while the active epoch is awaiting gameplay readiness");
 Equal(true, keeperSource.Contains("ObserveGameplayReady", StringComparison.Ordinal), "keeper returns a correlated marker observation to the cassette gate");
 Equal(true, keeperSource.Contains("ObserveGameplayReadyMarker", StringComparison.Ordinal), "always-on keeper records marker lifetime transitions even before epoch activation");
 Equal(true, keeperSource.Contains("GetInstanceID()", StringComparison.Ordinal), "marker incarnation uses public Unity scene-object identity");
-Equal(true, keeperSource.IndexOf("GameObject.Find(Hub6PhoneBankRootPath)", StringComparison.Ordinal) < keeperSource.IndexOf("ObserveGameplayReadyMarker", StringComparison.Ordinal), "keeper reads exact marker presence before recording its lifetime transition");
+Equal(true, keeperSource.IndexOf("GameObject.Find(GameplayPlayerPath)", StringComparison.Ordinal) < keeperSource.IndexOf("ObserveGameplayReadyMarker", StringComparison.Ordinal), "keeper reads exact marker presence before recording its lifetime transition");
 Equal(true, keeperSource.IndexOf("ObserveGameplayReadyMarker", StringComparison.Ordinal) < keeperSource.IndexOf("TryCaptureGameplayReadyObservation", StringComparison.Ordinal), "fresh marker lifetime evidence is recorded before an epoch may capture it");
 Equal(false, keeperSource.Contains("TimeSpan.FromSeconds(1)", StringComparison.Ordinal), "keeper does not substitute a frame-count interval for elapsed time");
 Equal(false, pluginSource.Contains("ChangeFrontendModeRequest", StringComparison.Ordinal), "cassette readiness does not guess an unproven title/frontend hook");

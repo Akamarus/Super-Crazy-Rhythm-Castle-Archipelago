@@ -6,4 +6,5 @@ validate-source:
   image: python:3.12-alpine
   script:
     - python tools/validate-repo.py
+    - python -m unittest discover -s tools/tests
     - python -m py_compile apworld/scrc/__init__.py

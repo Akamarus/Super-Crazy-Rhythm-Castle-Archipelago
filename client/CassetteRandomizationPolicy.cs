@@ -1231,6 +1231,16 @@ internal sealed class CassetteSaveEpochRuntime
         _verificationElapsed.Clear();
     }
 
+    internal void ReplaceOwnedSongs(IEnumerable<string> songs)
+    {
+        _owned.Clear();
+        _owned.UnionWith(songs);
+        _satisfiedThisEpoch.IntersectWith(_owned);
+        _newlyVerifiedGrantDiagnosticWave.IntersectWith(_owned);
+        foreach (string song in _attemptsThisEpoch.Keys.Where(song => !_owned.Contains(song)).ToArray()) _attemptsThisEpoch.Remove(song);
+        foreach (string song in _verificationElapsed.Keys.Where(song => !_owned.Contains(song)).ToArray()) _verificationElapsed.Remove(song);
+    }
+
     internal void Receive(string nativeSong)
     {
         _owned.Add(nativeSong);
@@ -1300,7 +1310,10 @@ internal sealed class CassetteSaveEpochRuntime
 
     internal void Observe(string nativeSong, string? nativeStatus)
     {
-        if (!HasActiveSave || !_owned.Contains(nativeSong) || !IsSatisfiedNativeStatus(nativeStatus))
+        // Ordinary observations cannot bypass delayed verification and its persistence wave.
+        // RecordVerification removes the timer before accepting its authoritative observation.
+        if (_verificationElapsed.ContainsKey(nativeSong) ||
+            !HasActiveSave || !_owned.Contains(nativeSong) || !IsSatisfiedNativeStatus(nativeStatus))
             return;
 
         _satisfiedThisEpoch.Add(nativeSong);

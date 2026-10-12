@@ -23,7 +23,7 @@ internal static class ApStarContract
                 obj.ContainsKey("star_victory_schema") || obj.ContainsKey("post_threshold_victory_active");
             if (!claims && version != null && Implementation.StartsWith(version + "-",StringComparison.Ordinal))
                 return new(ApStarMode.Native);
-            if (version != Implementation || Number(obj,"schema_version") != 19 || Number(obj,"star_victory_schema") != 1 ||
+            if (version != Implementation || Number(obj,"schema_version") is not (19 or 20) || Number(obj,"star_victory_schema") != 1 ||
                 Number(obj,"campaign_level_mapping_schema") != 1 || Number(obj,"star_item_id") != StarId ||
                 Number(obj,"star_item_count") != 66 || Number(obj,"star_item_maximum") != 66 ||
                 (string?)obj["star_item_name"] != "Star" || (string?)obj["victory_level_internal_id"] != "Level_28" ||

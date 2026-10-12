@@ -52,13 +52,13 @@ internal static class QuestCheckHooks
     internal static bool ConditionPrefix(object __instance, ref bool __result)
     {
         if (!QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId)) return true;
-        if (__instance is not Component component || component.name is not ("MeooIsUnlockedCondition" or "HaveMeooBatteryCondition" or "AlreadyHaveCatCharacter" or "Condition")) return true;
+        if (__instance is not Component component || component.name is not ("MeooIsUnlockedCondition" or "HaveMeooBatteryCondition" or "AlreadyHaveCatCharacter" or "Condition" or "Condition.01")) return true;
         if (!QuestChecks.IsCurrentSaveBound()) return true;
         var state = QuestChecks.State.Snapshot;
         string path = PathFor(__instance);
         bool? result = QuestChecksPolicy.ConditionResult(path, state.Checked,
             () => QuestChecks.ReadFlag("CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM"),
-            () => QuestChecks.ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED"));
+            () => QuestChecks.ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED"), QuestChecks.ReadFlag);
         if (!result.HasValue) return true;
         __result = result.Value; return false;
     }

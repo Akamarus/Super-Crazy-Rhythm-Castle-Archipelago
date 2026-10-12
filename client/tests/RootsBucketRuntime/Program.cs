@@ -18,16 +18,38 @@ static class Program {
  Check(WeedKillerRandomization.Grants==4,"new save gets owned items despite prior grant");
  CurrentPlayerSaveEnquiries.Flags.Clear();CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;CassetteReceiptRandomization.Identity="save-c";Tick();
  Check(WeedKillerRandomization.Grants==4,"consumed items not restored after save switch");
+ RootsBucketRandomization.Configure();RootsBucketRandomization.ApplySlotData(data);
+ CurrentPlayerSaveEnquiries.Flags.Clear();WeedKillerRandomization.Grants=0;WeedKillerRandomization.Drop=true;CurrentPlayerSaveEnquiries.Reads=0;
+ RootsBucketRandomization.TryApplyItem("Hip Glasses");RootsBucketRandomization.TryApplyItem("Chicken Bucket");
+ Check(WeedKillerRandomization.Grants==0&&CurrentPlayerSaveEnquiries.Reads==0,"receipt callbacks do not access native state");
+ Tick();Check(WeedKillerRandomization.Grants==2,"both grants attempted when native state is ready");
+ WeedKillerRandomization.Drop=false;Tick();
+ Check(WeedKillerRandomization.Grants==4&&CurrentPlayerSaveEnquiries.Flags.GetValueOrDefault(eGameProgressionFlag.HIP_GLASSES_BAG_ITEM)&&CurrentPlayerSaveEnquiries.Flags.GetValueOrDefault(eGameProgressionFlag.CHICKEN_BUCKET_BAG_ITEM),"silently dropped grants retry without restart");
+ CurrentPlayerSaveEnquiries.Flags.Clear();Tick();
+ Check(WeedKillerRandomization.Grants==6,"native scene overwrite reconciles without stale process latch");
+ CurrentPlayerSaveEnquiries.Flags.Clear();CassetteReceiptRandomization.Ready=false;Tick();
+ Check(WeedKillerRandomization.Grants==6,"previous ready save cannot bypass current selected-save gate");
+ CassetteReceiptRandomization.Ready=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;Tick();
+ Check(WeedKillerRandomization.Grants==6,"consumed markers override missing inventory after successful grants");
+ RootsBucketRandomization.Configure();RootsBucketRandomization.ApplySlotData(data);CurrentPlayerSaveEnquiries.Flags.Clear();WeedKillerRandomization.Grants=0;
+ RootsBucketRandomization.TryApplyItem("Hip Glasses");RootsBucketRandomization.TryApplyItem("Chicken Bucket");Tick();
+ CurrentPlayerSaveEnquiries.Flags.Clear();
+ foreach(string bag in new[]{"HIP_GLASSES_BAG_ITEM","CHICKEN_BUCKET_BAG_ITEM"}) typeof(RootsBucketRandomization).GetMethod("RecordConsumption",BindingFlags.Static|BindingFlags.NonPublic)?.Invoke(null,new object[]{new {FlagWasSet=true,FlagIsSet=false},bag});
+ Tick();Check(WeedKillerRandomization.Grants==2,"observed bag consumption blocks refill before delayed trade/conversion markers");
+ CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;Tick();
+ Check(WeedKillerRandomization.Grants==2,"later trade/conversion markers preserve consumption");
+ CassetteReceiptRandomization.Identity="new-save-after-consumption";CurrentPlayerSaveEnquiries.Flags.Clear();Tick();
+ Check(WeedKillerRandomization.Grants==4,"consumption observations are scoped to selected-save epoch");
  Console.WriteLine($"{passed} runtime scenarios passed");
  }
 }
 public enum eGameProgressionFlag {HIP_GLASSES_BAG_ITEM,ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES,CHICKEN_BUCKET_BAG_ITEM,LEVEL_09_COMBO_ABILITY_EARNED}
-public static class CurrentPlayerSaveEnquiries { public static Dictionary<eGameProgressionFlag,bool> Flags=new(); public static bool GetProgressionFlagValue(eGameProgressionFlag flag)=>Flags.GetValueOrDefault(flag); }
+public static class CurrentPlayerSaveEnquiries { public static Dictionary<eGameProgressionFlag,bool> Flags=new(); public static int Reads; public static bool GetProgressionFlagValue(eGameProgressionFlag flag){Reads++;return Flags.GetValueOrDefault(flag);} }
 public class PlayerSaveRequestProcessor {}
 namespace RhythmCastleAP {
  static class CassetteReceiptRandomization {internal static bool Ready;internal static string Identity="save-a";internal static void WithStableQuestItemSave(Action<object,string> action){if(Ready)action(new PlayerSaveRequestProcessor(),Identity);} }
- static class WeedKillerRandomization {internal static int Grants;internal static void CapturePlayerSaveRequestProcessor(object p){}internal static void TryFlushPendingNativeGrant(){} internal static bool TrySubmitProgressionFlag(object p,string flag,bool value,out string detail){Grants++;CurrentPlayerSaveEnquiries.Flags[Enum.Parse<eGameProgressionFlag>(flag)]=value;detail="test";return true;} }
- static class ReflectionUtil {internal static Assembly GameAssembly=>Assembly.GetExecutingAssembly();internal static Type[] SafeGetTypes(Assembly a)=>a.GetTypes();internal static bool? ReadBool(object o,string n)=>false;internal static object? ReadMember(object o,string n)=>null;}
+ static class WeedKillerRandomization {internal static int Grants;internal static bool Drop;internal static void CapturePlayerSaveRequestProcessor(object p){}internal static void TryFlushPendingNativeGrant(){} internal static bool TrySubmitProgressionFlag(object p,string flag,bool value,out string detail){Grants++;if(!Drop)CurrentPlayerSaveEnquiries.Flags[Enum.Parse<eGameProgressionFlag>(flag)]=value;detail="test";return true;} }
+ static class ReflectionUtil {internal static Assembly GameAssembly=>Assembly.GetExecutingAssembly();internal static Type[] SafeGetTypes(Assembly a)=>a.GetTypes();internal static bool? ReadBool(object o,string n)=>(bool?)o.GetType().GetProperty(n)?.GetValue(o);internal static object? ReadMember(object o,string n)=>null;}
  static class DeveloperHarness {internal static string CurrentRoomId="GameRoom_Hub2";}
  static class Plugin {internal static Logger? LoggerInstance=new();internal static Api? AP=new();}
  class Logger {internal void LogInfo(string s){}internal void LogWarning(string s){} }

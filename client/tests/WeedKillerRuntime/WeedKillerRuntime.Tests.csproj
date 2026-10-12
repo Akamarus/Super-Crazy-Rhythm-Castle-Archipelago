@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+<ItemGroup><Compile Include="../../WeedKillerSessionHistory.cs" Link="WeedKillerSessionHistory.cs" /></ItemGroup><Target Name="ExtractWeedKiller" BeforeTargets="CoreCompile"><PropertyGroup>
+<PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
+<RuntimeSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?s)internal static class WeedKillerRandomization.*?(?=internal static class RootsIntroCutsceneBypass)').Value)</RuntimeSource>
+</PropertyGroup><WriteLinesToFile File="$(IntermediateOutputPath)WeedKillerProduction.cs" Lines="using System.Reflection%3B namespace RhythmCastleAP%3B $(RuntimeSource)" Overwrite="true" /><ItemGroup><Compile Include="$(IntermediateOutputPath)WeedKillerProduction.cs" /></ItemGroup></Target></Project>

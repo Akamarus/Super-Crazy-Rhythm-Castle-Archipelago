@@ -17,6 +17,8 @@ var starContract = new Dictionary<string,object>(batchContract);
 starContract["implementation_version"] += "-ap-stars-0.28";
 starContract["schema_version"] = 19;
 Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Enabled, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 20;
+Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Enabled, "schema20 preserves existing subsystem contract");
 starContract["schema_version"] = 18;
 Check(QuestChecksPolicy.Validate(starContract) == QuestChecksMode.Invalid, "AP Stars suffix requires schema19");
 starContract["schema_version"] = 19;
@@ -39,6 +41,21 @@ Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("AlreadyHa
 Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("CatBatteryChest", "OtherChest"), new HashSet<long>(), () => false, () => false) == null,
     "unrelated chest character conditions remain native");
 
+foreach (var chest in new[] {
+    ("GarageCartridgeChest_BloodyTears/Interaction/Condition", "LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED"),
+    ("GarageCartridgeChest_Gradius/Interaction/Condition.01", "LEVEL_27_CARTRIDGE_GRADIUS_COLLECTED") })
+{
+    string path = "Root/GameRoom_Hub6_Logic/Objects/RewardChests/" + chest.Item1;
+    foreach (bool collected in new[] { false, true })
+        Check(QuestChecksPolicy.ConditionResult(path, new HashSet<long>(), () => false, () => false,
+            flag => { Check(flag == chest.Item2, "reads exact chest source flag"); return collected; }) == collected,
+            "cartridge ownership does not block uncollected chest; collected source stays blocked");
+    Check(QuestChecksPolicy.ConditionResult(path, new HashSet<long>(), () => false, () => false, _ => null) == null,
+        "unknown collected flag preserves original native condition");
+    foreach (string other in new[] { path + "/AlreadyHaveCartridge", path + "/AlreadyCollectedCartridge", path.Replace("RewardChests", "OtherChests") })
+        Check(QuestChecksPolicy.ConditionResult(other, new HashSet<long>(), () => false, () => false,
+            _ => throw new Exception("unrelated path read a chest flag")) == null, "unrelated condition remains native");
+}
 Check(QuestChecksPolicy.Validate(null) == QuestChecksMode.Legacy, "non AP remains native");
 Check(QuestChecksPolicy.Validate(new() { ["schema_version"] = 16, ["implementation_version"] = "character-quest-items-0.25" }) == QuestChecksMode.Legacy, "existing seed stays native for new quests");
 foreach (string key in Contract().Keys) {

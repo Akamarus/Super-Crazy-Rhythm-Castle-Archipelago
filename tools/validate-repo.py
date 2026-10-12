@@ -29,8 +29,8 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.75.13",
-    "world_version": "0.28.2",
+    "client_version": "0.76.0",
+    "world_version": "0.29.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
@@ -80,7 +80,7 @@ EXPECTED = {
         "Game Garage - Old Game Data Hand-In": 187256296,
         "Roots - Star Eater Fed": 187256297,
     },
-    "next_item_id": 187256164,
+    "next_item_id": 187256179,
     "next_location_id": 187256336,
     "campaign_location_count": 88,
     "new_campaign_location_count": 81,
@@ -233,7 +233,7 @@ for marker in (
 expanded_policy_text = EXPANDED_POLICY.read_text(encoding="utf-8")
 for marker in (
     'version?.EndsWith(VersionSuffix + (stars ? "-ap-stars-0.28" : ""), StringComparison.Ordinal) != true',
-    '(long?)root["schema_version"] != (stars ? 19 : 18)',
+    '(long?)root["schema_version"] is not (18 or 19 or 20)',
     '(long?)root["expanded_checks_schema"] != 1',
     'map.Count != entries.Count',
     'map[e.Name]?.Type != JTokenType.Integer',
@@ -801,6 +801,8 @@ print(json.dumps({
     ],
     "campaign_level_mapping_schema": 1,
     "slot_data_schema": 19,
+    "bundled_slot_data_schema": 20,
+    "cassette_bundle_item_ids": list(range(187256164, 187256179)),
     "expanded_checks_schema": 1,
     "expanded_check_count": len(expanded_entries),
     "expanded_special_completion_count": 6,

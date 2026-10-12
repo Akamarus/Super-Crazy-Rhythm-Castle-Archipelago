@@ -89,6 +89,24 @@ internal static partial class ConnectionTests
         var invalid=StarContract(campaign);invalid["star_item_count"]=65;
         var malformed=new ArchipelagoClient("test","slot","",false);Connect(malformed,Login(invalid),false);
         Check(false,malformed.Connected,"malformed Star contract rejected through production login");malformed.Shutdown();
+        var bundles=StarContract(campaign);
+        bundles["schema_version"]=20;
+        bundles["cassette_bundle_size"]=2;
+        bundles["cassette_bundles"]=Enumerable.Range(0,15).ToDictionary(n=>$"Cassette Bundle {n+1:00}",n=>CassetteCatalog.All.Skip(n*2).Take(2).Select(c=>c.ItemName).ToArray());
+        ExpandedChecks.State=new();
+        var bundleClient=new ArchipelagoClient("test","slot","",false);
+        typeof(ArchipelagoClient).GetField("_connectionGeneration",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.SetValue(bundleClient,100L);
+        var bundleSession=Login(bundles);
+        bundleSession.BeforeLoginReturns=()=>bundleSession.Socket.Receive(new ReceivedItemsPacket{Index=0,Items=new[]{new NetworkItem{Item=187256164}}});
+        Connect(bundleClient,bundleSession,true);
+        CassetteBundleSessionHistory.WithSongs((managed,songs)=> { Check(true,managed,"schema20 enables managed bundle ownership at real login");Check(2,songs.Count,"real prelogin receipt expands after authentication"); });
+        Check(ApStarMode.Ready,ApStars.State.Mode,"schema20 retains authoritative Star contract");
+        Check(true,ExpandedChecks.State.Handles(187256335),"schema20 retains expanded check scope");
+        bundleClient.Shutdown();
+        CassetteBundleSessionHistory.WithSongs((managed,songs)=>Check(0,songs.Count,"production shutdown removes bundle authority"));
+        bundles.Remove("cassette_bundles");
+        var invalidBundles=new ArchipelagoClient("test","slot","",false);Connect(invalidBundles,Login(bundles),false);
+        Check(false,invalidBundles.Connected,"schema20 missing bundle map rejects real login");invalidBundles.Shutdown();
         Console.WriteLine("PASS: production schema19 login, receipt history, stale transport isolation and qualified identity-scoped goal packets; schema18 unchanged");
     }
 }

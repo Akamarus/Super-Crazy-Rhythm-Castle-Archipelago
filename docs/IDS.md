@@ -1,3 +1,15 @@
+## Schema20 cassette bundle items (unreleased 0.29.0)
+
+Confirmed scope: existing 30 native cassette mappings, random pairs or triples per seed.
+Permanent item IDs **187256164–187256178** map in order to **Cassette Bundle 01–15**.
+These names identify ordinal seed-authored bundles; song membership is recorded in
+`cassette_bundles` and never rerolled by clients/trackers. Pairs use all 15 IDs;
+triples use the first 10. Individual cassette IDs remain unchanged and accepted.
+Item and location ID spaces are separate. No new locations are allocated.
+
+**Next safe item ID: 187256179. Next safe location ID: 187256336.**
+Older next-safe statements below describe their historical schema.
+
 # Permanent Archipelago ID Registry
 
 **Base ID:** `187256000`

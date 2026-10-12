@@ -1,3 +1,73 @@
+## v0.29.0 / Client 0.76.0 release checkpoint — October 12
+
+The [release notes](releases/v0.29.0.md) are the current summary of changes, compatibility, validation and known issues. Older entries below preserve development history. Cold Storage/Cell Tower Star Eater investigation remains deferred at the user's request; do not interpret that deferral as native verification.
+
+## October 12 release package prepared and APWorld installed locally
+
+The final audited APWorld was installed into the local Archipelago custom_worlds folder for Universal Tracker. Installed and packaged SHA-256 match. Restart Universal Tracker to load it. Existing seeds, server state, saves and installed client were not modified.
+
+APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog, AI disclosure and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](releases/v0.29.0.md).
+
+## October 12 user-reviewed prerequisite corrections (candidate)
+
+Direct Plunger/Bees/Frying Pan/Smooch pickups, Bucket Minion trade, Boring Room certificate source, bee access, Fish Tears via the Cell Tower return, Lift Quest via Lobby, Cold Storage Plant Pipes and Royal Star Eater access now follow the reviewed workbook. Loneliness and Party Non Stop retain Hypno Pan per the user's correction. Existing IDs, location counts and placement safety remain unchanged.
+
+All 190 APWorld tests, 54 AP 0.6.8 generation cases and 1,888 actual Universal Tracker states pass. Candidate only, not installed or published. Native uncertainty remains for School Trip, Cold Storage/Cell Tower Star Eater, Bunker keycard randomization, late-game Gecko and two cassette aliases. See [audit dispositions and evidence](testing/2026-10-12-user-rule-audit.md).
+
+## October 11 corrected independent Lobby routes
+
+User-confirmed native behavior: Lobby Access independently opens Boring Room, Minim Tower and The Vault; none requires Lift Quest or another Lobby level. Each retains its own generated AP Star entry gate. Plunger hand-in requires Lobby Access and Plunger only. Lobby Star Eater requires those plus its seed-authored Star threshold (4 in the current test seed). Other Lobby story dependencies remain explicit and are not silently removed.
+
+Regression tests reproduce the old failures and cover independent level gates, absent area access, Plunger and below-threshold Stars. All 181 APWorld tests pass. Actual UT replay covers 12 worlds / 1,888 inventory states with zero reconstruction defects; current test inventory now exposes 48 unchecked locations rather than 25. Existing placements, IDs and saved Star requirements are preserved. This supersedes the historical conservative Lift Quest prerequisite and the earlier claim that matching tracker/world predicates alone validated native access.
+
+## October 11 release integration checkpoint
+
+Montage animal timing is now enabled normally, retaining the gameplay-accepted implementation. The rejected nullable motor hook, its clock and tests, and the temporary F9 frame-rate probe and tests were removed. F8 observation remains for other movement reports. No frame cap or fullscreen override is added. This cleanup build is not installed or published; the accepted test DLL remains installed.
+
+Accepted in gameplay: Montage improvement at approximately 165–171 FPS, and the initial Regular/Pro Change-button repair. Automated coverage alone does not close the remaining reports.
+
+Still awaiting targeted native acceptance:
+- Triple-bundle coverage and other delayed item types remain to verify; live pair-bundle receipt, notification, deposit, immediate song selection and persistence after restart/reconnect are user-accepted, with both songs verified HAVE_DEPOSITED in the new launch log.
+- Roots booth pickup visibility is user-accepted from their earlier observation, confirmed October 11; the Bloody Tears 46-point chest while carrying its cartridge also passed, including its AP check.
+- Entering a star-blocked level immediately after receiving enough AP Stars without reloading the area.
+- Lobby Meoo/Plunger/Star Eater checks on the new readiness path, and a live Universal Tracker comparison.
+
+Still open investigations: early Lobby and native Hypno recipe route requirements, movement outside the accepted Montage scope, and intermittent song/windowed/Combo Bucket performance. Earlier historical status entries below may describe superseded builds; this checkpoint and the linked acceptance evidence take precedence. Local packaging does not constitute release approval.
+
+## October 11 release candidate — APWorld 0.29.0 / client 0.76.0
+
+Not installed or published. Candidate changes include randomized cassette pairs/triples, exclusion-aware generation capacity, Level 15/16 Plant Pipes logic and Cell Tower Violance gating; Regular/Pro availability; Roots booth visibility; item-delivery verification and retry; and inventory-independent cartridge chest collection.
+
+New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
+
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+## October 6 display-mode inspection
+
+No active fullscreen override was found in the mod, Steam launch options,
+shortcuts or wrapper. Saved Unity display mode is Windowed. No display setting
+was changed. The earlier recommendation to keep fullscreen is withdrawn; the
+reported native fullscreen warning loop remains unconfirmed on current launch.
+
+## October 6 cassette bundle candidate
+
+- APWorld 0.29.0/client 0.76.0 random cassette bundles and exclusion-aware generation are prepared,
+  not installed. Actual generation/UT tests pass; native receive, deposit, popup and reconnect
+  acceptance on a separate save is still required.
+- Point consolidation preserves the total but makes some Music Lab chest unlocks arrive in
+  larger jumps. It is used only when the selected exclusions otherwise exceed modeled capacity.
+- The original Normal/40 YAML generation-capacity failure is fixed in this candidate in all
+  three cassette modes. Impossible more restrictive configurations produce an explicit error.
+- Earlier movement and restart-dependent cassette reports remain open; these new tests do not
+  establish that those gameplay defects are resolved.
+
+## October 6 development status
+
+Movement remains unresolved; improved diagnostics are prepared but uninstalled.
+Native acceptance is pending for the new Regular/Pro availability, consumable
+receipt retry, Roots booth visual and cartridge chest corrections. The specific
+Zen/cassette delivery report and Archipelago 0.6.8 compatibility testing remain open.
+These development changes do not alter the installed async build or existing seed.
+
 # v0.28.2 status - September 29, 2026
 
 This APWorld-only release fixes the reported Ionium option-validation and
@@ -87,7 +157,7 @@ Quicksand's bypass is fixed in the candidate code and regression tests; live che
 
 The player repeated the affected Fumblin Around section in fullscreen and reported no issues. Fullscreen is a confirmed workaround for this reproduction, not proof that all performance issues are resolved. The preceding windowed trace showed continued game frame submission during a roughly4.3-second pause in displayed-frame statistics, without a corresponding long CPU scheduling pause. The comparison supports investigating the windowed presentation/compositor path; the exact driver, overlay or compositor cause remains unproven.
 
-Keep fullscreen for the current playthrough. Windowed-mode stutter remains open. Combo Bucket conversion and other songs still require separate acceptance. Temporary performance diagnostics are disabled in configuration for the next launch; the running game is unchanged. No driver/registry changes, save repair, restart or release publication was performed.
+Historical workaround only; do not force fullscreen. Retain the player's chosen display mode. Windowed-mode stutter remains open. Combo Bucket conversion and other songs still require separate acceptance. Temporary performance diagnostics are disabled in configuration for the next launch; the running game is unchanged. No driver/registry changes, save repair, restart or release publication was performed.
 
 ## Pending cassette receipt — September 20, Client v0.75.7 candidate
 

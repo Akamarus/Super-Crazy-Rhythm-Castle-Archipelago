@@ -1,3 +1,62 @@
+# v0.29.0 / Client 0.76.0 — October 12, 2026
+
+See the [complete release changelog](docs/releases/v0.29.0.md) for additions, fixes, compatibility, verification and known issues. Highlights: randomized cassette pairs/triples; generation capacity repairs; Montage movement; early Regular/Pro selection; item delivery; Roots booth visibility; owned-cartridge chests; Star-entry recovery; audited access rules and Universal Tracker reconstruction.
+
+Validation: 190 APWorld tests, 54 generation cases and 1,888 tracker states. The client suite has 42 regression projects. Native testing limits and deferred investigations are explicitly documented in the release notes.
+
+Earlier entries below are historical checkpoints and may describe now-superseded candidate states.
+
+## October 11 licensing and packaging correction (prepared, not published)
+
+Original project contributions are now MIT licensed. Full notices for the two shipped MIT libraries and separately installed LGPL runtime references accompany release packages. The packager enforces approved files, reviewed dependency hashes and complete notices. Historical correction packages preserve all original DLL/source bytes; no gameplay or seed changes are included. Publication and checksums must be updated together after review. See [packaging](docs/PACKAGING.md).
+
+## October 11 release candidate — APWorld 0.29.0 / client 0.76.0
+
+Not installed or published. Candidate changes include randomized cassette pairs/triples, exclusion-aware generation capacity, Level 15/16 Plant Pipes logic and Cell Tower Violance gating; Regular/Pro availability; Roots booth visibility; item-delivery verification and retry; and inventory-independent cartridge chest collection.
+
+New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
+
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+# Unreleased — APWorld 0.29.0 / client 0.76.0
+
+- Add optional seed-specific random cassette pairs or triples; individual is the default.
+- Preserve every cassette and source/medal check. Bundle notifications name the songs.
+- Restore exact bundle groups in Universal Tracker; reject incomplete or duplicate mappings.
+- Fix excluded-location capacity by consolidating existing point denominations only when needed,
+  preserving 180 Music Lab points, 66 Stars, difficulty, goals and all exclusions.
+- Bundle seeds require schema 20/client 0.76.0; individual schema 19 and existing seeds remain supported.
+- Passed isolated official AP 0.6.8 generation and tracker testing. Native bundle delivery acceptance
+  remains pending. Nothing has been deployed or published.
+
+The previously listed unreleased fixes below are included in this candidate.
+
+# Unreleased - client repair candidates (not installed or gameplay accepted)
+
+- Retry unverified Weed Killer, Hip Glasses and Chicken Bucket inventory delivery
+  on the selected save; prevent refills during native consumption animations.
+- Authorize Weed Killer from complete current-session item history, rejecting
+  stale, disconnected and gapped history.
+- Initialize Regular/Pro availability for compatible direct starts without
+  changing the player's chosen difficulty.
+- Keep Gecko and the Weed Killer pickup visible inside the Roots booth by hiding
+  only the overlapping portal renderer until the source is collected.
+- Allow unopened Bloody Tears and Gradius chests when their cartridges are already
+  in inventory; preserve chest collection and Music Lab point requirements.
+- Improve opt-in movement captures. Movement gameplay repair remains pending.
+- Add Violance to Cell Tower Star Eater access logic; current placements unchanged.
+
+# Unreleased - APWorld v0.28.3 logic and tracker corrections
+
+- Required Plant Pipes for Level 15 completion and its rewards, and explicitly
+  for Level 16 two- and three-star checks. Dependent routes inherit Level 15's
+  requirement. Existing seed placements are unchanged.
+- Corrected optional cartridge, Bee, Demon, Bunker and certificate access rules
+  so Universal Tracker no longer recommends them from placeholder region access.
+- Kept those checks filler-only and preserved IDs, schema 19 and existing seed gates.
+- This corrects tracker reachability; passing compatibility tests alone does not
+  prove every native gameplay route. Conservative route limitations are recorded
+  in [the validation notes](docs/testing/2026-09-29-optional-tracker-routes.md).
+
 # v0.28.2 - Generation and Multiworld Compatibility
 
 September 29, 2026

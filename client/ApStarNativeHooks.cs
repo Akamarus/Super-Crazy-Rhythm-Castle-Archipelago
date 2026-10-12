@@ -31,8 +31,10 @@ internal static class ApStarNativeHooks
             new[] { "StartLevelRequest" }, nameof(StartPrefix), true, false);
         count += Patch(harmony, "LevelPreviewUI", "CanEnterDisplayedLevelVariant", typeof(bool),
             new[] { "Boolean" }, nameof(PreviewPostfix), false, false);
-        Ready = count == 3 && _obtainPreviewState != null;
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP STAR NATIVE HOOKS installed={count}/3 ready={Ready}; live gate and display acceptance remains required.");
+        count += Patch(harmony, "LevelPreviewUI", "TriggerLevelStart", typeof(void),
+            Array.Empty<string>(), nameof(PreviewStartPrefix), true, false);
+        Ready = count == 4 && _obtainPreviewState != null;
+        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] AP STAR NATIVE HOOKS installed={count}/4 ready={Ready}; live gate and display acceptance remains required.");
         return count;
     }
 
@@ -62,6 +64,27 @@ internal static class ApStarNativeHooks
     }
 
     private static void TotalPostfix(ref int __result) => __result = _resolveTotal(__result);
+
+    // Native TriggerLevelStart opens the entrance before submitting StartLevelRequest.
+    // Reject before those side effects, otherwise the door remains non-interactable
+    // after a blocked request even when more AP Stars arrive.
+    private static bool PreviewStartPrefix(object __instance)
+    {
+        string level = string.Empty, variant = string.Empty;
+        try
+        {
+            object? state = _obtainPreviewState?.Invoke(__instance, null);
+            level = ReflectionUtil.ExtractIdentifier(ReflectionUtil.ReadMember(state, "LevelIdentifier")) ?? string.Empty;
+            variant = ReflectionUtil.ExtractIdentifier(ReflectionUtil.ReadMember(state, "LevelVariantIdentifier")) ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] AP STAR start preview unavailable: {ex.GetBaseException().Message}");
+        }
+        bool allowed = _canEnter(level, variant);
+        if (!allowed) _reportBlocked(level, variant);
+        return allowed; // Actual admission remains bound to StartLevelRequest.
+    }
 
     private static bool StartPrefix(object[]? __args)
     {

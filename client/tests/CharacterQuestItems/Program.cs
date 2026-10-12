@@ -20,6 +20,8 @@ var starContract = new Dictionary<string,object>(batchContract);
 starContract["implementation_version"] += "-ap-stars-0.28";
 starContract["schema_version"] = 19;
 Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Enabled, "schema19 preserves existing subsystem contract");
+starContract["schema_version"] = 20;
+Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Enabled, "schema20 preserves existing subsystem contract");
 starContract["schema_version"] = 18;
 Check(CharacterQuestItemPolicy.Validate(starContract) == CharacterQuestItemMode.Invalid, "AP Stars suffix requires schema19");
 starContract["schema_version"] = 19;

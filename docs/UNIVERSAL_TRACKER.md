@@ -1,33 +1,21 @@
 # Universal Tracker
 
-SCRC APWorld v0.28.1 supports Universal Tracker's YAML-less logic tracking for
-existing and new **v0.28/schema-19** seeds. No new game-client build is required.
+The unreleased APWorld 0.29.0 candidate supports existing schema-19 individual-cassette seeds and schema-20 bundled-cassette seeds. Use the matching APWorld on the computer running Universal Tracker. Bundled seeds also require game client 0.76.0.
 
 ## Setup
 
-1. Install Archipelago with its generator component.
-2. Install the updated `scrc.apworld` from the [SCRC release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.28.1) on the tracker computer, replacing the older SCRC APWorld. Restart Archipelago afterward so it loads the new version.
-3. Install [Universal Tracker](https://github.com/FarisTheAncient/Archipelago/releases). Versions v0.3.3 and v0.2.32 were tested with Archipelago 0.6.7.
-4. Open **Universal Tracker** from the Archipelago Launcher and connect using your server address, slot name and password if required. Keep the game connected normally as well. No player YAML is needed for this SCRC integration.
-5. Received items and checked locations drive the tracker. The exact server-generated AP Star gates, goal and difficulty are restored automatically.
+1. Install Archipelago with its generator component and Universal Tracker.
+2. Install the appropriate `scrc.apworld` on the tracker computer, replacing its older copy, then restart Archipelago.
+3. Keep your player YAML in the Players folder as required by your Universal Tracker setup. Server-slot reconstruction does not remove that setup requirement.
+4. Open Universal Tracker from the Launcher and connect using your room address, slot name and password if needed. Keep the game connected normally.
+5. Received items and checked locations drive availability; SCRC restores the generated difficulty, goal, Star gates and cassette bundle membership from slot data.
 
-Already-generated v0.28 seeds work: install the updated APWorld locally; do not
-regenerate the seed or erase the save. Older slot schemas are rejected rather than
-silently tracked with the wrong logic. Generic placement exclusions from older
-seeds are not reconstructed as tracker display filters; they do not remove those
-checks or change their reachability. No custom map or `/explain` support is claimed.
+Existing supported seeds do not need regeneration or a save reset just to update the local tracker. Updating logic cannot change placements in an existing seed. Unsupported or contradictory contracts produce an error instead of silently using guessed values. Schema 19 permits omission of older derived metadata; when present, it must agree with the reconstructed graph. Schema 20 requires its complete metadata.
 
-## Verification
+## Verification and limits
 
-Automated tests exercise the production restoration path, JSON key reordering,
-different tracker random seeds/default options, and malformed data rejection.
-The actual UT v0.3.3 and v0.2.32 initialization, regeneration and update code passed 13 headless
-cases: Normal/Hard/Expert/Perfection at goals 1/40/66 and an existing Hard40 seed.
-Reachable check sets were compared against the original APWorld at multiple item
-and Star states, including below-goal and at-goal Victory logic. Checked locations
-disappeared from the available list. These checks did not exercise the GUI or a
-live network connection and do not establish compatibility with every UT version.
+October 11 candidate checks passed with actual AP 0.6.8 and UT 0.2.32: 12 worlds and 1,888 inventory states, a separate 37-case matrix including the retained Hard40 seed, and nine offline received-item protocol cases. These exercise reconstruction and packet processing, not live GUI/socket behavior or every native game route.
 
-Integration follows the [upstream UT API documentation](https://github.com/FarisTheAncient/Archipelago/blob/tracker/worlds/tracker/docs/apworld-integration.md).
+Early Lobby story ordering and native Hypno Pan crafting prerequisites remain under investigation. A tracker can match the generator while both use an inaccurate native prerequisite. See [tracker repair evidence](testing/2026-10-11-tracker-repairs.md) for the distinction.
 
-Release validation: all 146 APWorld tests and repository validation passed. Independent review found no blocking issue. The installed APWorld hash matches the release package.
+Generic placement exclusions in older seeds are not reconstructed as display filters; excluded checks still exist. No custom map or `/explain` support is claimed. Obtain public builds from the [project releases](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases); this candidate is not yet published.

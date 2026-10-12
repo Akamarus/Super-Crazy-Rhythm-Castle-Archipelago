@@ -16,6 +16,42 @@ internal static class CassetteCatalog
     internal static IReadOnlyDictionary<string, CassetteDefinition> ByItemName { get; }
     internal static IReadOnlyDictionary<string, CassetteDefinition> ByNativeSong { get; }
 
+    // Permanent individual item IDs; keep aligned with docs/IDS.md and the APWorld catalog.
+    internal static readonly IReadOnlyDictionary<long,string> NativeSongByItemId =
+        new ReadOnlyDictionary<long,string>(new Dictionary<long,string>
+        {
+            [187256124] = "THE_LITTLE_THINGS",
+            [187256125] = "NO_PLAN_B",
+            [187256126] = "JOLT_CITY",
+            [187256127] = "QUIERES_BAILAR",
+            [187256128] = "QUICKSAND",
+            [187256129] = "GOLD",
+            [187256123] = "I_GOT_MONEY",
+            [187256130] = "HIPPO_AND_FROG",
+            [187256131] = "ON_THE_WAY",
+            [187256132] = "BADASS",
+            [187256133] = "HEAVY_METAL",
+            [187256134] = "AOK",
+            [187256135] = "RAINBOW_MELODIES",
+            [187256136] = "SNEAKING_LOOP",
+            [187256137] = "THE_HEIST",
+            [187256138] = "MONEY_DUB",
+            [187256139] = "LETS_GO",
+            [187256140] = "BOUNCE",
+            [187256141] = "THE_EPICAL",
+            [187256142] = "HOLLYWOOD_TRAILER",
+            [187256143] = "FALSE_DATA",
+            [187256144] = "GOTTA_GET_UP",
+            [187256145] = "FUMBLIN_AROUND",
+            [187256146] = "PARTY_NON_STOP",
+            [187256147] = "KEEP_ON_HUSTLIN",
+            [187256148] = "ANOTHER_DAY_IN_PARADISE",
+            [187256149] = "FLAMENCO",
+            [187256150] = "TEN_FOUR_GOOD_BUDDY",
+            [187256151] = "ZEN",
+            [187256152] = "WIGGLE",
+        });
+
     static CassetteCatalog()
     {
         All = Array.AsReadOnly(new[]

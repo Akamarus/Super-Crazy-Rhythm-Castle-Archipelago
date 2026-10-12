@@ -92,12 +92,12 @@ class OptionDefinitionTests(unittest.TestCase):
         for option in (definitions.RequiredStars, definitions.Difficulty, definitions.StartingArea):
             self.assertTrue(option.__doc__ and option.__doc__.strip())
 
-    def test_options_dataclass_adds_three_game_fields(self):
+    def test_options_dataclass_adds_four_game_fields(self):
         option_definitions = load_scrc_module("options")
 
         self.assertEqual(
             tuple(field.name for field in dataclasses.fields(option_definitions.SCRCOptions)),
-            ("accessibility", "required_stars", "difficulty", "starting_area"),
+            ("accessibility", "required_stars", "difficulty", "starting_area", "cassette_bundle_size"),
         )
 
 

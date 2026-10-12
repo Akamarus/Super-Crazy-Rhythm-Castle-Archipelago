@@ -103,7 +103,7 @@ internal static class MusicLabPointContract
         int expectedSchema = apStars ? 19 : batchChecks ? 18 : expandedQuests ? 17 : characterItems ? 16 : version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion))
             return Fail("schema_version", expectedSchema, Actual(slotData, "schema_version"));
-        if (schemaVersion != expectedSchema)
+        if (schemaVersion != expectedSchema && !(apStars && schemaVersion == 20))
             return Fail("schema_version", expectedSchema, schemaVersion);
 
         if (!slotData.TryGetValue("music_lab_points_enabled", out object? enabledRaw) || UnwrapScalar(enabledRaw) is not bool enabled)

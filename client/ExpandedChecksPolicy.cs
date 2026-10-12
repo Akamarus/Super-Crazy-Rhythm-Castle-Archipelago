@@ -17,10 +17,10 @@ internal static class ExpandedChecksPolicy
                 root["expanded_checks_schema"] != null || root["expanded_check_locations"] != null ||
                 (root["schema_version"]?.Type == JTokenType.Integer && (long?)root["schema_version"] >= 18);
             if (!claim) return ExpandedChecksMode.Legacy;
-            bool stars = root["schema_version"]?.Type == JTokenType.Integer && (long?)root["schema_version"] == 19;
+            bool stars = root["schema_version"]?.Type == JTokenType.Integer && (long?)root["schema_version"] is 19 or 20;
             var entries = stars ? ExpandedCheckCatalog.StarEntries : ExpandedCheckCatalog.Entries;
             if (version?.EndsWith(VersionSuffix + (stars ? "-ap-stars-0.28" : ""), StringComparison.Ordinal) != true ||
-                root["schema_version"]?.Type != JTokenType.Integer || (long?)root["schema_version"] != (stars ? 19 : 18) ||
+                root["schema_version"]?.Type != JTokenType.Integer || (long?)root["schema_version"] is not (18 or 19 or 20) ||
                 root["expanded_checks_schema"]?.Type != JTokenType.Integer || (long?)root["expanded_checks_schema"] != 1 ||
                 root["expanded_check_locations"] is not JObject map || map.Count != entries.Count)
                 return ExpandedChecksMode.Invalid;
