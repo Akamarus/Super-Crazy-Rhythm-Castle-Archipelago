@@ -1,5 +1,7 @@
 # AI disclosure
 
+I'm posting this to be open about how this project is developed and in line with Archipelago's new AI Disclosure Policy.
+
 I’m Akamarus, the maintainer of this Super Crazy Rhythm Castle integration. I decide the project’s direction, which features to build, how the randomizer should work, and what is ready to release. That includes progression rules, item and location behavior, access requirements, options, and the player experience.
 
 OpenAI Codex has been used extensively to write the Python APWorld and C# client, investigate bugs, analyze code, create automated tests, and help with documentation and release notes. Substantial portions of the implementation and fixes are AI-written; this goes well beyond autocomplete.
