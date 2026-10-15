@@ -22,6 +22,8 @@ Checks by AP difficulty: **Normal 164 / Hard 222 / Expert 280 / Perfection 316**
 
 ## Start or update
 
+Create your player YAML with the [Ionium YAML creator](https://ap-lobby.ionium.us/options/scrc/0.29.0) for APWorld 0.29.0.
+
 Follow the [installation guide](docs/INSTALL.md) for the tested BepInEx build, client installation and exact connection settings. Connect to your room before loading its save. Use a fresh native save for a new seed; keep your associated save when updating a compatible client.
 
 The 0.76.1 client changes movement timing only; existing APWorld 0.29.0 seeds, placements and Star gates stay intact. No new seed or APWorld update is required for this patch.
