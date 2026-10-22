@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.76.1";
+    public const string PluginVersion = "0.76.2";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -161,6 +161,7 @@ public sealed class Plugin : BasePlugin
         patched += musicLabScorePatches;
         MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0);
         patched += PatchHub6AreaPhoneProgressionConditions();
+        patched += HubEscapePatches.Install(_harmony!, ReflectionUtil.GameAssembly);
         patched += QuestCheckHooks.Install(_harmony);
         patched += PatchRootsOwnerDiagnostic();
         patched += PatchRootsComputerNormalization();
@@ -12065,7 +12066,14 @@ internal static class IntroRoomToHubRedirectPatches
             roomId,
             isMajorAreaHub,
             ownsDestination);
-        if (destinationDecision == AreaAccessDestinationDecision.RedirectToMusicLab)
+        bool? fishTearsDelivered = null;
+        if (originRoom == "GameRoom_Hub5A" && (roomId is "GameRoom_Hub1A" or "GameRoom_Hub1B") &&
+            RootsBucketRandomization.TryReadProgressionFlag("LOBBY_HUB_FISH_TEARS_DEPOSITED", out bool delivered))
+            fishTearsDelivered = delivered;
+        bool unsafeLobbyExit = HubEscapePolicy.RedirectLobbyExit(
+            AreaAccessPrototype.Enabled, AreaAccessPrototype.AuthenticatedCompatibleSession,
+            originRoom, roomId, fishTearsDelivered);
+        if (unsafeLobbyExit || destinationDecision == AreaAccessDestinationDecision.RedirectToMusicLab)
         {
             string lockedDestination = roomId!;
             object? musicLabRoom = BuildIdentifier(room!.GetType(), AreaAccessDestinationPolicy.MusicLabRoomId);
@@ -12078,6 +12086,16 @@ internal static class IntroRoomToHubRedirectPatches
                     $"[SCRC-AP] AREA DESTINATION GUARD FAILED CLOSED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' reason='could not rewrite locked destination to Music Lab'.");
                 return false;
             }
+
+            if (unsafeLobbyExit &&
+                !(WriteMember(request, "SpecificSpawnPoint", null) ||
+                  WriteMember(request, "_SpecificSpawnPoint_k__BackingField", null)))
+            {
+                Plugin.LoggerInstance?.LogError("[SCRC-AP] CELL LOBBY ESCAPE blocked: could not clear the old destination spawn point.");
+                return false;
+            }
+            if (unsafeLobbyExit)
+                Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CELL LOBBY ESCAPE: routing to Music Lab while Lobby story blockers remain; no quest flags or checks changed.");
 
             WriteMember(request, "PartOfLoadLevel", false);
             WriteMember(request, "_PartOfLoadLevel_k__BackingField", false);
@@ -12093,7 +12111,7 @@ internal static class IntroRoomToHubRedirectPatches
             }
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] AREA DESTINATION REDIRECTED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' redirect='{roomId}' reason='Area Access locked'. Native save, progression, visited, and story flags remain unchanged.");
+                $"[SCRC-AP] AREA DESTINATION REDIRECTED area='{destinationArea.AreaName}' destination='{lockedDestination}' origin='{originRoom}' redirect='{roomId}' reason='{(unsafeLobbyExit ? "Lobby story blockers" : "Area Access locked")}'. Native save, progression, visited, and story flags remain unchanged.");
         }
 
         if (__instance != null &&
@@ -12201,7 +12219,7 @@ internal static class IntroRoomToHubRedirectPatches
         return null;
     }
 
-    private static bool WriteMember(object obj, string name, object value)
+    private static bool WriteMember(object obj, string name, object? value)
     {
         Type t = obj.GetType();
 
@@ -12233,7 +12251,7 @@ internal static class IntroRoomToHubRedirectPatches
                     return true;
                 }
 
-                if (f.FieldType.IsInstanceOfType(value))
+                if (f.FieldType.IsInstanceOfType(value) || (value == null && !f.FieldType.IsValueType))
                 {
                     f.SetValue(obj, value);
                     return true;

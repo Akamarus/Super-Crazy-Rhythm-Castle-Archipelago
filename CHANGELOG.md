@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.29.2 — October 22, 2026 — Client 0.76.2 / APWorld 0.29.0
+
+- Remove the separate native attempt requirement from the exact return-exit switch, preserving its normal interaction and transition.
+- Keep the exact Central Mainframe external return gate open for authenticated Cell Tower Access owners without marking the level attempted.
+- Route Cell Tower exits to Music Lab while Fish Tears delivery is incomplete or unreadable, avoiding the upper-Lobby hand-blocker trap.
+- No APWorld, IDs, seed placements or quest-completion changes; both reported escape routes passed targeted gameplay testing.
+
+[Full notes and limits](docs/releases/v0.29.2.md).
+
 ## v0.29.1 â€” October 12, 2026 â€” Client 0.76.1 / APWorld 0.29.0
 
 - Repair the captured player movement stalls without changing display mode or imposing a frame-rate cap.

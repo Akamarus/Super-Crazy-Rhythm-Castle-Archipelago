@@ -4,9 +4,9 @@ Unofficial Archipelago multiworld integration for **Super Crazy Rhythm Castle** 
 
 [Download the latest published release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/latest) · [Install and connect](docs/INSTALL.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Changelog](CHANGELOG.md)
 
-**Current release: v0.29.1 — Client 0.76.1 / APWorld 0.29.0.**
+**Current release: v0.29.2 — Client 0.76.2 / APWorld 0.29.0.**
 
-This maintenance release repairs the captured player movement stalls and reorganizes the documentation. [Release notes](docs/releases/v0.29.1.md).
+This maintenance release fixes two Cell Tower escape routes that could trap players behind native story gates. [Release notes](docs/releases/v0.29.2.md).
 
 ## What it randomizes
 
@@ -26,7 +26,7 @@ Create your player YAML with the [Ionium YAML creator](https://ap-lobby.ionium.u
 
 Follow the [installation guide](docs/INSTALL.md) for the tested BepInEx build, client installation and exact connection settings. Connect to your room before loading its save. Use a fresh native save for a new seed; keep your associated save when updating a compatible client.
 
-The 0.76.1 client changes movement timing only; existing APWorld 0.29.0 seeds, placements and Star gates stay intact. No new seed or APWorld update is required for this patch.
+The 0.76.2 client repairs escape routes only; existing APWorld 0.29.0 seeds, placements and Star gates stay intact. No new seed or APWorld update is required for this patch.
 
 Archipelago 0.6.8 generation and Universal Tracker 0.2.32 were tested. For Tracker, install the matching APWorld and follow its normal Players-folder YAML setup. See [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
 

@@ -2,7 +2,7 @@
 
 Unofficial Windows Archipelago integration for Super Crazy Rhythm Castle, combining a C# BepInEx/IL2CPP client with a Python APWorld.
 
-Current release: **v0.29.1 / Client 0.76.1 / APWorld 0.29.0**, retaining the v0.29.0 APWorld and seed contracts.
+Current release: **v0.29.2 / Client 0.76.2 / APWorld 0.29.0**, retaining the v0.29.0 APWorld and seed contracts.
 
 ## Implemented systems
 
@@ -22,3 +22,7 @@ A Hard/40-Star run completed with server-confirmed Victory without assistance. R
 The maintenance patch changes no item/location IDs, APWorld logic, save formats, seed placements or bundle groups. Schemas 19 (individual) and 20 (bundled) remain supported.
 
 [Progression](PROGRESSION.md) · [IDs](IDS.md) · [Workflow](WORKFLOW.md) · [AI disclosure](AI_DISCLOSURE.md) · [Historical overview](archive/checkpoints/docs-PROJECT_OVERVIEW.md)
+
+## Cell Tower escape repair
+
+Client 0.76.2 keeps the Central Mainframe return gate usable for Cell Tower Access owners and redirects unsafe upper-Lobby arrivals to Music Lab. Both reported routes passed user testing; quest flags and APWorld logic are unchanged. See [acceptance record](testing/2026-10-22-hub-escape.md).

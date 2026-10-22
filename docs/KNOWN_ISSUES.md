@@ -1,6 +1,6 @@
 # Known issues and coverage limits
 
-Current release: **v0.29.1 / Client 0.76.1 / APWorld 0.29.0**.
+Current release: **v0.29.2 / Client 0.76.2 / APWorld 0.29.0**.
 
 ## Open reports and modeling limits
 
@@ -8,7 +8,7 @@ Current release: **v0.29.1 / Client 0.76.1 / APWorld 0.29.0**.
 | --- | --- |
 | Performance | Intermittent note-affecting song/windowed/Combo Bucket hitches remain under investigation. One recent conversion was smooth; that does not close all performance reports. |
 | Player movement | The captured short-update stalls are repaired and targeted gameplay accepted in the 0.76.1 client. Extended-session and multiplayer coverage remains incomplete. Older client 0.76.0 does not contain this player repair. |
-| Cold Storage / Cell Tower Star Eater | Further native prerequisite investigation was deferred; do not treat this as verification. |
+| Cold Storage / Cell Tower Star Eater | Early Violance did not block Old Tom's note in the tested post-nectar state; feeding the Cell Tower Star Eater worked without Cold Storage completion after leaving and returning. Full prerequisite isolation remains incomplete; generation rules are unchanged. |
 | School Trip / cassette aliases | School Trip Plant Pipes requirements and Gold/On the Way alternatives remain under review. |
 | Late King Ferdinand ratings | Depend on late-game Gecko content not fully modeled; these checks remain filler-only and are not guaranteed reachable. |
 | Bunker scope | Bunker Keycard, Notepad, Data Stick and Demon Key are not all implemented as separate randomized items/checks; conservative Bunker/Demonic assumptions remain. |
@@ -17,6 +17,8 @@ Current release: **v0.29.1 / Client 0.76.1 / APWorld 0.29.0**.
 | Display startup | A fullscreen/fallback warning loop was reported historically. The mod does not force fullscreen or alter display preferences; a general native/driver fix is not established. |
 
 ## Accepted fixes and remaining coverage
+
+Client 0.76.2 passed return-gate interaction/traversal and unsafe upper-Lobby exit fallback tests. Other story orders and multiplayer remain broader coverage.
 
 Montage animal movement at normal high frame rates, early Regular/Pro selection, Roots booth visibility, inventory-independent cartridge chests, entrance retry after new Stars, and the tested item delivery paths have user acceptance. Quicksand and Bloody Tears source tests passed without vanilla rewards or duplicate grants after returning. These should not remain labeled wholly unresolved.
 

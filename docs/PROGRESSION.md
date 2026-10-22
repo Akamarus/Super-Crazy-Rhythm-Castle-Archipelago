@@ -1,6 +1,6 @@
 # Progression reference
 
-Current APWorld: **0.29.0**. The Client 0.76.1 movement repair does not change these rules.
+Current APWorld: **0.29.0**. Client 0.76.2 does not change these rules.
 
 ## Stars, results and Victory
 
@@ -25,3 +25,7 @@ AP Music Lab point items total 180; chest thresholds are 5, 10, 20, 32, 46, 64, 
 Updating a client or local APWorld does not regenerate a running seed or change its placements. Use a fresh associated save for a new seed. Permanent IDs remain in [IDS.md](IDS.md).
 
 [Historical progression details](archive/checkpoints/docs-PROGRESSION.md) preserve earlier contracts and development decisions.
+
+## Cell Tower escape routes (Client 0.76.2)
+
+For authenticated Cell Tower Access owners, the Central Mainframe external gate back to the Cell Tower phone area is kept open during native room initialization. Exiting from that room toward Lobby is redirected to Music Lab until native Fish Tears delivery is confirmed. This does not grant Lobby Access, bypass level-entry requirements, or mark quests complete. Both reported escape routes passed targeted user testing.

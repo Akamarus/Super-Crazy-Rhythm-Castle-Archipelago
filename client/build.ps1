@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "Building RhythmCastleAP v0.76.1 against:" $GameDir
+Write-Host "Building RhythmCastleAP v0.76.2 against:" $GameDir
 
 $project = Join-Path $PSScriptRoot "RhythmCastleAP.csproj"
 
@@ -55,6 +55,6 @@ foreach ($notice in @('LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses')) {
 Write-Host ""
 Write-Host "Next:"
 Write-Host "1. Launch Rhythm Castle.exe normally (File Explorer is fine)."
-Write-Host "2. Confirm BepInEx\LogOutput.log says: [SCRC-AP] v0.76.1 loading."
+Write-Host "2. Confirm BepInEx\LogOutput.log says: [SCRC-AP] v0.76.2 loading."
 Write-Host "3. Set DirectStartAtPhoneHub=true, EnableAreaAccessPrototype=true, and PrototypeStartingArea=AP."
 Write-Host "4. Keep the associated save for an existing compatible seed. Use a fresh native save only for a new seed; see docs/INSTALL.md."

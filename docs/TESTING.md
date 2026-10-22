@@ -25,8 +25,16 @@ Recorded release evidence: 42 client regression projects, 190 APWorld tests, 54 
 
 ## Scope for further testing
 
-No exhaustive quest replay is required for the movement patch. Extended-session/multiplayer movement, triple bundles and live notification overflow remain broader coverage, not newly introduced movement regressions. Cold Storage/Cell Tower Star Eater investigation remains deferred. Keep [known issues](KNOWN_ISSUES.md) open unless specific evidence closes them.
+No exhaustive quest replay is required for the movement patch. Extended-session/multiplayer movement, triple bundles and live notification overflow remain broader coverage, not newly introduced movement regressions. Cold Storage/Cell Tower Star Eater has targeted findings recorded below; complete prerequisite isolation remains outstanding. Keep [known issues](KNOWN_ISSUES.md) open unless specific evidence closes them.
 
 Automated native-shaped tests do not replace in-game acceptance. Do not claim a full human code audit or universal performance fix. For diagnostics and reports, see [reporting guidance](TESTING_AND_ISSUES.md).
 
 [Historical testing ledger](archive/checkpoints/docs-TESTING.md) · [Archived evidence](archive/README.md)
+
+## v0.29.2 Cell Tower escape repair
+
+The user confirmed return-gate interaction/traversal with the native-interaction candidate; the unsafe Lobby exit fallback to Music Lab also passed. The initial visual-only and managed-wrapper candidates failed and are superseded. See the [acceptance record](testing/2026-10-22-hub-escape.md) for evidence and limits.
+
+Cold Storage tests confirmed that early Violance did not prevent the note after the nectar sequence. The Cell Tower Star Eater worked without Cold Storage completion after leaving and returning to the area; no restart was required. This does not isolate every prerequisite and does not change APWorld logic.
+
+Release validation: all 45 client regression projects passed, the Release build completed with zero warnings/errors, repository validation passed, and all 10 packaging tests passed. The APWorld asset is reused byte-for-byte from v0.29.1.
