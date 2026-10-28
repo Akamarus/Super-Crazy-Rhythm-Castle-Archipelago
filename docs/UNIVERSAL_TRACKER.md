@@ -1,6 +1,6 @@
 # Universal Tracker
 
-Published APWorld 0.29.0 supports existing schema-19 individual-cassette seeds and schema-20 bundled-cassette seeds. Use the matching APWorld on the computer running Universal Tracker. Bundled seeds also require game client 0.76.0.
+Published APWorld 0.30.0 supports schema21 Bunker seeds and existing schema-19 individual-cassette seeds and schema-20 bundled-cassette seeds. Use the matching APWorld on the computer running Universal Tracker. New schema21 seeds require game client 0.77.0. Full Ionium browser Tracker tests passed on AP0.6.7 and0.6.8.
 
 ## Setup
 

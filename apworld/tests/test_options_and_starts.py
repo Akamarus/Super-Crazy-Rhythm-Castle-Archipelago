@@ -97,7 +97,7 @@ class OptionDefinitionTests(unittest.TestCase):
 
         self.assertEqual(
             tuple(field.name for field in dataclasses.fields(option_definitions.SCRCOptions)),
-            ("accessibility", "required_stars", "difficulty", "starting_area", "cassette_bundle_size"),
+            ("accessibility", "bunker_progression", "goal", "required_stars", "difficulty", "starting_area", "cassette_bundle_size"),
         )
 
 

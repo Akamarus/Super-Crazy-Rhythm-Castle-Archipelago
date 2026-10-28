@@ -40,3 +40,23 @@ Il2CppInterop.Runtime.IL2CPP.WrongClass=false;
 Il2CppInterop.Runtime.IL2CPP.RejectWrite=true;
 Eq(false,HubEscapeNative.TryClear((IntPtr)1,out _),"failed write detected");
 Console.WriteLine("Native exit switch regressions passed");
+
+const string raised="Root/GameRoom_Hub5B_Logic/Objects/Cell_OldTom/HangingCell_Raised";
+Eq(true,CellTowerPathPolicy.ShouldOpen(true,true,true,raised),"owned Cell Tower opens Old Tom route");
+foreach(var path in new[]{raised+"/StackOfNotes",raised.Replace("Cell_OldTom","Cell_Bees"),raised.Replace("Raised","Lowered")})
+ Eq(false,CellTowerPathPolicy.ShouldOpen(true,true,true,path),"unrelated registered objects preserved");
+foreach(var state in new[]{(false,true,true),(true,false,true),(true,true,false)})
+ Eq(false,CellTowerPathPolicy.ShouldOpen(state.Item1,state.Item2,state.Item3,raised),"route authorization");
+Console.WriteLine("Cell Tower route policy passed");
+
+foreach(var path in new[]{LobbyDoorPolicy.Training,LobbyDoorPolicy.School}) {
+ Eq(true,LobbyDoorPolicy.Cover(true,true,true,path)!=null,"Lobby door selected");
+ foreach(var flags in new[]{(false,true,true),(true,false,true),(true,true,false)})
+  Eq<string?>(null,LobbyDoorPolicy.Cover(flags.Item1,flags.Item2,flags.Item3,path),"unauthorized unchanged");
+ Eq<string?>(null,LobbyDoorPolicy.Cover(true,true,true,path+"/Other"),"exact path only");
+}
+Eq(true,LobbyDoorPolicy.MatchesCondition(LobbyDoorPolicy.Training,"IsGameProgressionFlagSetCondition",649),"native training condition");
+Eq(false,LobbyDoorPolicy.MatchesCondition(LobbyDoorPolicy.Training,"IsGameProgressionFlagSetCondition",650),"wrong flag unchanged");
+Eq(true,LobbyDoorPolicy.MatchesCondition(LobbyDoorPolicy.School,"LevelCompleteCondition",null),"school predecessor condition");
+Eq(false,LobbyDoorPolicy.MatchesCondition(LobbyDoorPolicy.School,"Other",null),"unrelated requirement unchanged");
+Console.WriteLine("Lobby door policy passed");

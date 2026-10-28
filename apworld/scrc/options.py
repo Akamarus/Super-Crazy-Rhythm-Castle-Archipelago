@@ -4,7 +4,7 @@ from Options import Choice, PerGameCommonOptions, Range
 
 
 class RequiredStars(Range):
-    """AP Stars needed before defeating King Ferdinand I to complete your goal."""
+    """AP Stars needed before completing the selected ending; Bunker mode needs at least 2."""
     display_name = "Required Stars"
     range_start = 1
     range_end = 66
@@ -46,8 +46,26 @@ class CassetteBundleSize(Choice):
     default = 1
 
 
+class BunkerProgression(Choice):
+    """Randomize Bunker Keycard and quest items; requires a schema21-compatible client."""
+    display_name = "Bunker Progression"
+    option_disabled = 0
+    option_enabled = 1
+    default = 1
+
+
+class Goal(Choice):
+    """Complete the first King fight or Gecko's True Ending, after the Star goal."""
+    display_name = "Victory Goal"
+    option_king_ferdinand = 0
+    option_true_ending = 1
+    default = 0
+
+
 @dataclass
 class SCRCOptions(PerGameCommonOptions):
+    bunker_progression: BunkerProgression
+    goal: Goal
     required_stars: RequiredStars
     difficulty: Difficulty
     starting_area: StartingArea

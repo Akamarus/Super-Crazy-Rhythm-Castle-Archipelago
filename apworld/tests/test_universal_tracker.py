@@ -26,6 +26,52 @@ class UniversalTrackerTests(unittest.TestCase):
         w.set_rules()
         return w
 
+    def test_cell_path_capability_and_legacy_reconstruction(self):
+        from test_world_integration import State
+        source = self.world()
+        slot = source.fill_slot_data()
+        self.assertIs(slot["cell_tower_open_route"], True)
+        items = State(["Cell Tower Access", "Violance"] + ["Star"] * 66)
+        for data in (slot, self.module.SCRCWorld.interpret_slot_data(slot)):
+            restored = self.world(passthrough=data)
+            self.assertTrue(restored.multiworld.get_location("Level 16 - Completion", 1).access_rule(items))
+            self.assertTrue(restored.multiworld.get_location("Cell Tower - Star Eater Fed", 1).access_rule(items))
+            self.assertFalse(restored.multiworld.get_location("Cell Tower - Deliver Super Nectar", 1).access_rule(items))
+        legacy = copy.deepcopy(slot)
+        legacy.pop("cell_tower_open_route")
+        legacy["implementation_version"] = legacy["implementation_version"].replace("-cell-tower-path-1", "")
+        restored = self.world(passthrough=legacy)
+        self.assertFalse(restored.multiworld.get_location("Level 16 - Completion", 1).access_rule(items))
+        self.assertFalse(restored.fill_slot_data()["cell_tower_open_route"])
+        for bad in (False, 1, "true", None):
+            broken = copy.deepcopy(slot)
+            broken["cell_tower_open_route"] = bad
+            with self.assertRaises(ValueError):
+                self.module.SCRCWorld.interpret_slot_data(broken)
+
+    def test_lobby_door_routes_and_legacy(self):
+        from test_world_integration import State
+        source = self.world()
+        slot = source.fill_slot_data()
+        self.assertTrue(slot["lobby_open_doors"])
+        for data in (slot, self.module.SCRCWorld.interpret_slot_data(slot)):
+            w = self.world(passthrough=data)
+            w.generated_star_requirements.update({"Level 6": 39, "Level 7": 4, "Level 9": 2})
+            loc = lambda n: w.multiworld.get_location(f"Level {n} - Completion",1)
+            self.assertTrue(loc(7).access_rule(State(["Lobby Access"]+["Star"]*4)))
+            self.assertTrue(loc(9).access_rule(State(["Lobby Access"]+["Star"]*2)))
+            self.assertFalse(loc(9).access_rule(State(["Lobby Access"]+["Star"])))
+            self.assertFalse(loc(7).access_rule(State(["Star"]*66)))
+        legacy=copy.deepcopy(slot)
+        legacy.pop("lobby_open_doors")
+        legacy["implementation_version"]=legacy["implementation_version"].replace("-lobby-doors-1", "")
+        w=self.world(passthrough=legacy)
+        w.generated_star_requirements.update({"Level 6":39,"Level 7":4,"Level 9":2})
+        self.assertFalse(w.multiworld.get_location("Level 9 - Completion",1).access_rule(State(["Lobby Access"]+["Star"]*4)))
+        for bad in (False,1,"true",None):
+            broken=copy.deepcopy(slot);broken["lobby_open_doors"]=bad
+            with self.assertRaises(ValueError): self.module.SCRCWorld.interpret_slot_data(broken)
+
     def test_tracker_restores_server_gates_with_different_rng_and_options(self):
         for difficulty in range(4):
             for goal in (1, 40, 66):

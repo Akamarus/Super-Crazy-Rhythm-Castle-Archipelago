@@ -19,7 +19,6 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     public ItemNotificationOverlay(IntPtr pointer) : base(pointer) { }
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("ItemNotificationOverlay.Update");
         if (Input.GetKeyDown(KeyCode.F6)) { _historyOpen = !_historyOpen; _historyScroll = Vector2.zero; }
         if (_historyOpen && Input.GetKeyDown(KeyCode.Escape)) _historyOpen = false;
         // Count only time actually presented, not history/disabled/unfocused time or a loading stall.
@@ -31,7 +30,6 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     }
     private void OnGUI()
     {
-        using var timing = ClientPerformance.Measure("ItemNotificationOverlay.OnGUI");
         if (_failed) return;
         try { Draw(); }
         catch (Exception ex)

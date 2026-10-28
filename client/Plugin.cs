@@ -19,23 +19,18 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.76.2";
+    public const string PluginVersion = "0.77.0";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
     internal static ArchipelagoClient? AP;
-    internal static bool VerboseDiscovery;
+    internal static bool VerboseDiscovery => false;
 
     private Harmony? _harmony;
 
     public override void Load()
     {
         LoggerInstance = Log;
-        VerboseDiscovery = Config.Bind("Developer", "EnableVerboseDiscovery", false,
-            "Enable detailed Music Lab object/member dumps for maintainer investigations. Disabled during ordinary play.").Value;
-        ClientPerformance.Configure(Config.Bind("Developer", "EnablePerformanceDiagnostics", false,
-            "Aggregate main-thread component timing and frame intervals every 30 seconds; no per-frame logging.").Value,
-            message => Log.LogInfo(message));
 
         var enabled = Config.Bind("Archipelago", "Enabled", false,
             "Enable the Archipelago network connection.");
@@ -55,12 +50,6 @@ public sealed class Plugin : BasePlugin
             "Star requirement for the final Secret Bunker Star Eater. Vanilla is 66. This changes only that Star Eater threshold and does not alter saved level star ratings.");
         var royalStarRequirement = Config.Bind("Developer", "RoyalStarRequirement", 40,
             "TEST ONLY: Royal Corridor Star Eater threshold. Vanilla is 40. Does not change earned stars or saved scores. Set back to 40 after testing.");
-        var developerHarness = Config.Bind("Developer", "EnableTestHarness", true,
-            "Enable maintainer-directed F4/F5 discovery and Area Access status/test hotkeys.");
-        var cassettePointerBoundPersistenceAcceptance = Config.Bind(
-            "Developer",
-            "EnableCassettePointerBoundPersistenceAcceptance", false,
-            "DIAGNOSTICS ONLY: observe uncorrelated native save-write completion hints for cassette persistence. Production durability is independent of this setting. Disabled by default; restart after enabling.");
         var areaAccessPrototype = Config.Bind("Developer", "EnableAreaAccessPrototype", false,
             "EXPERIMENTAL: gate the six Hub6 destination phones using randomizer Area Access permissions. With APWorld v0.13, use PrototypeStartingArea=AP so the seed's precollected Area Access item determines the starter. Music Lab / Hub6 and Game Garage remain available.");
         var prototypeStartingArea = Config.Bind("Developer", "PrototypeStartingArea", "AP",
@@ -118,16 +107,18 @@ public sealed class Plugin : BasePlugin
         PlayerMovementTiming.Install();
         int patched = 0;
 
-        patched += PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
+        int bunkerResultRequestHooks = PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
             nameof(GamePatches.PersistResultPrefix), null);
+        patched += bunkerResultRequestHooks;
         ApStars.Configure(identity => AP?.SendStarGoal(identity) == true);
         patched += ApStarNativeHooks.Install(_harmony, ApStars.ResolveTotal, ApStars.CanEnter,
             ApStars.ReportBlocked, ApStars.OnAdmittedStart, ApStars.OnPreviewObserved);
-        patched += PatchMethodsByParameterWithPrefixAndPostfix(
+        int bunkerApplyResultHooks = PatchMethodsByParameterWithPrefixAndPostfix(
             "ProcessRequest",
             "ApplyLevelResultToSaveDataRequest",
             nameof(GamePatches.ApplyResultPrefix),
             nameof(GamePatches.ApplyResultPostfix));
+        patched += bunkerApplyResultHooks;
         patched += PatchCassetteEvaluation();
         patched += PatchCassetteStatusRequest();
         patched += CassetteChestRewardHooks.Install();
@@ -135,19 +126,21 @@ public sealed class Plugin : BasePlugin
         patched += PatchExactMethod("SaveDataRequestProcessor", "CreateNewPlayerSaveFileInEmptySlot", "Int32", nameof(CassetteSaveTransactionPatches.SelectedSlotMutationPostfix));
         patched += PatchExactMethod("SaveDataRequestProcessor", "ProcessRequest", "BuildPlayerSaveStateFromFileRequest", nameof(CassetteSaveTransactionPatches.BuiltPlayerSaveStatePostfix));
         patched += PatchExactMethodPrefix("SaveDataRequestProcessor", "ProcessRequest", "SelectMostRecentlyUsedRegularPlayerSaveSlotRequest", nameof(CassetteSaveTransactionPatches.MostRecentSelectionPrefix));
-        if (cassettePointerBoundPersistenceAcceptance.Value)
-            patched += PatchMethodsByParameter("HandleEvent", "PlayerSaveWriteCompletedEvent", nameof(CassetteSaveTransactionPatches.PlayerSaveWriteCompletedEventPostfix));
-        patched += PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
+        int bunkerResultEventHooks = PatchMethodsByParameter("HandleEvent", "LevelResultWasPersistedEvent", nameof(GamePatches.ResultPersistedEventPostfix));
+        patched += bunkerResultEventHooks;
         patched += PatchMethodsByParameter("ProcessRequest", "SetScoredSongInCurrentLevelRequest", nameof(GamePatches.SetScoredSongRequestPostfix));
         patched += GarageNativeDoorPatches.Install();
         patched += GarageNativeHolderPatches.Install();
         patched += GarageRoomInitialization.Install(_harmony);
-        patched += PatchMethodsByParameterWithPrefixAndPostfix(
+        int bunkerProgressionHooks = PatchMethodsByParameterWithPrefixAndPostfix(
             "ProcessRequest",
             "RecordGameProgressionInSaveDataRequest",
             nameof(ProgressionPatches.ProgressionRequestPrefix),
             nameof(ProgressionPatches.ProgressionRequestPostfix));
-        patched += PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
+        patched += bunkerProgressionHooks;
+        int bunkerFlagHooks = PatchMethodsByParameter("HandleEvent", "GameProgressionFlagUpdatedEvent", nameof(ProgressionPatches.ProgressionFlagEventPostfix));
+        patched += bunkerFlagHooks;
+        BunkerRuntime.ReportHookAvailability(bunkerProgressionHooks > 0 && bunkerFlagHooks > 0 && bunkerResultRequestHooks > 0 && bunkerApplyResultHooks > 0 && bunkerResultEventHooks > 0);
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
         patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
         patched += PatchGarageEntrancePreview();
@@ -162,8 +155,9 @@ public sealed class Plugin : BasePlugin
         MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0);
         patched += PatchHub6AreaPhoneProgressionConditions();
         patched += HubEscapePatches.Install(_harmony!, ReflectionUtil.GameAssembly);
+        patched += CellTowerPathPatches.Install(_harmony!, ReflectionUtil.GameAssembly);
+        patched += LobbyDoorPatches.Install(_harmony!, ReflectionUtil.GameAssembly);
         patched += QuestCheckHooks.Install(_harmony);
-        patched += PatchRootsOwnerDiagnostic();
         patched += PatchRootsComputerNormalization();
 
         Log.LogInfo($"[SCRC-AP] Game hooks installed: {patched}.");
@@ -175,13 +169,9 @@ public sealed class Plugin : BasePlugin
         WeedKillerRandomization.Configure();
         PlantPipesRandomization.Configure();
         MusicLabPointRandomization.Configure();
-        CassetteReceiptRandomization.Configure(
-            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value);
-        cassettePointerBoundPersistenceAcceptance.SettingChanged += (_, _) =>
-            CassetteReceiptRandomization.SetPersistenceAcceptanceDiagnosticsEnabled(cassettePointerBoundPersistenceAcceptance.Value);
+        CassetteReceiptRandomization.Configure();
         CassetteSourceRandomization.Configure();
         PreviewAbilityRandomization.Configure();
-        BottomHudDiagnostic.Configure();
         RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
         RootsStartupBootstrap.Configure();
@@ -211,8 +201,6 @@ public sealed class Plugin : BasePlugin
             AddComponent<CassetteReceiptReconciliationKeeper>();
         if (enabled.Value)
             AddComponent<PreviewAbilityReconciliationKeeper>();
-        if (enabled.Value)
-            AddComponent<BottomHudDiagnosticKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
@@ -245,17 +233,8 @@ public sealed class Plugin : BasePlugin
                 $"[SCRC-AP] STAR EATER TEST OVERRIDES: Royal={BunkerStarRequirementKeeper.RoyalRequiredStars} (vanilla40), Bunker={BunkerStarRequirementKeeper.RequiredStars} (vanilla66). Exact scene-root and proximity guards apply; earned stars and saved scores are unchanged.");
         }
 
-        DeveloperHarness.Enabled = developerHarness.Value;
-        if (developerHarness.Value)
-        {
-            AddComponent<DeveloperHotkeys>();
-            AddComponent<MovementCapture>();
-            AddComponent<MusicLabDiagnosticKeeper>();
-            Log.LogWarning(
-                "[SCRC-AP] MUSIC LAB TRACKING ENABLED: Garage cartridge-state identity, cumulative Garage sticker AP checks on real results, and all nine Music Lab reward chests (5/10/20/32/46/64/89/111/140) from native Hub6 chest metadata. Hub6 F5 forces reconciliation and prints mapping/status.");
-            Log.LogWarning(
-                "[SCRC-AP] DEVELOPER TEST HARNESS ENABLED. Release builds do not bind the cassette-catalog INSERT diagnostic; retained gameplay diagnostics are documented for maintainer-directed testing only.");
-        }
+        if (enabled.Value)
+            AddComponent<MusicLabProgressionKeeper>();
 
         if (IntroHubSkip.Enabled)
         {
@@ -948,7 +927,6 @@ public sealed class Plugin : BasePlugin
         ApStarEaterThresholds.Restore();
         ApStars.OnNativeBoundary();
         PlayerMovementTiming.Shutdown();
-        MovementTimingProbe.Shutdown();
         MontageAnimalTick.Shutdown();
         _harmony?.UnpatchSelf();
         return true;
@@ -1090,6 +1068,7 @@ internal sealed class ArchipelagoClient
             session = ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server));
             var pointHistory = new MusicLabPointSessionHistory(generation);
             var starHistory = new ApStarSessionHistory(generation, ApStars.State);
+            var bunkerHistory = new BunkerSessionHistory(generation, BunkerRuntime.State);
             var questHistory = new CharacterQuestItemSessionHistory(generation, CharacterQuestItems.State);
             var weedKillerHistory = new WeedKillerSessionHistory(generation);
             var cassetteBundleHistory = new CassetteBundleSessionHistory(generation, CassetteReceiptRandomization.TryApplyItem);
@@ -1180,7 +1159,7 @@ internal sealed class ArchipelagoClient
                                 // experimental native-save mutation. Always consume these six
                                 // item names when Area Access routing is enabled.
                                 if (item.ItemId == ApStarContract.StarId) continue;
-                                if (CharacterQuestItems.TryHandleItemName(item.ItemName) || QuestChecks.Handles(item.ItemName)) continue;
+                                if (BunkerRuntime.Handles(item.ItemName) || CharacterQuestItems.TryHandleItemName(item.ItemName) || QuestChecks.Handles(item.ItemName)) continue;
                                 ReceivedItemDispatch.TryApply(
                                     item.ItemName,
                                     _applyReceivedProgression,
@@ -1218,6 +1197,7 @@ internal sealed class ArchipelagoClient
                 {
                     pointHistory.HandlePacket(packet);
                     starHistory.HandlePacket(packet);
+                    bunkerHistory.HandlePacket(packet);
                     questHistory.HandlePacket(packet);
                     weedKillerHistory.HandlePacket(packet);
                     cassetteBundleHistory.HandlePacket(packet);
@@ -1229,6 +1209,7 @@ internal sealed class ArchipelagoClient
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
                     CharacterQuestItems.State.Suspend(generation);
+                    BunkerRuntime.State.Suspend(generation);
                     QuestChecks.State.Suspend(generation);
                     _connected = false;
                     AreaAccessPrototype.EndAuthenticatedSession();
@@ -1309,7 +1290,6 @@ internal sealed class ArchipelagoClient
                         CassetteReceiptRandomization.ApplySlotData(loginSuccess.SlotData);
                         CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
-                        BottomHudDiagnostic.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
                         lock (_lock)
                         {
@@ -1329,7 +1309,7 @@ internal sealed class ArchipelagoClient
                                     $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
                         }
                         ApStarSettings starSettings = starHistory.ApplySlotData(loginSuccess.SlotData,
-                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot));
+                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot), CellTowerPathPatches.Ready, LobbyDoorPatches.Ready, BunkerRuntime.Ready);
                         if (starSettings.Mode == ApStarMode.Awaiting && !ApStarNativeHooks.Ready)
                         {
                             starSettings = new(ApStarMode.Incompatible, Detail: "Required AP Star native hooks unavailable");
@@ -1345,6 +1325,8 @@ internal sealed class ArchipelagoClient
                             _slot);
                         if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
                             throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
+                        bunkerHistory.Configure(string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
+                            starSettings.BunkerEnabled, BunkerRuntime.Journal.Load);
                         questHistory.Configure(questMode == CharacterQuestItemMode.Enabled);
                         weedKillerHistory.Configure();
                         cassetteBundleHistory.Configure(loginSuccess.SlotData);
@@ -1430,6 +1412,7 @@ internal sealed class ArchipelagoClient
             MusicLabPointRandomization.Reset();
             ApStars.State.Reset();
             CharacterQuestItems.State.Reset();
+            BunkerRuntime.State.Reset();
             QuestChecks.State.Reset();
             ExpandedChecks.Reset();
             ItemNotifications.Feed.Reset();
@@ -2366,7 +2349,6 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("BunkerStarRequirementKeeper.Update");
         if (ApStars.State.Active)
         {
             RestoreStarEaterInteractionPatches("AP Star contract active");
@@ -4733,14 +4715,10 @@ internal static class GamePatches
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] RESULT DATA internal={level} variant={variant} score={score?.ToString() ?? "?"} players={players?.ToString() ?? "?"} difficulty={difficulty}");
 
-        SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);
-        QuestActionDiscovery.RecordResult(level, variant, persisted: false);
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
         Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned, ExpandedChecks.CaptureResultContext());
 
-        Level6Discovery.RecordLevelResultApplied(level);
-        Level8Discovery.RecordLevelResultApplied(level);
         PlantPipesRandomization.OnLevelResultApplied(level);
         CassetteReceiptRandomization.OnLifecyclePoint("level result applied");
     }
@@ -4777,17 +4755,11 @@ internal static class GamePatches
                 $"[SCRC-AP] Repeated persisted event retained for result evaluation: {level} variant={variant}.");
         }
 
-        MusicLabDiscovery.RecordPersistedEvent(evt, level, variant, result?.Score);
-        SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? "<unknown>");
-        QuestActionDiscovery.RecordResult(level, variant, persisted: true);
         ExpandedChecks.ObservePersistedResult(level, variant, result?.ExpandedContext);
 
-        Level6Discovery.RecordLevelPersisted(level);
-        Level8Discovery.RecordLevelPersisted(level);
         PlantPipesRandomization.OnLevelResultPersisted(level);
         CassetteReceiptRandomization.OnLifecyclePoint("level result persisted");
         RootsPostLevelOnePresentation.RecordLevelPersisted(level);
-        BottomHudDiagnostic.OnLevelResultPersisted(level);
 
         if (result != null)
         {
@@ -5132,7 +5104,7 @@ internal static class DeveloperHarness
 
     private static string _currentRoomId = "";
 
-    public static bool Enabled { get; set; }
+    public static bool Enabled => false;
 
     public static string CurrentRoomId
     {
@@ -5220,21 +5192,13 @@ internal static class DeveloperHarness
             $"partOfLoadLevel={SafeSimpleValue(partOfLoadValue)}.");
 
         GarageRoomInitialization.State.Transition(observedRoom);
-        PhoneBoothDiagnostic.RecordObservedTransition(
-            observedRoom,
-            SafeSimpleValue(transitionType),
-            SafeSimpleValue(spawnPoint),
-            SafeSimpleValue(partOfLoadValue));
 
-        Level6Discovery.RecordTransition(observedRoom);
-        Level8Discovery.RecordTransition(observedRoom);
         MusicLabDiscovery.RecordTransition(observedRoom);
 
         lock (Sync)
         {
             _currentRoomId = observedRoom;
         }
-        BottomHudDiagnostic.OnRoomTransition(observedRoom);
         CassetteReceiptRandomization.OnLifecyclePoint(
             $"room transition to {observedRoom}");
 
@@ -5273,7 +5237,7 @@ internal static class DeveloperHarness
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] DEV HARNESS captured {processor.GetType().Name}.ProcessRequest(TransitionToGameRoomRequest).");
 
-            LogTransitionConstructors(request.GetType());
+
 
             if (spawnPoint != null)
             {
@@ -7475,7 +7439,6 @@ internal sealed class MusicLabBarrierKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("MusicLabBarrierKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 30;
@@ -8293,7 +8256,6 @@ internal static class CassetteReceiptRandomization
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
         CassettePersistenceTargetDiagnosticWave diagnosticWave;
         bool hasDiagnosticWave;
-        bool queuedPersistenceWave = false;
         lock (Sync)
         {
             hasDiagnosticWave = _runtime.TryConsumeNewlyVerifiedGrantDiagnosticWave(
@@ -8305,12 +8267,8 @@ internal static class CassetteReceiptRandomization
                     diagnosticWave.Identity.Epoch,
                     diagnosticWave.Identity.Slot,
                     diagnosticWave.Identity.StatePointer);
-                queuedPersistenceWave = _productionPersistence.TryEnqueue(identity, diagnosticWave.Songs);
+                _productionPersistence.TryEnqueue(identity, diagnosticWave.Songs);
             }
-        }
-        if (queuedPersistenceWave)
-        {
-            LogPersistenceTargetOwnershipDiagnostic(diagnosticWave);
         }
         TryStartPointerBoundPersistence(elapsed);
     }
@@ -9385,7 +9343,6 @@ internal sealed class BottomHudDiagnosticKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("BottomHudDiagnosticKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9583,7 +9540,6 @@ internal sealed class PreviewAbilityReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("PreviewAbilityReconciliationKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9595,7 +9551,7 @@ internal sealed class PreviewAbilityReconciliationKeeper : MonoBehaviour
 internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 {
     private int _cooldown;
-    private string _lastState = string.Empty;
+
 
     public PlantPipesReconciliationKeeper(IntPtr pointer) : base(pointer)
     {
@@ -9603,7 +9559,6 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("PlantPipesReconciliationKeeper.Update");
         if (_cooldown-- > 0)
             return;
         _cooldown = 60;
@@ -9611,12 +9566,6 @@ internal sealed class PlantPipesReconciliationKeeper : MonoBehaviour
         PlantPipesRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.TickPending(TimeSpan.FromSeconds(1));
 
-        string state = PlantPipesRandomization.ReadDiagnosticState();
-        if (string.Equals(state, _lastState, StringComparison.Ordinal))
-            return;
-
-        _lastState = state;
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] ROOTS PLANT PIPES STATE {state}");
     }
 }
 
@@ -9637,22 +9586,20 @@ internal sealed class CassetteReceiptReconciliationKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("CassetteReceiptReconciliationKeeper.Update");
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         TimeSpan elapsed = _lastTimestamp == 0
             ? TimeSpan.Zero
             : TimeSpan.FromSeconds((double)(now - _lastTimestamp) / System.Diagnostics.Stopwatch.Frequency);
         _lastTimestamp = now;
-        ClientPerformance.Frame(elapsed.TotalSeconds, DeveloperHarness.CurrentRoomId);
-        using (ClientPerformance.Measure("Reconcile.Cassettes")) { CassetteReceiptRandomization.TickUnity(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.CharacterItems")) { CharacterQuestItems.TickUnity(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.Quests")) { QuestChecks.Tick(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.Expanded")) { ExpandedChecks.Tick(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.Stars")) { ApStars.TickUnity(); }
-        using (ClientPerformance.Measure("Reconcile.Roots")) { RootsBucketRandomization.TickUnity(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.WeedKiller")) { WeedKillerRandomization.TickUnity(elapsed); }
-        using (ClientPerformance.Measure("Reconcile.DifficultySelection")) { DifficultySelectionAvailability.TickUnity(elapsed); }
-        SelectorAvailabilityDiagnostics.TickUnity(elapsed);
+        CassetteReceiptRandomization.TickUnity(elapsed);
+        CharacterQuestItems.TickUnity(elapsed);
+        BunkerRuntime.Tick(elapsed);
+        QuestChecks.Tick(elapsed);
+        ExpandedChecks.Tick(elapsed);
+        ApStars.TickUnity();
+        RootsBucketRandomization.TickUnity(elapsed);
+        WeedKillerRandomization.TickUnity(elapsed);
+        DifficultySelectionAvailability.TickUnity(elapsed);
         // A live player in a running room proves gameplay has initialized without
         // requiring a Music Lab visit. Exact save epoch and marker lifetime checks
         // still run before any save/status access. Probe at most four times/second.
@@ -10402,7 +10349,6 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
     public GarageCartridgeAccessKeeper(IntPtr pointer) : base(pointer) { }
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("GarageCartridgeAccessKeeper.Update");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal)) {
             GarageCartridgeAccess.ResetNativeBagObservations(
@@ -10589,7 +10535,6 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
-        using var timing = ClientPerformance.Measure("RootsAreaBaselineKeeper.LateUpdate");
         RootsPortalPresentation.Tick(TimeSpan.FromSeconds(Time.unscaledDeltaTime));
         RootsIntroCutsceneBypass.TickPending();
 
@@ -10752,7 +10697,6 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
-        using var timing = ClientPerformance.Measure("MeatAreaBaselineKeeper.LateUpdate");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, MeatAreaPresentationPolicy.RoomId, StringComparison.Ordinal))
         {
@@ -10837,7 +10781,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
     private string _boundRoom = string.Empty;
     private int _initialiseDelayFrames;
     private bool _reportedPending;
-    private bool _bindingDiagnosticEmitted;
     private bool _conditionDiagnosticEmitted;
 
     public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
@@ -10846,7 +10789,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 
     private void LateUpdate()
     {
-        using var timing = ClientPerformance.Measure("MeatMouseEscortRecoveryKeeper.LateUpdate");
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, MeatMouseEscortRecoveryPolicy.RoomId, StringComparison.Ordinal))
         {
@@ -10861,7 +10803,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             _runtime.Reset();
             _conditionDiagnosticRuntime.Reset();
             _reportedPending = false;
-            _bindingDiagnosticEmitted = false;
             _conditionDiagnosticEmitted = false;
             return;
         }
@@ -10872,7 +10813,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             return;
         }
 
-        TryEmitExactConditionDiagnostic(room);
 
         if (!_runtime.ShouldEvaluateFrame())
         {
@@ -10961,21 +10901,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         MeatMouseEscortRecoveryObservation observation = _runtime.Observe(snapshot);
         if (observation == MeatMouseEscortRecoveryObservation.Pending)
         {
-            if (MeatMouseEscortBindingDiagnosticPolicy.ShouldEmit(
-                    room, _bindingDiagnosticEmitted, spawnerObject != null))
-            {
-                _bindingDiagnosticEmitted = true;
-                try
-                {
-                    EmitNativeBindingDiagnostic();
-                }
-                catch (Exception ex)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] MEAT MOUSE ESCORT BINDING failed error='{ex.GetType().Name}' readOnly=True. Existing recovery evaluation remains unchanged.");
-                }
-            }
-
             if (!_reportedPending)
             {
                 _reportedPending = true;
@@ -11446,7 +11371,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         _runtime.Reset();
         _conditionDiagnosticRuntime.Reset();
         _reportedPending = false;
-        _bindingDiagnosticEmitted = false;
         _conditionDiagnosticEmitted = false;
     }
 }
@@ -11759,7 +11683,6 @@ internal sealed class AreaPhoneAccessKeeper : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("AreaPhoneAccessKeeper.Update");
         if (!AreaAccessPrototype.Enabled)
             return;
 
@@ -11914,7 +11837,6 @@ internal sealed class DeveloperHotkeys : MonoBehaviour
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("DeveloperHotkeys.Update");
         if (!DeveloperHarness.Enabled)
             return;
 
@@ -12275,23 +12197,19 @@ internal static class IntroRoomToHubRedirectPatches
 
 
 
-internal sealed class MusicLabDiagnosticKeeper : MonoBehaviour
+internal sealed class MusicLabProgressionKeeper : MonoBehaviour
 {
     private string _lastRoom = string.Empty;
     private float _nextMusicLabPoll;
     private float _nextRewardChestReconcile;
     private int _rewardChestReconcileAttempts;
 
-    public MusicLabDiagnosticKeeper(IntPtr pointer) : base(pointer)
+    public MusicLabProgressionKeeper(IntPtr pointer) : base(pointer)
     {
     }
 
     private void Update()
     {
-        using var timing = ClientPerformance.Measure("MusicLabDiagnosticKeeper.Update");
-        if (!DeveloperHarness.Enabled)
-            return;
-
         string room = DeveloperHarness.CurrentRoomId;
         if (!string.Equals(room, _lastRoom, StringComparison.Ordinal))
         {
@@ -13100,17 +13018,6 @@ internal static class MusicLabDiscovery
             return;
         }
 
-        // Cassette quick-discovery path. We intentionally do not queue an AP
-        // location here: a song start is identity-only and awards no medal.
-        // The normal result path remains authoritative for Bronze/Silver/Gold/Platinum.
-        string displaySong = FriendlyCassetteSongFromRawSong(rawSong);
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB CASSETTE START IDENTITY room='{currentRoom}' rawSong='{(string.IsNullOrWhiteSpace(rawSong) ? "<unavailable>" : rawSong)}' display='{displaySong}' source='SetScoredSongInCurrentLevelRequest.{(string.IsNullOrWhiteSpace(sourceMember) ? "<unknown>" : sourceMember)}'. Start-only discovery: safe to quit back to Hub6 after this line appears.");
-
-        DumpRelevantMembers(
-            request,
-            "CASSETTE START SCORED SONG REQUEST",
-            new[] { "song", "track", "level", "variant" });
     }
 
     private static string FriendlyCassetteSongFromRawSong(string rawSong)
@@ -13507,10 +13414,9 @@ internal static class MusicLabDiscovery
 
                 string sticker = ReadDiagnosticMember(evaluation, "StickerQualityEarned");
                 string stickerPro = ReadDiagnosticMember(evaluation, "StickerQualityEarnedByPro");
-                string scoreUsed = ReadDiagnosticMember(evaluation, "ScoreUsed");
 
                 Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB GARAGE STICKER EVALUATION reason='{reason}' song='{(string.IsNullOrWhiteSpace(friendly) ? "<unknown>" : friendly)}' rawSong='{evaluationRawSong}' sticker='{sticker}' stickerPro='{stickerPro}' scoreUsed='{scoreUsed}'.");
+                    $"[SCRC-AP] MUSIC LAB GARAGE STICKER EVALUATION reason='{reason}' song='{(string.IsNullOrWhiteSpace(friendly) ? "<unknown>" : friendly)}' rawSong='{evaluationRawSong}' sticker='{sticker}' stickerPro='{stickerPro}'.");
 
                 QueueGarageStickerLocations(reason, friendly, sticker, stickerPro);
             }
@@ -13533,10 +13439,9 @@ internal static class MusicLabDiscovery
             object? evaluation = _getMostRecentCleanMedalMethod.Invoke(null, null);
             string medal = ReadDiagnosticMember(evaluation, "MedalEarned");
             string medalPro = ReadDiagnosticMember(evaluation, "MedalEarnedByPro");
-            string scoreUsed = ReadDiagnosticMember(evaluation, "ScoreUsed");
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB CASSETTE MEDAL internal={level} variant={variant} resultScore={score?.ToString() ?? "?"} medal='{medal}' medalPro='{medalPro}' scoreUsed='{scoreUsed}'.");
+                $"[SCRC-AP] MUSIC LAB CASSETTE MEDAL internal={level} variant={variant} resultScore={score?.ToString() ?? "?"} medal='{medal}' medalPro='{medalPro}'.");
 
             QueueCassetteMedalLocations(level, variant, medal, medalPro);
         }
@@ -13565,7 +13470,6 @@ internal static class MusicLabDiscovery
             if (evaluation == null)
                 return null;
             string stars = ReadDiagnosticMember(evaluation, "StarsEarned");
-            string scoreUsed = ReadDiagnosticMember(evaluation, "ScoreUsed");
             int? starsEarned = ReflectionUtil.ReadInt(evaluation, "StarsEarned");
             if (starsEarned == null)
             {
@@ -13575,7 +13479,7 @@ internal static class MusicLabDiscovery
             }
 
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] PERFORMANCE STAR EVALUATION internal={level} variant={variant} resultScore={score?.ToString() ?? "?"} stars='{stars}' scoreUsed='{scoreUsed}'.");
+                $"[SCRC-AP] PERFORMANCE STAR EVALUATION internal={level} variant={variant} resultScore={score?.ToString() ?? "?"} stars='{stars}'.");
             return starsEarned.HasValue ? Math.Clamp(starsEarned.Value, 0, 3) : null;
         }
         catch (Exception ex)
@@ -13606,10 +13510,6 @@ internal static class MusicLabDiscovery
         Plugin.LoggerInstance?.LogWarning(
             $"[SCRC-AP] MUSIC LAB RESULT identity='{identity}' internal={level} variant={variant} score={score?.ToString() ?? "?"} difficulty={difficulty}.");
 
-        DumpRelevantMembers(
-            request,
-            "RESULT REQUEST",
-            new[] { "medal", "rank", "grade", "point", "score", "star", "track", "song", "level", "variant" });
     }
 
     public static void RecordPersistedEvent(
@@ -13626,10 +13526,6 @@ internal static class MusicLabDiscovery
             "RESULT PERSISTED",
             $"identity='{DescribeSongIdentity(level, variant)}' internal={level} variant={variant} score={score?.ToString() ?? "?"}");
 
-        DumpRelevantMembers(
-            evt,
-            "PERSISTED EVENT",
-            new[] { "medal", "rank", "grade", "point", "score", "star", "track", "song", "level", "variant" });
     }
 
     private static bool IsMusicLabResult(string level, string variant)
@@ -14737,6 +14633,7 @@ internal static class ProgressionPatches
 
         GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);
 
+        if (!BunkerRuntime.BeforeProgressionRequest(req, flag)) return false;
         ExpandedChecks.BeforeProgressionRequest(req, flag);
         if (!QuestChecks.BeforeProgressionRequest(req, flag)) return false;
         if (QuestChecks.SuppressPlunger(req, flag)) return false;
@@ -14779,10 +14676,7 @@ internal static class ProgressionPatches
                       ?? ReflectionUtil.ReadMember(req, "_Flag_k__BackingField")?.ToString()
                       ?? "<unknown>";
 
-        Level6Discovery.RecordProgressionRequest(flag);
-        Level8Discovery.RecordProgressionRequest(flag);
         MusicLabDiscovery.RecordProgressionRequest(req, flag);
-        QuestActionDiscovery.RecordProgressionRequest(req, flag);
         GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag);
         WeedKillerRandomization.RecordGeckoSourceCollected(req, flag);
         PlantPipesRandomization.RecordFrogHippoSourceCollected(req, flag);
@@ -14801,16 +14695,13 @@ internal static class ProgressionPatches
 
         GarageCartridgeAccess.RecordNativeBagProgressionFlagUpdated(evt, flag);
 
-        Level6Discovery.RecordProgressionFlagUpdated(flag);
-        Level8Discovery.RecordProgressionFlagUpdated(flag);
         MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag);
-        SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);
         CharacterQuestItems.RecordConsumption(evt, flag);
+        BunkerRuntime.Observe(evt, flag);
         WeedKillerRandomization.RecordConsumption(evt, flag);
         RootsBucketRandomization.RecordConsumption(evt, flag);
         QuestChecks.Observe(evt, flag);
         ExpandedChecks.Observe(evt, flag);
-        QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag);
 
     }
 
@@ -14822,9 +14713,6 @@ internal static class ProgressionPatches
         object? req = ReflectionUtil.FindArg(__args, "ObtainBagItemRequest");
         if (req == null) return;
 
-        Level6Discovery.RecordBagItem(req);
-        Level8Discovery.RecordBagItem(req);
-        MusicLabDiscovery.RecordBagItem(req);
 
     }
 
@@ -14835,9 +14723,6 @@ internal static class ProgressionPatches
         object? req = ReflectionUtil.FindArg(__args, "EarnAbilityItemRequest");
         if (req == null) return;
 
-        Level6Discovery.RecordAbilityItem(req);
-        Level8Discovery.RecordAbilityItem(req);
-        MusicLabDiscovery.RecordAbilityItem(req);
 
     }
 

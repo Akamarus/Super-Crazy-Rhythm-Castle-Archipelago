@@ -1,6 +1,7 @@
 """Restore server-authored logic for Universal Tracker, never reroll its gates."""
 from copy import deepcopy
 
+from . import bunker as bunker_logic
 from .cassette_bundles import validate_bundles
 from .star_requirements import LEVEL_NAMES, validate_star_requirements
 from .starting_areas import STARTING_AREA_NAMES, VALIDATED_STARTING_AREAS
@@ -8,12 +9,29 @@ from .starting_areas import STARTING_AREA_NAMES, VALIDATED_STARTING_AREAS
 
 def tracker_slot_data(slot_data: dict) -> dict:
     if (not isinstance(slot_data, dict) or type(slot_data.get("schema_version")) is not int
-            or slot_data["schema_version"] not in (19, 20)):
-        raise ValueError("SCRC Universal Tracker requires a schema-19 or schema-20 seed")
+            or slot_data["schema_version"] not in (19, 20, 21)):
+        raise ValueError("SCRC Universal Tracker requires a schema-19, schema-20 or schema-21 seed")
+    route = slot_data.get("cell_tower_open_route", False)
+    version = slot_data.get("implementation_version", "")
+    if (type(route) is not bool or not isinstance(version, str)
+            or ("-cell-tower-path-1-" in version) != route):
+        raise ValueError("SCRC Cell Tower route capability does not match its implementation")
+    lobby = slot_data.get("lobby_open_doors", False)
+    if type(lobby) is not bool or ("-lobby-doors-1-" in version) != lobby:
+        raise ValueError("SCRC Lobby door capability mismatch")
     schema = slot_data["schema_version"]
+    active = slot_data.get("bunker_progression",False)
+    selected_goal = slot_data.get("goal","king_ferdinand")
+    if type(active) is not bool or (schema == 21) != active or ("-bunker-1-" in version) != active:
+        raise ValueError("SCRC Bunker capability mismatch")
+    if selected_goal not in bunker_logic.GOALS or (not active and selected_goal != "king_ferdinand"):
+        raise ValueError("SCRC invalid victory goal")
+    if active:
+        for key,value in bunker_logic.metadata(True,selected_goal).items():
+            if not _same_contract_value(slot_data.get(key),value): raise ValueError("SCRC invalid " + key)
     size = slot_data.get("cassette_bundle_size", 1)
     groups = validate_bundles(size, slot_data.get("cassette_bundles", {}))
-    if (schema == 20) != (size > 1):
+    if schema != 21 and (schema == 20) != (size > 1):
         raise ValueError("SCRC cassette bundle mode does not match slot schema")
     goal = slot_data.get("required_stars")
     difficulty = slot_data.get("difficulty", {})
@@ -32,10 +50,16 @@ def tracker_slot_data(slot_data: dict) -> dict:
         raise ValueError("SCRC tracker slot is missing its exact generated Star gates")
     requirements = {name: raw[name] for name in LEVEL_NAMES}
     validate_star_requirements(requirements, goal)
+    if active and (goal < 2 or requirements['Level 22'] < 1):
+        raise ValueError("SCRC Bunker requires a positive final entrance gate")
     metadata = _validate_metadata(slot_data, difficulty, requirements)
     return {
         **metadata,
+        **bunker_logic.metadata(active,selected_goal),
         "schema_version": schema,
+        "cell_tower_open_route": route,
+        "lobby_open_doors": lobby,
+        "implementation_version": version,
         "cassette_bundle_size": size,
         "cassette_bundles": groups,
         "required_stars": goal,
@@ -71,10 +95,11 @@ def _validate_metadata(slot_data, difficulty, requirements):
     active = {name for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
               if name not in (CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG],
                               LOBBY_BEAN_TRUMPET_AWARD)
-              and not name.startswith("Development Cache ")}
+              and not name.startswith("Development Cache ")
+              and (slot_data.get("bunker_progression",False) or name not in bunker_logic.CHECK_IDS)}
     campaign = sorted(active.intersection(CAMPAIGN_LOCATION_NAMES))
     expected = {
-        "star_eater_requirements": star_eater_requirements(requirements),
+        "star_eater_requirements": star_eater_requirements(requirements, slot_data.get("bunker_progression",False)),
         "active_location_count": len(active),
         "active_campaign_locations": campaign,
         "active_campaign_location_tiers": [tier for tier in CAMPAIGN_LOCATION_TIERS

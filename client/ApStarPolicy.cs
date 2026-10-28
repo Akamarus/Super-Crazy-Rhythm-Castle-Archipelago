@@ -4,14 +4,14 @@ namespace RhythmCastleAP;
 internal enum ApStarMode { Native, Awaiting, Ready, Disconnected, Incompatible }
 internal sealed record ApStarSettings(ApStarMode Mode, int Goal = 0,
     IReadOnlyDictionary<string,int>? Gates = null, IReadOnlyDictionary<string,int>? Eaters = null,
-    string Detail = "");
+    string Detail = "", bool BunkerEnabled = false, string Ending = "king_ferdinand");
 internal sealed record ApStarResult(string Identity, string NativeSave, bool Qualified, long Attempt);
 internal static class ApStarContract
 {
     internal const string Implementation = "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28";
     internal const long StarId = 187256118;
     internal static readonly string[] EaterAreas = {"Roots","Lobby","Cell Tower","Royal Corridor","Secret Bunker"};
-    internal static ApStarSettings Validate(Dictionary<string,object>? data)
+    internal static ApStarSettings Validate(Dictionary<string,object>? data, bool cellTowerPathReady = true, bool lobbyDoorsReady = true, bool bunkerReady = true)
     {
         if (data == null) return new(ApStarMode.Native);
         try
@@ -23,7 +23,25 @@ internal static class ApStarContract
                 obj.ContainsKey("star_victory_schema") || obj.ContainsKey("post_threshold_victory_active");
             if (!claims && version != null && Implementation.StartsWith(version + "-",StringComparison.Ordinal))
                 return new(ApStarMode.Native);
-            if (version != Implementation || Number(obj,"schema_version") is not (19 or 20) || Number(obj,"star_victory_schema") != 1 ||
+            bool bunker = Number(obj,"schema_version") == 21;
+            if (!BunkerContract.Validate(obj) || bunker && !bunkerReady)
+                return new(ApStarMode.Incompatible,Detail:"Bunker contract mismatch or native hooks unavailable");
+            if (bunker) version=version?.Replace("-bunker-1-generation-foundation", "-generation-foundation");
+            string openRouteImplementation = Implementation.Replace("-generation-foundation", "-cell-tower-path-1-generation-foundation");
+            bool lobby = version == Implementation.Replace("-generation-foundation", "-lobby-doors-1-generation-foundation") || version == openRouteImplementation.Replace("-generation-foundation", "-lobby-doors-1-generation-foundation");
+            JToken? lobbyFlag=obj["lobby_open_doors"];
+            if ((lobby && (!lobbyDoorsReady || lobbyFlag?.Type!=JTokenType.Boolean || !(bool)lobbyFlag)) ||
+                (!lobby && lobbyFlag!=null && (lobbyFlag.Type!=JTokenType.Boolean || (bool)lobbyFlag)))
+                return new(ApStarMode.Incompatible,Detail:"Lobby door capability mismatch or native hooks unavailable");
+            string? baseVersion=lobby?version!.Replace("-lobby-doors-1", ""):version;
+            bool openRoute = baseVersion == openRouteImplementation;
+            if (openRoute && !cellTowerPathReady)
+                return new(ApStarMode.Incompatible,Detail:"Required Cell Tower path native hook unavailable; update or repair the client");
+            JToken? route = obj["cell_tower_open_route"];
+            if ((openRoute && (route?.Type != JTokenType.Boolean || !(bool)route)) ||
+                (!openRoute && route != null && (route.Type != JTokenType.Boolean || (bool)route)))
+                return new(ApStarMode.Incompatible,Detail:"Cell Tower route capability mismatch");
+            if ((baseVersion != Implementation && !openRoute) || Number(obj,"schema_version") is not (19 or 20 or 21) || Number(obj,"star_victory_schema") != 1 ||
                 Number(obj,"campaign_level_mapping_schema") != 1 || Number(obj,"star_item_id") != StarId ||
                 Number(obj,"star_item_count") != 66 || Number(obj,"star_item_maximum") != 66 ||
                 (string?)obj["star_item_name"] != "Star" || (string?)obj["victory_level_internal_id"] != "Level_28" ||
@@ -35,7 +53,9 @@ internal static class ApStarContract
             var eaters = Map(obj["star_eater_requirements"],EaterAreas,0,66);
             if (gates == null || eaters == null || gates["Level 1"] != 0)
                 return new(ApStarMode.Incompatible,Detail:"Incomplete, out-of-range or non-opening Star gates");
-            return new(ApStarMode.Awaiting,(int)goal,gates,eaters,"compatible");
+            if (bunker && (goal < 2 || gates["Level 22"] < 1 || eaters["Secret Bunker"] >= gates["Level 22"]))
+                return new(ApStarMode.Incompatible,Detail:"Bunker requires a strictly lower Star threshold than Level 22");
+            return new(ApStarMode.Awaiting,(int)goal,gates,eaters,"compatible",bunker,bunker?(string)obj["goal"]!:"king_ferdinand");
         }
         catch { return new(ApStarMode.Incompatible,Detail:"Malformed AP Star contract"); }
     }
@@ -76,7 +96,7 @@ internal sealed class ApStarState
         lock(_sync)
         {
             if(generation<_generation)return;
-            bool same=_identity==identity && _settings.Goal==settings.Goal && settings.Mode==ApStarMode.Awaiting && _settings.Mode==ApStarMode.Awaiting;
+            bool same=_identity==identity && _settings.Goal==settings.Goal && _settings.Ending==settings.Ending && settings.Mode==ApStarMode.Awaiting && _settings.Mode==ApStarMode.Awaiting;
             _generation=generation;_identity=identity;_settings=settings;
             if(same)_goalSent=false; // Goal status is idempotently resent on reconnect.
             if(!same){_total=0;_synced=false;_goalPending=_goalSent=false;_consumedAttempt=_attempt;}
@@ -124,12 +144,12 @@ internal sealed class ApStarState
             return _synced&&_settings.Gates?.TryGetValue("Level "+entry.Number,out int required)==true&&_total>=required;
         }
     }
-    internal ApStarResult? Capture(string nativeSave,string level,string variant,int? stars)
+    internal ApStarResult? Capture(string nativeSave,string level,string variant,int? stars,bool trueEndingAttempt = false)
     {
         lock(_sync)
         {
             if(_settings.Mode!=ApStarMode.Awaiting||level!="Level_28"||variant!="LevelVariant_Default")return null;
-            return new(_identity,nativeSave,_synced&&_total>=_settings.Goal&&stars>=1,++_attempt);
+            return new(_identity,nativeSave,_synced&&_total>=_settings.Goal&&stars>=1&&(_settings.Ending!="true_ending"||trueEndingAttempt),++_attempt);
         }
     }
     internal bool Commit(ApStarResult? result,string nativeSave)

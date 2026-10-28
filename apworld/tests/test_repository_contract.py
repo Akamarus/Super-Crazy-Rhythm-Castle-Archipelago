@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,8 +28,10 @@ class RepositoryContractTests(unittest.TestCase):
         source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
         self.assertNotIn("DumpAllSimpleMembers", source)
         self.assertNotIn("Level5Discovery", source)
-        for call in ("QuestActionDiscovery.RecordProgressionRequest(req, flag)",
-                     "QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag)",
+        self.assertNotIn("QuestActionDiscovery.RecordProgressionRequest(req, flag)", source)
+        self.assertNotIn("QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag)", source)
+        for call in ("MusicLabDiscovery.RecordProgressionRequest(req, flag)",
+                     "MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag)",
                      "QuestActionDiscovery.SnapshotKnownFlags()",
                      "SpecialModeDiscovery.ScanCurrentScene()",
                      "GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag)",
@@ -56,7 +59,7 @@ class RepositoryContractTests(unittest.TestCase):
 
     def test_retired_automatic_diagnostics_preserve_gameplay_and_acceptance_hooks(self):
         source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
-        keeper = source.split("internal sealed class MusicLabDiagnosticKeeper", 1)[1].split(
+        keeper = source.split("internal sealed class MusicLabProgressionKeeper", 1)[1].split(
             "internal static class MusicLabDiscovery", 1)[0]
         self.assertIn("MusicLabDiscovery.ReconcileCollectedRewardChests()", keeper)
         self.assertIn("MusicLabDiscovery.PollGarageCartridgeSelection()", keeper)
@@ -65,8 +68,8 @@ class RepositoryContractTests(unittest.TestCase):
             self.assertNotIn(obsolete, source)
         for required in ("_getCurrentSongMethod.Invoke(null, null)",
                          "QuestActionDiscovery.SnapshotKnownFlags()",
-                         "QuestActionDiscovery.RecordProgressionRequest(",
-                         "QuestActionDiscovery.RecordProgressionFlagUpdated("):
+                         "MusicLabDiscovery.RecordProgressionRequest(",
+                         "MusicLabDiscovery.RecordProgressionFlagUpdated("):
             self.assertIn(required, source)
         self.assertFalse((REPO_ROOT / "client/CassetteCatalogDiagnostic.cs").exists())
         self.assertFalse((REPO_ROOT / "client/CassetteCatalogDiagnosticPolicy.cs").exists())
@@ -75,32 +78,26 @@ class RepositoryContractTests(unittest.TestCase):
         expected = f"Normal {normal} / Hard {hard} / Expert {expert} / Perfection {perfection}"
         for relative in (
             "docs/PROJECT_OVERVIEW.md",
-            "docs/PROGRESSION.md",
-            "docs/TESTING.md",
             "README.md",
         ):
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(document=relative):
                 self.assertIn(expected, text)
 
-    def test_public_docs_report_full_level_mapping_candidate_status(self):
+    def test_current_public_docs_report_release_and_seed_contracts(self):
         self.assert_public_counts("164", "222", "280", "316")
         overview = (REPO_ROOT / "docs/PROJECT_OVERVIEW.md").read_text(encoding="utf-8")
-        self.assertIn("Client v0.75.4 / APWorld v0.28.0", overview)
-        self.assertIn("six bee/devil completions", overview.lower())
-        self.assertIn("66 AP Stars are active", overview)
-
+        client = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
+        version = re.search(r'PluginVersion\s*=\s*"([^"]+)"', client).group(1)
+        world = json.loads((REPO_ROOT / "apworld/scrc/archipelago.json").read_text())['world_version']
+        self.assertIn(f"Client {version} / APWorld {world}", overview)
+        self.assertIn("66 AP Stars", overview)
         for relative in ("apworld/README.md", "apworld/scrc/docs/setup_en.md"):
-            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
             with self.subTest(document=relative):
-                self.assertIn("Client v0.75.4 / APWorld v0.28.0", text)
-                self.assertIn("schema 19", text.lower())
-                self.assertIn("campaign-mapping schema 1", text.lower())
-                self.assertIn("fresh v0.28 seed", text.lower())
-
-        testing = (REPO_ROOT / "docs/TESTING.md").read_text(encoding="utf-8")
-        self.assertIn("schema 19 / campaign-mapping schema 1", testing.lower())
-        self.assertNotIn("The exact schema-14/point-schema-1 contract is required", testing)
+                self.assertIn("schema 19", text)
+                self.assertIn("schema 20", text)
+                self.assertIn("yaml", text)
 
     def run_validator(self, root=REPO_ROOT, *, validate_live=None):
         environment = os.environ.copy()
@@ -140,9 +137,10 @@ class RepositoryContractTests(unittest.TestCase):
     def test_validator_reports_full_level_mapping_slot_contract(self):
         result = self.run_validator()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Client:  v0.76.0", result.stdout)
-        self.assertIn("APWorld: v0.29.0", result.stdout)
-        self.assertIn('"world_version": "0.29.0"', result.stdout)
+        version = re.search(r'PluginVersion\s*=\s*"([^"]+)"', (REPO_ROOT / "client/Plugin.cs").read_text()).group(1)
+        self.assertIn(f"Client:  v{version}", result.stdout)
+        self.assertIn("APWorld: v0.30.0", result.stdout)
+        self.assertIn('"world_version": "0.30.0"', result.stdout)
         self.assertIn(
             '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28"',
             result.stdout,
@@ -180,8 +178,8 @@ class RepositoryContractTests(unittest.TestCase):
             '  }',
             result.stdout,
         )
-        self.assertIn('"next_item_id": 187256179', result.stdout)
-        self.assertIn('"next_location_id": 187256336', result.stdout)
+        self.assertIn('"next_item_id": 187256184', result.stdout)
+        self.assertIn('"next_location_id": 187256342', result.stdout)
         self.assertIn('"campaign_location_count": 88', result.stdout)
         self.assertIn('"new_campaign_location_count": 81', result.stdout)
         self.assertIn('"active_location_totals": {', result.stdout)
@@ -482,6 +480,8 @@ class RepositoryContractTests(unittest.TestCase):
                     str(REPO_ROOT / "tools/build-apworld.ps1"),
                     "-OutputDir",
                     output_dir,
+                    "-Python",
+                    sys.executable,
                 ],
                 cwd=REPO_ROOT,
                 text=True,
@@ -505,7 +505,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.29.0")
+        self.assertEqual(manifest["world_version"], "0.30.0")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

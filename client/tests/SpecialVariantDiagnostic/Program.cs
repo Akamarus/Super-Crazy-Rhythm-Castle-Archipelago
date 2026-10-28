@@ -147,17 +147,17 @@ string progressionWiring = SourceRegion(
     pluginSource,
     "public static void ProgressionFlagEventPostfix",
     "public static void BagItemRequestPostfix");
-Contains("SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);", progressionWiring,
-    "progression patch forwards the exact event and flag");
+Equal(false, progressionWiring.Contains("SpecialModeDiscovery.RecordProgressionFlagUpdated(evt, flag);", StringComparison.Ordinal),
+    "progression patch no longer invokes the retired diagnostic observer");
 
 string resultWiring = SourceRegion(
     pluginSource,
     "internal static class GamePatches",
     "private sealed record PendingResult");
-Contains("SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);", resultWiring,
-    "result apply patch forwards the exact request and extracted identity");
-Contains("SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? \"<unknown>\");", resultWiring,
-    "result persisted patch forwards the exact event and retained result evidence");
+Equal(false, resultWiring.Contains("SpecialModeDiscovery.RecordResultApplied(request, level, variant, score, difficulty);", StringComparison.Ordinal),
+    "result apply patch no longer invokes the retired diagnostic observer");
+Equal(false, resultWiring.Contains("SpecialModeDiscovery.RecordResultPersisted(evt, level, variant, result?.Score, result?.Difficulty ?? \"<unknown>\");", StringComparison.Ordinal),
+    "result persisted patch no longer invokes the retired diagnostic observer");
 
 string f5Wiring = SourceRegion(
     pluginSource,

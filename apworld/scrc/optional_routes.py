@@ -43,7 +43,9 @@ def optional_route(world, name, state):
         return True
     if name in ("Cartridge Pickup - Superstar", "Secret Bunker - Star Eater Fed"):
         return state.count("Star", player) >= star_eater_requirements(
-            world.generated_star_requirements)["Secret Bunker"]
+            world.generated_star_requirements, getattr(world,"bunker_progression",False))["Secret Bunker"]
+    if getattr(world,"bunker_progression",False) and name in (*DEVIL_CHECKS,"Cartridge Pickup - Wag the Dog") and not state.has("Demon Key",player):
+        return False
     if name == "Demonic Room - Completion":
         return can_complete(world, state, 5) and state.has("Lobby Access", player)
     if name == "Demonic Tower - Completion":

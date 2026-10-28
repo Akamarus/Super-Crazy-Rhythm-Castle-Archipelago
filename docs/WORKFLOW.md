@@ -24,3 +24,7 @@ Update the overview, changelog and current issue/testing pages with player-facin
 Review the diff and package contents before requesting publication approval. Merging, pushing, changing public releases and removing worktrees require explicit authorization. Keep the AI disclosure accessible and include it with public release communications.
 
 For collaboration, provide the GitHub URL and exact branch/commit; for runtime reports, provide the relevant log privately if it contains sensitive room details. Historical GitLab setup remains in the [archive](archive/checkpoints/GITLAB_SETUP.md).
+
+## Commit identity
+
+Use GitHub account Akamarus and commit identity Akamarus <43251491+Akamarus@users.noreply.github.com>. Before every commit, verify both git var GIT_AUTHOR_IDENT and git var GIT_COMMITTER_IDENT; before publication, verify the authenticated GitHub login separately. Repository-local configuration can override global configuration. Do not use jhburke27 attribution for this project.

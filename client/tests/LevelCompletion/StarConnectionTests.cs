@@ -86,6 +86,17 @@ internal static partial class ConnectionTests
         ApStarNativeHooks.Ready=false;
         var noHooks=new ArchipelagoClient("test","slot","",false);Connect(noHooks,Login(StarContract(campaign)),false);
         Check(false,noHooks.Connected,"missing required native hooks reject schema19 login");noHooks.Shutdown();ApStarNativeHooks.Ready=true;
+        var routeData=StarContract(campaign);
+        routeData["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation", "-cell-tower-path-1-generation-foundation");
+        routeData["cell_tower_open_route"]=true;
+        CellTowerPathPatches.Ready=false;
+        var noRoute=new ArchipelagoClient("test","slot","",false);Connect(noRoute,Login(routeData),false);
+        Check(false,noRoute.Connected,"new route rejects missing native path hook at production login");noRoute.Shutdown();
+        CellTowerPathPatches.Ready=true;
+        ExpandedChecks.State=new();
+        var withRoute=new ArchipelagoClient("test","slot","",false);Connect(withRoute,Login(routeData),true);
+        Check(true,withRoute.Connected,"new route accepted with installed native path hook");
+        Check(true,ExpandedChecks.State.Handles(187256335),"new route retains expanded checks");withRoute.Shutdown();
         var invalid=StarContract(campaign);invalid["star_item_count"]=65;
         var malformed=new ArchipelagoClient("test","slot","",false);Connect(malformed,Login(invalid),false);
         Check(false,malformed.Connected,"malformed Star contract rejected through production login");malformed.Shutdown();
@@ -107,6 +118,21 @@ internal static partial class ConnectionTests
         bundles.Remove("cassette_bundles");
         var invalidBundles=new ArchipelagoClient("test","slot","",false);Connect(invalidBundles,Login(bundles),false);
         Check(false,invalidBundles.Connected,"schema20 missing bundle map rejects real login");invalidBundles.Shutdown();
+        var bunker=StarContract(campaign);
+        bunker["schema_version"]=21;bunker["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation","-bunker-1-generation-foundation");
+        bunker["bunker_progression"]=true;bunker["goal"]="true_ending";bunker["true_ending_native_flag"]=BunkerCatalog.TrueEndingFlag;
+        bunker["bunker_item_ids"]=BunkerCatalog.Items.ToDictionary(i=>i.Name,i=>i.Id);bunker["bunker_check_ids"]=BunkerCatalog.Checks.ToDictionary(i=>i.Name,i=>i.Id);
+        ((Dictionary<string,int>)bunker["generated_star_requirements"])["Level 22"]=1;((Dictionary<string,int>)bunker["star_eater_requirements"])["Secret Bunker"]=0;
+        bunker["cassette_bundle_size"]=1;bunker["cassette_bundles"]=new Dictionary<string,string[]>();
+        BunkerRuntime.Ready=false;var missingBunker=new ArchipelagoClient("test","slot","",false);Connect(missingBunker,Login(bunker),false);missingBunker.Shutdown();BunkerRuntime.Ready=true;
+        ExpandedChecks.State=new();var bunkerClient=new ArchipelagoClient("test","slot","",false);var bunkerSession=Login(bunker);
+        bunkerSession.BeforeLoginReturns=()=>bunkerSession.Socket.Receive(new ReceivedItemsPacket{Index=0,Items=new[]{new NetworkItem{Item=187256179}}});
+        Connect(bunkerClient,bunkerSession,true);Check(true,BunkerRuntime.State.Ready,"schema21 publishes authenticated Bunker history");
+        Check(true,BunkerRuntime.State.Bind(2,_=>false,BunkerRuntime.Journal.Save),"fresh native slot binds for schema21");
+        Check(true,BunkerRuntime.State.ShouldGrant(187256179,false),"production connection delivers Keycard ownership");
+        Check("true_ending",ApStars.State.Settings.Ending,"production connection preserves selected ending");
+        bunkerSession.Socket.Receive(new ReceivedItemsPacket{Index=5,Items=Array.Empty<NetworkItem>()});Check(false,BunkerRuntime.State.Ready,"history gap suspends Bunker authority");
+        bunkerClient.Shutdown();Check(false,BunkerRuntime.State.Enabled,"shutdown removes Bunker state");
         Console.WriteLine("PASS: production schema19 login, receipt history, stale transport isolation and qualified identity-scoped goal packets; schema18 unchanged");
     }
 }

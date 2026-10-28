@@ -10,7 +10,7 @@ internal sealed class CassetteBundleContract
     {
         var root=data==null?new JObject():JObject.FromObject(data);
         var schema=root["schema_version"];
-        bool modern=schema?.Type==JTokenType.Integer && (long)schema==20;
+        bool modern=schema?.Type==JTokenType.Integer && (long)schema is 20 or 21;
         var size=root["cassette_bundle_size"];
         var map=root["cassette_bundles"];
         if(!modern) {
@@ -18,6 +18,8 @@ internal sealed class CassetteBundleContract
                 throw new InvalidOperationException("Cassette bundles require schema 20");
             return new(false,new());
         }
+        if(schema?.Type==JTokenType.Integer && (long)schema==21 && size?.Type==JTokenType.Integer && (long)size==1 && map is JObject individual && individual.Count==0)
+            return new(false,new());
         if(size?.Type!=JTokenType.Integer || (long)size is not (2 or 3) || map is not JObject bundles)
             throw new InvalidOperationException("Invalid cassette_bundle_size or cassette_bundles");
         int count=30/(int)size;

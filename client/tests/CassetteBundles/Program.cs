@@ -6,6 +6,10 @@ int checks=0;void Check(bool ok,string message){checks++;if(!ok)throw new Except
 Dictionary<string,object> Data(int size=2){var map=new Dictionary<string,string[]>();for(int n=0;n<30/size;n++)map[$"Cassette Bundle {n+1:00}"]=CassetteCatalog.All.Skip(n*size).Take(size).Select(c=>c.ItemName).ToArray();return new(){["schema_version"]=20,["cassette_bundle_size"]=size,["cassette_bundles"]=map};}
 void Reject(Action<Dictionary<string,object>> mutate){var data=Data();mutate(data);bool rejected=false;try{CassetteBundleContract.Parse(data);}catch(InvalidOperationException){rejected=true;}Check(rejected,"malformed contract fails closed");}
 Check(!CassetteBundleContract.Parse(new(){["schema_version"]=19}).Bundled,"legacy schema19 continues");
+var schema21=Data();schema21["schema_version"]=21;
+Check(CassetteBundleContract.Parse(schema21).SongsFor(187256164).Count==2,"schema21 pairs expand existing permanent IDs");
+schema21=Data(3);schema21["schema_version"]=21;Check(CassetteBundleContract.Parse(schema21).SongsFor(187256164).Count==3,"schema21 triples");
+schema21=new(){["schema_version"]=21,["cassette_bundle_size"]=1,["cassette_bundles"]=new Dictionary<string,string[]>()};Check(!CassetteBundleContract.Parse(schema21).Bundled,"schema21 individual mode");
 var pairs=CassetteBundleContract.Parse(Data());Check(pairs.SongsFor(187256164).SequenceEqual(new[]{"THE_LITTLE_THINGS","NO_PLAN_B"}),"first permanent bundle expands to two actual songs");
 Check(pairs.SongsFor(187256178).Count==2&&pairs.SongsFor(187256179).Count==0,"reserved ID bounds");
 Check(CassetteBundleContract.Parse(Data(3)).SongsFor(187256173).Count==3&&CassetteBundleContract.Parse(Data(3)).SongsFor(187256174).Count==0,"triples have ten bundles");

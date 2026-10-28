@@ -642,15 +642,8 @@ int mouseBindingEmissionMark = mouseKeeperSource.IndexOf(
     "_bindingDiagnosticEmitted = true", Math.Max(0, mouseBindingAvailabilityGuard), StringComparison.Ordinal);
 int mouseBindingObserverCall = mouseKeeperSource.IndexOf(
     "EmitNativeBindingDiagnostic();", Math.Max(0, mouseBindingEmissionMark), StringComparison.Ordinal);
-Equal(true,
-    mouseBindingAvailabilityGuard >= 0 &&
-    mouseBindingEmissionMark > mouseBindingAvailabilityGuard &&
-    mouseBindingObserverCall > mouseBindingEmissionMark &&
-    mouseKeeperSource.Contains("_bindingDiagnosticEmitted = false", StringComparison.Ordinal) &&
-    mouseKeeperSource.Contains("MEAT MOUSE ESCORT BINDING failed", StringComparison.Ordinal) &&
-    mouseBindingDiagnosticSource.Contains(
-        "MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath", StringComparison.Ordinal),
-    "production consumes the fail-closed exact-scope emission only after the container is available");
+Equal(true, mouseBindingAvailabilityGuard < 0 && mouseBindingEmissionMark < 0 && mouseBindingObserverCall < 0,
+    "retired mouse binding diagnostic has no runtime registration or emission");
 Equal(true,
     mouseKeeperSource.Contains("EmitExactConditionDiagnostic();", StringComparison.Ordinal) &&
     mouseKeeperSource.Contains("MeatMouseEscortConditionDiagnosticPolicy.ShouldEmit(", StringComparison.Ordinal) &&
@@ -660,8 +653,8 @@ int conditionPolling = mouseKeeperSource.IndexOf(
     "TryEmitExactConditionDiagnostic(room);", StringComparison.Ordinal);
 int recoveryFrameGate = mouseKeeperSource.IndexOf(
     "if (!_runtime.ShouldEvaluateFrame())", StringComparison.Ordinal);
-Equal(true, conditionPolling >= 0 && recoveryFrameGate > conditionPolling,
-    "condition polling continues independently when recovery has skipped or exhausted");
+Equal(true, conditionPolling < 0 && recoveryFrameGate >= 0,
+    "retired condition diagnostic does not poll while functional recovery retains its frame gate");
 int exactConditionStart = mouseKeeperSource.IndexOf(
     "private static void EmitExactConditionDiagnostic", StringComparison.Ordinal);
 int exactConditionEnd = mouseKeeperSource.IndexOf(

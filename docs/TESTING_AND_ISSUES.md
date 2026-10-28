@@ -7,7 +7,7 @@ For a report, include:
 - Client and APWorld versions, AP difficulty and whether you play Regular or Pro.
 - Where the problem happened, expected behavior, actual behavior and whether it repeats.
 - `BepInEx/LogOutput.log` from that run, plus screenshots/video when useful.
-- For movement problems, an F8 capture started while the problem is occurring.
+- For movement problems, a video and reproduction steps; F8 recording was removed in v0.30.0.
 
 Do not post passwords or private connection details. Do not edit saves or inject checks to reproduce a bug unless you are deliberately testing a backed-up local run.
 

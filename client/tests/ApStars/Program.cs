@@ -10,7 +10,30 @@ static class Program {
  ["required_stars"]=goal,["campaign_level_mapping_schema"]=1,["victory_level_internal_id"]="Level_28",
  ["generated_star_requirements"]=Enumerable.Range(1,22).ToDictionary(n=>"Level "+n,n=>Math.Min(n-1,goal-1)),
  ["star_eater_requirements"]=new Dictionary<string,int>{{"Roots",3},{"Lobby",15},{"Cell Tower",30},{"Royal Corridor",40},{"Secret Bunker",50}}};
+ static Dictionary<string,object> Bunker(){var d=Contract();d["schema_version"]=21;d["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation","-bunker-1-generation-foundation");d["bunker_progression"]=true;d["goal"]="true_ending";d["true_ending_native_flag"]="OVERALL_PROGRESS_BEAT_KING_TWO";d["bunker_item_ids"]=new Dictionary<string,long>{{"Bunker Keycard",187256179},{"Demon Key",187256180},{"Virus",187256181},{"Cheat Codes",187256182},{"Game Ender",187256183}};d["bunker_check_ids"]=new Dictionary<string,long>{{"Lift Quest - Virus Retrieved",187256336},{"School Trip - Cheat Codes Retrieved",187256337},{"Meat Dimension - Game Ender Created",187256338},{"Central Mainframe - Game Ender Used",187256339},{"Secret Bunker - Demon Key Pickup",187256340},{"True Ending - Completion",187256341}};((Dictionary<string,int>)d["star_eater_requirements"])["Secret Bunker"]=20;return d;}
  static void Main(){
+ BunkerContractTests.Run(Bunker());
+ Check(ApStarContract.Validate(Bunker()).Mode==ApStarMode.Awaiting,"schema21 exact Bunker metadata accepted");
+ foreach(var key in new[]{"bunker_progression","goal","true_ending_native_flag","bunker_item_ids","bunker_check_ids"}){var d=Bunker();d.Remove(key);Check(ApStarContract.Validate(d).Mode==ApStarMode.Incompatible,"missing Bunker field "+key);}
+ var strict=Bunker();((Dictionary<string,int>)strict["star_eater_requirements"])["Secret Bunker"]=21;Check(ApStarContract.Validate(strict).Mode==ApStarMode.Incompatible,"Bunker strictly below Level22");
+ var badBunker=Bunker();badBunker["goal"]="other";Check(ApStarContract.Validate(badBunker).Mode==ApStarMode.Incompatible,"unknown ending");
+ badBunker=Bunker();((Dictionary<string,long>)badBunker["bunker_item_ids"])["Virus"]=187256180;Check(ApStarContract.Validate(badBunker).Mode==ApStarMode.Incompatible,"permanent Bunker ID mismatch");
+ badBunker=Bunker();badBunker["schema_version"]=19;Check(ApStarContract.Validate(badBunker).Mode==ApStarMode.Incompatible,"legacy schema cannot claim Bunker");
+
+ var lobby=Contract();lobby["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation","-lobby-doors-1-generation-foundation");lobby["lobby_open_doors"]=true;
+ Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Awaiting,"Lobby-only contract");
+ Check(ApStarContract.Validate(lobby,lobbyDoorsReady:false).Mode==ApStarMode.Incompatible,"Lobby hooks required");
+ lobby["implementation_version"]=((string)lobby["implementation_version"]).Replace("-lobby-doors-1","-cell-tower-path-1-lobby-doors-1");lobby["cell_tower_open_route"]=true;
+ Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Awaiting,"combined route contract");
+ Check(ApStarContract.Validate(lobby,cellTowerPathReady:false).Mode==ApStarMode.Incompatible,"combined needs Cell hook");
+ lobby.Remove("lobby_open_doors");Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Incompatible,"Lobby marker requires capability");
+
+ var openPath=Contract();openPath["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation", "-cell-tower-path-1-generation-foundation");openPath["cell_tower_open_route"]=true;
+ Check(ApStarContract.Validate(openPath).Mode==ApStarMode.Awaiting,"new route identity accepted");
+ Check(ApStarContract.Validate(openPath, cellTowerPathReady:false).Mode==ApStarMode.Incompatible,"missing native path hook rejects new route");
+ Check(ApStarContract.Validate(Contract(), cellTowerPathReady:false).Mode==ApStarMode.Awaiting,"legacy seed does not require new hook");
+ openPath.Remove("cell_tower_open_route");Check(ApStarContract.Validate(openPath).Mode==ApStarMode.Incompatible,"new route requires capability");
+ var mismatchedPath=Contract();mismatchedPath["cell_tower_open_route"]=true;Check(ApStarContract.Validate(mismatchedPath).Mode==ApStarMode.Incompatible,"old identity cannot claim new route");
  var contract=ApStarContract.Validate(Contract());Check(contract.Mode==ApStarMode.Awaiting,"valid exact contract");
  foreach(string key in Contract().Keys){var bad=Contract();bad.Remove(key);Check(ApStarContract.Validate(bad).Mode==ApStarMode.Incompatible,"missing "+key);}
  var badType=Contract();badType["required_stars"]="50";Check(ApStarContract.Validate(badType).Mode==ApStarMode.Incompatible,"numeric strings rejected");
@@ -33,7 +56,7 @@ static class Program {
  state.Configure(4,"third",ApStarContract.Validate(badType));Check(!state.CanEnter("Level_05","LevelVariant_Default")&&state.ResolveHud("GameRoom_Hub2",99)==0,"malformed claim fails closed");
  var packetState=new ApStarState();var h=new ApStarSessionHistory(1,packetState);
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=new[]{new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId}} });
- h.ApplySlotData(Contract(),"packet-slot");Check(packetState.Total==1,"prelogin packet retained until config");
+ h.ApplySlotData(Contract(),"packet-slot",true);Check(packetState.Total==1,"prelogin packet retained until config");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=1, Items=new[]{new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId}} });Check(packetState.Total==2,"incremental packet appended");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=4, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });Check(packetState.Total==2,"gap retains prior authoritative total");
  Check(packetState.Mode==ApStarMode.Awaiting&&!packetState.CanEnter("Level_05","LevelVariant_Default")&&packetState.ResolveTotal(99)==0,"gap suspends gate and HUD authority until full replay");
@@ -50,7 +73,7 @@ static class Program {
  Check(packetState.Mode==ApStarMode.Ready&&!packetState.Commit(invalidClear,"native"),"valid replay cannot retroactively qualify an invalid-history clear");
  var replay=new ApStarSessionHistory(2,packetState);
  replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=null });
- replay.ApplySlotData(Contract(),"packet-slot");
+ replay.ApplySlotData(Contract(),"packet-slot",true);
  Check(packetState.Mode==ApStarMode.Awaiting,"invalid prelogin history remains suspended after configuration");
  replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=-1, Items=null });

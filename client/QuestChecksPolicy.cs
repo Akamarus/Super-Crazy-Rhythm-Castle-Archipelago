@@ -27,13 +27,14 @@ internal static class QuestChecksPolicy
         if (data == null) return QuestChecksMode.Legacy;
         try {
             var root = JObject.FromObject(data);
+            if (!BunkerContract.Validate(root)) return QuestChecksMode.Invalid;
             string? version = root["implementation_version"]?.Type == JTokenType.String ? (string?)root["implementation_version"] : null;
             bool claim = version?.Contains(Suffix, StringComparison.Ordinal) == true || root["quest_checks_schema"] != null;
             if (!claim) return QuestChecksMode.Legacy;
             bool apStars = version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27-ap-stars-0.28", StringComparison.Ordinal) == true;
             bool batchChecks = apStars || version?.EndsWith("full-level-mapping-0.24-character-quest-items-0.25-" + Suffix + "-check-expansion-0.27", StringComparison.Ordinal) == true;
             if ((!batchChecks && version?.EndsWith("character-quest-items-0.25-" + Suffix, StringComparison.Ordinal) != true) ||
-                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? ((int?)root["schema_version"] == 20 ? 20 : 19) : batchChecks ? 18 : 17) ||
+                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? ((int?)root["schema_version"] is 20 or 21 ? (int?)root["schema_version"] : 19) : batchChecks ? 18 : 17) ||
                 root["quest_checks_schema"]?.Type != JTokenType.Integer || (int?)root["quest_checks_schema"] != 1)
                 return QuestChecksMode.Invalid;
             foreach (var pair in new[] { ("quest_items", Items), ("quest_locations", Locations) }) {

@@ -163,7 +163,7 @@ string cassetteSaveDesignSource = ReadTextNormalized(Path.Combine(
     Directory.GetCurrentDirectory(), "docs", "archive", "superpowers", "specs", "2026-08-30-cassette-save-transaction-design.md"));
 int acceptanceEventGuard = pluginSource.IndexOf("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal);
 int acceptanceEventHook = pluginSource.IndexOf("PatchMethodsByParameter(\"HandleEvent\", \"PlayerSaveWriteCompletedEvent\"", StringComparison.Ordinal);
-Equal(true, acceptanceEventGuard >= 0 && acceptanceEventHook > acceptanceEventGuard, "write-completed event observation is narrowly installed only after the acceptance opt-in guard");
+Equal(true, acceptanceEventGuard < 0 && acceptanceEventHook < 0, "retired acceptance diagnostic event/configuration cannot install a production hook");
 Equal(false, pluginSource.Contains("TickDiskCommit(elapsed);", StringComparison.Ordinal), "Unity reconciliation never advances the retired synthetic disk-commit state machine");
 foreach (string prohibitedWritePath in new[] { "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
     Equal(false, pluginSource.Contains(prohibitedWritePath, StringComparison.Ordinal) || transactionAdapterSource.Contains(prohibitedWritePath, StringComparison.Ordinal), $"production avoids prohibited forced write path {prohibitedWritePath}");
@@ -298,10 +298,10 @@ Equal(false, unityTick.Contains("TryConfirmSaveSynchronizationReady", StringComp
 Equal(false, synchronizationGateSource.Contains("TrySubmit", StringComparison.Ordinal), "synchronization diagnostic wiring cannot submit grant or persistence requests");
 Equal(true, synchronizationGateSource.Contains("TryConfirmSaveSynchronizationReady(pointer", StringComparison.Ordinal), "production readiness delegates only the active epoch pointer to the public selection enquiry");
 Equal(false, synchronizationGateSource.Contains("_joinedSaveDataRequestProcessor", StringComparison.Ordinal), "production readiness does not depend on the retained global processor's numeric selected slot");
-Equal(true, pluginSource.Contains("EnableCassettePointerBoundPersistenceAcceptance\", false", StringComparison.Ordinal), "pointer-bound persistence acceptance config is explicitly default false");
-Equal(true, pluginSource.Contains("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal), "write-completed event hook is installed only for an explicit startup opt-in");
-Equal(true, pluginSource.Contains("CassetteReceiptRandomization.Configure(\n            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal),
-    "default-false acceptance configuration controls diagnostics only");
+Equal(false, pluginSource.Contains("EnableCassettePointerBoundPersistenceAcceptance\", false", StringComparison.Ordinal), "retired pointer-bound persistence acceptance configuration is absent");
+Equal(false, pluginSource.Contains("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal), "retired write-completed diagnostic hook has no startup registration");
+Equal(false, pluginSource.Contains("CassetteReceiptRandomization.Configure(\n            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal),
+    "production configuration no longer binds an acceptance diagnostic toggle");
 string acceptanceConfigUpdate = ExtractMethods(receiptRandomizationSource, "internal static void SetPersistenceAcceptanceDiagnosticsEnabled(").Single();
 Equal(true, acceptanceConfigUpdate.Contains("if (enabled)", StringComparison.Ordinal) && acceptanceConfigUpdate.Contains("restart is required", StringComparison.Ordinal),
     "runtime diagnostic opt-in cannot start without the startup-only event hook; enabling requires a restart");
@@ -315,7 +315,7 @@ int productionWaveEnqueueIndex = unityTick.IndexOf("_productionPersistence.TryEn
 int persistenceEligibilityIndex = unityTick.IndexOf("TryStartPointerBoundPersistence", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
 Equal(true, productionWaveEnqueueIndex > diagnosticWaveConsumeIndex && persistenceEligibilityIndex > productionWaveEnqueueIndex,
     "newly verified waves are identity-bound and queued before any production eligibility attempt");
-Equal(true, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves schedule the bounded ownership snapshot immediately afterward");
+Equal(false, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves no longer schedule an investigation-only ownership snapshot");
 string persistenceTargetLogger = ExtractMethods(receiptRandomizationSource, "private static void LogPersistenceTargetOwnershipDiagnostic(").Single();
 foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryReadDiskCommitTargetDiagnostic", "TryReadPersistenceTargetActiveState", "TryReadPublicWriteDiagnosticState" })
     Equal(true, persistenceTargetLogger.Contains(requiredRead, StringComparison.Ordinal), $"persistence target snapshot uses existing public diagnostic boundary {requiredRead}");

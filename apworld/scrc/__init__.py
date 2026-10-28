@@ -1,7 +1,9 @@
 from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
+from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
 from worlds.generic.Rules import set_rule
 
+from . import bunker as bunker_logic
 from .cassette_bundles import BUNDLE_ITEM_NAME_TO_ID, generate_bundles, bundle_for_cassette
 
 from .difficulty import (
@@ -274,6 +276,7 @@ QUEST_LOCATION_NAME_TO_ID = {
 }
 LOCATION_NAME_TO_ID.update(QUEST_LOCATION_NAME_TO_ID)
 LOCATION_NAME_TO_ID.update(EXPANDED_CHECK_LOCATION_NAME_TO_ID)
+LOCATION_NAME_TO_ID.update(bunker_logic.CHECK_IDS)
 
 MUSIC_LAB_REWARD_CHEST_LOCATIONS = (
     MUSIC_LAB_5_POINT_CHEST,
@@ -326,6 +329,7 @@ ITEM_NAME_TO_ID = {
     **CHARACTER_QUEST_ITEM_NAME_TO_ID,
     **QUEST_ITEM_NAME_TO_ID,
     **BUNDLE_ITEM_NAME_TO_ID,
+    **bunker_logic.ITEM_IDS,
 }
 
 HIP_GLASSES_ITEM = "Hip Glasses"
@@ -348,6 +352,7 @@ ITEM_CLASSIFICATIONS = {
     **CHARACTER_QUEST_ITEM_CLASSIFICATIONS,
     **QUEST_ITEM_CLASSIFICATIONS,
     **{name: ItemClassification.progression for name in BUNDLE_ITEM_NAME_TO_ID},
+    **{name: ItemClassification.progression for name in bunker_logic.ITEM_IDS},
 }
 
 
@@ -412,12 +417,20 @@ class SCRCWorld(World):
     def generate_early(self) -> None:
         passthrough = getattr(self.multiworld, "re_gen_passthrough", {}) or {}
         tracker = tracker_slot_data(passthrough[self.game]) if self.game in passthrough else None
+        self.bunker_progression = tracker["bunker_progression"] if tracker is not None else bool(getattr(getattr(self.options, "bunker_progression", None), "value", 0))
+        self.goal = tracker["goal"] if tracker is not None else bunker_logic.GOALS[getattr(getattr(self.options, "goal", None), "value", 0)]
+        if self.goal == "true_ending" and not self.bunker_progression:
+            raise OptionError("True Ending requires Bunker Progression enabled")
+        self.cell_tower_open_route = tracker["cell_tower_open_route"] if tracker is not None else True
+        self.lobby_open_doors = tracker["lobby_open_doors"] if tracker is not None else True
         if tracker is not None:
             self.options.required_stars.value = tracker["required_stars"]
             self.options.difficulty.value = tracker["difficulty"]["value"]
             self.options.starting_area.value = tracker["starting_area_option"]
         requested_start = int(self.options.starting_area.value)
         required_stars = int(self.options.required_stars.value)
+        if self.bunker_progression and required_stars < 2:
+            raise OptionError("Bunker Progression requires required_stars >= 2 so its Star Eater can be below Level 22")
         difficulty = self.options.difficulty.value
         active_campaign_star_tiers = campaign_star_tiers(difficulty)
         active_medal_tiers = medal_tiers(difficulty)
@@ -430,6 +443,8 @@ class SCRCWorld(World):
             self.generated_star_requirements = generate_star_requirements(
                 required_stars, self.random
             )
+        if self.bunker_progression and tracker is None:
+            self.generated_star_requirements["Level 22"] = max(1, self.generated_star_requirements["Level 22"])
         self.cassette_bundle_size = (tracker["cassette_bundle_size"] if tracker is not None else
             getattr(getattr(self.options, "cassette_bundle_size", None), "value", 1))
         self.cassette_bundles = (tracker["cassette_bundles"] if tracker is not None else
@@ -445,6 +460,7 @@ class SCRCWorld(World):
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
                 and name != LOBBY_BEAN_TRUMPET_AWARD
                 and not name.startswith("Development Cache ")
+                and (getattr(self, "bunker_progression", False) or name not in bunker_logic.CHECK_IDS)
             )
         )
         self.active_campaign_star_tiers = active_campaign_star_tiers
@@ -627,8 +643,15 @@ class SCRCWorld(World):
         # check in this supplemental region is restricted to filler, so this
         # organizational connection cannot strand randomized progression.
         bunker = Region("Secret Bunker", self.player, self.multiworld)
-        lobby.connect(bunker, "Lobby -> Secret Bunker (filler checks)")
+        lobby.connect(bunker, "Lobby -> Secret Bunker",
+            (lambda state: bunker_logic.can_enter(self,state)) if self.bunker_progression else None)
         concrete_regions["Secret Bunker"] = bunker
+
+        if self.bunker_progression:
+            for name, address in bunker_logic.CHECK_IDS.items():
+                location = SCRCLocation(self.player, name, address, bunker)
+                set_rule(location, lambda state, name=name: bunker_logic.rule(self,name,state))
+                bunker.locations.append(location)
 
         for entry in EXPANDED_CHECKS:
             if not is_active(entry.name):
@@ -826,6 +849,8 @@ class SCRCWorld(World):
         for name in OPTIONAL_ROUTE_CHECKS & self.active_location_names:
             location = self.multiworld.get_location(name, self.player)
             set_rule(location, lambda state, name=name: optional_route(self, name, state))
+            if self.bunker_progression and (name in ("Secret Bunker - Gecko Interaction", "Secret Bunker - Star Eater Fed", "Cartridge Pickup - Superstar", "Cartridge Pickup - Wag the Dog") or name.startswith("Demonic ")):
+                location.item_rule = lambda item: True
             # Keep the existing filler-only item rule: improving access
             # accuracy does not promote optional routes to progression checks.
         frog = self.multiworld.get_location(ROOTS_LEVEL3_FROG_HIPPO, self.player)
@@ -928,6 +953,8 @@ class SCRCWorld(World):
         # Character hand-in inputs and randomized quest rewards each appear once.
         progression_items.extend(CHARACTER_QUEST_ITEM_NAME_TO_ID)
         progression_items.extend(QUEST_ITEM_NAME_TO_ID)
+        if self.bunker_progression:
+            progression_items.extend(bunker_logic.ITEM_IDS)
 
         progression_items.extend([STAR_ITEM_NAME] * STAR_ITEM_COUNT)
 
@@ -978,7 +1005,7 @@ class SCRCWorld(World):
     def set_rules(self) -> None:
         self._set_native_star_rules()
         set_rule(self.multiworld.get_location("Victory", self.player),
-            lambda state: can_complete(self, state, 22)
+            lambda state: (bunker_logic.can_finish(self,state) if self.goal == "true_ending" else can_complete(self, state, 22))
             and state.count(STAR_ITEM_NAME, self.player) >= int(self.options.required_stars.value))
 
         self.multiworld.completion_condition[self.player] = (
@@ -1007,6 +1034,7 @@ class SCRCWorld(World):
                 name != CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG]
                 and name != LOBBY_BEAN_TRUMPET_AWARD
                 and not name.startswith("Development Cache ")
+                and (getattr(self, "bunker_progression", False) or name not in bunker_logic.CHECK_IDS)
             )
         )
         default_campaign_star_tiers = campaign_star_tiers(difficulty_value)
@@ -1039,9 +1067,12 @@ class SCRCWorld(World):
             if any(name.endswith(f" - {tier}") for name in active_campaign_locations)
         ]
         return {
-            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28",
+            "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28".replace("-generation-foundation", ("-cell-tower-path-1" if getattr(self, "cell_tower_open_route", False) else "") + ("-lobby-doors-1" if getattr(self, "lobby_open_doors", False) else "") + ("-bunker-1" if getattr(self, "bunker_progression", False) else "") + "-generation-foundation"),
+            "lobby_open_doors": getattr(self, "lobby_open_doors", False),
+            "cell_tower_open_route": getattr(self, "cell_tower_open_route", False),
             "generation_foundation_version": "generation-foundation-0.16",
-            "schema_version": 19 if getattr(self, "cassette_bundle_size", 1) == 1 else 20,
+            **bunker_logic.metadata(getattr(self,"bunker_progression",False), getattr(self,"goal","king_ferdinand")),
+            "schema_version": 21 if getattr(self,"bunker_progression",False) else (19 if getattr(self, "cassette_bundle_size", 1) == 1 else 20),
             "cassette_bundle_size": getattr(self, "cassette_bundle_size", 1),
             "cassette_bundles": {name: list(songs) for name, songs in getattr(self, "cassette_bundles", {}).items()},
             "expanded_checks_schema": 1,
@@ -1074,7 +1105,7 @@ class SCRCWorld(World):
             "post_threshold_victory_active": True,
             "victory_level_name": "Level 22",
             "victory_level_internal_id": "Level_28",
-            "star_eater_requirements": star_eater_requirements(generated_requirements) if generated_requirements else {},
+            "star_eater_requirements": star_eater_requirements(generated_requirements, getattr(self,"bunker_progression",False)) if generated_requirements else {},
             "generated_star_requirements": dict(generated_requirements),
             "generated_star_requirements_depth_model": "conservative-native-routes-v1",
             "client_star_gate_enforcement_active": True,

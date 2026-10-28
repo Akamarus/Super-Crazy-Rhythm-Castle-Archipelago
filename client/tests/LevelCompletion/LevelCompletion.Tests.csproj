@@ -29,4 +29,4 @@
       <Compile Include="$(IntermediateOutputPath)ProductionConnection.cs" />
     </ItemGroup>
   </Target>
-</Project>
+<ItemGroup><Compile Include="../../BunkerContract.cs" Link="BunkerContract.cs" /></ItemGroup><ItemGroup><Compile Include="../../BunkerState.cs" /><Compile Include="../../BunkerJournal.cs" /><Compile Include="../../BunkerSessionHistory.cs" /></ItemGroup></Project>

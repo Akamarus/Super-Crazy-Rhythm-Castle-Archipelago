@@ -122,6 +122,9 @@ def load_scrc_world():
     base_classes.Tutorial = Tutorial
 
     options = types.ModuleType("Options")
+    class OptionError(ValueError):
+        pass
+    options.OptionError = OptionError
 
     class Choice:
         pass

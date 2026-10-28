@@ -92,6 +92,7 @@ internal static class MusicLabPointContract
              Enumerable.Range(15, 7).Any(release => version.EndsWith($"-0.{release}", StringComparison.Ordinal)));
         if (recognizedLegacy)
             return new(MusicLabPointCompatibilityMode.LegacyNative, "recognized pre-v0.23 implementation");
+        if (!BunkerContract.Validate(JObject.FromObject(slotData))) return Fail("bunker contract", "valid", "invalid");
         bool apStars = version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28", StringComparison.Ordinal);
         bool batchChecks = apStars || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27", StringComparison.Ordinal);
         bool expandedQuests = batchChecks || version.EndsWith(CampaignClaimSuffix + "-character-quest-items-0.25-quest-checks-0.26", StringComparison.Ordinal);
@@ -103,7 +104,7 @@ internal static class MusicLabPointContract
         int expectedSchema = apStars ? 19 : batchChecks ? 18 : expandedQuests ? 17 : characterItems ? 16 : version.EndsWith(CampaignClaimSuffix, StringComparison.Ordinal) ? 15 : 14;
         if (!TryReadNumber(slotData, "schema_version", out int schemaVersion))
             return Fail("schema_version", expectedSchema, Actual(slotData, "schema_version"));
-        if (schemaVersion != expectedSchema && !(apStars && schemaVersion == 20))
+        if (schemaVersion != expectedSchema && !(apStars && schemaVersion is 20 or 21))
             return Fail("schema_version", expectedSchema, schemaVersion);
 
         if (!slotData.TryGetValue("music_lab_points_enabled", out object? enabledRaw) || UnwrapScalar(enabledRaw) is not bool enabled)

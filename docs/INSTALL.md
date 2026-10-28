@@ -1,7 +1,7 @@
 # Install and connect
 
-This guide covers **v0.29.2: Client v0.76.2 / APWorld v0.29.0**.
-The APWorld is unchanged from v0.29.0. Existing configuration and seed/save associations remain compatible.
+This guide covers **v0.30.0: Client v0.77.0 / APWorld v0.30.0**.
+APWorld 0.30.0 adds Bunker/schema21 options. Existing schema19/20 rooms retain their original rules; use a fresh seed/save for new options.
 
 The integration is experimental. Back up your native save before starting a new
 randomized run, and see [known issues](KNOWN_ISSUES.md).
@@ -28,8 +28,8 @@ if BepInEx does not start.
 
 ## 3. Install the SCRC client
 
-1. Download **RhythmCastleAP-v0.76.2.zip** from the
-   [v0.29.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.29.2).
+1. Download **RhythmCastleAP-v0.77.0.zip** from the
+   [v0.30.0 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.0).
 2. With the game closed, create this folder if it does not exist:
 
    ```text
@@ -111,7 +111,7 @@ second seed. Get the connection address and your assigned slot name from its hos
 | Invalid slot or password | Copy the player name from the generated room and check whether the room requires a password. |
 | Still cannot connect | Attach `BepInEx\LogOutput.log` from the game folder when asking for help. Readable log text is more useful than a screenshot of the console. |
 
-Successful client loading includes `[SCRC-AP] v0.76.2 loading.` in the log.
+Successful client loading includes `[SCRC-AP] v0.77.0 loading.` in the log.
 **That confirms the mod loaded, not that it connected to your room.**
 
 ## Generating or hosting your own seed
@@ -122,7 +122,7 @@ Skip this section if a host has already generated your room.
    [official setup guide](https://archipelago.gg/tutorial/Archipelago/setup_en).
    Its usual Windows installation folder is `C:\ProgramData\Archipelago`.
 2. Download **scrc.apworld** from the
-   [v0.29.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.29.2).
+   [v0.30.0 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.0).
    In Archipelago Launcher, select **Install APWorld**, choose that file, then
    restart the launcher. Custom worlds contain executable code; use trusted downloads.
 3. Select **Generate Template Options**, or use the repository's
@@ -147,8 +147,7 @@ and keep your YAML in the folder required by your tracker setup. Follow
 
 ## Updating or uninstalling
 
-- Follow the specific release's update instructions. v0.29.0 updates the APWorld;
-  existing client v0.76.0 users do not need to replace the client DLLs.
+- v0.30.0 updates both the client and APWorld. Install Client 0.77.0 for new Bunker/schema21 seeds.
 - Close the game before replacing client DLLs. Restart Archipelago after replacing
   its APWorld. An APWorld update does not rewrite an already-generated seed.
 - To uninstall the integration, remove only `BepInEx\plugins\RhythmCastleAP` from
@@ -163,7 +162,7 @@ release tag to build the published version:
 ```powershell
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
 cd .\Super-Crazy-Rhythm-Castle-Archipelago
-git checkout v0.29.0
+git checkout v0.30.0
 .\client\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
 .\tools\build-apworld.ps1
 ```

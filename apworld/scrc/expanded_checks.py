@@ -2,7 +2,7 @@
 
 The original schema18 flags below are retained as catalog history. Schema19
 installs candidate native-route rules from native_logic; unsupported special
-completion and Bunker paths remain Stardust-only.
+completion and legacy Bunker paths remain Stardust-only; schema21 promotes supported Bunker paths.
 """
 from dataclasses import dataclass
 

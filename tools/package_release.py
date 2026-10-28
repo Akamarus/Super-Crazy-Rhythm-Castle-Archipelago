@@ -27,7 +27,7 @@ DEPENDENCIES = {
 }
 WORLD_FILES = set('''__init__.py archipelago.json campaign_levels.py cassette_bundles.py
 cassettes.py difficulty.py expanded_checks.py items.py music_lab_points.py native_logic.py
-optional_routes.py options.py placement.py pool_capacity.py star_requirements.py
+bunker.py optional_routes.py options.py placement.py pool_capacity.py star_requirements.py
 starting_areas.py universal_tracker.py'''.split()) | {
     'docs/ap-stars-logic.md', 'docs/en_Super Crazy Rhythm Castle.md', 'docs/setup_en.md'
 }

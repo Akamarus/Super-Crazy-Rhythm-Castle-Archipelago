@@ -19,6 +19,7 @@ internal static class CharacterQuestItemPolicy
         try
         {
             var root = JObject.FromObject(data);
+            if (!BunkerContract.Validate(root)) return CharacterQuestItemMode.Invalid;
             string? version = root["implementation_version"]?.Type == JTokenType.String ? (string?)root["implementation_version"] : null;
             bool claim = version?.Contains(Suffix, StringComparison.Ordinal) == true ||
                 root["randomize_character_quest_items"]?.Value<bool>() == true || root["character_quest_item_schema"] != null;
@@ -27,7 +28,7 @@ internal static class CharacterQuestItemPolicy
             bool batchChecks = apStars || version?.EndsWith("full-level-mapping-0.24-" + Suffix + "-quest-checks-0.26-check-expansion-0.27", StringComparison.Ordinal) == true;
             bool expanded = batchChecks || version?.EndsWith("full-level-mapping-0.24-" + Suffix + "-quest-checks-0.26", StringComparison.Ordinal) == true;
             if ((!expanded && version?.EndsWith("full-level-mapping-0.24-" + Suffix, StringComparison.Ordinal) != true) ||
-                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? ((int?)root["schema_version"] == 20 ? 20 : 19) : batchChecks ? 18 : expanded ? 17 : 16) ||
+                root["schema_version"]?.Type != JTokenType.Integer || (int?)root["schema_version"] != (apStars ? ((int?)root["schema_version"] is 20 or 21 ? (int?)root["schema_version"] : 19) : batchChecks ? 18 : expanded ? 17 : 16) ||
                 root["character_quest_item_schema"]?.Type != JTokenType.Integer || (int?)root["character_quest_item_schema"] != 1 ||
                 root["randomize_character_quest_items"]?.Type != JTokenType.Boolean || (bool?)root["randomize_character_quest_items"] != true)
                 return CharacterQuestItemMode.Invalid;

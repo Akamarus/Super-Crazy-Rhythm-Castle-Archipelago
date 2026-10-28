@@ -57,8 +57,17 @@ Setup("native-nullable-variant");Start();Complete();baseline=sends;
 ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.Nullable<string>(false, null)});Tick();Check(sends==baseline+1,"native nullable without value accepts bound completion");
 Setup("native-nullable-conflict");Start();Complete();baseline=sends;
 ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.Nullable<string>(true, "LevelVariant_DevilMode")});Tick();Check(sends==baseline,"native nullable conflicting variant rejected");
+Setup("true-normal-clear");
+ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));
+baseline=sends;Start();Complete();Persist();Tick();Check(sends==baseline,"normal ending cannot satisfy true ending goal");
+RootsBucketRandomization.Flags["OVERALL_PROGRESS_USED_GAME_ENDER"]=true;Start();Complete();Persist();Tick();Check(sends==baseline,"true ending requires confirmed native ending flag");
+RootsBucketRandomization.Flags["OVERALL_PROGRESS_BEAT_KING_TWO"]=true;Tick();Check(sends==baseline+1,"true ending waits for native completion then sends");
+Setup("true-normal-clear");ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));Tick();Check(sends==baseline+2,"true ending journal survives reconnect");
+Setup("early");ApStars.State.Configure(2,"early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));baseline=sends;Tick();Check(sends==baseline,"normal ending journal cannot restore true ending goal");
+Setup("true-early",24);ApStars.State.Configure(2,"true-early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,24));Start();Complete();ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));Persist();Tick();Check(sends==baseline,"true ending cannot retroactively qualify after late Stars");
 Console.WriteLine($"{checks} AP Star runtime checks passed");
 namespace RhythmCastleAP {
+ internal static class RootsBucketRandomization { internal static readonly Dictionary<string,bool> Flags=new(); internal static bool TryReadProgressionFlag(string name,out bool value){value=Flags.GetValueOrDefault(name);return true;} }
  internal static class Plugin {internal static Log? LoggerInstance;}internal class Log{public void LogInfo(string s){}public void LogError(string s){}}
  internal static class DeveloperHarness{internal static string CurrentRoomId="GameRoom_Hub7";}
  internal static class CassetteReceiptRandomization{internal static bool Ready=true;internal static string Save="epoch:a";internal static void WithStableQuestItemSave(Action<object,string>a){if(Ready)a(new object(),Save);}}

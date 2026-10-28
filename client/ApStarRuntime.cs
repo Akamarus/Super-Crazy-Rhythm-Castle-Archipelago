@@ -5,18 +5,18 @@ using UnityEngine;
 
 namespace RhythmCastleAP;
 
-internal sealed record ApStarGoalRecord(int Schema, string Identity, int RequiredStars, string NativeSave, bool Completed);
+internal sealed record ApStarGoalRecord(int Schema, string Identity, int RequiredStars, string NativeSave, bool Completed, string Ending = "king_ferdinand");
 internal sealed class ApStarGoalJournal
 {
     private readonly string _directory;
     internal ApStarGoalJournal(string directory) => _directory = directory;
     private string FileFor(string identity) => Path.Combine(_directory, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))) + ".json");
-    internal ApStarGoalRecord? Load(string identity, int required)
+    internal ApStarGoalRecord? Load(string identity, int required, string ending = "king_ferdinand")
     {
         string path = FileFor(identity);
         if (!File.Exists(path)) return null;
         var record = JsonConvert.DeserializeObject<ApStarGoalRecord>(File.ReadAllText(path));
-        if (record == null || record.Schema != 1 || record.Identity != identity || record.RequiredStars != required ||
+        if (record == null || record.Schema != 1 || record.Identity != identity || record.RequiredStars != required || record.Ending != ending ||
             !record.Completed || string.IsNullOrWhiteSpace(record.NativeSave))
             throw new InvalidDataException("AP Star goal journal identity or completion mismatch");
         return record;
@@ -138,11 +138,6 @@ internal static class ApStars
         if (!required.HasValue) return;
         GUI.Box(new Rect(16, Screen.height - 112, 340, 42), $"AP Stars: {State.Total} / {required.Value} required");
     }
-    // Event-only diagnostics: no polling, native writes, or changes to qualification.
-    private static void TraceGoal(string stage, string detail) =>
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] GOAL TRACE stage='{stage}' total={State.Total} required={State.Settings.Goal} mode={State.Mode} started='{_startedLevel}' variant='{_startedVariant}' saveBound={!string.IsNullOrEmpty(_startedSave)} {detail}");
-    private static bool TracingGoal => _startedLevel == "Level_28" ||
-        DeveloperHarness.CurrentRoomId is "GameRoom_28A" or "GameRoom_28B";
     internal static void OnAdmittedStart(string level, string variant)
     {
         ObserveIdentity(); ResetAttempt();
@@ -150,15 +145,12 @@ internal static class ApStars
         CassetteReceiptRandomization.WithStableQuestItemSave((_, save) => {
             _startedLevel = level; _startedVariant = variant; _startedSave = save;
         });
-        if (level == "Level_28") TraceGoal("admitted-start", $"requestedVariant='{variant}'");
     }
     internal static void BeforePersistResult(object? request)
     {
         ObserveIdentity(); _candidate = null; _boundToAppliedResult = false;
-        if (TracingGoal) TraceGoal("persist-request", $"requestType='{request?.GetType().FullName ?? "null"}'");
         if (!State.Active || string.IsNullOrEmpty(_startedSave))
         {
-            if (TracingGoal) TraceGoal("persist-rejected", "reason='inactive-or-no-admitted-save'");
             return;
         }
         bool? didSucceed = ReflectionUtil.ReadBool(request!, "DidPlayersSucceed");
@@ -166,9 +158,9 @@ internal static class ApStars
         bool successful = didSucceed == true && shouldSave == true;
         CassetteReceiptRandomization.WithStableQuestItemSave((_, save) => {
             if (save == _startedSave)
-                _candidate = State.Capture(save, _startedLevel, _startedVariant, successful ? 1 : 0);
+                _candidate = State.Capture(save, _startedLevel, _startedVariant, successful ? 1 : 0,
+                    RootsBucketRandomization.TryReadProgressionFlag("OVERALL_PROGRESS_USED_GAME_ENDER", out bool installed) && installed);
         });
-        if (TracingGoal) TraceGoal("candidate", $"didSucceed={didSucceed?.ToString() ?? "unreadable"} shouldSave={shouldSave?.ToString() ?? "unreadable"} captured={_candidate != null} qualified={_candidate?.Qualified.ToString() ?? "none"}");
     }
     internal static void BeforeApplyResult(object? request)
     {
@@ -176,7 +168,6 @@ internal static class ApStars
         string level = Identifier(request, "LevelIdentifier"), variant = Identifier(request, "LevelVariantIdentifier");
         _boundToAppliedResult = _candidate != null && level == _startedLevel && variant == _startedVariant;
         if (!_boundToAppliedResult) _candidate = null;
-        if (TracingGoal || level == "Level_28") TraceGoal("apply-result", $"resultLevel='{level}' resultVariant='{variant}' bound={_boundToAppliedResult}");
     }
     internal static void OnResultPersisted(object? persistedEvent)
     {
@@ -184,8 +175,6 @@ internal static class ApStars
         ApStarResult? candidate = _candidate;
         bool bound = _boundToAppliedResult;
         string level = _startedLevel, variant = _startedVariant;
-        bool trace = TracingGoal || Identifier(persistedEvent, "Level") == "Level_28";
-        if (trace) TraceGoal("persisted-event", $"eventLevel='{Identifier(persistedEvent, "Level")}' eventVariant='{Identifier(persistedEvent, "LevelVariant")}' candidate={candidate != null} qualified={candidate?.Qualified.ToString() ?? "none"} bound={bound}");
         ResetAttempt(); // Consume admission once; retain matched persisted evidence separately for retry.
         // The native event carries a nullable variant. The applied score has already
         // bound this candidate to the exact admitted level and variant; an omitted
@@ -205,11 +194,12 @@ internal static class ApStars
         // Keep this evidence when readiness is temporarily unavailable; a different
         // verified save is a rejection, not permission to transfer the completion.
         CassetteReceiptRandomization.WithStableQuestItemSave((_, save) => {
+            if (candidate.NativeSave == save && State.Settings.Ending == "true_ending" &&
+                (!RootsBucketRandomization.TryReadProgressionFlag(BunkerCatalog.TrueEndingFlag, out bool ended) || !ended)) return;
             _persistedCandidate = null;
             bool committed = State.Commit(candidate, save);
-            TraceGoal("commit", $"sameSave={candidate.NativeSave == save} committed={committed}");
             if (!committed) return;
-            _unsavedGoal = new(1, candidate.Identity, State.Settings.Goal, candidate.NativeSave, true);
+            _unsavedGoal = new(1, candidate.Identity, State.Settings.Goal, candidate.NativeSave, true, State.Settings.Ending);
             TrySaveGoal();
         });
     }
@@ -222,7 +212,6 @@ internal static class ApStars
         {
             _journal.Save(_unsavedGoal);
             _durableGoal = true; _journalLoaded = true; _unsavedGoal = null; _lastError = "";
-            TraceGoal("journal-saved", "completed=True");
         }
         catch (Exception ex) { Error("Goal journal write failed; goal delivery deferred: " + ex.GetBaseException().Message); }
     }
@@ -241,7 +230,7 @@ internal static class ApStars
         {
             try
             {
-                var restored = _journal.Load(_identity, settings.Goal);
+                var restored = _journal.Load(_identity, settings.Goal, settings.Ending);
                 _journalLoaded = true;
                 if (restored != null) { _durableGoal = true; State.RestoreGoal(_identity); }
             }

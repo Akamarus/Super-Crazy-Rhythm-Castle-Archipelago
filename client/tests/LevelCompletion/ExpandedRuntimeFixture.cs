@@ -11,3 +11,9 @@ internal static class ExpandedChecks {
 // contract, receipt history, state transitions and goal qualification are real.
 internal static class ApStars { internal static readonly ApStarState State = new(); }
 internal static class ApStarNativeHooks { internal static bool Ready = true; }
+
+internal static class CellTowerPathPatches { internal static bool Ready = true; }
+
+internal static class LobbyDoorPatches { internal static bool Ready = true; }
+
+internal static class BunkerRuntime { internal static bool Ready=true; internal static readonly BunkerState State=new(); internal static readonly BunkerJournal Journal=new(Path.Combine(Path.GetTempPath(),"bunker-connection-tests-"+Guid.NewGuid())); internal static bool Handles(string name)=>BunkerCatalog.Items.Any(i=>i.Name==name); }

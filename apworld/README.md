@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-Current APWorld: **0.29.0**, unchanged for the v0.29.1 client maintenance release.
+Current APWorld: **0.30.0**, adding Bunker/schema21 progression and optional True Ending. Requires Client 0.77.0 for new seeds; legacy rules are preserved.
 
 The Python package under `scrc/` defines generation, items, locations, options and Universal Tracker reconstruction. Individual cassette seeds use schema 19; pairs/triples use schema 20 and require Client 0.76.0 or newer.
 

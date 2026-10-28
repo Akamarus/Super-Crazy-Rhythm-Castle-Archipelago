@@ -342,7 +342,7 @@ Equal(false, persistedWiring.Contains("Victory", StringComparison.Ordinal),
     "ordinary persisted-result wiring cannot queue Victory");
 string repeatedEventBranch = persistedWiring[
     persistedWiring.IndexOf("if (repeatedPersistedKey", StringComparison.Ordinal)..
-    persistedWiring.IndexOf("MusicLabDiscovery.RecordPersistedEvent", StringComparison.Ordinal)];
+    persistedWiring.IndexOf("ExpandedChecks.ObservePersistedResult", StringComparison.Ordinal)];
 Equal(false, repeatedEventBranch.Contains("return;", StringComparison.Ordinal),
     "repeated persisted events are logged without blocking improved Star tiers");
 string queueWiring = pluginSource[

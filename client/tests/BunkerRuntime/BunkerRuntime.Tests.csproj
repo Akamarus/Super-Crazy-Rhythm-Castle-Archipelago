@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup><ItemGroup><PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1"/><Compile Include="../../BunkerState.cs"/><Compile Include="../../BunkerRuntime.cs"/><Compile Include="../../BunkerJournal.cs"/><Compile Include="../../BunkerSessionHistory.cs"/><Compile Include="../../BunkerContract.cs"/></ItemGroup></Project>
+
+

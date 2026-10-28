@@ -29,8 +29,8 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.76.2",
-    "world_version": "0.29.0",
+    "client_version": "0.77.0",
+    "world_version": "0.30.0",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
@@ -80,8 +80,8 @@ EXPECTED = {
         "Game Garage - Old Game Data Hand-In": 187256296,
         "Roots - Star Eater Fed": 187256297,
     },
-    "next_item_id": 187256179,
-    "next_location_id": 187256336,
+    "next_item_id": 187256184,
+    "next_location_id": 187256342,
     "campaign_location_count": 88,
     "new_campaign_location_count": 81,
     "new_campaign_location_start": 187256211,
@@ -233,7 +233,7 @@ for marker in (
 expanded_policy_text = EXPANDED_POLICY.read_text(encoding="utf-8")
 for marker in (
     'version?.EndsWith(VersionSuffix + (stars ? "-ap-stars-0.28" : ""), StringComparison.Ordinal) != true',
-    '(long?)root["schema_version"] is not (18 or 19 or 20)',
+    '(long?)root["schema_version"] is not (18 or 19 or 20 or 21)',
     '(long?)root["expanded_checks_schema"] != 1',
     'map.Count != entries.Count',
     'map[e.Name]?.Type != JTokenType.Integer',
@@ -661,7 +661,7 @@ if money_cassette_location_id != EXPECTED["money_cassette_location_id"]:
 
 if f'"implementation_version": "{EXPECTED["implementation_version"]}"' not in world_text:
     fail("implementation_version changed without updating validator/baseline docs")
-if '"schema_version": 19' not in world_text:
+if '"schema_version": 21 if getattr(self,"bunker_progression",False) else (19 if getattr(self, "cassette_bundle_size", 1) == 1 else 20)' not in world_text:
     fail("full-level-mapping slot-data schema changed")
 if '"campaign_level_mapping_schema": 1' not in world_text:
     fail("campaign level mapping schema changed")

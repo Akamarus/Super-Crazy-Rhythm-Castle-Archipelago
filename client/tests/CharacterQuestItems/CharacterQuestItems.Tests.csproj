@@ -3,4 +3,4 @@
 <ItemGroup><PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
 <Compile Include="../../CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
 <Compile Include="../../CharacterQuestItemSessionHistory.cs" Link="CharacterQuestItemSessionHistory.cs" />
-<Compile Include="../../CharacterQuestItems.cs" Link="CharacterQuestItems.cs" /></ItemGroup></Project>
+<Compile Include="../../CharacterQuestItems.cs" Link="CharacterQuestItems.cs" /></ItemGroup><ItemGroup><Compile Include="../../BunkerContract.cs" Link="BunkerContract.cs" /></ItemGroup></Project>

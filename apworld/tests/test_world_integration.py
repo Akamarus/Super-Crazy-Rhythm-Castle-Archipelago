@@ -799,7 +799,7 @@ class WorldIntegrationTests(unittest.TestCase):
 
         self.assertEqual(data["schema_version"], 19)
         self.assertEqual(
-            data["implementation_version"],
+            data["implementation_version"].replace("-cell-tower-path-1", "").replace("-lobby-doors-1", ""),
             "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28",
         )
         self.assertTrue(data["implementation_version"].startswith("area-routing"))

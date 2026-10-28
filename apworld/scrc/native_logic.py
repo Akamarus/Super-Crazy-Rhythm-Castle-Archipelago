@@ -30,14 +30,14 @@ LEVEL_ITEMS = {
 }
 
 
-def star_eater_requirements(requirements):
+def star_eater_requirements(requirements, bunker_progression=False):
     # Feeding does not consume stars. Optional Bunker retains its native66;
     # no progression item is placed behind its unmodeled demon route.
     return {'Roots': min(3, requirements['Level 3']),
             'Lobby': requirements['Level 7'],
             'Cell Tower': requirements['Level 16'],
             'Royal Corridor': requirements['Level 21'],
-            'Secret Bunker': 66}
+            'Secret Bunker': max(0,requirements['Level 22']-1) if bunker_progression else 66}
 
 
 def can_complete(world, state, number):
@@ -49,7 +49,11 @@ def can_complete(world, state, number):
     # the forward Roots blockers while retaining area ownership and its Star gate.
     if number == 5 and state.has('Lobby Access', player): return True
     if not all(state.has(item,player) for item in LEVEL_ITEMS.get(number,())): return False
-    return all(can_complete(world,state,prior) for prior in LEVEL_PREDECESSORS[number])
+    # New clients open Old Tom's physical route without completing nectar.
+    # Existing seeds retain the original predecessor graph during Tracker replay.
+    predecessors = () if number == 16 and getattr(world, "cell_tower_open_route", False) else LEVEL_PREDECESSORS[number]
+    if number in (7, 9) and getattr(world, "lobby_open_doors", False): predecessors = ()
+    return all(can_complete(world,state,prior) for prior in predecessors)
 
 
 # These actions have source mapping plus historically supported native quest paths. Every value
@@ -88,6 +92,9 @@ SOURCE_PATHS = {
 
 
 def source_rule(world, name, state):
+    if name == 'Lobby - Use Bunker Keycard' and getattr(world,'bunker_progression',False):
+        from .bunker import can_enter
+        return can_enter(world,state)
     if name == 'Lobby - Fish Tears Delivery':
         # Fish Tears remains a native Act 4 award, not a received AP item.
         return (state.has('Lobby Access', world.player) and can_complete(world, state, 14)

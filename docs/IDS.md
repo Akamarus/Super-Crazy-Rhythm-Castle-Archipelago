@@ -1,3 +1,26 @@
+## Unreleased schema21 Bunker allocation
+Original IDs are unchanged. Native bag/source mappings verified from interop metadata and slot2 quest captures.
+
+| Item | ID | Native bag flag |
+|---|---:|---|
+| Bunker Keycard |187256179|LIFT_KEY_BAG_ITEM|
+| Demon Key |187256180|BUNKER_HUB_DEMON_KEY|
+| Virus |187256181|KING_VIRUS_DATA_STICK_BAG_ITEM|
+| Cheat Codes |187256182|KING_VIRUS_CHEAT_CODES_BAG_ITEM|
+| Game Ender |187256183|KING_VIRUS_GAME_ENDER_BAG_ITEM|
+
+| Check | ID | Native flag |
+|---|---:|---|
+| Lift Quest - Virus Retrieved |187256336|OVERALL_PROGRESS_RETRIEVED_VIRUS|
+| School Trip - Cheat Codes Retrieved |187256337|OVERALL_PROGRESS_RETRIEVED_CHEAT_CODES|
+| Meat Dimension - Game Ender Created |187256338|OVERALL_PROGRESS_CREATED_GAME_ENDER|
+| Central Mainframe - Game Ender Used |187256339|OVERALL_PROGRESS_USED_GAME_ENDER|
+| Secret Bunker - Demon Key Pickup |187256340|BUNKER_HUB_DEMON_KEY|
+| True Ending - Completion |187256341|OVERALL_PROGRESS_BEAT_KING_TWO|
+
+**Next safe item ID: 187256184. Next safe location ID: 187256342.**
+Demon Key pickup uses the native award boundary: client must distinguish receipt from source, not report every bag-flag change as a check. This client support is pending.
+
 ## Schema20 cassette bundle items (published APWorld 0.29.0)
 
 Confirmed scope: existing 30 native cassette mappings, random pairs or triples per seed.

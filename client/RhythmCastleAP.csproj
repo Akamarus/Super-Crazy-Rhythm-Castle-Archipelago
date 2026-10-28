@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="MovementCapture.cs;MovementTimingProbe.cs;MovementCaptureFormatting.cs;MovementTimingBuffer.cs;ClientPerformance.cs" />
 
     <Reference Include="MonoMod.RuntimeDetour">
       <HintPath>$(GameDir)\BepInEx\core\MonoMod.RuntimeDetour.dll</HintPath>

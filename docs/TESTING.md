@@ -38,3 +38,38 @@ The user confirmed return-gate interaction/traversal with the native-interaction
 Cold Storage tests confirmed that early Violance did not prevent the note after the nectar sequence. The Cell Tower Star Eater worked without Cold Storage completion after leaving and returning to the area; no restart was required. This does not isolate every prerequisite and does not change APWorld logic.
 
 Release validation: all 45 client regression projects passed, the Release build completed with zero warnings/errors, repository validation passed, and all 10 packaging tests passed. The APWorld asset is reused byte-for-byte from v0.29.1.
+
+## Unreleased Cell Tower route
+
+User acceptance confirms note reading, area re-entry, Star Eater feeding and onward-door access before nectar delivery. Later nectar delivery has not yet been retested. See [test and compatibility record](testing/2026-10-22-cell-tower-path.md).
+
+## Unreleased Lobby door access
+
+Demolition Training and School Trip entrance barriers are removed for authenticated Lobby Access owners. Boring Room, Important Letters delivery, the story cutscene and Demolition Training completion are no longer door prerequisites. Generated Star requirements, completion rewards, certificate award and Gecko quest objectives remain unchanged. The patch targets only the two exact native doors and their covers; it does not write story flags.
+
+New seeds advertise `lobby_open_doors` and require the corresponding client hooks. Universal Tracker preserves the old prerequisite graph for older seeds. The candidate is not installed or published; native door interaction and School Trip's Gecko variant still require acceptance.
+
+## Final-level crash candidate
+See [crash investigation and validation](testing/2026-10-28-final-transition-crash.md). Automated checks pass; installation and native transition acceptance remain pending.
+
+The corrected native registration candidate passed the previously crashing final-level transition and boss clear on 2026-10-28; see the linked crash record for remaining checks.
+
+## 2026-10-28 Bunker APWorld validation
+
+204 Python tests passed, including 12 Bunker-focused cases for source independence, goal selection, strict Star gates, legacy reconstruction and malformed Tracker contracts. Two real AP 0.6.8 six-player generations passed beatability: both goals, four difficulties, all bundle modes, the enabled two-Star minimum and disabled one-Star legacy mode. The second generation additionally covered School Trip/Gecko-source exclusions and starting Hypno Pan/Plant Pipes. Independent source review found no actionable logic defects. These checks validate APWorld behavior only, not the pending native schema21 client.
+
+## Bunker client and diagnostic cleanup candidate
+
+All 46 client regression projects, cleanup smoke, repository validation and 11 tool tests pass; Release build has zero warnings/errors. [Candidate details and remaining gameplay acceptance](testing/2026-10-28-bunker-client.md). No deployment or native acceptance is claimed.
+
+## 2026-10-28 Ionium browser CI validation
+
+The unreleased Bunker/schema21 APWorld passed the full CI preset at https://aptests.ionium.fyi/ on AP 0.6.7 and 0.6.8: 205 and 253 unit tests respectively; all 11 fuzz variants on both versions (29,000 attempted cases), zero failures and zero timeouts. Expected incompatible option combinations are ignored by the fuzzer. Universal Tracker passed on both versions. This is browser validation, not index CI approval or native gameplay acceptance.
+
+The initial run exposed two generate_early validation checks raising ValueError instead of Options.OptionError (True Ending with Bunker disabled; Bunker enabled with required_stars below two). Both now raise OptionError; regression assertions cover the exception type. The full local 204-test suite and repository validator pass. Two outdated client-source assertions were updated to expect MusicLabProgressionKeeper and gameplay callbacks while rejecting retired QuestActionDiscovery recording calls.
+
+Tested archive SHA256: 5659712FE58DAA107FB55A7F1E90B320149E27E9FB73E52A1367306ACCC0AC5F. Internal package version remains 0.29.0 pending release versioning; this hash identifies the unreleased candidate. Local report: outputs/ionium-bunker-validation-20261028/passing-report.zip in the task workspace; initial failing report retained alongside it. No installation or publication was performed during this validation.
+
+## v0.30.0 release verification
+Client0.77.0 Release build: zero warnings/errors. All46 client regression projects,204 APWorld regression tests,11 packaging tests, diagnostic-cleanup smoke and repository validator passed. Independent source review found no concrete release-blocking defect. Ionium-tested Python logic is unchanged; package metadata/setup documentation updated to APWorld0.30.0. Full randomized native schema21 acceptance remains pending.
+
