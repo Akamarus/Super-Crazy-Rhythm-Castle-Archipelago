@@ -1,43 +1,50 @@
-# Super Crazy Rhythm Castle Archipelago
+# Super Crazy Rhythm Castle — Archipelago Integration
 
-Unofficial Archipelago multiworld integration for **Super Crazy Rhythm Castle** on Windows.
+A personal game-modding and systems-design project by **Akamarus**, bringing *Super Crazy Rhythm Castle* into Archipelago's multiworld randomizer ecosystem.
 
-[Download the latest published release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/latest) · [Install and connect](docs/INSTALL.md) · [Known issues](docs/KNOWN_ISSUES.md) · [Changelog](CHANGELOG.md)
+The integration turns a largely linear rhythm-adventure campaign into an item-driven progression system. Rewards can come from another player's game, while completing objectives in Rhythm Castle can send items back to them.
 
-**Current release: v0.30.0 — Client 0.77.0 / APWorld 0.30.0.**
+[Latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/latest) · [Setup guide](docs/INSTALL.md) · [Changelog](CHANGELOG.md)
 
-This release adds randomized Bunker progression, optional True Ending victory, early Lobby doors and Cell Tower path access. Full randomized Bunker gameplay acceptance remains pending. [Release notes](docs/releases/v0.30.0.md).
+## Project direction and my role
 
-## What it randomizes
+I lead the project's design, progression rules, feature priorities, and gameplay acceptance. My work includes mapping the game's prerequisites, deciding which rewards and abilities to randomize, and balancing access rules around practical play rather than technically possible but unreliable routes.
 
-- Area access, supported progression and character unlock items, cassettes and Game Garage cartridges.
-- Campaign results, supported quest interactions, pickups, Music Lab medals and reward chests send checks.
-- Cassettes can be individual items or seed-specific random pairs/triples.
-- Collect AP Stars to open generated level gates and meet your victory goal; Star Eaters check your total without spending Stars.
-- In-game sent/received popups and **F6** recent-item history help you track rewards.
+I test changes in-game, document unexpected behavior with logs and recordings, and accept or reject changes based on those results. That process has included full playthroughs, multiplayer async and sync sessions, and targeted tests of item delivery, movement, quest order, and softlock recovery.
 
-To win, collect your configured AP Star goal (**2–66 with Bunker progression, default 50**), then complete the selected ending: **King Ferdinand I** (default), or **True Ending** after installing Game Ender. A clear before the goal must be repeated after reaching it. A Hard / 40-Star run has completed with server-confirmed Victory without assistance.
+## What the project does
 
-With Bunker progression enabled: **Normal 170 / Hard 228 / Expert 286 / Perfection 322**. Without Bunker progression, checks by AP difficulty: **Normal 164 / Hard 222 / Expert 280 / Perfection 316**. AP difficulty selects required results; the game's Regular/Pro chart setting is separate. Roots is the validated starting area.
+- Randomizes area access, progression items, character unlocks, cassettes, and Game Garage cartridges.
+- Converts campaign results, pickups, quests, and optional activities into Archipelago checks.
+- Supports configurable difficulty, Star requirements, cassette bundles, and regular or True Ending victory goals.
+- Integrates received items into native inventory and progression, with in-game notifications and recent-item history.
+- Reconstructs progression rules for Universal Tracker and preserves compatibility with supported older seeds.
 
-## Start or update
+## Technical implementation
 
-Generate a YAML from the installed APWorld 0.30.0 for the new options. The [Ionium YAML creator](https://ap-lobby.ionium.us/options/scrc/0.29.0) currently targets the older indexed APWorld 0.29.0.
+| Component | Purpose |
+| --- | --- |
+| **C# client · BepInEx / IL2CPP** | Connects the game to Archipelago, handles native interactions and rewards, and reports completed checks. |
+| **Python APWorld** | Defines items, locations, options, access rules, and victory conditions for seed generation. |
+| **Progression contracts** | Keep permanent network IDs and client/world mappings consistent across updates. |
+| **Validation and packaging tools** | Check rule consistency, exercise generation, and assemble releases with dependency licenses. |
 
-Follow the [installation guide](docs/INSTALL.md) for the tested BepInEx build, client installation and exact connection settings. Connect to your room before loading its save. Use a fresh native save for a new seed; keep your associated save when updating a compatible client.
+The central challenge is keeping three views of progression aligned: what the generator considers reachable, what the client unlocks, and what the player can actually do. Work has focused on separating randomized rewards from vanilla ownership, maintaining save continuity, and preventing story-dependent doors from trapping players who arrive out of order.
 
-Client 0.77.0 supports existing schema19/20 rooms and new schema21 Bunker seeds. Existing rooms retain their placements and rules; use a new seed and save for Bunker randomization.
+Explore the [client](client/), [APWorld](apworld/), [progression rules](docs/PROGRESSION.md), or [build workflow](docs/WORKFLOW.md).
 
-Archipelago 0.6.8 generation and Universal Tracker 0.2.32 were tested. For Tracker, install the matching APWorld and follow its normal Players-folder YAML setup. See [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
+## Results and current scope
 
-## Status and support
+The project is playable and maintained primarily for personal use and as a portfolio piece. Completed runs include server-confirmed victory and a successful multiplayer sync playthrough. Targeted gameplay testing has also covered inventory persistence, movement repairs, and recovery from blocked routes.
 
-The project is playable and under active development. [Known issues](docs/KNOWN_ISSUES.md) distinguishes open bugs, modeling limits and untested configurations; [testing](docs/TESTING.md) records acceptance scope.
+Automated generation and regression checks complement those playtests. Coverage varies by feature; the newer randomized Bunker and True Ending flow still needs a complete end-to-end acceptance run. The [testing record](docs/TESTING.md) and [known issues](docs/KNOWN_ISSUES.md) describe the evidence and remaining limitations.
 
-For a bug report, include your client/APWorld versions, what happened and `BepInEx/LogOutput.log`. F8 recording has been removed; movement reports can include a video. Keep passwords and private room details out of public reports. See [reporting and testing](docs/TESTING_AND_ISSUES.md).
+## Running it
 
-## Development and licensing
+Requires a legally installed Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. Follow the [installation guide](docs/INSTALL.md) for client setup and connection details, or the [Universal Tracker guide](docs/UNIVERSAL_TRACKER.md) for tracking support.
 
-Original project code is [MIT licensed](LICENSE); game assets and trademarks are not included. [Third-party notices](THIRD_PARTY_NOTICES.md) accompany distributions.
+Use a fresh game save for a new seed. See the [documentation index](docs/INDEX.md) for configuration, compatibility, and development references.
 
-[Documentation index](docs/INDEX.md) · [Build and contribution workflow](docs/WORKFLOW.md) · [Progression rules](docs/PROGRESSION.md) · [Permanent IDs](docs/IDS.md) · [Historical archive](docs/archive/README.md)
+## License
+
+Original project code is [MIT licensed](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). This is an unofficial integration; game assets and trademarks are not included.
