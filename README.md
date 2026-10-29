@@ -6,12 +6,6 @@ The integration turns a largely linear rhythm-adventure campaign into an item-dr
 
 [Latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/latest) · [Setup guide](docs/INSTALL.md) · [Changelog](CHANGELOG.md)
 
-## Project direction and my role
-
-I lead the project's design, progression rules, feature priorities, and gameplay acceptance. My work includes mapping the game's prerequisites, deciding which rewards and abilities to randomize, and balancing access rules around practical play rather than technically possible but unreliable routes.
-
-I test changes in-game, document unexpected behavior with logs and recordings, and accept or reject changes based on those results. That process has included full playthroughs, multiplayer async and sync sessions, and targeted tests of item delivery, movement, quest order, and softlock recovery.
-
 ## What the project does
 
 - Randomizes area access, progression items, character unlocks, cassettes, and Game Garage cartridges.
