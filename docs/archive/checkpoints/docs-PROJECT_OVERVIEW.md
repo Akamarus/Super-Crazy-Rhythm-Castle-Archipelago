@@ -8,7 +8,7 @@ The [release notes](../../releases/v0.29.0.md) are the current summary of change
 
 The final audited APWorld was installed into the local Archipelago custom_worlds folder for Universal Tracker. Installed and packaged SHA-256 match. Restart Universal Tracker to load it. Existing seeds, server state, saves and installed client were not modified.
 
-APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog, AI disclosure and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](../../releases/v0.29.0.md).
+APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](../../releases/v0.29.0.md).
 
 ## October 12 user-reviewed prerequisite corrections (candidate)
 
@@ -74,7 +74,7 @@ Not installed or published. Candidate changes include randomized cassette pairs/
 
 New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
 
-Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md.
 ## Unreleased cassette bundles and capacity — October 6, 2026
 
 Candidate APWorld **0.29.0 / client 0.76.0**, not installed or published.
@@ -144,9 +144,7 @@ installation, server change or save modification is part of this correction.
 
 ## October 11, 2026 — Licensing and packaging correction
 
-Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation and clarified AI review scope. See [packaging](../../PACKAGING.md) and [AI disclosure](../../AI_DISCLOSURE.md).
-
-
+Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation. See [packaging](../../PACKAGING.md).
 
 ## Universal Tracker compatibility update — September 21
 
@@ -169,7 +167,6 @@ test. See [Universal Tracker setup](../../UNIVERSAL_TRACKER.md).
 
 Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
 use the hotfix tag or main to build the updated APWorld download.
-
 
 # Current release: v0.28.1 / Client v0.75.13
 
@@ -915,30 +912,6 @@ Next safe location ID: 187256294
 
 ---
 
-## 19. Development and AI-use disclosure
-
-This project is being developed using AI-generated code and documentation under human direction.
-
-The project owner provides:
-
-- gameplay knowledge;
-- progression design and intended randomizer behavior;
-- testing and validation;
-- bug reports and native-state observations;
-- decisions about what should or should not become randomized progression.
-
-AI assistance is used heavily for:
-
-- C# client implementation;
-- APWorld Python implementation;
-- diagnostics and log analysis;
-- documentation;
-- packaging and iteration.
-
-A feature should not be considered validated simply because code was generated for it. Gameplay testing is the acceptance criterion.
-
----
-
 ## 20. Keeping this document current
 
 **This file is a required living document.** Any change that materially affects player-facing randomizer behavior should update this overview in the same commit.
@@ -957,7 +930,6 @@ Update this file when any of the following changes:
 
 For exact permanent network allocations, [`IDS.md`](../../IDS.md) remains the authoritative ID registry. For concise implementation-oriented logic notes, [`PROGRESSION.md`](docs-PROGRESSION.md) remains the companion progression reference.
 
-
 ## Character quest item candidate (2026-09-15)
 
 Client v0.72.0 / APWorld v0.25.0, schema 16, adds Old Game Data and Car Battery
@@ -974,11 +946,9 @@ retain vanilla item behavior. Validate chest grants suppressed with checks intac
 received inventory, both hand-ins, reload/reconnect/offline and new-save isolation
 before gameplay acceptance. No live deployment or new-seed replacement is implied.
 
-
 ## Native naming audit — 2026-09-16
 
 All 22 campaign numbers and native IDs, all 37 cassette award routes, all 30 cassette titles, six Garage song titles, and nine chest thresholds were compared with installed game assets. Campaign display names now use the native English titles. Existing network song-name aliases and the Platinum/PERFECT tier alias remain explicit compatibility labels, not asserted native spellings. See [the complete location/name audit](../testing/2026-09-16-location-name-audit.md) for every registered check and its native description. This verifies static names and mappings, not end-to-end gameplay acceptance.
-
 
 ## In-game item notifications (client v0.72.0 candidate)
 
@@ -1160,7 +1130,6 @@ AP Star denial now displays a prominent top-center six-second banner with the ve
 ### v0.75.5 candidate: readable reward bursts
 
 Reward popups now measure wrapped item/player and location text and fit whole cards within the current screen height, leaving overflow in the queue with a visible remaining count. Only cards drawn in the preceding repaint accrue display time; item-history view, disabled popups and loss of focus pause timers. Long frame gaps are capped for notification aging so a load stall cannot consume a full popup lifetime. The unseen queue no longer silently drops rewards after 100 pending entries; recent history remains capped at 100 and connection/identity replay protection is retained. A 125-reward regression verifies exact arrival order and full display time with only one card fitting at a time. Item notification and real packet adapter tests pass; the combined client builds with existing warnings. Native layout/readability testing is pending. No game install or release publication has been performed for this candidate.
-
 
 ## September 21: v0.75.12 nullable victory event repair (installed; gameplay pending)
 

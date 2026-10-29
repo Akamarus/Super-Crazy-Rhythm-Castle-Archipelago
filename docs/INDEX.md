@@ -16,5 +16,4 @@
 - [Workflow and builds](WORKFLOW.md)
 - [Packaging and licenses](PACKAGING.md)
 - [Roadmap](ROADMAP.md)
-- [AI disclosure](AI_DISCLOSURE.md)
 - [Historical archive](archive/README.md)

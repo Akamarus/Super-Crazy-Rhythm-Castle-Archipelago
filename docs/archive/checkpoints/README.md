@@ -1,7 +1,5 @@
 > Historical record. Dates, versions and candidate statuses below describe that checkpoint; consult the [current documentation](../../INDEX.md).
 
-> Development transparency: [AI disclosure](../../AI_DISCLOSURE.md). See the release notes for gameplay acceptance and remaining testing limits.
-
 # Super Crazy Rhythm Castle Archipelago
 
 Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
@@ -12,7 +10,7 @@ Unofficial Archipelago integration for **Super Crazy Rhythm Castle**.
 
 This update adds optional cassette bundles, repairs generation capacity, improves Montage movement and item delivery, makes Regular/Pro selection available before Level 1, fixes Roots booth visibility and owned-cartridge chests, and incorporates the user-reviewed access rules.
 
-Download the [latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.29.0), then follow the [installation guide](../../INSTALL.md). See the [complete changelog and known issues](../../releases/v0.29.0.md) and [AI disclosure](../../AI_DISCLOSURE.md).
+Download the [latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.29.0), then follow the [installation guide](../../INSTALL.md). See the [complete changelog and known issues](../../releases/v0.29.0.md).
 
 Archipelago 0.6.8 generation and Universal Tracker 0.2.32 were tested. Bundled seeds require Client 0.76.0. Updating an existing seed does not change its placements or Star gates. Restart Universal Tracker after installing the APWorld, and follow its normal player-YAML setup.
 
@@ -156,7 +154,6 @@ See [KNOWN_ISSUES.md](docs-KNOWN_ISSUES.md) for investigation evidence and updat
 - `docs/`: progression, permanent IDs, release history and testing evidence.
 - `tools/`: validation and packaging helpers.
 
-The implementation is developed with AI-generated code under human direction.
 Design decisions, game logic, gameplay verification and acceptance are driven by
 the project owner. See [project overview](docs-PROJECT_OVERVIEW.md) and
 [progression](docs-PROGRESSION.md) for implementation details.
@@ -214,4 +211,4 @@ This validates the APWorld Python syntax, metadata, committed ID frontier, key p
 
 ## License and development disclosure
 
-Original project contributions are licensed under [MIT](../../../LICENSE). Third-party software retains its own terms; this license does not cover game assets or trademarks. See [third-party notices](../../../THIRD_PARTY_NOTICES.md), [packaging](../../PACKAGING.md), and the [AI disclosure](../../AI_DISCLOSURE.md), which distinguishes gameplay validation from human source review.
+Original project contributions are licensed under [MIT](../../../LICENSE). Third-party software retains its own terms; this license does not cover game assets or trademarks. See [third-party notices](../../../THIRD_PARTY_NOTICES.md), [packaging](../../PACKAGING.md).

@@ -28,8 +28,6 @@ The corrected APWorld passed Ionium's full browser CI preset on Archipelago 0.6.
 
 The native Gecko quest and final ending were investigated in staged saves, but the complete randomized schema21 receipt/source/goal flow has not yet completed an end-to-end gameplay acceptance run. Intermittent performance reports and broader multiplayer coverage remain open. See [known issues](docs/KNOWN_ISSUES.md) and [testing](docs/TESTING.md).
 
-This project uses substantial AI assistance under human direction; see the [AI disclosure](docs/AI_DISCLOSURE.md).
-
 ## v0.29.2 — October 22, 2026 — Client 0.76.2 / APWorld 0.29.0
 
 - Remove the separate native attempt requirement from the exact return-exit switch, preserving its normal interaction and transition.

@@ -18,7 +18,7 @@ Not installed or published. Candidate changes include randomized cassette pairs/
 
 New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
 
-Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md.
 # Unreleased — APWorld 0.29.0 / client 0.76.0
 
 - Add optional seed-specific random cassette pairs or triples; individual is the default.
@@ -61,7 +61,7 @@ The previously listed unreleased fixes below are included in this candidate.
 
 ## October 11, 2026 — Licensing and packaging correction
 
-Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation and clarified AI review scope. See [packaging](../../PACKAGING.md) and [AI disclosure](../../AI_DISCLOSURE.md).
+Added MIT licensing for original project contributions, full third-party notices, runtime license texts and per-package provenance manifests. Corrected all eight published client/APWorld pairs without changing any original DLL or APWorld source bytes. Archive hashes changed; gameplay, IDs, seed placements and saves did not. Added package validation. See [packaging](../../PACKAGING.md).
 
 # v0.28.2 - Generation and Multiworld Compatibility
 
@@ -98,8 +98,6 @@ server assistance. King Ferdinand I was cleared with 41 AP Stars; the client sav
 the qualifying result and the server recorded CLIENT_GOAL (30). This verifies one
 complete route, not every seed, difficulty or multiplayer configuration.
 
-
-
 ## Universal Tracker compatibility update — September 21
 
 Install the updated **scrc.apworld (APWorld v0.28.1)** on the computer running
@@ -121,7 +119,6 @@ test. See [Universal Tracker setup](../../UNIVERSAL_TRACKER.md).
 
 Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
 use the hotfix tag or main to build the updated APWorld download.
-
 
 ## Changes since the September 18 v0.28.0 hotfix
 
@@ -164,7 +161,6 @@ Investigate movement and frame pacing, verify delayed cassette delivery, and exp
 seed/difficulty/multiworld coverage. No additional boss replay is needed for the
 accepted victory fix.
 
-
 ---
 
 # Changelog
@@ -183,7 +179,6 @@ accepted victory fix.
 **Updating:** replace the client DLLs with the v0.75.4 archive. Existing saves and seeds remain compatible with the client fixes. Install the updated `scrc.apworld` before generating a new seed to get the Plant Pipes rule. Updating files does not rewrite existing seed placements; some older seeds rely on the previous no-pipes boss route and would require a new seed or an explicitly agreed recovery to adopt the stricter rule.
 
 **Still experimental:** the full clean-save victory playthrough is unfinished. The Quicksand/Music Lab chest vanilla-cassette leak and occasional gameplay hitches remain open; see [known issues](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/main/docs/KNOWN_ISSUES.md).
-
 
 ## v0.28.0 — First Completable Release
 
@@ -308,12 +303,10 @@ New checks: Lobby - Plunger Pickup; Lobby - Car Battery Hand-In; Game Garage - O
 
 Next: validate new quest rewards/checks on a fresh seed, including early receipt and offline/reconnect isolation, then continue remaining quest logic and Star/Victory work.
 
-
 ## Client v0.73.9 — Garage cleanup accepted (2026-09-17)
 Removed superseded manual cartridge release/spawning helpers, unused release-visit coordinator and its obsolete tests, ineffective sequence/song diagnostic hooks, repeated saved-score dumps, and room-readiness trace spam. Removed the unused release-state set and dead bag-observation wrapper. Preserved native holder initialization, door consumption tracking, save/connection isolation, readiness guards, saved-medal preview reads, active cartridge check detection, and error reporting.
 All 25 client test projects passed during cleanup; affected Garage persistence, Garage availability and Music Lab Points suites passed after diagnostic hook removal. Final bag-wrapper cleanup passed Garage persistence tests and Release build (four existing nullable warnings and one unavailable NuGet audit metadata warning). No new IDs, seed changes, save edits, or server changes. Installed with explicit approval and verified startup/version, native hooks, and retained server connection. User confirmed the Garage entry/exit and medal-preview check; v0.73.9 is the accepted installed baseline.
 Next: separate fresh-seed acceptance for schema-17 Plunger, character unlocks/hand-ins, and Roots Star Eater Fed checks.
-
 
 ## APWorld v0.26.0 / Client v0.73.0 — Uninstalled quest-check candidate
 

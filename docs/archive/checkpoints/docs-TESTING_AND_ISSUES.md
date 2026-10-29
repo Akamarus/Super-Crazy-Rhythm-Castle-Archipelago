@@ -3,7 +3,7 @@
 # Public development testing and issue reports
 
 > [!WARNING]
-> This is an unofficial, experimental development build—not a release. Back up your save and expect incomplete logic. The project uses AI-generated code under human direction; gameplay testing remains the acceptance criterion.
+> This is an unofficial, experimental development build—not a release. Back up your save and expect incomplete logic. Gameplay testing remains the acceptance criterion.
 
 Use this guide for a focused public smoke test and for reporting a problem. For installation, see the [public installation guide](../../INSTALL.md). For the broader implementation boundary, see the [roadmap](docs-ROADMAP.md). The [advanced developer testing checklist](docs-TESTING.md) is available when a maintainer asks for targeted diagnostics.
 

@@ -8,7 +8,7 @@ The [release notes](../../releases/v0.29.0.md) are the current summary of change
 
 The final audited APWorld was installed into the local Archipelago custom_worlds folder for Universal Tracker. Installed and packaged SHA-256 match. Restart Universal Tracker to load it. Existing seeds, server state, saves and installed client were not modified.
 
-APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog, AI disclosure and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](../../releases/v0.29.0.md).
+APWorld 0.29.0 and Client 0.76.0 release archives, complete changelog and checksums are prepared and validated. GitHub publication remains pending. The user deferred further Cold Storage/Cell Tower Star Eater testing; these remain known uncertainties rather than release-blocking testing requests. See [release notes](../../releases/v0.29.0.md).
 
 ## October 12 user-reviewed prerequisite corrections (candidate)
 
@@ -42,7 +42,7 @@ Not installed or published. Candidate changes include randomized cassette pairs/
 
 New work removes the Music Lab-only readiness dependency from the client, adds bounded deferred-delivery retries, validates tracker slot metadata and restores verified alternate cassette routes. Movement diagnostics now prioritize characters and report actor identities and actual facing state where available; this is not a movement fix. Display preferences remain native; no fullscreen override was found in current code.
 
-Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md. The next public update must include the disclosure in AI_DISCLOSURE.md and a pinned Discord copy.
+Native acceptance remains required. Early Lobby/Hypno route questions, intermittent movement and song/windowed/Combo Bucket performance issues remain open. See testing/2026-10-11-readiness.md, testing/2026-10-11-tracker-repairs.md and testing/2026-10-11-movement.md.
 ## October 6 display-mode inspection
 
 No active fullscreen override was found in the mod, Steam launch options,
@@ -78,8 +78,6 @@ seed-generation failures. The full browser suite passed 205 unit tests and
 not constitute index approval or a 1,900-player live playtest. Existing client
 issues below remain open; client v0.75.13 is unchanged.
 
-
-
 ## Universal Tracker compatibility update — September 21
 
 Install the updated **scrc.apworld (APWorld v0.28.1)** on the computer running
@@ -101,7 +99,6 @@ test. See [Universal Tracker setup](../../UNIVERSAL_TRACKER.md).
 
 Updated source: **v0.28.1-hotfix.1**. The original v0.28.1 tag remains immutable;
 use the hotfix tag or main to build the updated APWorld download.
-
 
 # Known issues — v0.28.1 / Client v0.75.13
 
@@ -208,7 +205,6 @@ Candidate 0.75.11 adds event-only GOAL TRACE messages for admission, success fla
 Matched, qualified persisted result evidence is now retained across temporary stable-save unavailability and retried on the existing one-second goal tick. New level admission clears only the in-flight attempt; explicit native/session boundaries invalidate deferred evidence. A verified different save rejects it. Star qualification remains frozen at result capture; subsequent Star receipt cannot upgrade an early clear. Journal and official StatusUpdate/ClientGoal delivery remain unchanged. Event-only goal tracing is included for live acceptance.
 
 The new recovery regression failed before the repair and passed afterward. 34 AP Star runtime checks, including changed-save rejection, explicit boundary rejection, duplicate persistence, later Stars, and starting another level while pending, passed. Connection/goal-packet tests and Release build passed. Build warning NU1900 reflects unavailable package vulnerability service. Previous discarded clear cannot be recovered automatically. Live King clear remains pending; do not claim the user's original failure cause is proven.
-
 
 ## September 21: v0.75.12 nullable victory event repair (installed; gameplay pending)
 

@@ -21,7 +21,7 @@ A Hard/40-Star run completed with server-confirmed Victory without assistance. R
 
 Existing IDs remain stable; schema21 adds five items and six checks. Schemas19/20 retain their original rules and placements.
 
-[Progression](PROGRESSION.md) · [IDs](IDS.md) · [Workflow](WORKFLOW.md) · [AI disclosure](AI_DISCLOSURE.md) · [Historical overview](archive/checkpoints/docs-PROJECT_OVERVIEW.md)
+[Progression](PROGRESSION.md) · [IDs](IDS.md) · [Workflow](WORKFLOW.md) · [Historical overview](archive/checkpoints/docs-PROJECT_OVERVIEW.md)
 
 ## Cell Tower escape repair
 

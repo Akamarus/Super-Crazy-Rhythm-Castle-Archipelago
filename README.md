@@ -40,6 +40,4 @@ For a bug report, include your client/APWorld versions, what happened and `BepIn
 
 Original project code is [MIT licensed](LICENSE); game assets and trademarks are not included. [Third-party notices](THIRD_PARTY_NOTICES.md) accompany distributions.
 
-This project uses substantial AI assistance under human direction. Read the [AI disclosure](docs/AI_DISCLOSURE.md) for the owner's design and gameplay-testing role, tools used and limits of human source review.
-
 [Documentation index](docs/INDEX.md) · [Build and contribution workflow](docs/WORKFLOW.md) · [Progression rules](docs/PROGRESSION.md) · [Permanent IDs](docs/IDS.md) · [Historical archive](docs/archive/README.md)

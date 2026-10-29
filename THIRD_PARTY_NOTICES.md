@@ -65,10 +65,3 @@ The source includes names, identifiers and factual mappings researched from a
 locally installed game for interoperability. The project license does not grant
 rights to the game's underlying assets or proprietary code. Retail binaries,
 media, asset bundles and generated game interop assemblies must not be packaged.
-
-## Review and AI disclosure
-
-Development has used substantial AI-generated code under the maintainer's
-direction and gameplay testing. Automated tests and AI review are not a claim
-of comprehensive independent human source-code or legal review. See the source
-repository's AI disclosure for the current process and testing limits.

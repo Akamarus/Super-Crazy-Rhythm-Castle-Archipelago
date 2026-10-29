@@ -21,7 +21,7 @@ Run regression projects relevant to the change and record native acceptance sepa
 
 Update the overview, changelog and current issue/testing pages with player-facing changes. Keep dated evidence under testing; move superseded development records to the indexed archive and repair links. Release notes describe what shipped; later acceptance belongs in the current test record.
 
-Review the diff and package contents before requesting publication approval. Merging, pushing, changing public releases and removing worktrees require explicit authorization. Keep the AI disclosure accessible and include it with public release communications.
+Review the diff and package contents before requesting publication approval. Merging, pushing, changing public releases and removing worktrees require explicit authorization.
 
 For collaboration, provide the GitHub URL and exact branch/commit; for runtime reports, provide the relevant log privately if it contains sensitive room details. Historical GitLab setup remains in the [archive](archive/checkpoints/GITLAB_SETUP.md).
 
