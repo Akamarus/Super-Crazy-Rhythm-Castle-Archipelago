@@ -27,12 +27,6 @@ The central challenge is keeping three views of progression aligned: what the ge
 
 Explore the [client](client/), [APWorld](apworld/), [progression rules](docs/PROGRESSION.md), or [build workflow](docs/WORKFLOW.md).
 
-## Results and current scope
-
-The project is playable and maintained primarily for personal use and as a portfolio piece. Completed runs include server-confirmed victory and a successful multiplayer sync playthrough. Targeted gameplay testing has also covered inventory persistence, movement repairs, and recovery from blocked routes.
-
-Automated generation and regression checks complement those playtests. Coverage varies by feature; the newer randomized Bunker and True Ending flow still needs a complete end-to-end acceptance run. The [testing record](docs/TESTING.md) and [known issues](docs/KNOWN_ISSUES.md) describe the evidence and remaining limitations.
-
 ## Running it
 
 Requires a legally installed Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. Follow the [installation guide](docs/INSTALL.md) for client setup and connection details, or the [Universal Tracker guide](docs/UNIVERSAL_TRACKER.md) for tracking support.
