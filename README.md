@@ -1,38 +1,42 @@
 # Super Crazy Rhythm Castle — Archipelago Integration
 
-A personal game-modding and systems-design project by **Akamarus**, bringing *Super Crazy Rhythm Castle* into Archipelago's multiworld randomizer ecosystem.
+This is my Archipelago integration for *Super Crazy Rhythm Castle*. I maintain it for my own playthroughs and as part of my portfolio.
 
-The integration turns a largely linear rhythm-adventure campaign into an item-driven progression system. Rewards can come from another player's game, while completing objectives in Rhythm Castle can send items back to them.
+It lets you play Rhythm Castle in an Archipelago multiworld, where the items you need can come from someone else's game and the objectives you complete can send items to other players.
 
 [Latest release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/latest) · [Setup guide](docs/INSTALL.md) · [Changelog](CHANGELOG.md)
 
-## What the project does
+## Features
 
-- Randomizes area access, progression items, character unlocks, cassettes, and Game Garage cartridges.
-- Converts campaign results, pickups, quests, and optional activities into Archipelago checks.
-- Supports configurable difficulty, Star requirements, cassette bundles, and regular or True Ending victory goals.
-- Integrates received items into native inventory and progression, with in-game notifications and recent-item history.
-- Reconstructs progression rules for Universal Tracker and preserves compatibility with supported older seeds.
+- Randomized area access, progression items, character unlocks, cassettes, and Game Garage cartridges.
+- Checks for level results, pickups, quests, and optional activities.
+- Configurable difficulty and Star requirements, with regular or True Ending victory goals.
+- Cassettes available individually or in random pairs and trios.
+- In-game item notifications and recent-item history.
+- Universal Tracker support and compatibility with supported older seeds.
 
-## Technical implementation
+## How it works
 
-| Component | Purpose |
+The project has two main parts: a C# client that runs inside the game through BepInEx, and a Python APWorld that handles seed generation and progression rules.
+
+| Component | What it handles |
 | --- | --- |
-| **C# client · BepInEx / IL2CPP** | Connects the game to Archipelago, handles native interactions and rewards, and reports completed checks. |
-| **Python APWorld** | Defines items, locations, options, access rules, and victory conditions for seed generation. |
-| **Progression contracts** | Keep permanent network IDs and client/world mappings consistent across updates. |
-| **Validation and packaging tools** | Check rule consistency, exercise generation, and assemble releases with dependency licenses. |
+| [C# client](client/) | Connects to Archipelago, applies received items, reports completed checks, and handles changes to the game's behavior. |
+| [Python APWorld](apworld/) | Defines items, locations, options, access requirements, and victory conditions. |
+| [Development tools](tools/) | Validate mappings and progression rules, test generation, and package releases. |
 
-The central challenge is keeping three views of progression aligned: what the generator considers reachable, what the client unlocks, and what the player can actually do. Work has focused on separating randomized rewards from vanilla ownership, maintaining save continuity, and preventing story-dependent doors from trapping players who arrive out of order.
+My focus has been making the randomized progression work in actual play. Changing when you receive an item or enter an area can expose assumptions in the original game's story order. That means checking more than whether a door opens—it also means making sure you can get back out, receive the right reward, and continue without restarting or getting stuck.
 
-Explore the [client](client/), [APWorld](apworld/), [progression rules](docs/PROGRESSION.md), or [build workflow](docs/WORKFLOW.md).
+The [progression rules](docs/PROGRESSION.md) document how access works. The [build guide](docs/WORKFLOW.md) covers working with the source.
 
-## Running it
+## Setup
 
-Requires a legally installed Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. Follow the [installation guide](docs/INSTALL.md) for client setup and connection details, or the [Universal Tracker guide](docs/UNIVERSAL_TRACKER.md) for tracking support.
+You'll need a Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. I've kept the setup steps in the [installation guide](docs/INSTALL.md), with separate instructions for [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
 
-Use a fresh game save for a new seed. See the [documentation index](docs/INDEX.md) for configuration, compatibility, and development references.
+Use a fresh game save for each new seed. The [documentation index](docs/INDEX.md) links to the configuration details and other project notes.
 
 ## License
 
-Original project code is [MIT licensed](LICENSE). Dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). This is an unofficial integration; game assets and trademarks are not included.
+Original project code is available under the [MIT license](LICENSE). Dependencies keep their own licenses, listed in [third-party notices](THIRD_PARTY_NOTICES.md).
+
+This is an unofficial integration. Game assets and trademarks are not included.
