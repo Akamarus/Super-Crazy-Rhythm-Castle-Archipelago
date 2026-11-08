@@ -1,6 +1,6 @@
 # Install and connect
 
-This guide covers **v0.30.0: Client v0.77.0 / APWorld v0.30.0**.
+This guide covers **v0.30.1: Client v0.77.1 / APWorld v0.30.0**.
 APWorld 0.30.0 adds Bunker/schema21 options. Existing schema19/20 rooms retain their original rules; use a fresh seed/save for new options.
 
 The integration is experimental. Back up your native save before starting a new
@@ -28,8 +28,8 @@ if BepInEx does not start.
 
 ## 3. Install the SCRC client
 
-1. Download **RhythmCastleAP-v0.77.0.zip** from the
-   [v0.30.0 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.0).
+1. Download **RhythmCastleAP-v0.77.1.zip** from the
+   [v0.30.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.1).
 2. With the game closed, create this folder if it does not exist:
 
    ```text
@@ -122,7 +122,7 @@ Skip this section if a host has already generated your room.
    [official setup guide](https://archipelago.gg/tutorial/Archipelago/setup_en).
    Its usual Windows installation folder is `C:\ProgramData\Archipelago`.
 2. Download **scrc.apworld** from the
-   [v0.30.0 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.0).
+   [v0.30.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.1).
    In Archipelago Launcher, select **Install APWorld**, choose that file, then
    restart the launcher. Custom worlds contain executable code; use trusted downloads.
 3. Select **Generate Template Options**, or use the repository's
@@ -174,3 +174,9 @@ build writes `dist\scrc.apworld`; install it through Archipelago Launcher.
 
 Further developer details: [client notes](../client/README.md),
 [APWorld notes](../apworld/README.md), and [workflow](WORKFLOW.md).
+
+## Connection security in Client 0.77.1
+
+In Client 0.77.1, a remote `host:port` address uses encrypted `wss://` and does not retry with plaintext if TLS fails. Loopback addresses such as `localhost:38281` still use `ws://`. For a trusted remote server that deliberately has no TLS, enter `ws://host:port` explicitly; its traffic and room password are unencrypted. Do not change to plaintext merely to work around an unexpected certificate failure.
+
+The client closes connections when a decompressed WebSocket message exceeds 32 MiB or a partial message takes longer than 60 seconds to complete. Idle connections are not subject to that partial-message deadline. An incompatible networking dependency that prevents the protection from loading causes connection setup to fail.

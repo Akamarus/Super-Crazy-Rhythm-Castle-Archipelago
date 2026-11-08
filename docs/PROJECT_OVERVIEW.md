@@ -2,7 +2,7 @@
 
 Unofficial Windows Archipelago integration for Super Crazy Rhythm Castle, combining a C# BepInEx/IL2CPP client with a Python APWorld.
 
-Current release: **v0.30.0 / Client 0.77.0 / APWorld 0.30.0**; supports legacy schemas19/20 and new schema21 Bunker seeds.
+Current release: **v0.30.1 / Client 0.77.1 / APWorld 0.30.0**; supports legacy schemas19/20 and new schema21 Bunker seeds.
 
 ## Implemented systems
 
@@ -40,3 +40,6 @@ Schema21 adds randomized Bunker Keycard, Demon Key, Virus, Cheat Codes and Game 
 `bunker_progression` defaults to enabled; `goal` defaults to `king_ferdinand`, with `true_ending` available when Bunker progression is enabled. Bunker entry requires the Keycard and the modeled Lobby route. Gecko supplies the native Data Stick and Note Pad. Received Game Ender can bypass its upstream crafting sources; Demon Key gates the separate Devil quest, not True Ending. The Bunker Star Eater retains its randomized Superstar source and requires strictly fewer Stars than Level 22's entrance (minimum Level 22 gate 1; Bunker gate may be 0). Enabled mode requires a Star goal of at least 2.
 
 Legacy schema 19/20 reconstruction preserves its original items, checks and Bunker rules. Schema 21 records the chosen goal, permanent IDs, bundle groups and native True Ending flag for Tracker restoration. Client0.77.0 implements schema21 receipt delivery, source suppression and selected-ending reporting; complete randomized gameplay acceptance remains pending.
+
+## v0.30.1 network protection
+Remote addresses default to TLS with no automatic plaintext retry. A bounded pre-parse reader limits decompressed messages to 32 MiB and partial-message duration to 60 seconds. The existing dependency binaries are unchanged; a signature-checked Harmony guard must load before any client connection. See [security validation](testing/2026-11-08-network-security.md).

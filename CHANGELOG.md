@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.30.1 — November 8, 2026 — Client 0.77.1 / APWorld 0.30.0
+
+- Default remote server addresses to encrypted WebSockets without automatic plaintext fallback; explicit `ws://` remains available for trusted plaintext servers and loopback defaults remain compatible.
+- Bound incoming decompressed messages to 32 MiB before JSON parsing and terminate partial messages after 60 seconds. Idle connections remain supported. Refuse connections if the receive protection cannot load.
+- Preserve the existing dependency DLLs, APWorld contracts, item IDs and seed/save behavior. Build and automated tests are separate from pending in-game acceptance.
+
 ## v0.30.0 — Bunker and True Ending
 
 October 28, 2026. Client 0.77.0 / APWorld 0.30.0.

@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.77.0";
+    public const string PluginVersion = "0.77.1";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -35,7 +35,7 @@ public sealed class Plugin : BasePlugin
         var enabled = Config.Bind("Archipelago", "Enabled", false,
             "Enable the Archipelago network connection.");
         var server = Config.Bind("Archipelago", "Server", "localhost:38281",
-            "Archipelago server hostname and port.");
+            "Server hostname and port (remote addresses use TLS). Use explicit ws:// only for a trusted plaintext server.");
         var slot = Config.Bind("Archipelago", "Slot", "Player1",
             "Archipelago slot/player name.");
         var password = Config.Bind("Archipelago", "Password", "",
@@ -1065,6 +1065,7 @@ internal sealed class ArchipelagoClient
                 $"{AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "Archipelago.MultiClient.Net")}");
 
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
+            NetworkReceiveGuard.EnsureInstalled();
             session = ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server));
             var pointHistory = new MusicLabPointSessionHistory(generation);
             var starHistory = new ApStarSessionHistory(generation, ApStars.State);

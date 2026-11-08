@@ -31,6 +31,8 @@ The [progression rules](docs/PROGRESSION.md) document how access works. The [bui
 
 ## Setup
 
+Current release: **v0.30.1 / Client 0.77.1 / APWorld 0.30.0**. This update fixes network handling; existing seeds and saves remain compatible. See the [release notes](docs/releases/v0.30.1.md).
+
 You'll need a Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. I've kept the setup steps in the [installation guide](docs/INSTALL.md), with separate instructions for [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
 
 Use a fresh game save for each new seed. The [documentation index](docs/INDEX.md) links to the configuration details and other project notes.

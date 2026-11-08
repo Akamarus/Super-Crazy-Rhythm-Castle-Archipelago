@@ -73,3 +73,6 @@ Tested archive SHA256: 5659712FE58DAA107FB55A7F1E90B320149E27E9FB73E52A1367306AC
 ## v0.30.0 release verification
 Client0.77.0 Release build: zero warnings/errors. All46 client regression projects,204 APWorld regression tests,11 packaging tests, diagnostic-cleanup smoke and repository validator passed. Independent source review found no concrete release-blocking defect. Ionium-tested Python logic is unchanged; package metadata/setup documentation updated to APWorld0.30.0. Full randomized native schema21 acceptance remains pending.
 
+
+## v0.30.1 network security
+All 47 release client regression projects (excluding the separate cutscene candidate), the repository validator and 11 tool tests pass; Release build has zero warnings/errors without installation. Real-library local network tests cover oversized rejection, fragmented JSON parsing and TLS failure without plaintext retry. See [full validation and limits](testing/2026-11-08-network-security.md). Native gameplay and large-room acceptance remain pending.

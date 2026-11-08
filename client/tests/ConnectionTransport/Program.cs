@@ -8,8 +8,13 @@ using RhythmCastleAP;
     ("[::1]:38281", "ws://[::1]:38281"),
     ("ws://127.0.0.1:38281", "ws://127.0.0.1:38281"),
     ("wss://127.0.0.1:38281", "wss://127.0.0.1:38281"),
-    ("archipelago.gg:38281", "archipelago.gg:38281"),
-    ("192.168.1.1:38281", "192.168.1.1:38281"),
+    ("archipelago.gg:38281", "wss://archipelago.gg:38281"),
+    ("192.168.1.1:38281", "wss://192.168.1.1:38281"),
+    ("ws://example.org:38281", "ws://example.org:38281"),
+    ("WSS://example.org:38281", "wss://example.org:38281"),
+    (" localhost:38281 ", "ws://localhost:38281"),
+    ("[2001:db8::1]:38281", "wss://[2001:db8::1]:38281"),
+    ("localhost.evil.example:38281", "wss://localhost.evil.example:38281"),
     ("", ""),
 };
 foreach (var test in cases)
@@ -30,3 +35,9 @@ await ConnectionAttemptDiagnostics.ObserveDisconnectAsync(() => throw new IOExce
 await ConnectionAttemptDiagnostics.ObserveDisconnectAsync(() => Task.CompletedTask, reports.Enqueue);
 if (reports.Count != 3) throw new Exception("Expected cleanup faults observed, success silent.");
 Console.WriteLine("Passed bounded per-attempt errors and cleanup observation.");
+
+foreach (string invalid in new[] { "unspecified://example.org", "http://example.org", "wss://user:password@example.org", "wss://example.org#fragment" })
+{
+    try { ConnectionEndpointPolicy.Normalize(invalid); throw new Exception("Unsafe endpoint accepted."); }
+    catch (ArgumentException) { }
+}

@@ -9,6 +9,20 @@ internal static partial class ConnectionTests
 {
     internal static void Run(Func<Dictionary<string, object>> contract)
     {
+        var protectedClient = new ArchipelagoClient("test", "slot", "", false);
+        var protectedSession = Login(contract());
+        bool loginReached = false;
+        protectedSession.BeforeLoginReturns = () => loginReached = true;
+        NetworkReceiveGuard.Fail = true;
+        try
+        {
+            Connect(protectedClient, protectedSession, false);
+            Check(false, loginReached, "missing security guard must prevent network login");
+        }
+        finally { NetworkReceiveGuard.Fail = false; }
+        Connect(protectedClient, protectedSession, true);
+        Check(true, loginReached, "guard failure must abandon generation so a protected retry can work");
+        protectedClient.Shutdown();
         // Previous item ownership must stop before a replacement authenticates,
         // including a replacement rejected for an incompatible item contract.
         var questClient = new ArchipelagoClient("test", "slot", "", false);
@@ -295,4 +309,11 @@ internal sealed class TestNotificationSession
 {
     internal void HandlePacket(object packet) { }
     internal void Configure(string seed, int team, int slot, Dictionary<string,object>? slotData = null) { }
+}
+
+internal static class NetworkReceiveGuard
+{
+    internal static bool Fail;
+    internal static void EnsureInstalled()
+    { if (Fail) throw new InvalidOperationException("controlled security guard installation failure"); }
 }

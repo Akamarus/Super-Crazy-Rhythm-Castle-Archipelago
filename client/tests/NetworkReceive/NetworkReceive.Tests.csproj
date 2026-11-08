@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><GameDir Condition="'$(GameDir)' == ''">D:/SteamLibrary/steamapps/common/Titus</GameDir></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../BoundedWebSocketReceive.cs" Link="BoundedWebSocketReceive.cs" />
+    <Compile Include="../../NetworkReceiveGuard.cs" Link="NetworkReceiveGuard.cs" />
+    <Compile Include="../../ConnectionEndpointPolicy.cs" Link="ConnectionEndpointPolicy.cs" />
+    <Reference Include="0Harmony"><HintPath>$(GameDir)/BepInEx/core/0Harmony.dll</HintPath></Reference>
+    <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+  <Reference Include="MonoMod.RuntimeDetour"><HintPath>$(GameDir)/BepInEx/core/MonoMod.RuntimeDetour.dll</HintPath></Reference>
+<Reference Include="MonoMod.Utils"><HintPath>$(GameDir)/BepInEx/core/MonoMod.Utils.dll</HintPath></Reference>
+<Reference Include="MonoMod.Backports"><HintPath>$(GameDir)/BepInEx/core/MonoMod.Backports.dll</HintPath></Reference>
+<Reference Include="MonoMod.ILHelpers"><HintPath>$(GameDir)/BepInEx/core/MonoMod.ILHelpers.dll</HintPath></Reference>
+<Reference Include="Mono.Cecil"><HintPath>$(GameDir)/BepInEx/core/Mono.Cecil.dll</HintPath></Reference>
+<Reference Include="Iced"><HintPath>$(GameDir)/BepInEx/core/Iced.dll</HintPath></Reference>
+</ItemGroup>
+</Project>
+
+
+
