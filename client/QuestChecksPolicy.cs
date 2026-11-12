@@ -52,16 +52,16 @@ internal static class QuestChecksPolicy
         ("GameRoom_27", "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM", true, false) => MemoryHandIn,
         _ => null,
     };
-    internal static bool? ConditionResult(string path, IReadOnlySet<long> completed, Func<bool?> batteryHeld, Func<bool?> plungerCollected, Func<string, bool?>? chestCollected = null) => path switch {
+    internal static bool? ConditionResult(string path, Func<long, bool> isCompleted, Func<bool?> batteryHeld, Func<bool?> plungerCollected, Func<string, bool?>? chestCollected = null) => path switch {
         // The exact cartridge compounds OR ownership with source collection. Replace
         // only that OR with its native source flag; an unreadable flag falls back.
         "Root/GameRoom_Hub6_Logic/Objects/RewardChests/GarageCartridgeChest_BloodyTears/Interaction/Condition" => chestCollected?.Invoke("LEVEL_27_CARTRIDGE_BLOODYTEARS_COLLECTED"),
         "Root/GameRoom_Hub6_Logic/Objects/RewardChests/GarageCartridgeChest_Gradius/Interaction/Condition.01" => chestCollected?.Invoke("LEVEL_27_CARTRIDGE_GRADIUS_COLLECTED"),
         // Native chest points and collected-flag conditions remain authoritative.
         "Root/GameRoom_Hub6_Logic/Objects/RewardChests/CatBatteryChest/Interaction/Condition/AlreadyHaveCatCharacter" => false,
-        "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/MeooIsUnlockedCondition" => completed.Contains(BatteryHandIn),
+        "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/MeooIsUnlockedCondition" => isCompleted(BatteryHandIn),
         "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/HaveMeooBatteryCondition" => batteryHeld() == true,
-        "Root/GameRoom_Hub1B_Logic/Objects/CollectableBagObjects/Plunger/Condition" => !completed.Contains(PlungerPickup) && plungerCollected() == false,
+        "Root/GameRoom_Hub1B_Logic/Objects/CollectableBagObjects/Plunger/Condition" => !isCompleted(PlungerPickup) && plungerCollected() == false,
         _ => null,
     };
 }
@@ -78,6 +78,7 @@ internal sealed class QuestChecksState
     internal bool Ready { get { lock (_sync) return _ready; } }
     internal long Revision { get { lock (_sync) return _revision; } }
     internal int? NativeSlot { get { lock (_sync) return _slot; } }
+    internal bool IsCompleted(long source) { lock (_sync) return _checked.Contains(source); }
     internal QuestChecksSnapshot Snapshot { get { lock (_sync) return new(_revision, _enabled, _ready,
         new HashSet<long>(_owned), new HashSet<long>(_checked), _slot, new HashSet<long>(_pending)); } }
     internal void Configure(long generation, string identity, bool enabled, QuestJournalRecord? restored = null)

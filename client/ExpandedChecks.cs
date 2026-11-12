@@ -47,11 +47,6 @@ internal static class ExpandedChecks
         WithNativeSave((slot, nativeIdentity) => context = State.CaptureResultContext(slot, nativeIdentity));
         return context;
     }
-    internal static void ObserveResult(string level, string variant, bool? successful, string? context)
-    {
-        if (!State.Enabled || successful != true || context == null) return;
-        WithNativeSave((slot, nativeIdentity) => State.ObserveResult(slot, nativeIdentity, level, variant, successful, context, Journal.Save, Queue));
-    }
     internal static void ObservePersistedResult(string level, string variant, string? context)
     {
         if (!State.Enabled || context == null) return;

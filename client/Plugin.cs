@@ -1,12 +1,10 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
 using BepInEx;
-using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
@@ -24,9 +22,9 @@ public sealed class Plugin : BasePlugin
 
     internal static ManualLogSource? LoggerInstance;
     internal static ArchipelagoClient? AP;
-    internal static bool VerboseDiscovery => false;
 
     private Harmony? _harmony;
+    private readonly OwnedPluginComponents _components = new();
 
     public override void Load()
     {
@@ -40,8 +38,6 @@ public sealed class Plugin : BasePlugin
             "Archipelago slot/player name.");
         var password = Config.Bind("Archipelago", "Password", "",
             "Archipelago room password, if any.");
-        var applyReceivedProgression = Config.Bind("Archipelago", "ApplyReceivedProgression", false,
-            "EXPERIMENTAL: apply selected received AP items to native Rhythm Castle progression flags.");
         var directStartAtLevelOne = Config.Bind("QualityOfLife", "DirectStartAtLevelOne", false,
             "Legacy option: skip the fresh-save intro/tutorial and start in Roots outside Level 1.");
         var directStartAtPhoneHub = Config.Bind("QualityOfLife", "DirectStartAtPhoneHub", false,
@@ -54,33 +50,11 @@ public sealed class Plugin : BasePlugin
             "EXPERIMENTAL: gate the six Hub6 destination phones using randomizer Area Access permissions. With APWorld v0.13, use PrototypeStartingArea=AP so the seed's precollected Area Access item determines the starter. Music Lab / Hub6 and Game Garage remain available.");
         var prototypeStartingArea = Config.Bind("Developer", "PrototypeStartingArea", "AP",
             "Area Access start source. Use AP with APWorld v0.13 so slot data selects the starter. Developer fixed values: Roots, Lobby, Meat Dimension, Cell Tower, Tower of Fear, Royal Corridor.");
-        var musicLab5ChestLocationName = Config.Bind("Archipelago", "MusicLab5PointChestLocationName",
-            "Music Lab - 5 Point Chest",
-            "Archipelago location name to complete when the native 5-point Music Lab reward chest has already been collected or is collected now.");
-        var musicLab10ChestLocationName = Config.Bind("Archipelago", "MusicLab10PointChestLocationName",
-            "Music Lab - 10 Point Chest",
-            "Archipelago location name to complete when the native 10-point Music Lab reward chest has already been collected or is collected now.");
-        var musicLab20ChestLocationName = Config.Bind("Archipelago", "MusicLab20PointChestLocationName",
-            "Music Lab - 20 Point Chest",
-            "Archipelago location name to complete when the native 20-point Music Lab reward chest has already been collected or is collected now.");
-        var musicLab32ChestLocationName = Config.Bind("Archipelago", "MusicLab32PointChestLocationName",
-            "Music Lab - 32 Point Chest",
-            "Archipelago location name to complete when the native 32-point Music Lab reward chest has already been collected or is collected now.");
-        var musicLab46ChestLocationName = Config.Bind("Archipelago", "MusicLab46PointChestLocationName",
-            "Music Lab - 46 Point Chest",
-            "Archipelago location name to complete when the native 46-point Music Lab reward chest has already been collected or is collected now.");
-        var musicLab64ChestLocationName = Config.Bind("Archipelago", "MusicLab64PointChestLocationName",
-            "Music Lab - 64 Point Chest",
-            "Archipelago location name to complete when the native 64-point Flamenco reward chest collection flag is set.");
-        var musicLab89ChestLocationName = Config.Bind("Archipelago", "MusicLab89PointChestLocationName",
-            "Music Lab - 89 Point Chest",
-            "Archipelago location name to complete when the native 89-point Ten-Four Good Buddy reward chest collection flag is set.");
-        var musicLab111ChestLocationName = Config.Bind("Archipelago", "MusicLab111PointChestLocationName",
-            "Music Lab - 111 Point Chest",
-            "Archipelago location name to complete when the native 111-point Zen reward chest collection flag is set.");
-        var musicLab140ChestLocationName = Config.Bind("Archipelago", "MusicLab140PointChestLocationName",
-            "Music Lab - 140 Point Chest",
-            "Archipelago location name to complete when the native 140-point Wiggle reward chest collection flag is set.");
+        foreach (var chest in LocationMap.MusicLabChests.Chests)
+        {
+            chest.ConfiguredLocationName = Config.Bind("Archipelago", chest.ConfigKey, chest.DefaultLocationName,
+                $"Archipelago location to report when the {chest.Threshold}-point Music Lab chest is collected.").Value;
+        }
         var garageMedalLocationFormat = Config.Bind("Archipelago", "GarageMedalLocationFormat",
             "Game Garage - {song} - {tier}",
             "Archipelago location-name format for Game Garage sticker checks. Supported placeholders: {song} and {tier}. Default tiers are Bronze, Silver, Gold, Platinum.");
@@ -88,15 +62,6 @@ public sealed class Plugin : BasePlugin
             "Music Lab Cassette - {song} - {tier}",
             "Archipelago location-name format for verified Music Lab cassette medal checks. Supported placeholders: {song} and {tier}.");
 
-        LocationMap.MusicLab5PointChestLocationName = musicLab5ChestLocationName.Value;
-        LocationMap.MusicLab10PointChestLocationName = musicLab10ChestLocationName.Value;
-        LocationMap.MusicLab20PointChestLocationName = musicLab20ChestLocationName.Value;
-        LocationMap.MusicLab32PointChestLocationName = musicLab32ChestLocationName.Value;
-        LocationMap.MusicLab46PointChestLocationName = musicLab46ChestLocationName.Value;
-        LocationMap.MusicLab64PointChestLocationName = musicLab64ChestLocationName.Value;
-        LocationMap.MusicLab89PointChestLocationName = musicLab89ChestLocationName.Value;
-        LocationMap.MusicLab111PointChestLocationName = musicLab111ChestLocationName.Value;
-        LocationMap.MusicLab140PointChestLocationName = musicLab140ChestLocationName.Value;
         LocationMap.GarageMedalLocationFormat = garageMedalLocationFormat.Value;
         LocationMap.CassetteMedalLocationFormat = cassetteMedalLocationFormat.Value;
 
@@ -107,6 +72,7 @@ public sealed class Plugin : BasePlugin
         PlayerMovementTiming.Install();
         int patched = 0;
 
+        // Schema 21 needs both the source flag and persisted ending hooks before accepting a Bunker seed.
         int bunkerResultRequestHooks = PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
             nameof(GamePatches.PersistResultPrefix), null);
         patched += bunkerResultRequestHooks;
@@ -142,7 +108,6 @@ public sealed class Plugin : BasePlugin
         patched += bunkerFlagHooks;
         BunkerRuntime.ReportHookAvailability(bunkerProgressionHooks > 0 && bunkerFlagHooks > 0 && bunkerResultRequestHooks > 0 && bunkerApplyResultHooks > 0 && bunkerResultEventHooks > 0);
         patched += PatchMethodsByParameter("ProcessRequest", "ObtainBagItemRequest", nameof(ProgressionPatches.BagItemRequestPostfix));
-        patched += PatchMethodsByParameter("ProcessRequest", "EarnAbilityItemRequest", nameof(ProgressionPatches.AbilityItemRequestPostfix));
         patched += PatchGarageEntrancePreview();
         patched += PatchMethodsByParameter(
             "ProcessRequest",
@@ -163,7 +128,7 @@ public sealed class Plugin : BasePlugin
         Log.LogInfo($"[SCRC-AP] Game hooks installed: {patched}.");
 
         IntroHubSkip.Configure(directStartAtPhoneHub.Value, directStartAtLevelOne.Value);
-        AP = new ArchipelagoClient(server.Value, slot.Value, password.Value, applyReceivedProgression.Value);
+        AP = new ArchipelagoClient(server.Value, slot.Value, password.Value);
 
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
@@ -174,53 +139,28 @@ public sealed class Plugin : BasePlugin
         PreviewAbilityRandomization.Configure();
         RootsBucketRandomization.Configure();
         RootsIntroCutsceneBypass.Configure();
-        RootsStartupBootstrap.Configure();
         if (enabled.Value)
         {
-            AddComponent<GarageCartridgeAccessKeeper>();
-            AddComponent<MusicLabBarrierKeeper>();
-            AddComponent<RoyalCorridorTraversalKeeper>();
-            Log.LogWarning(
-                "[SCRC-AP] RANDOMIZED GAME GARAGE CARTRIDGE ROUTING READY: waits for APWorld slot data. APWorld v0.13+ randomizes cartridge sources as AP checks: vanilla cartridge collected markers are retained, vanilla bag grants are suppressed outside Game Garage, and only AP-owned cartridges are released in GameRoom_27.");
-        }
-
-        Log.LogWarning(
-            "[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION READY: waits for APWorld v0.14+ slot data. Gecko's WEED_KILLER_BAG_ITEM grant is suppressed, ROOTS_HUB_WEED_KILLER_COLLECTED sends the AP source check, and receiving Weed Killer writes the real native bag-item progression flag so vanilla can consume it for Level 3 access.");
-        Log.LogWarning(
-            "[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION READY: waits for APWorld v0.15+ slot data. In Level 3, Frog/Hippo's WEED_KILLER_ABILITY grant is suppressed while LEVEL_07_WK_ABILITY_EARNED remains vanilla and sends the AP source check; receiving Plant Pipes grants the real native ability.");
-        Log.LogWarning(
-            "[SCRC-AP] LEVEL 2 MONEY CASSETTE RANDOMIZATION READY: waits for slot-data opt-in. A successful default Level_06 run with an unowned I_GOT_MONEY cassette suppresses the native evaluator and sends 'Level 2 - Money Cassette'; AP receipt reconciliation grants HAVE_IN_BAG through the native cassette save path.");
-        if (enabled.Value)
-        {
+            _components.Add(AddComponent<GarageCartridgeAccessKeeper>());
+            _components.Add(AddComponent<MusicLabBarrierKeeper>());
+            _components.Add(AddComponent<RoyalCorridorTraversalKeeper>());
             ItemNotificationOverlay.PopupsEnabled = Config.Bind("Notifications", "ShowItemPopups", true,
                 "Show six-second item sent/received popups. F6 opens the latest 100 notifications.").Value;
-            AddComponent<ItemNotificationOverlay>();
-            AddComponent<PlantPipesReconciliationKeeper>();
+            _components.Add(AddComponent<ItemNotificationOverlay>());
+            _components.Add(AddComponent<PlantPipesReconciliationKeeper>());
+            _components.Add(AddComponent<CassetteReceiptReconciliationKeeper>());
+            _components.Add(AddComponent<PreviewAbilityReconciliationKeeper>());
         }
-        if (enabled.Value)
-            AddComponent<CassetteReceiptReconciliationKeeper>();
-        if (enabled.Value)
-            AddComponent<PreviewAbilityReconciliationKeeper>();
 
         AreaAccessPrototype.Configure(areaAccessPrototype.Value, prototypeStartingArea.Value);
         if (areaAccessPrototype.Value)
         {
-            AddComponent<AreaPhoneAccessKeeper>();
-            AddComponent<RootsAreaBaselineKeeper>();
-            AddComponent<MeatAreaBaselineKeeper>();
-            AddComponent<MeatMouseEscortRecoveryKeeper>();
-            Log.LogWarning(
-                $"[SCRC-AP] AREA ACCESS ROUTING ENABLED: startingSource='{AreaAccessPrototype.StartingArea}'. Hub6/Music Lab + Game Garage remain available. With PrototypeStartingArea=AP, all six major-area phones begin locked until the AP server supplies the seed starter. Locked PhoneBox interactions are disabled; known Hub6 cloth covers follow Area Access; unlocked late-area phones bypass only their local vanilla visited/open condition without changing its save flag; Hub6->area TransitionToGameRoomRequest calls remain safety-gated. PAGE UP remains a developer grant; PAGE DOWN is disabled in AP-driven mode; END prints status.");
-            Log.LogWarning(
-                "[SCRC-AP] AREA ARRIVAL PRESENTATION READY: AP-phone entry to Roots or Lobby temporarily satisfies only the exact first-arrival/HUD conditions during destination-scene initialization; native save flags and vanilla story-route arrivals remain unchanged. Roots Access also suppresses FirstAreaGate and the dedicated StarEaterBlockade/Blockade collider. Meat Dimension Access suppresses only the exact Hub4 FirstAreaGate root. Interrupted Act 4 mouse escorts may reset and trigger only Hub4's exact native SpawnMouseLeader component when its native flags and Character state prove recovery is needed. HOME in Hub2 prints compact status only.");
+            _components.Add(AddComponent<AreaPhoneAccessKeeper>());
+            _components.Add(AddComponent<RootsAreaBaselineKeeper>());
+            _components.Add(AddComponent<MeatAreaBaselineKeeper>());
+            _components.Add(AddComponent<MeatMouseEscortRecoveryKeeper>());
+            Log.LogInfo($"[SCRC-AP] Area access routing enabled with starting source '{AreaAccessPrototype.StartingArea}'.");
         }
-
-        Log.LogWarning(
-            $"[SCRC-AP] MUSIC LAB REWARD CHEST AP CHECKS READY: thresholds=5/10/20/32/46/64/89/111/140. v0.67.60 reads each live Hub6 chest's native unlock requirement + chestUnlockedProgressionFlag only after Hub6 has loaded, then reconciles already-collected rewards against the save. No startup-time chest component is created; vanilla rewards are unchanged.");
-        Log.LogWarning(
-            $"[SCRC-AP] GAME GARAGE AP CHECKS READY: songs=6 cumulativeStickerTiers=Bronze/Silver/Gold/Platinum locationFormat='{LocationMap.GarageMedalLocationFormat}'. Cartridge insertion supplies song identity; SongStickerEvaluation supplies the earned sticker.");
-        Log.LogWarning(
-            $"[SCRC-AP] MUSIC LAB CASSETTE AP CHECKS READY: verifiedVariants=30 cumulativeMedalTiers=Bronze/Silver/Gold/Platinum locationFormat='{LocationMap.CassetteMedalLocationFormat}'. Verified mappings include 30 currently discovered cassette variants; result-time clean medal evaluation supplies Bronze/Silver/Gold/Platinum.");
 
         BunkerStarRequirementKeeper.RequiredStars =
             Math.Clamp(bunkerStarRequirement.Value, 0, 66);
@@ -228,13 +168,13 @@ public sealed class Plugin : BasePlugin
         BunkerStarRequirementKeeper.RoyalRequiredStars = Math.Clamp(royalStarRequirement.Value, 0, 40);
         if (BunkerStarRequirementKeeper.RequiredStars != 66 || BunkerStarRequirementKeeper.RoyalRequiredStars != 40)
         {
-            AddComponent<BunkerStarRequirementKeeper>();
+            _components.Add(AddComponent<BunkerStarRequirementKeeper>());
             Log.LogWarning(
                 $"[SCRC-AP] STAR EATER TEST OVERRIDES: Royal={BunkerStarRequirementKeeper.RoyalRequiredStars} (vanilla40), Bunker={BunkerStarRequirementKeeper.RequiredStars} (vanilla66). Exact scene-root and proximity guards apply; earned stars and saved scores are unchanged.");
         }
 
         if (enabled.Value)
-            AddComponent<MusicLabProgressionKeeper>();
+            _components.Add(AddComponent<MusicLabProgressionKeeper>());
 
         if (IntroHubSkip.Enabled)
         {
@@ -459,9 +399,8 @@ public sealed class Plugin : BasePlugin
         try
         {
             _harmony!.Patch(method, postfix: new HarmonyMethod(postfix));
-            MusicLabPointOverride.BindNativeGetter(method);
             Log.LogWarning(
-                "[SCRC-AP] MUSIC LAB POINT OVERRIDE READY: patched CurrentPlayerSaveEnquiries.GetMedalScore(). Shift+F4 cycles the temporary effective total through native-next-threshold -> 111 -> 140 -> OFF without changing saved medals.");
+                "[SCRC-AP] MUSIC LAB POINT OVERRIDE READY: patched CurrentPlayerSaveEnquiries.GetMedalScore(). Hub6 reward chests use the session's Music Lab point total.");
             return 1;
         }
         catch (Exception ex)
@@ -554,28 +493,6 @@ public sealed class Plugin : BasePlugin
         }
 
         return count;
-    }
-
-    private int PatchRootsOwnerDiagnostic()
-    {
-        Assembly? asm = ReflectionUtil.GameAssembly;
-        Type? type = asm == null
-            ? null
-            : ReflectionUtil.SafeGetTypes(asm).FirstOrDefault(t =>
-                string.Equals(t.Name, "OneTimeGameProgressionLogic", StringComparison.Ordinal));
-        MethodInfo? target = type?.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-            .FirstOrDefault(m => string.Equals(m.Name, "HandleEvent", StringComparison.Ordinal) &&
-                                 m.GetParameters().Length == 1 &&
-                                 string.Equals(m.GetParameters()[0].ParameterType.Name, "GameRoomReadyToRunEvent", StringComparison.Ordinal));
-        MethodInfo? postfix = AccessTools.Method(typeof(RootsOwnerDiagnostic), nameof(RootsOwnerDiagnostic.Postfix));
-        if (target == null || postfix == null || _harmony == null)
-        {
-            Log.LogWarning("[SCRC-AP] ROOTS OWNER READ hook unavailable.");
-            return 0;
-        }
-        _harmony.Patch(target, postfix: new HarmonyMethod(postfix));
-        Log.LogInfo("[SCRC-AP] ROOTS OWNER READ hook installed (read-only).");
-        return 1;
     }
 
     private int PatchRootsComputerNormalization()
@@ -888,85 +805,31 @@ public sealed class Plugin : BasePlugin
         }
     }
 
-    private int PatchExactMethodWithPrefixAndPostfix(
-        string ownerTypeName,
-        string methodName,
-        string parameterTypeName,
-        string prefixName,
-        string postfixName)
-    {
-        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-        Type? owner = gameAssembly == null ? null : ReflectionUtil.SafeGetTypes(gameAssembly)
-            .FirstOrDefault(type => string.Equals(type.Name, ownerTypeName, StringComparison.Ordinal));
-        MethodInfo? target = owner?.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
-            .SingleOrDefault(method => method.Name == methodName && method.GetParameters() is ParameterInfo[] parameters &&
-                parameters.Length == 1 && parameters[0].ParameterType.Name == parameterTypeName);
-        MethodInfo? prefix = FindPatchMethod(typeof(CassetteSaveTransactionPatches), prefixName);
-        MethodInfo? postfix = FindPatchMethod(typeof(CassetteSaveTransactionPatches), postfixName);
-        if (target == null || prefix == null || postfix == null || _harmony == null)
-        {
-            Log.LogWarning($"[SCRC-AP] Exact cassette save-boundary prefix/postfix unavailable: {ownerTypeName}.{methodName}({parameterTypeName}).");
-            return 0;
-        }
-        try
-        {
-            _harmony.Patch(target, prefix: new HarmonyMethod(prefix), postfix: new HarmonyMethod(postfix));
-            Log.LogInfo($"[SCRC-AP] Hooked exact prefix/postfix {ownerTypeName}.{methodName}({parameterTypeName})");
-            return 1;
-        }
-        catch (Exception ex)
-        {
-            Log.LogError($"[SCRC-AP] Failed exact cassette save-boundary prefix/postfix {ownerTypeName}.{methodName}: {ex}");
-            return 0;
-        }
-    }
-
     public override bool Unload()
     {
-        AP?.Shutdown();
-        ApStarEaterThresholds.Restore();
+        bool released = _components.Shutdown(ex =>
+            Log.LogError($"[SCRC-AP] Component removal failed: {ex.GetBaseException().Message}"));
+        released &= BunkerStarRequirementKeeper.RestorePatches("plugin unload");
+        try { AP?.Shutdown(); }
+        catch (Exception ex) { released = false; Log.LogError($"[SCRC-AP] Client shutdown failed: {ex.GetBaseException().Message}"); }
+        released &= ApStarEaterThresholds.Restore();
         ApStars.OnNativeBoundary();
-        PlayerMovementTiming.Shutdown();
-        MontageAnimalTick.Shutdown();
-        _harmony?.UnpatchSelf();
-        return true;
+        released &= QuestCheckHooks.Shutdown();
+        released &= CellTowerPathPatches.Shutdown();
+        released &= GarageNativeHolderPatches.Shutdown();
+        released &= GarageNativeDoorPatches.Shutdown();
+        released &= CassetteChestRewardHooks.Shutdown();
+        released &= PlayerMovementTiming.Shutdown();
+        released &= MontageAnimalTick.Shutdown();
+        try { _harmony?.UnpatchSelf(); }
+        catch (Exception ex) { released = false; Log.LogError($"[SCRC-AP] Harmony unpatch failed: {ex.GetBaseException().Message}"); }
+        return released;
     }
 }
 
 internal static class LocationMap
 {
-    // Confirmed from in-game testing:
-    // user-facing Level 1 -> internal Level_05
-    // user-facing Level 2 -> internal Level_06
-    // user-facing Level 3 -> internal Level_07
-    //
-    // Only verified levels are network-enabled for now.
-    public static string MusicLab5PointChestLocationName { get; set; } =
-        "Music Lab - 5 Point Chest";
-
-    public static string MusicLab10PointChestLocationName { get; set; } =
-        "Music Lab - 10 Point Chest";
-
-    public static string MusicLab20PointChestLocationName { get; set; } =
-        "Music Lab - 20 Point Chest";
-
-    public static string MusicLab32PointChestLocationName { get; set; } =
-        "Music Lab - 32 Point Chest";
-
-    public static string MusicLab46PointChestLocationName { get; set; } =
-        "Music Lab - 46 Point Chest";
-
-    public static string MusicLab64PointChestLocationName { get; set; } =
-        "Music Lab - 64 Point Chest";
-
-    public static string MusicLab89PointChestLocationName { get; set; } =
-        "Music Lab - 89 Point Chest";
-
-    public static string MusicLab111PointChestLocationName { get; set; } =
-        "Music Lab - 111 Point Chest";
-
-    public static string MusicLab140PointChestLocationName { get; set; } =
-        "Music Lab - 140 Point Chest";
+    internal static readonly MusicLabChestMap MusicLabChests = new();
 
     public static string GarageMedalLocationFormat { get; set; } =
         "Game Garage - {song} - {tier}";
@@ -996,20 +859,6 @@ internal static class LocationMap
             .Replace("{tier}", tier, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static readonly IReadOnlyDictionary<string, string> InternalToLocationName =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Level_05"] = "Level 1 - Completion",
-            ["Level_06"] = "Level 2 - Completion",
-            ["Level_07"] = "Level 3 - Completion",
-            // Confirmed user-facing Level 4 boss -> internal Level_08.
-            // Kept out of the current dev APWorld, so networking code will warn if the
-            // connected datapackage does not yet contain this location.
-            ["Level_08"] = "Level 4 - Completion",
-            // Confirmed lift quest / lobby unlock level.
-            ["Level_09"] = "Level 5 - Completion",
-            ["Level_28"] = "Level 22 - Completion",
-        };
 }
 
 internal sealed class ArchipelagoClient
@@ -1017,7 +866,6 @@ internal sealed class ArchipelagoClient
     private readonly string _server;
     private readonly string _slot;
     private readonly string _password;
-    private readonly bool _applyReceivedProgression;
     private readonly ConcurrentQueue<string> _pendingChecks = new();
     private readonly HashSet<string> _queuedOrSent = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
@@ -1034,18 +882,21 @@ internal sealed class ArchipelagoClient
 
     public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
-    public ArchipelagoClient(string server, string slot, string password, bool applyReceivedProgression)
+    public ArchipelagoClient(string server, string slot, string password)
     {
         _server = server;
         _slot = slot;
         _password = password;
-        _applyReceivedProgression = applyReceivedProgression;
     }
 
     public void Connect()
     {
-        if (!TryConnectOnce())
-            RequestReconnect("initial connection failed");
+        lock (_connectLock)
+        {
+            _reconnectPolicy.ResetRetries();
+            if (!TryConnectOnce())
+                RequestReconnect("initial connection failed");
+        }
     }
 
     private bool TryConnectOnce()
@@ -1140,6 +991,8 @@ internal sealed class ArchipelagoClient
                     {
                         while (helper.Any())
                         {
+                            // Dequeue advances the history cursor. Capture it first so a replay
+                            // can skip the same delivery while two copies of one item both count.
                             int itemIndex = helper.Index;
                             var item = helper.DequeueItem();
                             bool firstProcessing;
@@ -1156,14 +1009,12 @@ internal sealed class ArchipelagoClient
 
                             try
                             {
-                                // Area Access is core routing state in APWorld v0.13+, not an
-                                // experimental native-save mutation. Always consume these six
-                                // item names when Area Access routing is enabled.
+                                // These items rebuild ownership from indexed packet history. Dispatching them here
+                                // would also process the individual notification for the same receipt.
                                 if (item.ItemId == ApStarContract.StarId) continue;
                                 if (BunkerRuntime.Handles(item.ItemName) || CharacterQuestItems.TryHandleItemName(item.ItemName) || QuestChecks.Handles(item.ItemName)) continue;
                                 ReceivedItemDispatch.TryApply(
                                     item.ItemName,
-                                    _applyReceivedProgression,
                                     AreaAccessPrototype.TryApplyItem,
                                     GarageCartridgeAccess.TryApplyItem,
                                     WeedKillerRandomization.TryApplyItem,
@@ -1171,8 +1022,7 @@ internal sealed class ArchipelagoClient
                                     PreviewAbilityRandomization.TryApplyItem,
                                     RootsBucketRandomization.TryApplyItem,
                                     cassetteBundleHistory.TryApplyItem,
-                                    MusicLabPointRandomization.TryHandleItemName,
-                                    NativeProgression.ApplyArchipelagoItem);
+                                    MusicLabPointRandomization.TryHandleItemName);
                             }
                             catch (Exception ex)
                             {
@@ -1220,7 +1070,7 @@ internal sealed class ArchipelagoClient
                     {
                         GarageCartridgeAccess.EndServerSync(previousSession.Generation);
                         WeedKillerRandomization.History.End(previousSession.Generation);
-                CassetteBundleSessionHistory.End(previousSession.Generation);
+                        CassetteBundleSessionHistory.End(previousSession.Generation);
                         MusicLabPointRandomization.OnDisconnected(previousSession.Generation);
                     }
                 }, out GenerationSession<ArchipelagoSession> replaced))
@@ -1254,9 +1104,15 @@ internal sealed class ArchipelagoClient
 
             if (!result.Successful)
             {
+                // A socket close can arrive before the refusal. Cancel its scheduled retry as well.
+                string? correction = result is LoginFailure rejected ? RequiredLoginCorrection(rejected) : null;
+                if (correction != null)
+                    _reconnectPolicy.OnActionRequired();
                 ClearCurrentSession(session, generation);
                 ObserveDisconnect(session);
-                if (result is LoginFailure failure)
+                if (correction != null)
+                    Plugin.LoggerInstance?.LogError($"[SCRC-AP] Automatic reconnect paused. {correction} Restart the game to reconnect.");
+                else if (result is LoginFailure failure)
                     Plugin.LoggerInstance?.LogError(
                         $"[SCRC-AP] Archipelago login failed: {string.Join("; ", failure.Errors)}");
                 else
@@ -1272,7 +1128,8 @@ internal sealed class ArchipelagoClient
                 {
                     using (loginLease)
                     {
-                        CassetteBundleContract.Parse(loginSuccess.SlotData); // Reject malformed bundles before enabling native subsystems.
+                        // Validate once before enabling native subsystems, then share this room's contract with each consumer.
+                        var cassetteContract = CassetteBundleContract.Parse(loginSuccess.SlotData);
                         ExpandedChecksMode expandedMode = ExpandedChecksPolicy.Validate(loginSuccess.SlotData);
                         if (expandedMode == ExpandedChecksMode.Invalid)
                             throw new InvalidOperationException("Expanded check contract is incompatible.");
@@ -1282,14 +1139,18 @@ internal sealed class ArchipelagoClient
                         CharacterQuestItemMode questMode = CharacterQuestItemPolicy.Validate(loginSuccess.SlotData);
                         if (questMode == CharacterQuestItemMode.Invalid)
                             throw new InvalidOperationException("Character quest item contract is incompatible.");
+                        string roomIdentity = string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
+                        // Validate on disk before any grants, replay, or replacement of the previous seed's pending checks.
+                        QuestJournalRecord? questJournal = checksMode == QuestChecksMode.Enabled
+                            ? QuestChecks.Journal.Load(roomIdentity) : null;
                         AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
                         IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
-                        RootsStartupBootstrap.ApplySlotData(loginSuccess.SlotData);
                         GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                         WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                         PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
-                        CassetteReceiptRandomization.ApplySlotData(loginSuccess.SlotData);
-                        CassetteSourceRandomization.ApplySlotData(loginSuccess.SlotData);
+                        var cassetteCompatibility = CassetteSlotDataCompatibility.Validate(loginSuccess.SlotData);
+                        CassetteReceiptRandomization.ApplySlotData(cassetteCompatibility, cassetteContract.Bundled);
+                        CassetteSourceRandomization.ApplySlotData(cassetteCompatibility);
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
                         lock (_lock)
@@ -1310,12 +1171,11 @@ internal sealed class ArchipelagoClient
                                     $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
                         }
                         ApStarSettings starSettings = starHistory.ApplySlotData(loginSuccess.SlotData,
-                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot), CellTowerPathPatches.Ready, LobbyDoorPatches.Ready, BunkerRuntime.Ready);
+                            roomIdentity, CellTowerPathPatches.Ready, LobbyDoorPatches.Ready, BunkerRuntime.Ready);
                         if (starSettings.Mode == ApStarMode.Awaiting && !ApStarNativeHooks.Ready)
                         {
                             starSettings = new(ApStarMode.Incompatible, Detail: "Required AP Star native hooks unavailable");
-                            ApStars.State.Configure(generation,
-                                string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot), starSettings);
+                            ApStars.State.Configure(generation, roomIdentity, starSettings);
                         }
                         if (starSettings.Mode == ApStarMode.Incompatible)
                             throw new InvalidOperationException($"AP Stars incompatible: {starSettings.Detail}");
@@ -1326,34 +1186,35 @@ internal sealed class ArchipelagoClient
                             _slot);
                         if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
                             throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
-                        bunkerHistory.Configure(string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
-                            starSettings.BunkerEnabled, BunkerRuntime.Journal.Load);
+                        bunkerHistory.Configure(roomIdentity, starSettings.BunkerEnabled, BunkerRuntime.Journal.Load);
                         questHistory.Configure(questMode == CharacterQuestItemMode.Enabled);
                         weedKillerHistory.Configure();
-                        cassetteBundleHistory.Configure(loginSuccess.SlotData);
-                        questChecks.Configure(string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
-                            checksMode == QuestChecksMode.Enabled, session.Locations.AllLocationsChecked);
-                        ExpandedChecks.Configure(generation,
-                            string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot),
+                        cassetteBundleHistory.Configure(cassetteContract);
+                        questChecks.Configure(roomIdentity, questJournal, session.Locations.AllLocationsChecked);
+                        ExpandedChecks.Configure(generation, roomIdentity,
                             expandedMode == ExpandedChecksMode.Enabled, session.Locations.AllLocationsChecked,
                             includeStarChecks: starSettings.Mode == ApStarMode.Awaiting);
                         if (GarageCartridgeAccess.Enabled &&
                             !GarageCartridgeAccess.BeginServerSync(session, generation))
                             throw new InvalidOperationException(
                                 $"Garage inserted-state synchronization generation {generation} was already ended.");
-                        notificationSession.Configure(session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot, loginSuccess.SlotData);
+                        notificationSession.Configure(session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot, cassetteContract);
                         _connected = true;
-                        _reconnectPolicy.OnConnected();
+                        _reconnectPolicy.ResetRetries();
                         Plugin.LoggerInstance?.LogInfo(
                             $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
                     }
                 }
                 catch (Exception ex)
                 {
+                    if (ex is QuestJournalLoadException)
+                        _reconnectPolicy.OnActionRequired();
                     ClearCurrentSession(session, generation);
                     ObserveDisconnect(session);
-                    Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] Failed to configure AP session from slot data: {ex}");
+                    if (ex is QuestJournalLoadException)
+                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Automatic reconnect paused. {ex.Message} Restart the game to reconnect.");
+                    else
+                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Failed to configure AP session from slot data: {ex}");
                     return false;
                 }
             }
@@ -1393,6 +1254,26 @@ internal sealed class ArchipelagoClient
             return false;
         }
         }
+    }
+
+    private static string? RequiredLoginCorrection(LoginFailure failure)
+    {
+        // The library also returns LoginFailure on transport timeouts. Only typed, permanent
+        // server refusals require the player to change something before trying again.
+        foreach (var code in failure.ErrorCodes ?? Array.Empty<ConnectionRefusedError>())
+        {
+            string? correction = code switch
+            {
+                ConnectionRefusedError.InvalidPassword => "Check Password in the mod config against the room password.",
+                ConnectionRefusedError.InvalidSlot => "Set Slot in the mod config to your exact player name in the generated room.",
+                ConnectionRefusedError.InvalidGame => "Check that your selected room and player slot are for Super Crazy Rhythm Castle.",
+                ConnectionRefusedError.IncompatibleVersion => "Use a client version compatible with this room.",
+                ConnectionRefusedError.InvalidItemsHandling => "Check your client version with the room host. The server rejected its item handling settings.",
+                _ => null,
+            };
+            if (correction != null) return correction;
+        }
+        return null;
     }
 
     private static void ObserveDisconnect(ArchipelagoSession session)
@@ -1456,8 +1337,8 @@ internal sealed class ArchipelagoClient
 
     private void RequestReconnect(string reason)
     {
-        _reconnectPolicy.OnUnexpectedDisconnect();
-        if (Interlocked.CompareExchange(ref _reconnectWorkerActive, 1, 0) != 0)
+        if (!_reconnectPolicy.OnUnexpectedDisconnect() ||
+            Interlocked.CompareExchange(ref _reconnectWorkerActive, 1, 0) != 0)
             return;
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET reconnect requested reason='{reason}'.");
         _ = Task.Run(ReconnectLoopAsync);
@@ -1491,8 +1372,9 @@ internal sealed class ArchipelagoClient
                     Plugin.LoggerInstance?.LogWarning("[SCRC-AP] NET reconnect succeeded.");
                     return;
                 }
-                Plugin.LoggerInstance?.LogWarning(
-                    "[SCRC-AP] NET reconnect attempt failed; retry remains scheduled.");
+                if (_reconnectPolicy.ReconnectRequested)
+                    Plugin.LoggerInstance?.LogWarning(
+                        "[SCRC-AP] NET reconnect attempt failed; retry remains scheduled.");
             }
         }
         catch (OperationCanceledException) when (_shutdownToken.IsCancellationRequested)
@@ -1627,647 +1509,6 @@ internal sealed class ArchipelagoClient
     }
 }
 
-internal static class Level6Discovery
-{
-    private const string Level02DoorRootPath =
-        "Root/GameRoom_Hub1_Logic/Hub1A_Logic_UpperPath/Objects/Doors/Level02";
-
-    private const string UpperPathDoorsRootPath =
-        "Root/GameRoom_Hub1_Logic/Hub1A_Logic_UpperPath/Objects/Doors";
-
-    private const string TrainingCentreRootPath =
-        "Root/GameRoom_Hub1_Logic/Hub1a_Logic_BottomLeft/Objects/TrainingCentre: Levels 19&21";
-
-    private const string TrainingLevel19RootPath =
-        "Root/GameRoom_Hub1_Logic/Hub1a_Logic_BottomLeft/Objects/TrainingCentre: Levels 19&21/Level19";
-
-    private const string TrainingLevel21RootPath =
-        "Root/GameRoom_Hub1_Logic/Hub1a_Logic_BottomLeft/Objects/TrainingCentre: Levels 19&21/ContainerWithHole-tofb/ShippingContainerWithHole/Level21Door";
-
-    private static readonly object Sync = new();
-
-    private static bool _active;
-    private static int _sequence;
-
-    private static readonly string[] RouteObjectTokens =
-    {
-        "Level_02",
-        "Level02",
-        "Level_03",
-        "Level03",
-        "Level_10",
-        "Level10",
-        "Level_12",
-        "Level12",
-        "Level_14",
-        "Level14",
-        "Boring",
-        "BoringRoom",
-        "Training",
-        "Demolition",
-        "Heist",
-        "Menial",
-        "Important",
-        "Letter",
-        "Bean",
-        "Trumpet",
-        "Hand",
-        "Button",
-        "ManualButton",
-        "Room02",
-        "Room_02",
-        "Minim",
-        "Tower",
-        "Vault",
-        "Plunger",
-        "Phone",
-        "Booth",
-        "Entrance",
-        "LevelDoor",
-        "Door",
-        "Blockade",
-        "Barrier"
-    };
-
-    public static bool Active
-    {
-        get
-        {
-            lock (Sync)
-                return _active;
-        }
-    }
-
-    public static void Begin(string reason)
-    {
-        lock (Sync)
-        {
-            _active = true;
-            _sequence = 0;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== LEVEL 7 / UPPER LOBBY DISCOVERY START ===== reason='{reason}' currentRoom='{DeveloperHarness.CurrentRoomId}'.");
-
-        Record(
-            "BASELINE",
-            "Tracing vanilla progression after Boring Room / internal Level_02 toward Demolition Training and the upper-lobby branches. Important Letters, Bean Trumpet, mail delivery, hand blockers, Minim Tower, Vault, and all related story progression remain vanilla.");
-    }
-
-    public static void RecordLevelResultApplied(string level)
-    {
-        if (string.Equals(
-                level,
-                "Level_02",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            Begin("Level_02 / Boring Room result applied");
-        }
-
-        if (Active)
-            Record("LEVEL RESULT APPLIED", level);
-    }
-
-    public static void RecordLevelPersisted(string level)
-    {
-        if (!Active &&
-            string.Equals(
-                level,
-                "Level_02",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            Begin("Level_02 / Boring Room result persisted");
-        }
-
-        if (Active)
-            Record("LEVEL PERSISTED", level);
-    }
-
-    public static void RecordTransition(string roomId)
-    {
-        if (!Active)
-            return;
-
-        Record("ROOM TRANSITION", roomId);
-    }
-
-    public static void RecordProgressionRequest(string flag)
-    {
-        if (!Active)
-            return;
-
-        Record("PROGRESSION REQUEST", flag);
-    }
-
-    public static void RecordProgressionFlagUpdated(string flag)
-    {
-        if (!Active)
-            return;
-
-        Record("PROGRESSION FLAG UPDATED", flag);
-    }
-
-    public static void RecordBagItem(object request)
-    {
-        if (!Active)
-            return;
-
-        Record(
-            "BAG ITEM",
-            SummarizeRequest(
-                request,
-                new[]
-                {
-                    "BagItem",
-                    "BagItemIdentifier",
-                    "Item",
-                    "ItemIdentifier",
-                    "Identifier"
-                }));
-    }
-
-    public static void RecordAbilityItem(object request)
-    {
-        if (!Active)
-            return;
-
-        Record(
-            "ABILITY ITEM",
-            SummarizeRequest(
-                request,
-                new[]
-                {
-                    "Ability",
-                    "AbilityIdentifier",
-                    "AbilityItem",
-                    "Item",
-                    "Identifier"
-                }));
-    }
-
-    public static void ManualBegin()
-    {
-        Begin("developer F4 manual/restart");
-    }
-
-    public static void ScanCurrentScene()
-    {
-        if (!DeveloperHarness.Enabled)
-            return;
-
-        string room = DeveloperHarness.CurrentRoomId;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== LEVEL 7 F5 UPPER LOBBY SCENE SCAN BEGIN ===== currentRoom='{room}'.");
-
-        int matches = 0;
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                string name = tr.name ?? string.Empty;
-
-                bool tokenMatch = RouteObjectTokens.Any(token =>
-                    name.Contains(
-                        token,
-                        StringComparison.OrdinalIgnoreCase));
-
-                if (!tokenMatch)
-                    continue;
-
-                string path = BuildHierarchy(tr);
-
-                // Focus the scan on gameplay/hub hierarchy and ignore most UI
-                // matches unless they contain a particularly useful route name.
-                bool usefulUi =
-                    name.Contains("Boring", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Vault", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Minim", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Plunger", StringComparison.OrdinalIgnoreCase);
-
-                if (path.Contains("OverarchingUIRoot", StringComparison.Ordinal) &&
-                    !usefulUi)
-                {
-                    continue;
-                }
-
-                if (!seen.Add(path))
-                    continue;
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] LEVEL 7 ROUTE OBJECT path='{path}' " +
-                    $"activeSelf={SafeActiveSelf(tr)} activeInHierarchy={SafeActiveInHierarchy(tr)} " +
-                    $"worldPos=({tr.position.x:0.###},{tr.position.y:0.###},{tr.position.z:0.###}).");
-
-                matches++;
-
-                if (matches >= 350)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        "[SCRC-AP] LEVEL 7 F5 UPPER LOBBY SCENE SCAN capped at 350 matching transforms.");
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] LEVEL 7 F5 UPPER LOBBY SCENE SCAN failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== LEVEL 7 F5 UPPER LOBBY SCENE SCAN END ===== matches={matches}.");
-
-        DumpUpperPathDoorsSubtree();
-        DumpTrainingCentreSubtrees();
-    }
-
-    private static void DumpUpperPathDoorsSubtree()
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== UPPER PATH DOORS SUBTREE DUMP BEGIN ===== root='{UpperPathDoorsRootPath}'.");
-
-        int matches = 0;
-        bool rootFound = false;
-        var rows = new List<(string Path, bool ActiveSelf, bool ActiveInHierarchy, Vector3 Position)>();
-
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                string path = BuildHierarchy(tr);
-
-                bool isRoot =
-                    string.Equals(
-                        path,
-                        UpperPathDoorsRootPath,
-                        StringComparison.Ordinal);
-
-                bool isDescendant =
-                    path.StartsWith(
-                        UpperPathDoorsRootPath + "/",
-                        StringComparison.Ordinal);
-
-                if (!isRoot && !isDescendant)
-                    continue;
-
-                if (isRoot)
-                    rootFound = true;
-
-                rows.Add(
-                    (
-                        path,
-                        SafeActiveSelf(tr),
-                        SafeActiveInHierarchy(tr),
-                        tr.position
-                    ));
-            }
-
-            rows.Sort((a, b) =>
-            {
-                int depthA = CountPathDepth(a.Path);
-                int depthB = CountPathDepth(b.Path);
-
-                int byDepth = depthA.CompareTo(depthB);
-                if (byDepth != 0)
-                    return byDepth;
-
-                return string.Compare(
-                    a.Path,
-                    b.Path,
-                    StringComparison.Ordinal);
-            });
-
-            foreach (var row in rows)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] UPPER DOORS SUBTREE path='{row.Path}' " +
-                    $"activeSelf={row.ActiveSelf} activeInHierarchy={row.ActiveInHierarchy} " +
-                    $"worldPos=({row.Position.x:0.###},{row.Position.y:0.###},{row.Position.z:0.###}).");
-
-                matches++;
-
-                if (matches >= 700)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        "[SCRC-AP] UPPER PATH DOORS SUBTREE DUMP capped at 700 transforms.");
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] UPPER PATH DOORS SUBTREE DUMP failed: {ex.GetBaseException().Message}");
-        }
-
-        if (!rootFound)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] UPPER PATH DOORS SUBTREE DUMP: exact Objects/Doors root was not found in the current scene.");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== UPPER PATH DOORS SUBTREE DUMP END ===== matches={matches} rootFound={rootFound}.");
-    }
-
-    private static void DumpTrainingCentreSubtrees()
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== TRAINING CENTRE SUBTREE DUMP BEGIN ===== root='{TrainingCentreRootPath}'.");
-
-        int matches = 0;
-        bool centreFound = false;
-        bool level19Found = false;
-        bool level21Found = false;
-
-        var rows = new List<(string Path, bool ActiveSelf, bool ActiveInHierarchy, Vector3 Position)>();
-
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                string path = BuildHierarchy(tr);
-
-                bool inCentre =
-                    string.Equals(path, TrainingCentreRootPath, StringComparison.Ordinal) ||
-                    path.StartsWith(TrainingCentreRootPath + "/", StringComparison.Ordinal);
-
-                if (!inCentre)
-                    continue;
-
-                if (string.Equals(path, TrainingCentreRootPath, StringComparison.Ordinal))
-                    centreFound = true;
-
-                if (string.Equals(path, TrainingLevel19RootPath, StringComparison.Ordinal))
-                    level19Found = true;
-
-                if (string.Equals(path, TrainingLevel21RootPath, StringComparison.Ordinal))
-                    level21Found = true;
-
-                rows.Add(
-                    (
-                        path,
-                        SafeActiveSelf(tr),
-                        SafeActiveInHierarchy(tr),
-                        tr.position
-                    ));
-            }
-
-            rows.Sort((a, b) =>
-            {
-                int depthA = CountPathDepth(a.Path);
-                int depthB = CountPathDepth(b.Path);
-
-                int byDepth = depthA.CompareTo(depthB);
-                if (byDepth != 0)
-                    return byDepth;
-
-                return string.Compare(a.Path, b.Path, StringComparison.Ordinal);
-            });
-
-            foreach (var row in rows)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] TRAINING SUBTREE path='{row.Path}' " +
-                    $"activeSelf={row.ActiveSelf} activeInHierarchy={row.ActiveInHierarchy} " +
-                    $"worldPos=({row.Position.x:0.###},{row.Position.y:0.###},{row.Position.z:0.###}).");
-
-                matches++;
-
-                if (matches >= 450)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        "[SCRC-AP] TRAINING CENTRE SUBTREE DUMP capped at 450 transforms.");
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] TRAINING CENTRE SUBTREE DUMP failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== TRAINING CENTRE SUBTREE DUMP END ===== matches={matches} " +
-            $"centreFound={centreFound} level19Found={level19Found} level21Found={level21Found}.");
-    }
-
-    private static void DumpLevel02DoorSubtree()
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== LEVEL 02 DOOR SUBTREE DUMP BEGIN ===== root='{Level02DoorRootPath}'.");
-
-        int matches = 0;
-        bool rootFound = false;
-        var rows = new List<(string Path, bool ActiveSelf, bool ActiveInHierarchy, Vector3 Position)>();
-
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                string path = BuildHierarchy(tr);
-
-                bool isRoot =
-                    string.Equals(
-                        path,
-                        Level02DoorRootPath,
-                        StringComparison.Ordinal);
-
-                bool isDescendant =
-                    path.StartsWith(
-                        Level02DoorRootPath + "/",
-                        StringComparison.Ordinal);
-
-                if (!isRoot && !isDescendant)
-                    continue;
-
-                if (isRoot)
-                    rootFound = true;
-
-                rows.Add(
-                    (
-                        path,
-                        SafeActiveSelf(tr),
-                        SafeActiveInHierarchy(tr),
-                        tr.position
-                    ));
-            }
-
-            rows.Sort((a, b) =>
-            {
-                int depthA = CountPathDepth(a.Path);
-                int depthB = CountPathDepth(b.Path);
-
-                int byDepth = depthA.CompareTo(depthB);
-                if (byDepth != 0)
-                    return byDepth;
-
-                return string.Compare(
-                    a.Path,
-                    b.Path,
-                    StringComparison.Ordinal);
-            });
-
-            foreach (var row in rows)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] LEVEL02 SUBTREE path='{row.Path}' " +
-                    $"activeSelf={row.ActiveSelf} activeInHierarchy={row.ActiveInHierarchy} " +
-                    $"worldPos=({row.Position.x:0.###},{row.Position.y:0.###},{row.Position.z:0.###}).");
-
-                matches++;
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] LEVEL 02 DOOR SUBTREE DUMP failed: {ex.GetBaseException().Message}");
-        }
-
-        if (!rootFound)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] LEVEL 02 DOOR SUBTREE DUMP: exact Level02 root was not found in the currently loaded scene.");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== LEVEL 02 DOOR SUBTREE DUMP END ===== matches={matches} rootFound={rootFound}.");
-    }
-
-    private static int CountPathDepth(string path)
-    {
-        if (string.IsNullOrEmpty(path))
-            return 0;
-
-        int depth = 1;
-
-        foreach (char c in path)
-        {
-            if (c == '/')
-                depth++;
-        }
-
-        return depth;
-    }
-
-    private static void Record(
-        string kind,
-        string detail)
-    {
-        int sequence;
-
-        lock (Sync)
-        {
-            if (!_active)
-                return;
-
-            sequence = ++_sequence;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] LEVEL7 TRACE #{sequence:000} [{kind}] {detail}");
-    }
-
-    private static string SummarizeRequest(
-        object request,
-        IEnumerable<string> preferredNames)
-    {
-        try
-        {
-            foreach (string name in preferredNames)
-            {
-                object? value = ReflectionUtil.ReadMember(
-                    request,
-                    name);
-
-                value = ReflectionUtil.UnwrapNullable(value);
-
-                if (value == null)
-                    continue;
-
-                string? identifier =
-                    ReflectionUtil.ExtractIdentifier(value);
-
-                if (!string.IsNullOrWhiteSpace(identifier))
-                    return $"{name}={identifier}";
-
-                string raw = value.ToString() ?? string.Empty;
-
-                if (!string.IsNullOrWhiteSpace(raw))
-                    return $"{name}={raw}";
-            }
-        }
-        catch
-        {
-        }
-
-        return $"requestType={request.GetType().Name}";
-    }
-
-    private static bool SafeActiveSelf(Transform tr)
-    {
-        try
-        {
-            return tr.gameObject.activeSelf;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool SafeActiveInHierarchy(Transform tr)
-    {
-        try
-        {
-            return tr.gameObject.activeInHierarchy;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string BuildHierarchy(Transform tr)
-    {
-        try
-        {
-            var names = new List<string>();
-            Transform? current = tr;
-
-            for (int i = 0; i < 36 && current != null; i++)
-            {
-                names.Add(current.name ?? "<unnamed>");
-                current = current.parent;
-            }
-
-            names.Reverse();
-            return string.Join("/", names);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-}
-
-
 internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 {
     public static int RequiredStars = 50;
@@ -2304,12 +1545,12 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
     private bool _reportedReady;
     private bool _reportedPlayerFailure;
 
-    private static IntPtr _getValueCodePointer;
-    private static byte[]? _getValueOriginalBytes;
-    private static bool _getValuePatched;
+    private static LegacyStarEaterPatch? _getValuePatch;
+    private static bool _restorePending;
+    private bool _retired;
     private static bool _reportedPatchFailure;
 
-    private static readonly Dictionary<IntPtr, byte[]> StarEaterBoolOriginalBytes =
+    private static readonly Dictionary<IntPtr, LegacyStarEaterPatch> StarEaterBoolPatches =
         new();
 
     private static bool _starEaterInteractionChecksPatched;
@@ -2318,42 +1559,25 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
     private static bool _reportedInteractionInterestActive;
     private static bool _reportedInteractionInterestFailure;
 
-    private static bool _manualRetryRequested;
-    private static float _manualHoldUntil;
-
     public BunkerStarRequirementKeeper(
         IntPtr pointer) : base(pointer)
     {
     }
 
-    public static void RequestManualRetry()
-    {
-        _manualRetryRequested = true;
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] DEV SHIFT+F5: requested one manual configured Star Eater GetValue patch attempt. If successful, the patch will be held for 20 seconds or until leaving the configured room.");
-    }
-
     public static void ResetForSceneChange()
     {
-        RestoreStarEaterInteractionPatches(
-            "scene transition");
-
-        RestoreNativeGetValuePatch(
-            "scene transition");
-
-        _manualRetryRequested = false;
-        _manualHoldUntil = 0f;
+        RestorePatches("scene transition");
+        _activeTarget = null;
         _reportedPatchFailure = false;
         _reportedInteractionInterestFailure = false;
     }
 
     private void Update()
     {
+        if (_retired || (_restorePending && !RestorePatches("retry pending restoration"))) return;
         if (ApStars.State.Active)
         {
-            RestoreStarEaterInteractionPatches("AP Star contract active");
-            RestoreNativeGetValuePatch("AP Star contract active");
+            RestorePatches("AP Star contract active");
             ClearCachedTargets();
             _activeTarget = null;
             return;
@@ -2362,37 +1586,14 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             DeveloperHarness.CurrentRoomId, RoyalRequiredStars, RequiredStars);
         if (_activeTarget != selected)
         {
-            RestoreStarEaterInteractionPatches("test target changed");
-            RestoreNativeGetValuePatch("test target changed");
+            if (!RestorePatches("test target changed")) return;
             ClearCachedTargets();
             _activeTarget = selected;
-            _manualRetryRequested = false;
-            _manualHoldUntil = 0f;
         }
         if (selected == null)
         {
-            RestoreStarEaterInteractionPatches(
-                "outside configured test room / vanilla requirement");
-
-            RestoreNativeGetValuePatch(
-                "outside configured test room / vanilla requirement");
-
             ClearCachedTargets();
             return;
-        }
-
-        bool manual =
-            _manualRetryRequested;
-
-        if (manual)
-        {
-            _manualRetryRequested = false;
-            _manualHoldUntil =
-                Time.time + 20f;
-
-            _targetRetryFrame = 0;
-            _playerRetryFrame = 0;
-            _reportedPatchFailure = false;
         }
 
         if (!TargetsReady())
@@ -2408,12 +1609,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
         if (!TargetsReady())
         {
-            RestoreStarEaterInteractionPatches(
-                "Star Eater threshold target unavailable");
-
-            RestoreNativeGetValuePatch(
-                "Star Eater threshold target unavailable");
-
+            RestorePatches("Star Eater threshold target unavailable");
             return;
         }
 
@@ -2428,25 +1624,9 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             }
         }
 
-        bool manualHold =
-            Time.time < _manualHoldUntil;
-
         if (!PlayerReady())
         {
-            if (manualHold)
-            {
-                TryApplyNativeGetValuePatch(
-                    "manual hold without player marker");
-            }
-            else
-            {
-                RestoreStarEaterInteractionPatches(
-                    "player marker unavailable");
-
-                RestoreNativeGetValuePatch(
-                    "player marker unavailable");
-            }
-
+            RestorePatches("player marker unavailable");
             return;
         }
 
@@ -2463,50 +1643,36 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         {
             _playerTransform = null;
 
-            RestoreStarEaterInteractionPatches(
-                "player/interaction transform invalid");
-
-            RestoreNativeGetValuePatch(
-                "player/interaction transform invalid");
+            RestorePatches("player/interaction transform invalid");
 
             return;
         }
 
-        bool shouldEnable =
-            manualHold ||
-            distance <= PatchRadius;
+        bool shouldEnable = distance <= PatchRadius;
 
         if (!shouldEnable)
         {
             if (distance > ReleaseRadius)
             {
-                RestoreStarEaterInteractionPatches(
-                    $"player left Star Eater range ({distance:0.###})");
-
-                RestoreNativeGetValuePatch(
-                    $"player left Star Eater range ({distance:0.###})");
+                RestorePatches($"player left Star Eater range ({distance:0.###})");
             }
 
             return;
         }
 
-        if (!_getValuePatched)
+        if (_getValuePatch == null)
         {
             TryApplyNativeGetValuePatch(
-                manualHold
-                    ? $"manual hold distance={distance:0.###}"
-                    : $"player distance={distance:0.###}");
+                $"player distance={distance:0.###}");
         }
 
-        if (!_getValuePatched)
+        if (_getValuePatch == null || _restorePending)
             return;
 
         if (!_starEaterInteractionChecksPatched)
         {
             TryApplyStarEaterInteractionPatches(
-                manualHold
-                    ? $"manual hold distance={distance:0.###}"
-                    : $"player distance={distance:0.###}");
+                $"player distance={distance:0.###}");
         }
 
         if (_starEaterInteractionChecksPatched)
@@ -2517,20 +1683,26 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
     private void OnDisable()
     {
-        RestoreStarEaterInteractionPatches(
-            "keeper disabled");
-
-        RestoreNativeGetValuePatch(
-            "keeper disabled");
+        if (!_retired) RestorePatches("keeper disabled");
     }
 
     private void OnDestroy()
     {
-        RestoreStarEaterInteractionPatches(
-            "keeper destroyed");
+        if (!_retired) RestorePatches("keeper destroyed");
+    }
 
-        RestoreNativeGetValuePatch(
-            "keeper destroyed");
+    internal void Retire()
+    {
+        _retired = true;
+        _activeTarget = null;
+    }
+
+    internal static bool RestorePatches(string reason)
+    {
+        RestoreStarEaterInteractionPatches(reason);
+        RestoreNativeGetValuePatch(reason);
+        _restorePending = StarEaterBoolPatches.Count != 0 || _getValuePatch != null;
+        return !_restorePending;
     }
 
     private void ClearCachedTargets()
@@ -2802,9 +1974,6 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                 ("IsInteractionEnabled", 0),
             };
 
-        var newlyPatched =
-            new List<IntPtr>();
-
         try
         {
             foreach (var target in targets)
@@ -2833,7 +2002,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 
                 // Multiple inherited/generic methods can theoretically share a
                 // native code pointer. Store/patch each unique pointer once.
-                if (StarEaterBoolOriginalBytes.ContainsKey(
+                if (StarEaterBoolPatches.ContainsKey(
                         codePointer))
                 {
                     continue;
@@ -2854,6 +2023,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                     0,
                     original.Length);
 
+                StarEaterBoolPatches.Add(codePointer, new LegacyStarEaterPatch(codePointer, original, forceTrue));
                 if (!WriteExecutableBytes(
                         codePointer,
                         forceTrue))
@@ -2862,12 +2032,6 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                         $"failed to patch {target.Name} at 0x{codePointer.ToInt64():X}");
                 }
 
-                StarEaterBoolOriginalBytes[
-                    codePointer] =
-                    original;
-
-                newlyPatched.Add(
-                    codePointer);
             }
 
             _starEaterInteractionChecksPatched =
@@ -2887,27 +2051,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         }
         catch (Exception ex)
         {
-            // Restore anything applied during this partial attempt.
-            foreach (IntPtr codePointer in newlyPatched)
-            {
-                if (!StarEaterBoolOriginalBytes.TryGetValue(
-                        codePointer,
-                        out byte[]? original))
-                {
-                    continue;
-                }
-
-                WriteExecutableBytes(
-                    codePointer,
-                    original);
-
-                StarEaterBoolOriginalBytes.Remove(
-                    codePointer);
-            }
-
-            _starEaterInteractionChecksPatched =
-                false;
-
+            RestorePatches("incomplete interaction patch");
             ReportInteractionFailureOnce(
                 $"interaction patch apply failed: {ex.GetBaseException().Message}");
         }
@@ -2916,7 +2060,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
     private static void RestoreStarEaterInteractionPatches(
         string reason)
     {
-        if (StarEaterBoolOriginalBytes.Count == 0 &&
+        if (StarEaterBoolPatches.Count == 0 &&
             !_starEaterInteractionChecksPatched)
         {
             _interactionSessionStarted = false;
@@ -2924,24 +2068,11 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             return;
         }
 
-        bool allRestored =
-            true;
-
-        foreach (var pair in
-            StarEaterBoolOriginalBytes.ToArray())
+        foreach (var patch in StarEaterBoolPatches.Values.ToArray())
         {
-            if (!WriteExecutableBytes(
-                    pair.Key,
-                    pair.Value))
-            {
-                allRestored = false;
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] STAR EATER TEST interaction method restore failed at 0x{pair.Key.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
-            }
+            if (TryRestorePatch(patch, reason))
+                StarEaterBoolPatches.Remove(patch.Address);
         }
-
-        StarEaterBoolOriginalBytes.Clear();
 
         _starEaterInteractionChecksPatched =
             false;
@@ -2958,7 +2089,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         if (_reportedInteractionPatchActive)
         {
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH RESTORED: reason='{reason}', allRestored={allRestored}.");
+                $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH RESTORE: reason='{reason}', outstanding={StarEaterBoolPatches.Count}.");
         }
 
         _reportedInteractionPatchActive =
@@ -3131,7 +2262,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
     private void TryApplyNativeGetValuePatch(
         string reason)
     {
-        if (_getValuePatched)
+        if (_getValuePatch != null)
             return;
 
         if (_getValueMethod == IntPtr.Zero ||
@@ -3188,24 +2319,17 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
                 0,
                 original.Length);
 
+            _getValuePatch = new LegacyStarEaterPatch(codePointer, original, forceConfiguredValue);
             if (!WriteExecutableBytes(
                     codePointer,
                     forceConfiguredValue))
             {
+                RestorePatches("threshold write failed");
                 ReportPatchFailureOnce(
                     $"VirtualProtect/write failed at 0x{codePointer.ToInt64():X}");
 
                 return;
             }
-
-            _getValueCodePointer =
-                codePointer;
-
-            _getValueOriginalBytes =
-                original;
-
-            _getValuePatched =
-                true;
 
             bool verified =
                 TryInvokeGetValue(
@@ -3216,7 +2340,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
             if (!verified ||
                 after != ActiveRequiredStars)
             {
-                RestoreNativeGetValuePatch(
+                RestorePatches(
                     "verification failed");
 
                 ReportPatchFailureOnce(
@@ -3230,7 +2354,7 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
         }
         catch (Exception ex)
         {
-            RestoreNativeGetValuePatch(
+            RestorePatches(
                 "exception during apply");
 
             ReportPatchFailureOnce(
@@ -3241,46 +2365,25 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
     private static void RestoreNativeGetValuePatch(
         string reason)
     {
-        if (!_getValuePatched)
-            return;
+        if (_getValuePatch != null && TryRestorePatch(_getValuePatch, reason))
+        {
+            _getValuePatch = null;
+            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RELEASED: reason='{reason}'.");
+        }
+    }
 
-        IntPtr codePointer =
-            _getValueCodePointer;
-
-        byte[]? original =
-            _getValueOriginalBytes;
-
+    private static bool TryRestorePatch(LegacyStarEaterPatch patch, string reason)
+    {
         try
         {
-            if (codePointer != IntPtr.Zero &&
-                original != null &&
-                original.Length > 0)
-            {
-                if (WriteExecutableBytes(
-                        codePointer,
-                        original))
-                {
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORED: reason='{reason}'.");
-                }
-                else
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORE FAILED at 0x{codePointer.ToInt64():X}; Win32={Marshal.GetLastWin32Error()}.");
-                }
-            }
+            if (patch.TryRestore(WriteExecutableBytes)) return true;
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Star Eater patch restore failed during {reason}; Win32={Marshal.GetLastWin32Error()}.");
         }
         catch (Exception ex)
         {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RESTORE FAILED: {ex.GetBaseException().Message}");
+            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Star Eater patch restore failed during {reason}: {ex.GetBaseException().Message}");
         }
-        finally
-        {
-            _getValuePatched = false;
-            _getValueCodePointer = IntPtr.Zero;
-            _getValueOriginalBytes = null;
-        }
+        return false;
     }
 
     private static bool WriteExecutableBytes(
@@ -3772,801 +2875,6 @@ internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
 }
 
 
-internal static class Level8Discovery
-{
-    private static readonly object Sync = new();
-
-    private static bool _active;
-    private static int _sequence;
-
-    public static bool Active
-    {
-        get
-        {
-            lock (Sync)
-                return _active;
-        }
-    }
-
-    public static void Begin(string reason)
-    {
-        lock (Sync)
-        {
-            _active = true;
-            _sequence = 0;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== SECRET BUNKER / STAR EATER DISCOVERY START ===== reason='{reason}' currentRoom='{DeveloperHarness.CurrentRoomId}'.");
-
-        Record(
-            "BASELINE",
-            "King Ferdinand I rewards the user-facing Bunker Keycard as LIFT_KEY_BAG_ITEM. Using it in Lobby/Hub1A clears LIFT_KEY_BAG_ITEM and sets LOBBY_HUB_LIFT_KEY_USED, opening Root/GameRoom_Hub1_Logic/Hub1A_Logic_BunkerArea/BunkerDoor/BunkerEntrance and leading to GameRoom_Hub8 / The Secret Bunker. First entry sets BUNKER_HUB_FIRST_TIME_INTRO_WITNESSED. Gecko/traveler first interaction grants BUNKER_HUB_NOTE_PAD and BUNKER_HUB_DATA_STICK then BUNKER_HUB_GECKO_INITIAL_INTERACTION. Talking to the demon grants BUNKER_HUB_DEMON_KEY; Demon Key and all Devil Mode/seal/challenge progression remain vanilla. Talking to the Star Eater sets BUNKER_HUB_STAR_EATER_INTRODUCED; vanilla requires 66 stars, while the plugin lowers only this final Hub8 Star Eater threshold to the configured BunkerStarRequirement (default 50). Hub8 hierarchy exposes StarEater_Feed with GeckoAppears, CameraZoomPortalOpening, PlayZigTendralReachingIntoPortal, TurnOnCartridge, and a StarEaterFedCondition. Tracing the actual feed flags, post-feed portal/cartridge route, and next numbered level while preserving the normal feed interaction/cutscene.");
-    }
-
-    public static void ManualBegin()
-    {
-        Begin("developer F4 manual/restart");
-    }
-
-    public static void RecordTransition(string roomId)
-    {
-        if (!Active)
-            return;
-
-        Record("ROOM TRANSITION", roomId);
-    }
-
-    public static void RecordLevelResultApplied(string level)
-    {
-        if (!Active)
-            return;
-
-        Record("LEVEL RESULT APPLIED", level);
-    }
-
-    public static void RecordLevelPersisted(string level)
-    {
-        if (!Active)
-            return;
-
-        Record("LEVEL PERSISTED", level);
-    }
-
-    public static void RecordProgressionRequest(string flag)
-    {
-        if (!Active)
-            return;
-
-        Record("PROGRESSION REQUEST", flag);
-    }
-
-    public static void RecordProgressionFlagUpdated(string flag)
-    {
-        if (!Active)
-            return;
-
-        Record("PROGRESSION FLAG UPDATED", flag);
-    }
-
-    public static void RecordBagItem(object request)
-    {
-        if (!Active)
-            return;
-
-        Record(
-            "BAG ITEM",
-            SummarizeRequest(
-                request,
-                new[]
-                {
-                    "BagItem",
-                    "BagItemIdentifier",
-                    "Item",
-                    "ItemIdentifier",
-                    "Identifier"
-                }));
-    }
-
-    public static void RecordAbilityItem(object request)
-    {
-        if (!Active)
-            return;
-
-        Record(
-            "ABILITY ITEM",
-            SummarizeRequest(
-                request,
-                new[]
-                {
-                    "Ability",
-                    "AbilityIdentifier",
-                    "AbilityItem",
-                    "Item",
-                    "Identifier"
-                }));
-    }
-
-    public static void ScanCurrentScene()
-    {
-        if (!DeveloperHarness.Enabled)
-            return;
-
-        string room =
-            DeveloperHarness.CurrentRoomId;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== SECRET BUNKER F5 SCAN BEGIN ===== currentRoom='{room}'.");
-
-        Transform? player =
-            FindPlayerMarker();
-
-        Vector3 playerPosition =
-            Vector3.zero;
-
-        bool havePlayer =
-            false;
-
-        if (player != null)
-        {
-            try
-            {
-                playerPosition =
-                    player.position;
-
-                havePlayer =
-                    true;
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER player='{BuildHierarchy(player)}' " +
-                    $"worldPos=({playerPosition.x:0.###},{playerPosition.y:0.###},{playerPosition.z:0.###}).");
-            }
-            catch
-            {
-            }
-        }
-
-        var rows = new List<(
-            string Path,
-            bool ActiveSelf,
-            bool ActiveInHierarchy,
-            Vector3 Position,
-            float Distance,
-            bool StrongCandidate)>();
-
-        var candidateRoots =
-            new Dictionary<string, Transform>(
-                StringComparer.Ordinal);
-
-        try
-        {
-            foreach (Transform tr in
-                Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null ||
-                    tr.gameObject == null)
-                {
-                    continue;
-                }
-
-                string path =
-                    BuildHierarchy(tr);
-
-                if (!BelongsToCurrentRoom(
-                        room,
-                        path))
-                {
-                    continue;
-                }
-
-                // Avoid the large visual hierarchies that made the earlier
-                // boss scan noisy.
-                if (path.Contains(
-                        "/Abilities/Violin",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "ViolinProjectile",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "OverarchingUIRoot",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "/Skeleton/",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "/ShadowVolumes/",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                Vector3 pos =
-                    tr.position;
-
-                float distance =
-                    havePlayer
-                        ? Vector3.Distance(
-                            playerPosition,
-                            pos)
-                        : float.MaxValue;
-
-                bool starEater =
-                    path.Contains(
-                        "StarEater",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Stardust",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool geckoPortal =
-                    path.Contains(
-                        "Gecko",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Portal",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool cartridge =
-                    path.Contains(
-                        "Cartridge",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Catridge",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "GameEnder",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool demon =
-                    path.Contains(
-                        "Demon",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Devil",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Seal",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Challenge",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Rune",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool bunkerItems =
-                    path.Contains(
-                        "NotePad",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "DataStick",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Data Stick",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool levelDoor =
-                    path.Contains(
-                        "LevelEntranceDoor",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "LevelDoor",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool route =
-                    path.Contains(
-                        "Entrance",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Exit",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Door",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Transition",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Gate",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Blocker",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool progression =
-                    path.Contains(
-                        "Condition",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Requirement",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Progress",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Sequence",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "Persist",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "TrueMode",
-                        StringComparison.OrdinalIgnoreCase);
-
-                bool strongCandidate =
-                    starEater ||
-                    geckoPortal ||
-                    cartridge ||
-                    demon ||
-                    bunkerItems ||
-                    levelDoor;
-
-                bool interesting =
-                    strongCandidate ||
-                    route ||
-                    progression;
-
-                if (!interesting)
-                    continue;
-
-                // Keep all globally useful progression/Star Eater objects,
-                // while limiting unrelated physical doors to the nearby area.
-                if (havePlayer &&
-                    distance > 34f &&
-                    !strongCandidate &&
-                    !progression)
-                {
-                    continue;
-                }
-
-                rows.Add(
-                    (
-                        path,
-                        SafeActiveSelf(tr),
-                        SafeActiveInHierarchy(tr),
-                        pos,
-                        distance,
-                        strongCandidate
-                    ));
-
-                if (strongCandidate)
-                {
-                    Transform candidate =
-                        ChooseCandidateRoot(tr);
-
-                    string candidatePath =
-                        BuildHierarchy(candidate);
-
-                    if (!candidateRoots.ContainsKey(candidatePath))
-                        candidateRoots[candidatePath] = candidate;
-                }
-            }
-
-            rows.Sort((a, b) =>
-            {
-                if (a.StrongCandidate != b.StrongCandidate)
-                    return a.StrongCandidate ? -1 : 1;
-
-                if (havePlayer)
-                {
-                    int byDistance =
-                        a.Distance.CompareTo(b.Distance);
-
-                    if (byDistance != 0)
-                        return byDistance;
-                }
-
-                return string.Compare(
-                    a.Path,
-                    b.Path,
-                    StringComparison.Ordinal);
-            });
-
-            int count =
-                0;
-
-            foreach (var row in rows)
-            {
-                string distanceText =
-                    havePlayer
-                        ? row.Distance.ToString("0.###")
-                        : "<unknown>";
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER OBJECT path='{row.Path}' " +
-                    $"strong={row.StrongCandidate} distance={distanceText} " +
-                    $"activeSelf={row.ActiveSelf} " +
-                    $"activeInHierarchy={row.ActiveInHierarchy} " +
-                    $"worldPos=({row.Position.x:0.###},{row.Position.y:0.###},{row.Position.z:0.###}).");
-
-                count++;
-
-                if (count >= 420)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        "[SCRC-AP] SECRET BUNKER object dump capped at 420 transforms.");
-
-                    break;
-                }
-            }
-
-            int dumped =
-                0;
-
-            foreach (var pair in
-                candidateRoots.OrderBy(
-                    p => p.Key,
-                    StringComparer.Ordinal))
-            {
-                if (dumped >= 18)
-                    break;
-
-                DumpCandidateSubtree(
-                    pair.Key,
-                    pair.Value);
-
-                dumped++;
-            }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER scan summary objects={count} candidateRoots={candidateRoots.Count} dumped={dumped}.");
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER scan failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== SECRET BUNKER F5 SCAN END =====");
-    }
-
-    private static bool BelongsToCurrentRoom(
-        string room,
-        string path)
-    {
-        if (string.IsNullOrWhiteSpace(room))
-            return false;
-
-        if (path.Contains(
-                room,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (string.Equals(
-                room,
-                "GameRoom_Hub1A",
-                StringComparison.Ordinal))
-        {
-            return path.Contains(
-                       "GameRoom_Hub1_Logic",
-                       StringComparison.OrdinalIgnoreCase) ||
-                   path.Contains(
-                       "Hub1A_Logic",
-                       StringComparison.OrdinalIgnoreCase) ||
-                   path.Contains(
-                       "Hub1a_Logic",
-                       StringComparison.OrdinalIgnoreCase);
-        }
-
-        return false;
-    }
-
-    private static Transform ChooseCandidateRoot(
-        Transform tr)
-    {
-        Transform candidate =
-            tr;
-
-        Transform? current =
-            tr;
-
-        for (int i = 0;
-             i < 10 && current != null;
-             i++)
-        {
-            string name =
-                current.name ?? string.Empty;
-
-            if (name.Contains(
-                    "StarEater",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Gecko",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Portal",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Cartridge",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Catridge",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Demon",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "Devil",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "LevelEntranceDoor",
-                    StringComparison.OrdinalIgnoreCase) ||
-                name.Contains(
-                    "LevelDoor",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                candidate =
-                    current;
-            }
-
-            current =
-                current.parent;
-        }
-
-        return candidate;
-    }
-
-    private static void DumpCandidateSubtree(
-        string rootPath,
-        Transform root)
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- SECRET BUNKER CANDIDATE BEGIN root='{rootPath}' -----");
-
-        int count =
-            0;
-
-        try
-        {
-            foreach (Transform tr in
-                root.GetComponentsInChildren<Transform>(true))
-            {
-                if (tr == null ||
-                    tr.gameObject == null)
-                {
-                    continue;
-                }
-
-                string path =
-                    BuildHierarchy(tr);
-
-                if (path.Contains(
-                        "/Skeleton/",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "/ShadowVolumes/",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "/Abilities/Violin",
-                        StringComparison.OrdinalIgnoreCase) ||
-                    path.Contains(
-                        "ViolinProjectile",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SECRET BUNKER CANDIDATE path='{path}' " +
-                    $"activeSelf={SafeActiveSelf(tr)} " +
-                    $"activeInHierarchy={SafeActiveInHierarchy(tr)} " +
-                    $"worldPos=({tr.position.x:0.###},{tr.position.y:0.###},{tr.position.z:0.###}).");
-
-                count++;
-
-                if (count >= 180)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] SECRET BUNKER candidate '{rootPath}' capped at 180 transforms.");
-
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SECRET BUNKER candidate '{rootPath}' failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- SECRET BUNKER CANDIDATE END root='{rootPath}' matches={count} -----");
-    }
-
-    private static Transform? FindPlayerMarker()
-    {
-        Transform? exactPlayerRoot =
-            null;
-
-        Transform? fallbackPlayerChild =
-            null;
-
-        try
-        {
-            foreach (Transform tr in
-                Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null ||
-                    tr.gameObject == null ||
-                    !tr.gameObject.activeInHierarchy)
-                {
-                    continue;
-                }
-
-                string name =
-                    tr.name ?? string.Empty;
-
-                string path =
-                    BuildHierarchy(tr);
-
-                string lowerName =
-                    name.ToLowerInvariant();
-
-                string lowerPath =
-                    path.ToLowerInvariant();
-
-                if (!lowerPath.Contains(
-                        "/spawnedentitycontainer/playercharacter",
-                        StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (lowerPath.Contains(
-                        "/collisiondetectionslaves/",
-                        StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                if (lowerName.StartsWith(
-                        "playercharacter",
-                        StringComparison.Ordinal))
-                {
-                    exactPlayerRoot =
-                        tr;
-
-                    break;
-                }
-
-                fallbackPlayerChild ??=
-                    tr;
-            }
-        }
-        catch
-        {
-            return null;
-        }
-
-        return exactPlayerRoot ??
-               fallbackPlayerChild;
-    }
-
-    private static void Record(
-        string kind,
-        string detail)
-    {
-        int sequence;
-
-        lock (Sync)
-        {
-            if (!_active)
-                return;
-
-            sequence =
-                ++_sequence;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SECRET BUNKER TRACE #{sequence:000} [{kind}] {detail}");
-    }
-
-    private static string SummarizeRequest(
-        object request,
-        IEnumerable<string> preferredNames)
-    {
-        try
-        {
-            foreach (string name in preferredNames)
-            {
-                object? value =
-                    ReflectionUtil.ReadMember(
-                        request,
-                        name);
-
-                value =
-                    ReflectionUtil.UnwrapNullable(
-                        value);
-
-                if (value == null)
-                    continue;
-
-                string? identifier =
-                    ReflectionUtil.ExtractIdentifier(
-                        value);
-
-                if (!string.IsNullOrWhiteSpace(identifier))
-                    return $"{name}={identifier}";
-
-                string raw =
-                    value.ToString() ?? string.Empty;
-
-                if (!string.IsNullOrWhiteSpace(raw))
-                    return $"{name}={raw}";
-            }
-        }
-        catch
-        {
-        }
-
-        return $"requestType={request.GetType().Name}";
-    }
-
-    private static bool SafeActiveSelf(
-        Transform tr)
-    {
-        try
-        {
-            return tr.gameObject.activeSelf;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool SafeActiveInHierarchy(
-        Transform tr)
-    {
-        try
-        {
-            return tr.gameObject.activeInHierarchy;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string BuildHierarchy(
-        Transform tr)
-    {
-        try
-        {
-            var names =
-                new List<string>();
-
-            Transform? current =
-                tr;
-
-            for (int i = 0;
-                 i < 40 && current != null;
-                 i++)
-            {
-                names.Add(
-                    current.name ?? "<unnamed>");
-
-                current =
-                    current.parent;
-            }
-
-            names.Reverse();
-
-            return string.Join(
-                "/",
-                names);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-}
-
-
 internal static class CassetteSaveTransactionPatches
 {
     private static readonly HashSet<string> ExtractionFailures = new(StringComparer.Ordinal);
@@ -4631,12 +2939,6 @@ internal static class CassetteSaveTransactionPatches
     {
         GarageCartridgeAccess.ResetNativeBagObservations("most recent save selection");
         CassetteReceiptRandomization.BeginMostRecentSelectionBoundary(__instance);
-    }
-
-    public static void PlayerSaveWriteCompletedEventPostfix(object[]? __args)
-    {
-        object? nativeEvent = ReflectionUtil.FindArg(__args, "PlayerSaveWriteCompletedEvent");
-        CassetteReceiptRandomization.ObservePersistenceAcceptanceWriteCompletedEvent(nativeEvent);
     }
 
     private static void LogExtractionFailureOnce(string identity, string reason)
@@ -4718,6 +3020,7 @@ internal static class GamePatches
 
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
+        // The persisted event can omit the scoring variant and quest context. Capture both while applying the result.
         Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned, ExpandedChecks.CaptureResultContext());
 
         PlantPipesRandomization.OnLevelResultApplied(level);
@@ -4841,271 +3144,12 @@ internal static class GamePatches
 
 
 
-internal static class QuestActionDiscovery
-{
-    private static readonly QuestActionDiagnosticPolicy Policy = new();
-
-    public static void RecordProgressionRequest(object request, string flag)
-    {
-        Log(Policy.Observe("request", DeveloperHarness.CurrentRoomId, flag, null,
-            ReflectionUtil.ReadBool(request, "Value") ?? ReflectionUtil.ReadBool(request, "_Value_k__BackingField")));
-    }
-
-    public static void RecordProgressionFlagUpdated(object evt, string flag)
-    {
-        Log(Policy.Observe("event", DeveloperHarness.CurrentRoomId, flag,
-            ReflectionUtil.ReadBool(evt, "FlagWasSet") ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField"),
-            ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")));
-    }
-
-    public static void RecordResult(string level, string variant, bool persisted)
-    {
-        Log(Policy.Observe(persisted ? "result-persisted" : "result-applied",
-            DeveloperHarness.CurrentRoomId, level + "|" + variant));
-    }
-
-    public static void RecordSceneObject(string path, string componentTypes, bool activeSelf, bool activeInHierarchy)
-    {
-        Log(Policy.ObserveScene(DeveloperHarness.CurrentRoomId, path, componentTypes, activeSelf, activeInHierarchy));
-    }
-
-    public static void SnapshotKnownFlags()
-    {
-        string room = DeveloperHarness.CurrentRoomId;
-        foreach (string flag in Policy.BeginSnapshot(room))
-        {
-            bool readable = RootsBucketRandomization.TryReadProgressionFlag(flag, out bool value);
-            Log(Policy.Observe("snapshot", room, flag, null, readable ? value : null));
-        }
-    }
-
-    private static void Log(string? message)
-    {
-        if (message != null)
-            Plugin.LoggerInstance?.LogInfo(message);
-    }
-}
-
-internal static class SpecialModeDiscovery
-{
-    private const int ProgressionFlagCapacity = 256;
-    private const int SceneObjectCapacity = 100;
-
-    private static readonly object Sync = new();
-    private static readonly HashSet<string> ObservedProgressionFlags =
-        new(StringComparer.OrdinalIgnoreCase);
-    private static bool _progressionCapacityLogged;
-
-    public static void RecordProgressionFlagUpdated(object evt, string flag)
-    {
-        if (!SpecialVariantDiagnosticPolicy.IsRelevantProgressionFlag(flag))
-            return;
-
-        string room = DeveloperHarness.CurrentRoomId;
-        string key = $"{room}\0{flag}";
-        bool capacityReached = false;
-
-        lock (Sync)
-        {
-            if (ObservedProgressionFlags.Contains(key))
-                return;
-
-            if (ObservedProgressionFlags.Count >= ProgressionFlagCapacity)
-            {
-                if (_progressionCapacityLogged)
-                    return;
-
-                _progressionCapacityLogged = true;
-                capacityReached = true;
-            }
-            else
-            {
-                ObservedProgressionFlags.Add(key);
-            }
-        }
-
-        if (capacityReached)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
-                $"flag='<capacity reached>' eventType='{evt.GetType().FullName}' " +
-                $"emitted={ProgressionFlagCapacity} truncated=1.");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC FLAG UPDATED readOnly=True room='{room}' " +
-            $"flag='{flag}' eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
-    }
-
-    public static void RecordResultApplied(
-        object request,
-        string level,
-        string variant,
-        int? score,
-        string difficulty)
-    {
-        SpecialVariantKind identity =
-            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
-        if (identity == SpecialVariantKind.None)
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT APPLIED readOnly=True " +
-            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
-            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
-            $"eventType='{request.GetType().FullName}' emitted=1 truncated=0.");
-    }
-
-    public static void RecordResultPersisted(
-        object evt,
-        string level,
-        string variant,
-        int? score,
-        string difficulty)
-    {
-        SpecialVariantKind identity =
-            SpecialVariantDiagnosticPolicy.ClassifyVariant(level, variant);
-        if (identity == SpecialVariantKind.None)
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC RESULT PERSISTED readOnly=True " +
-            $"room='{DeveloperHarness.CurrentRoomId}' internal='{level}' variant='{variant}' " +
-            $"score={score?.ToString() ?? "?"} difficulty='{difficulty}' identity={identity} " +
-            $"eventType='{evt.GetType().FullName}' emitted=1 truncated=0.");
-    }
-
-    public static void ScanCurrentScene()
-    {
-        string room = DeveloperHarness.CurrentRoomId;
-        if (string.Equals(room, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(room, "GameRoom_27", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        int emitted = 0;
-        int truncated = 0;
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN BEGIN readOnly=True " +
-            $"room='{room}' emitted=0 truncated=0.");
-
-        try
-        {
-            foreach (Transform transform in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (transform == null || transform.gameObject == null)
-                    continue;
-
-                GameObject gameObject = transform.gameObject;
-                bool activeSelf;
-                bool activeInHierarchy;
-                try
-                {
-                    activeSelf = gameObject.activeSelf;
-                    activeInHierarchy = gameObject.activeInHierarchy;
-                }
-                catch
-                {
-                    continue;
-                }
-
-                string path = BuildHierarchy(transform);
-                string[] componentTypes = ReadComponentTypes(gameObject);
-                QuestActionDiscovery.RecordSceneObject(path, string.Join("|", componentTypes), activeSelf, activeInHierarchy);
-                if (!activeInHierarchy)
-                    continue;
-                if (!SpecialVariantDiagnosticPolicy.IsRelevantSceneObject(path, componentTypes))
-                    continue;
-
-                if (emitted >= SceneObjectCapacity)
-                {
-                    truncated++;
-                    continue;
-                }
-
-                emitted++;
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE OBJECT readOnly=True " +
-                    $"room='{room}' path='{path}' activeSelf={activeSelf} " +
-                    $"activeInHierarchy={activeInHierarchy} " +
-                    $"componentTypes='{string.Join("|", componentTypes)}'.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN ERROR readOnly=True " +
-                $"room='{room}' error='{ex.GetBaseException().Message}'.");
-        }
-        finally
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] SPECIAL MODE DIAGNOSTIC SCENE SCAN END readOnly=True " +
-                $"room='{room}' emitted={emitted} truncated={truncated}.");
-        }
-    }
-
-    private static string[] ReadComponentTypes(GameObject gameObject)
-    {
-        try
-        {
-            return gameObject.GetComponents<Component>()
-                .Where(component => component != null)
-                .Select(component => component.GetType().FullName ?? component.GetType().Name)
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(name => name, StringComparer.Ordinal)
-                .ToArray();
-        }
-        catch
-        {
-            return Array.Empty<string>();
-        }
-    }
-
-    private static string BuildHierarchy(Transform transform)
-    {
-        try
-        {
-            var names = new List<string>();
-            Transform? current = transform;
-            while (current != null)
-            {
-                names.Add(current.name);
-                current = current.parent;
-            }
-
-            names.Reverse();
-            return string.Join("/", names);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-}
-
-
+// Tracks native room transitions for phone routing, room-specific rewards and save reconciliation.
 internal static class DeveloperHarness
 {
-    private const string HubRoomId = "GameRoom_Hub2";
-    private const string Level4RoomId = "GameRoom_08";
-
     private static readonly object Sync = new();
-
-    private static object? _gameFlowProcessor;
-    private static MethodInfo? _gameFlowProcessRequest;
-    private static Type? _transitionRequestType;
-    private static Type? _roomIdentifierType;
-
-    private static object? _capturedTransitionType;
-    private static Type? _transitionTypeType;
-
-    private static Type? _spawnPointType;
-    private static object? _capturedSpawnPoint;
-
     private static string _currentRoomId = "";
 
-    public static bool Enabled => false;
 
     public static string CurrentRoomId
     {
@@ -5116,20 +3160,6 @@ internal static class DeveloperHarness
         }
     }
 
-    public static bool IsCurrentRoom(string roomId)
-    {
-        lock (Sync)
-        {
-            return string.Equals(
-                _currentRoomId,
-                roomId,
-                StringComparison.Ordinal);
-        }
-    }
-
-    public static bool IsHub2Current =>
-        IsCurrentRoom(HubRoomId);
-
     public static void SetCurrentRoomForRedirect(string roomId)
     {
         lock (Sync)
@@ -5138,9 +3168,7 @@ internal static class DeveloperHarness
 
     public static void CaptureGameFlow(object? processor, object request)
     {
-        // Capture is required by the production Level 4 entrance proxy as well
-        // as the developer hotkeys, so it must remain active even when the
-        // developer harness is disabled.
+        // Room routing, cassette reconciliation and timing repairs all follow this native transition.
         if (processor == null)
             return;
 
@@ -5193,7 +3221,7 @@ internal static class DeveloperHarness
             $"partOfLoadLevel={SafeSimpleValue(partOfLoadValue)}.");
 
         GarageRoomInitialization.State.Transition(observedRoom);
-
+        // Music Lab infers a cassette stage from the previous room. Publish the destination afterward.
         MusicLabDiscovery.RecordTransition(observedRoom);
 
         lock (Sync)
@@ -5206,83 +3234,6 @@ internal static class DeveloperHarness
         BunkerStarRequirementKeeper.ResetForSceneChange();
         MontageAnimalTick.Reset();
         PlayerMovementTiming.Reset();
-
-        bool firstCapture;
-
-        lock (Sync)
-        {
-            firstCapture = _gameFlowProcessor == null;
-
-            _gameFlowProcessor = processor;
-            _gameFlowProcessRequest = process;
-            _transitionRequestType = request.GetType();
-
-            if (room != null)
-                _roomIdentifierType = room.GetType();
-
-            if (transitionType != null)
-            {
-                _capturedTransitionType = transitionType;
-                _transitionTypeType = transitionType.GetType();
-            }
-
-            if (spawnPoint != null)
-            {
-                _capturedSpawnPoint = spawnPoint;
-                _spawnPointType = spawnPoint.GetType();
-            }
-        }
-
-        if (firstCapture)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] DEV HARNESS captured {processor.GetType().Name}.ProcessRequest(TransitionToGameRoomRequest).");
-
-
-
-            if (spawnPoint != null)
-            {
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] DEV HARNESS captured startup SpawnPointKey value={SafeSimpleValue(spawnPoint)}.");
-            }
-
-        }
-    }
-
-    public static void CycleMusicLabPointOverride()
-    {
-        if (!Enabled)
-            return;
-
-        MusicLabPointOverride.CycleToNextRewardThreshold();
-    }
-
-    public static void StartPostAct1Discovery()
-    {
-        if (!Enabled)
-            return;
-
-        Level8Discovery.ManualBegin();
-        MusicLabDiscovery.ManualBegin();
-    }
-
-    public static void ScanPostAct1RouteObjects()
-    {
-        if (!Enabled)
-            return;
-
-        if (MusicLabDiscovery.IsMusicLabRoom(DeveloperHarness.CurrentRoomId))
-            MusicLabDiscovery.ScanCurrentScene();
-        else
-            Level8Discovery.ScanCurrentScene();
-    }
-
-    public static void RetryBunkerStarRequirementOnce()
-    {
-        if (!Enabled)
-            return;
-
-        BunkerStarRequirementKeeper.RequestManualRetry();
     }
 
     private static string SafeSimpleValue(object? value)
@@ -5317,1430 +3268,16 @@ internal static class DeveloperHarness
         }
     }
 
-    private static object? BuildTransitionRequest(
-        Type requestType,
-        object hubId,
-        object? transitionType,
-        Type? transitionTypeType,
-        Type? spawnPointType,
-        object? capturedSpawnPoint)
-    {
-        ConstructorInfo[] ctors;
-
-        try
-        {
-            ctors = requestType.GetConstructors(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        }
-        catch
-        {
-            return null;
-        }
-
-        foreach (ConstructorInfo ctor in ctors
-                     .OrderByDescending(c => c.GetParameters().Length))
-        {
-            ParameterInfo[] ps;
-
-            try { ps = ctor.GetParameters(); }
-            catch { continue; }
-
-            // IntPtr-only constructors are wrapper constructors, not native request factories.
-            if (ps.Length == 1 && ps[0].ParameterType == typeof(IntPtr))
-                continue;
-
-            var args = new object?[ps.Length];
-            bool usable = true;
-
-            for (int i = 0; i < ps.Length; i++)
-            {
-                Type pt = ps[i].ParameterType;
-                string pn = ps[i].Name ?? "";
-
-                if (pt.IsInstanceOfType(hubId) ||
-                    pt.Name == "GameRoomIdentifier")
-                {
-                    args[i] = hubId;
-                }
-                else if (transitionType != null &&
-                         (pt.IsInstanceOfType(transitionType) ||
-                          (transitionTypeType != null && pt == transitionTypeType)))
-                {
-                    args[i] = transitionType;
-                }
-                else if (spawnPointType != null && pt == spawnPointType)
-                {
-                    args[i] =
-                        capturedSpawnPoint != null && pt.IsInstanceOfType(capturedSpawnPoint)
-                            ? capturedSpawnPoint
-                            : TryCreateDefault(pt);
-                }
-                else if (pt == typeof(bool))
-                {
-                    args[i] = false;
-                }
-                else if (pt.IsEnum)
-                {
-                    args[i] = TryGetEnumValue(pt, "FADE_LOAD") ?? Enum.GetValues(pt).GetValue(0);
-                }
-                else if (pt == typeof(string))
-                {
-                    args[i] = "";
-                }
-                else if (!pt.IsValueType)
-                {
-                    args[i] = null;
-                }
-                else
-                {
-                    object? def = TryCreateDefault(pt);
-                    if (def == null)
-                    {
-                        usable = false;
-                        break;
-                    }
-
-                    args[i] = def;
-                }
-            }
-
-            if (!usable)
-                continue;
-
-            try
-            {
-                object? built = ctor.Invoke(args!);
-                if (built != null)
-                {
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] DEV HARNESS constructed TransitionToGameRoomRequest using ctor({string.Join(", ", ps.Select(p => p.ParameterType.Name))}).");
-                    return built;
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogDebug(
-                    $"[SCRC-AP] DEV HARNESS ctor failed ({string.Join(", ", ps.Select(p => p.ParameterType.Name))}): {ex.GetBaseException().Message}");
-            }
-        }
-
-        return null;
-    }
-
-    private static object? TryCreateDefault(Type type)
-    {
-        try
-        {
-            if (type.IsValueType)
-                return Activator.CreateInstance(type);
-
-            ConstructorInfo? empty = type.GetConstructor(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                binder: null,
-                Type.EmptyTypes,
-                modifiers: null);
-
-            return empty?.Invoke(Array.Empty<object>());
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static object? TryGetEnumValue(Type enumType, string name)
-    {
-        try
-        {
-            if (!enumType.IsEnum)
-                return null;
-
-            foreach (string value in Enum.GetNames(enumType))
-            {
-                if (string.Equals(value, name, StringComparison.OrdinalIgnoreCase))
-                    return Enum.Parse(enumType, value);
-            }
-        }
-        catch { }
-
-        return null;
-    }
-
-    private static object? BuildIdentifier(Type type, string value)
-    {
-        foreach (ConstructorInfo ctor in type.GetConstructors(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-        {
-            ParameterInfo[] ps;
-            try { ps = ctor.GetParameters(); }
-            catch { continue; }
-
-            if (ps.Length == 1 && ps[0].ParameterType == typeof(string))
-            {
-                try { return ctor.Invoke(new object[] { value }); }
-                catch { }
-            }
-        }
-
-        foreach (MethodInfo m in type.GetMethods(
-                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-        {
-            ParameterInfo[] ps;
-            try { ps = m.GetParameters(); }
-            catch { continue; }
-
-            if (m.ReturnType == type &&
-                ps.Length == 1 &&
-                ps[0].ParameterType == typeof(string))
-            {
-                try { return m.Invoke(null, new object[] { value }); }
-                catch { }
-            }
-        }
-
-        return null;
-    }
-
-    private static bool WriteMember(object obj, string name, object value)
-    {
-        Type t = obj.GetType();
-
-        PropertyInfo? p = t.GetProperty(
-            name,
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-        if (p != null && p.CanWrite)
-        {
-            try
-            {
-                p.SetValue(obj, value);
-                return true;
-            }
-            catch { }
-        }
-
-        FieldInfo? f = t.GetField(
-            name,
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-        if (f != null)
-        {
-            try
-            {
-                if (f.FieldType.IsInstanceOfType(value) ||
-                    (f.FieldType == typeof(bool) && value is bool))
-                {
-                    f.SetValue(obj, value);
-                    return true;
-                }
-            }
-            catch { }
-        }
-
-        return false;
-    }
-
-    private static void LogTransitionConstructors(Type requestType)
-    {
-        try
-        {
-            foreach (ConstructorInfo ctor in requestType.GetConstructors(
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                string signature = string.Join(
-                    ", ",
-                    ctor.GetParameters().Select(p => $"{p.ParameterType.Name} {p.Name}"));
-
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] DEV HARNESS TransitionToGameRoomRequest ctor({signature})");
-            }
-        }
-        catch { }
-    }
-}
-
-internal static class MusicLabPointOverride
-{
-    private static readonly int[] RewardThresholds = { 5, 10, 20, 32, 46, 64, 89, 111, 140 };
-    private static MethodInfo? _nativeGetter;
-    private static int? _overrideScore;
-    private static int _lastNativeScore = -1;
-
-    public static int? OverrideScore => _overrideScore;
-
-    public static void BindNativeGetter(MethodInfo method)
-    {
-        _nativeGetter = method;
-    }
-
-    public static void RecordNativeScore(int score)
-    {
-        _lastNativeScore = score;
-    }
-
-    public static void CycleToNextRewardThreshold()
-    {
-        if (MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Native)
-            return;
-        int native = ReadNativeScore();
-        int current = Math.Max(native, _overrideScore ?? native);
-
-        if (_overrideScore.HasValue && _overrideScore.Value >= RewardThresholds[^1])
-        {
-            int previous = _overrideScore.Value;
-            _overrideScore = null;
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB POINT CHEAT OFF: previousEffective={previous} native={native}. GetMedalScore() is back to the real saved medal total.");
-            return;
-        }
-
-        int next = RewardThresholds.FirstOrDefault(t => t > current);
-        if (next <= 0)
-        {
-            _overrideScore = null;
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB POINT CHEAT NOT NEEDED: native={native} already meets/exceeds the final 140-point threshold. Override is OFF.");
-            return;
-        }
-
-        _overrideScore = next;
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB POINT CHEAT ENABLED: native={native} effective={next}. This is a runtime GetMedalScore() override only; saved clean medals and the real point total are unchanged. Press Shift+F4 again for the next threshold.");
-    }
-
-    private static int ReadNativeScore()
-    {
-        MethodInfo? getter = _nativeGetter;
-        if (getter == null)
-            return _lastNativeScore >= 0 ? _lastNativeScore : 0;
-
-        bool previousSuppress = MusicLabPointOverridePatches.SuppressOverride;
-        try
-        {
-            MusicLabPointOverridePatches.SuppressOverride = true;
-            object? value = getter.Invoke(null, null);
-            if (value is int score)
-            {
-                _lastNativeScore = score;
-                return score;
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB POINT CHEAT native score read failed: {ex.GetBaseException().Message}");
-        }
-        finally
-        {
-            MusicLabPointOverridePatches.SuppressOverride = previousSuppress;
-        }
-
-        return _lastNativeScore >= 0 ? _lastNativeScore : 0;
-    }
 }
 
 internal static class MusicLabPointOverridePatches
 {
-    public static bool SuppressOverride { get; set; }
-
     public static void GetMedalScorePostfix(ref int __result)
     {
-        MusicLabPointOverride.RecordNativeScore(__result);
-        if (SuppressOverride)
-            return;
-
-        int nativeScore = __result;
-        int? developerScore = DeveloperHarness.Enabled
-            ? MusicLabPointOverride.OverrideScore
-            : null;
-        __result = DeveloperHarness.CurrentRoomId == "GameRoom_Hub6"
-            ? MusicLabPointRandomization.ResolveEffectiveScore(nativeScore, developerScore)
-            : developerScore ?? nativeScore;
+        // Other rooms use the native medal total. Only Hub6 evaluates the randomized chest thresholds.
+        if (DeveloperHarness.CurrentRoomId == "GameRoom_Hub6")
+            __result = MusicLabPointRandomization.ResolveEffectiveScore(__result);
     }
-}
-
-internal static class MusicLabPointDiagnostic
-{
-    private static readonly string[] MemberKeywords =
-    {
-        "Medal", "MusicLab", "Music Lab", "Hub06", "Hub6", "Reward", "Point"
-    };
-
-    private static readonly string[] TypeKeywords =
-    {
-        "MedalScore", "MusicLab", "Hub06", "Hub6", "RewardChest", "CleanMedal"
-    };
-
-    public static void Probe()
-    {
-        Assembly? asm = ReflectionUtil.GameAssembly;
-        if (asm == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] MUSIC LAB POINT PROBE failed: Assembly-CSharp is unavailable.");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] MUSIC LAB POINT PROBE BEGIN: read-only scan for the native total that drives Hub6 reward thresholds 5/10/20/32/46/64/89/111/140, plus any save/request path that can safely change it later.");
-
-        List<Type> types = ReflectionUtil.SafeGetTypes(asm).ToList();
-
-        Type? currentSaveEnquiries = types.FirstOrDefault(t =>
-            string.Equals(t.Name, "CurrentPlayerSaveEnquiries", StringComparison.Ordinal));
-
-        if (currentSaveEnquiries == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] MUSIC LAB POINT PROBE: CurrentPlayerSaveEnquiries type not found.");
-        }
-        else
-        {
-            DumpRelevantMembers(currentSaveEnquiries, null, staticMembers: true, "CurrentPlayerSaveEnquiries");
-
-            object? save = TryGetSelectedSave(currentSaveEnquiries);
-            if (save == null)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    "[SCRC-AP] MUSIC LAB POINT PROBE: selected player save was unavailable.");
-            }
-            else
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE SELECTED SAVE type='{save.GetType().FullName}'.");
-                DumpRelevantMembers(save.GetType(), save, staticMembers: false, "SelectedSave");
-            }
-        }
-
-        foreach (string exactTypeName in new[]
-                 {
-                     "LevelScoringEnquiries",
-                     "GameProgressionEnquiries",
-                     "Hub06MedalScoreRewardChest"
-                 })
-        {
-            Type? exact = types.FirstOrDefault(t =>
-                string.Equals(t.Name, exactTypeName, StringComparison.Ordinal));
-            if (exact == null)
-                continue;
-
-            bool staticMembers = exactTypeName.EndsWith("Enquiries", StringComparison.Ordinal);
-            DumpRelevantMembers(exact, null, staticMembers, exactTypeName);
-        }
-
-        int relatedTypes = 0;
-        foreach (Type t in types
-                     .Where(IsRelevantType)
-                     .OrderBy(t => t.FullName)
-                     .Take(120))
-        {
-            relatedTypes++;
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB POINT PROBE TYPE name='{t.FullName}'.");
-
-            if (t.Name.Contains("Request", StringComparison.OrdinalIgnoreCase))
-                DumpConstructors(t);
-        }
-
-        int processorOverloads = 0;
-        foreach (Type processorType in types.Where(t =>
-                     string.Equals(t.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal)))
-        {
-            foreach (MethodInfo m in SafeMethods(
-                         processorType,
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-            {
-                if (!string.Equals(m.Name, "ProcessRequest", StringComparison.Ordinal))
-                    continue;
-
-                ParameterInfo[] ps;
-                try { ps = m.GetParameters(); }
-                catch { continue; }
-
-                if (ps.Length != 1 || !IsRelevantName(ps[0].ParameterType.Name))
-                    continue;
-
-                processorOverloads++;
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE SAVE REQUEST PROCESSOR overload='ProcessRequest({ps[0].ParameterType.FullName})'.");
-            }
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB POINT PROBE COMPLETE: relatedTypes={relatedTypes} relevantSaveProcessorOverloads={processorOverloads}. Send this log before we add a write/set-points hotkey.");
-    }
-
-    private static bool IsRelevantType(Type t)
-    {
-        string name = t.Name ?? string.Empty;
-        return TypeKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)) &&
-               (name.Contains("Request", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Save", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Enquir", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Progress", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Reward", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Medal", StringComparison.OrdinalIgnoreCase) ||
-                name.Contains("Score", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool IsRelevantName(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return false;
-        return MemberKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)) ||
-               TypeKeywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static void DumpRelevantMembers(
-        Type type,
-        object? target,
-        bool staticMembers,
-        string label)
-    {
-        BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic |
-                             (staticMembers ? BindingFlags.Static : BindingFlags.Instance);
-
-        foreach (MethodInfo m in SafeMethods(type, flags)
-                     .Where(m => IsRelevantName(m.Name))
-                     .OrderBy(m => m.Name)
-                     .Take(120))
-        {
-            ParameterInfo[] ps;
-            try { ps = m.GetParameters(); }
-            catch { continue; }
-
-            string signature = string.Join(", ", ps.Select(p => p.ParameterType.Name));
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB POINT PROBE METHOD owner='{label}' name='{m.Name}' returns='{m.ReturnType.FullName}' params='({signature})'.");
-
-            if (target == null && !m.IsStatic)
-                continue;
-            if (ps.Length != 0 || m.ReturnType == typeof(void) || m.ContainsGenericParameters)
-                continue;
-            if (!IsSafeSimpleReturn(m.ReturnType))
-                continue;
-
-            try
-            {
-                object? value = m.Invoke(target, null);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE VALUE owner='{label}' source='{m.Name}()' value='{SafeValue(value)}'.");
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE INVOKE SKIPPED owner='{label}' method='{m.Name}' reason='{ex.GetBaseException().Message}'.");
-            }
-        }
-
-        foreach (PropertyInfo p in SafeProperties(type, flags)
-                     .Where(p => IsRelevantName(p.Name))
-                     .OrderBy(p => p.Name)
-                     .Take(120))
-        {
-            if (p.GetIndexParameters().Length != 0)
-                continue;
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB POINT PROBE PROPERTY owner='{label}' name='{p.Name}' type='{p.PropertyType.FullName}' canWrite={p.CanWrite}.");
-
-            MethodInfo? getter = p.GetGetMethod(true);
-            if (target == null && getter != null && !getter.IsStatic)
-                continue;
-            if (!p.CanRead || !IsSafeSimpleReturn(p.PropertyType))
-                continue;
-
-            try
-            {
-                object? value = p.GetValue(target);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE VALUE owner='{label}' source='property {p.Name}' value='{SafeValue(value)}'.");
-            }
-            catch { }
-        }
-
-        foreach (FieldInfo f in SafeFields(type, flags)
-                     .Where(f => IsRelevantName(f.Name))
-                     .OrderBy(f => f.Name)
-                     .Take(120))
-        {
-            if (target == null && !f.IsStatic)
-                continue;
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB POINT PROBE FIELD owner='{label}' name='{f.Name}' type='{f.FieldType.FullName}' writable={!f.IsInitOnly && !f.IsLiteral}.");
-
-            if (!IsSafeSimpleReturn(f.FieldType))
-                continue;
-
-            try
-            {
-                object? value = f.GetValue(target);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE VALUE owner='{label}' source='field {f.Name}' value='{SafeValue(value)}'.");
-            }
-            catch { }
-        }
-    }
-
-    private static object? TryGetSelectedSave(Type enquiriesType)
-    {
-        foreach (string methodName in new[]
-                 {
-                     "GetSelectedSlotSaveFileState",
-                     "TryGetSelectedSlotSaveFileState"
-                 })
-        {
-            MethodInfo? method = SafeMethods(
-                    enquiriesType,
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(m =>
-                    string.Equals(m.Name, methodName, StringComparison.Ordinal) &&
-                    SafeParameterCount(m) == 0);
-
-            if (method == null)
-                continue;
-
-            try
-            {
-                object? result = method.Invoke(null, null);
-                if (result != null)
-                {
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] MUSIC LAB POINT PROBE selected-save source='CurrentPlayerSaveEnquiries.{methodName}()'.");
-                    return result;
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE selected-save getter '{methodName}' failed: {ex.GetBaseException().Message}");
-            }
-        }
-
-        return null;
-    }
-
-    private static void DumpConstructors(Type type)
-    {
-        try
-        {
-            foreach (ConstructorInfo ctor in type.GetConstructors(
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                     .Take(24))
-            {
-                ParameterInfo[] ps;
-                try { ps = ctor.GetParameters(); }
-                catch { continue; }
-
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] MUSIC LAB POINT PROBE CTOR type='{type.FullName}' params='({string.Join(", ", ps.Select(p => p.ParameterType.FullName + " " + p.Name))})'.");
-            }
-        }
-        catch { }
-    }
-
-    private static IEnumerable<MethodInfo> SafeMethods(Type type, BindingFlags flags)
-    {
-        try { return type.GetMethods(flags); }
-        catch { return Array.Empty<MethodInfo>(); }
-    }
-
-    private static IEnumerable<PropertyInfo> SafeProperties(Type type, BindingFlags flags)
-    {
-        try { return type.GetProperties(flags); }
-        catch { return Array.Empty<PropertyInfo>(); }
-    }
-
-    private static IEnumerable<FieldInfo> SafeFields(Type type, BindingFlags flags)
-    {
-        try { return type.GetFields(flags); }
-        catch { return Array.Empty<FieldInfo>(); }
-    }
-
-    private static int SafeParameterCount(MethodInfo method)
-    {
-        try { return method.GetParameters().Length; }
-        catch { return -1; }
-    }
-
-    private static bool IsSafeSimpleReturn(Type type)
-    {
-        Type? nullable = Nullable.GetUnderlyingType(type);
-        if (nullable != null)
-            type = nullable;
-
-        return type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal);
-    }
-
-    private static string SafeValue(object? value)
-    {
-        if (value == null)
-            return "<null>";
-
-        try
-        {
-            object? unwrapped = ReflectionUtil.UnwrapNullable(value);
-            return unwrapped?.ToString() ?? "<nullable-null>";
-        }
-        catch
-        {
-            return "<unprintable>";
-        }
-    }
-}
-
-
-internal static class PhoneBoothDiagnostic
-{
-    private const string NativeLibrary = "GameAssembly.dll";
-    private static readonly object Sync = new();
-    private static readonly string[] CandidateTokens =
-    {
-        "phone", "booth", "telephone", "fasttravel", "fast_travel", "fast travel", "travel", "teleport", "transition"
-    };
-
-    private static float _armedUntil;
-    private static int _scanSequence;
-    private static bool _typeScanDone;
-    private static string _armedSourceRoom = "<unknown>";
-
-    public static void ScanCurrentSceneAndArm()
-    {
-        int sequence;
-        lock (Sync)
-        {
-            sequence = ++_scanSequence;
-            _armedUntil = Time.realtimeSinceStartup + 30f;
-            _armedSourceRoom = DeveloperHarness.CurrentRoomId;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== PHONE BOOTH SCAN #{sequence:00} BEGIN ===== currentRoom='{DeveloperHarness.CurrentRoomId}'. Next game-room transition is tagged for 30 seconds.");
-
-        if (!_typeScanDone)
-        {
-            _typeScanDone = true;
-            DumpRelevantGameTypes();
-        }
-
-        if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub6", StringComparison.OrdinalIgnoreCase))
-            DumpHub6FocusedCandidates();
-        else if (string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase))
-            DumpRootsFocusedCandidates();
-        else
-            DumpSceneCandidates();
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== PHONE BOOTH SCAN #{sequence:00} END ===== Interact with a Phone Booth and choose any destination within 30 seconds.");
-    }
-
-    public static void RecordObservedTransition(
-        string room,
-        string transitionType,
-        string spawnPoint,
-        string partOfLoadLevel)
-    {
-        bool armed;
-        lock (Sync)
-            armed = Time.realtimeSinceStartup <= _armedUntil;
-
-        if (!armed)
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] PHONE BOOTH ARMED TRANSITION sourceRoom='{_armedSourceRoom}' room='{room}' transitionType='{transitionType}' spawnPoint='{spawnPoint}' partOfLoadLevel='{partOfLoadLevel}'.");
-
-        lock (Sync)
-            _armedUntil = 0f;
-    }
-
-    private static void DumpRelevantGameTypes()
-    {
-        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-        if (gameAssembly == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] PHONE BOOTH TYPE SCAN skipped: Assembly-CSharp unavailable.");
-            return;
-        }
-
-        int emittedTypes = 0;
-        foreach (Type type in ReflectionUtil.SafeGetTypes(gameAssembly)
-                     .Where(t => IsRelevantText(t.FullName ?? t.Name))
-                     .OrderBy(t => t.FullName, StringComparer.OrdinalIgnoreCase))
-        {
-            if (emittedTypes++ >= 80)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    "[SCRC-AP] PHONE BOOTH TYPE SCAN capped at 80 matching types.");
-                break;
-            }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] PHONE BOOTH TYPE type='{type.FullName}'.");
-
-            int members = 0;
-            try
-            {
-                foreach (FieldInfo field in type.GetFields(
-                             BindingFlags.Public | BindingFlags.NonPublic |
-                             BindingFlags.Instance | BindingFlags.Static))
-                {
-                    if (members++ >= 40) break;
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] PHONE BOOTH TYPE FIELD owner='{type.FullName}' name='{field.Name}' type='{field.FieldType.FullName}'.");
-                }
-            }
-            catch { }
-
-            try
-            {
-                foreach (PropertyInfo property in type.GetProperties(
-                             BindingFlags.Public | BindingFlags.NonPublic |
-                             BindingFlags.Instance | BindingFlags.Static))
-                {
-                    if (members++ >= 40) break;
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] PHONE BOOTH TYPE PROPERTY owner='{type.FullName}' name='{property.Name}' type='{property.PropertyType.FullName}'.");
-                }
-            }
-            catch { }
-
-            try
-            {
-                foreach (MethodInfo method in type.GetMethods(
-                             BindingFlags.Public | BindingFlags.NonPublic |
-                             BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
-                {
-                    if (members++ >= 40) break;
-                    ParameterInfo[] ps;
-                    try { ps = method.GetParameters(); }
-                    catch { continue; }
-                    string signature = string.Join(", ", ps.Select(p => $"{p.ParameterType.Name} {p.Name}"));
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] PHONE BOOTH TYPE METHOD owner='{type.FullName}' signature='{method.ReturnType.Name} {method.Name}({signature})'.");
-                }
-            }
-            catch { }
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] PHONE BOOTH TYPE SCAN COMPLETE matches={Math.Min(emittedTypes, 80)}.");
-    }
-
-    private static void DumpHub6FocusedCandidates()
-    {
-        const string phoneRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== HUB6 PHONE BANK FOCUSED SCAN BEGIN ===== root='Root/GameRoom_Hub6_Logic/Objects/Phones'.");
-
-        var all = new List<Transform>();
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null)
-                    continue;
-
-                string path = BuildPath(tr);
-                if (path.Equals(phoneRootPath, StringComparison.Ordinal) ||
-                    path.StartsWith(phoneRootPath + "/", StringComparison.Ordinal))
-                    all.Add(tr);
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] HUB6 PHONE BANK enumeration failed: {ex.GetBaseException().Message}");
-            return;
-        }
-
-        foreach (Transform tr in all.OrderBy(t => BuildPath(t), StringComparer.OrdinalIgnoreCase))
-        {
-            string path = BuildPath(tr);
-            string relative = path.Length <= phoneRootPath.Length
-                ? string.Empty
-                : path.Substring(phoneRootPath.Length + 1);
-            int depth = string.IsNullOrEmpty(relative) ? 0 : relative.Count(c => c == '/') + 1;
-
-            GameObject go;
-            try { go = tr.gameObject; }
-            catch { continue; }
-            if (go == null)
-                continue;
-
-            bool directPhoneRoot = depth == 1;
-            bool interesting = directPhoneRoot || HasNonVisualNativeComponent(go) || HasTargetBearingNativeComponent(go);
-            if (!interesting)
-                continue;
-
-            bool active = false;
-            try { active = go.activeInHierarchy; } catch { }
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] HUB6 PHONE BANK OBJECT depth={depth} path='{path}' active={active} directPhoneRoot={directPhoneRoot}.");
-            DumpNativeComponents(go, path);
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] HUB6 PHONE BANK FOCUSED SCAN COMPLETE matchedTransforms={all.Count}.");
-
-        DumpHub6TargetBearingComponents();
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== HUB6 PHONE BANK FOCUSED SCAN END =====");
-    }
-
-    private static bool HasNonVisualNativeComponent(GameObject go)
-    {
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch { return false; }
-
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            IntPtr obj = GetNativePointer(component);
-            if (obj == IntPtr.Zero)
-                continue;
-
-            IntPtr klass = IntPtr.Zero;
-            try { klass = pb_il2cpp_object_get_class(obj); } catch { }
-            string name = NativeClassFullName(klass);
-            if (string.IsNullOrWhiteSpace(name))
-                continue;
-
-            if (name == "UnityEngine.Transform" ||
-                name == "UnityEngine.RectTransform" ||
-                name == "UnityEngine.MeshFilter" ||
-                name == "UnityEngine.MeshRenderer" ||
-                name == "UnityEngine.SkinnedMeshRenderer" ||
-                name == "UnityEngine.Animator" ||
-                name == "UnityEngine.BoxCollider" ||
-                name == "UnityEngine.SphereCollider" ||
-                name == "UnityEngine.CapsuleCollider" ||
-                name == "UnityEngine.MeshCollider" ||
-                name == "UnityEngine.AudioSource" ||
-                name == "UnityEngine.Light")
-                continue;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool HasTargetBearingNativeComponent(GameObject go)
-    {
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch { return false; }
-
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            IntPtr obj = GetNativePointer(component);
-            if (obj == IntPtr.Zero)
-                continue;
-
-            IntPtr klass = IntPtr.Zero;
-            try { klass = pb_il2cpp_object_get_class(obj); } catch { }
-            if (NativeClassHasTargetField(klass))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool NativeClassHasTargetField(IntPtr klass)
-    {
-        IntPtr current = klass;
-        for (int depth = 0; current != IntPtr.Zero && depth < 7; depth++)
-        {
-            IntPtr iter = IntPtr.Zero;
-            while (true)
-            {
-                IntPtr field;
-                try { field = pb_il2cpp_class_get_fields(current, ref iter); }
-                catch { field = IntPtr.Zero; }
-                if (field == IntPtr.Zero)
-                    break;
-
-                string fieldName = NativeAnsi(() => pb_il2cpp_field_get_name(field));
-                IntPtr fieldType = IntPtr.Zero;
-                try { fieldType = pb_il2cpp_field_get_type(field); } catch { }
-                string fieldTypeName = NativeTypeName(fieldType);
-                string combined = (fieldName + " " + fieldTypeName).ToLowerInvariant();
-                if (combined.Contains("roomtogo") ||
-                    combined.Contains("gameroom") ||
-                    combined.Contains("destination") ||
-                    combined.Contains("specificspawn") ||
-                    combined.Contains("spawnpoint"))
-                    return true;
-            }
-
-            try { current = pb_il2cpp_class_get_parent(current); }
-            catch { current = IntPtr.Zero; }
-        }
-
-        return false;
-    }
-
-    private static void DumpHub6TargetBearingComponents()
-    {
-        const string hub6LogicPrefix = "Root/GameRoom_Hub6_Logic/";
-        int emitted = 0;
-        var seen = new HashSet<int>();
-
-        try
-        {
-            var hub6Transforms = new List<Transform>();
-            foreach (Transform candidate in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (candidate != null)
-                    hub6Transforms.Add(candidate);
-            }
-
-            foreach (Transform tr in hub6Transforms.OrderBy(t => BuildPath(t), StringComparer.OrdinalIgnoreCase))
-            {
-                if (tr == null)
-                    continue;
-
-                string path = BuildPath(tr);
-                if (!path.StartsWith(hub6LogicPrefix, StringComparison.Ordinal))
-                    continue;
-
-                GameObject go;
-                try { go = tr.gameObject; }
-                catch { continue; }
-                if (go == null)
-                    continue;
-
-                int id;
-                try { id = go.GetInstanceID(); }
-                catch { id = 0; }
-                if (id != 0 && !seen.Add(id))
-                    continue;
-
-                if (!HasTargetBearingNativeComponent(go))
-                    continue;
-
-                if (emitted++ >= 160)
-                {
-                    Plugin.LoggerInstance?.LogWarning(
-                        "[SCRC-AP] HUB6 TARGET COMPONENT SCAN capped at 160 objects.");
-                    break;
-                }
-
-                bool active = false;
-                try { active = go.activeInHierarchy; } catch { }
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] HUB6 TARGET OBJECT path='{path}' active={active}.");
-                DumpNativeComponents(go, path);
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] HUB6 TARGET COMPONENT SCAN failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] HUB6 TARGET COMPONENT SCAN COMPLETE objects={Math.Min(emitted, 160)}.");
-    }
-
-    private static void DumpRootsFocusedCandidates()
-    {
-        const string rootsRootPath = "Root/GameRoom_Hub2_Logic";
-        string[] rootsTokens =
-        {
-            "phone", "booth", "trevor", "weed", "killer", "bagpipe", "star", "eater", "firstareagate", "gate"
-        };
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== ROOTS ROUTING FOCUSED SCAN BEGIN ===== Looking for the Roots Phone Booth Weed Killer reward sequence, Trevor blockade, FirstAreaGate, and related progression conditions.");
-
-        var matches = new List<Transform>();
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null)
-                    continue;
-
-                string path = BuildPath(tr);
-                if (!path.StartsWith(rootsRootPath, StringComparison.Ordinal))
-                    continue;
-
-                string lower = path.ToLowerInvariant();
-                if (!rootsTokens.Any(token => lower.Contains(token, StringComparison.Ordinal)))
-                    continue;
-
-                matches.Add(tr);
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS ROUTING scan enumeration failed: {ex.GetBaseException().Message}");
-            return;
-        }
-
-        var seen = new HashSet<int>();
-        int emitted = 0;
-        foreach (Transform tr in matches.OrderBy(t => BuildPath(t), StringComparer.OrdinalIgnoreCase))
-        {
-            GameObject go;
-            try { go = tr.gameObject; }
-            catch { continue; }
-            if (go == null)
-                continue;
-
-            int id;
-            try { id = go.GetInstanceID(); }
-            catch { id = 0; }
-            if (id != 0 && !seen.Add(id))
-                continue;
-
-            if (emitted++ >= 180)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    "[SCRC-AP] ROOTS ROUTING focused scan capped at 180 matching objects.");
-                break;
-            }
-
-            string path = BuildPath(tr);
-            bool active = false;
-            try { active = go.activeInHierarchy; } catch { }
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] ROOTS ROUTING OBJECT path='{path}' active={active}.");
-            DumpNativeComponents(go, path);
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== ROOTS ROUTING FOCUSED SCAN END ===== objects={Math.Min(emitted, 180)}. Use the Roots world Phone Booth once after the scan so its next transition is tagged.");
-    }
-
-    private static void DumpSceneCandidates()
-    {
-        var candidates = new List<Transform>();
-        try
-        {
-            foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (tr == null)
-                    continue;
-
-                string path = BuildPath(tr);
-                if (!IsRelevantText(path))
-                    continue;
-
-                candidates.Add(tr);
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] PHONE BOOTH SCENE SCAN enumeration failed: {ex.GetBaseException().Message}");
-            return;
-        }
-
-        var seen = new HashSet<int>();
-        int emitted = 0;
-        foreach (Transform tr in candidates.OrderBy(t => BuildPath(t), StringComparer.OrdinalIgnoreCase))
-        {
-            GameObject go;
-            try { go = tr.gameObject; }
-            catch { continue; }
-            if (go == null)
-                continue;
-
-            int id;
-            try { id = go.GetInstanceID(); }
-            catch { id = 0; }
-            if (id != 0 && !seen.Add(id))
-                continue;
-
-            if (emitted++ >= 100)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    "[SCRC-AP] PHONE BOOTH SCENE SCAN capped at 100 matching objects.");
-                break;
-            }
-
-            string path = BuildPath(tr);
-            bool active = false;
-            try { active = go.activeInHierarchy; } catch { }
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] PHONE BOOTH OBJECT path='{path}' active={active}.");
-
-            DumpNativeComponents(go, path);
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] PHONE BOOTH SCENE SCAN COMPLETE objects={Math.Min(emitted, 100)}.");
-    }
-
-    private static void DumpNativeComponents(GameObject go, string path)
-    {
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] PHONE BOOTH COMPONENTS failed path='{path}': {ex.GetBaseException().Message}");
-            return;
-        }
-
-        int index = 0;
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            index++;
-            IntPtr obj = GetNativePointer(component);
-            IntPtr klass = IntPtr.Zero;
-            try
-            {
-                if (obj != IntPtr.Zero)
-                    klass = pb_il2cpp_object_get_class(obj);
-            }
-            catch { }
-
-            string className = NativeClassFullName(klass);
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] PHONE BOOTH COMPONENT path='{path}' index={index} managed='{component.GetType().FullName}' native='{className}'.");
-
-            // The booth hierarchy often uses generic interaction/sequence components,
-            // so inspect all components on matching scene objects but emit only
-            // destination/room/travel/progression-related fields.
-            DumpRelevantNativeFields(obj, klass, path, className);
-        }
-    }
-
-    private static void DumpRelevantNativeFields(
-        IntPtr obj,
-        IntPtr klass,
-        string path,
-        string rootClassName)
-    {
-        if (obj == IntPtr.Zero || klass == IntPtr.Zero)
-            return;
-
-        int emitted = 0;
-        IntPtr current = klass;
-        for (int depth = 0; current != IntPtr.Zero && depth < 7 && emitted < 60; depth++)
-        {
-            IntPtr iter = IntPtr.Zero;
-            while (emitted < 60)
-            {
-                IntPtr field;
-                try { field = pb_il2cpp_class_get_fields(current, ref iter); }
-                catch { field = IntPtr.Zero; }
-                if (field == IntPtr.Zero)
-                    break;
-
-                string fieldName = NativeAnsi(() => pb_il2cpp_field_get_name(field));
-                IntPtr fieldType = IntPtr.Zero;
-                try { fieldType = pb_il2cpp_field_get_type(field); }
-                catch { }
-                string fieldTypeName = NativeTypeName(fieldType);
-
-                if (!IsInterestingField(fieldName, fieldTypeName))
-                    continue;
-
-                string value = NativeFieldValue(field, obj, fieldTypeName);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] PHONE BOOTH NATIVE FIELD path='{path}' class='{rootClassName}' declaring='{NativeClassFullName(current)}' name='{fieldName}' type='{fieldTypeName}' value='{value}'.");
-                emitted++;
-            }
-
-            try { current = pb_il2cpp_class_get_parent(current); }
-            catch { current = IntPtr.Zero; }
-        }
-    }
-
-    private static bool IsInterestingField(string fieldName, string fieldTypeName)
-    {
-        string combined = (fieldName + " " + fieldTypeName).ToLowerInvariant();
-        return combined.Contains("destination") ||
-               combined.Contains("room") ||
-               combined.Contains("spawn") ||
-               combined.Contains("travel") ||
-               combined.Contains("teleport") ||
-               combined.Contains("phone") ||
-               combined.Contains("booth") ||
-               combined.Contains("unlock") ||
-               combined.Contains("progress") ||
-               combined.Contains("available") ||
-               combined.Contains("visited") ||
-               combined.Contains("identifier") ||
-               combined.Contains("location") ||
-               combined.Contains("level") ||
-               combined.Contains("item") ||
-               combined.Contains("ability") ||
-               combined.Contains("bag") ||
-               combined.Contains("reward") ||
-               combined.Contains("flag") ||
-               combined.Contains("condition") ||
-               combined.Contains("sequence") ||
-               combined.Contains("quest");
-    }
-
-    private static bool IsRelevantText(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        string value = text.ToLowerInvariant();
-        return CandidateTokens.Any(token => value.Contains(token, StringComparison.Ordinal));
-    }
-
-    private static string BuildPath(Transform tr)
-    {
-        try
-        {
-            var names = new List<string>();
-            Transform? current = tr;
-            for (int i = 0; i < 32 && current != null; i++)
-            {
-                names.Add(current.name ?? "<unnamed>");
-                current = current.parent;
-            }
-            names.Reverse();
-            return string.Join("/", names);
-        }
-        catch
-        {
-            return tr.name ?? "<unavailable>";
-        }
-    }
-
-    private static IntPtr GetNativePointer(object value)
-    {
-        try
-        {
-            PropertyInfo? property = value.GetType().GetProperty(
-                "Pointer",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            return property?.GetValue(value) is IntPtr pointer ? pointer : IntPtr.Zero;
-        }
-        catch
-        {
-            return IntPtr.Zero;
-        }
-    }
-
-    private static string NativeClassFullName(IntPtr klass)
-    {
-        if (klass == IntPtr.Zero)
-            return "<no-class>";
-
-        string ns = NativeAnsi(() => pb_il2cpp_class_get_namespace(klass));
-        string name = NativeAnsi(() => pb_il2cpp_class_get_name(klass));
-        if (string.IsNullOrWhiteSpace(name))
-            name = "<unnamed-class>";
-        return string.IsNullOrWhiteSpace(ns) ? name : ns + "." + name;
-    }
-
-    private static string NativeTypeName(IntPtr type)
-    {
-        if (type == IntPtr.Zero)
-            return "<unknown-type>";
-
-        try
-        {
-            IntPtr klass = pb_il2cpp_class_from_type(type);
-            if (klass != IntPtr.Zero)
-                return NativeClassFullName(klass);
-        }
-        catch { }
-        return "<unknown-type>";
-    }
-
-    private static string NativeAnsi(Func<IntPtr> getter)
-    {
-        try
-        {
-            IntPtr ptr = getter();
-            return ptr == IntPtr.Zero ? string.Empty : Marshal.PtrToStringAnsi(ptr) ?? string.Empty;
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
-    private static string NativeFieldValue(IntPtr field, IntPtr obj, string typeName)
-    {
-        IntPtr boxed;
-        try { boxed = pb_il2cpp_field_get_value_object(field, obj); }
-        catch { return "<read-failed>"; }
-        if (boxed == IntPtr.Zero)
-            return "<null>";
-
-        string simple = typeName.ToLowerInvariant();
-        try
-        {
-            IntPtr unboxed = pb_il2cpp_object_unbox(boxed);
-            if (unboxed != IntPtr.Zero)
-            {
-                if (simple == "system.boolean")
-                    return Marshal.ReadByte(unboxed) != 0 ? "True" : "False";
-                if (simple == "system.byte")
-                    return Marshal.ReadByte(unboxed).ToString();
-                if (simple.Contains("int32") || simple.Contains("uint32") ||
-                    simple.Contains("int16") || simple.Contains("uint16") ||
-                    simple.Contains("progressionflag"))
-                    return Marshal.ReadInt32(unboxed).ToString();
-            }
-        }
-        catch { }
-
-        try
-        {
-            IntPtr valueClass = pb_il2cpp_object_get_class(boxed);
-            return $"<{NativeClassFullName(valueClass)}>";
-        }
-        catch
-        {
-            return "<object>";
-        }
-    }
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_object_get_class")]
-    private static extern IntPtr pb_il2cpp_object_get_class(IntPtr obj);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_class_get_parent")]
-    private static extern IntPtr pb_il2cpp_class_get_parent(IntPtr klass);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_class_get_name")]
-    private static extern IntPtr pb_il2cpp_class_get_name(IntPtr klass);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_class_get_namespace")]
-    private static extern IntPtr pb_il2cpp_class_get_namespace(IntPtr klass);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_class_get_fields")]
-    private static extern IntPtr pb_il2cpp_class_get_fields(IntPtr klass, ref IntPtr iter);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_field_get_name")]
-    private static extern IntPtr pb_il2cpp_field_get_name(IntPtr field);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_field_get_type")]
-    private static extern IntPtr pb_il2cpp_field_get_type(IntPtr field);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_class_from_type")]
-    private static extern IntPtr pb_il2cpp_class_from_type(IntPtr type);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_field_get_value_object")]
-    private static extern IntPtr pb_il2cpp_field_get_value_object(IntPtr field, IntPtr obj);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_object_unbox")]
-    private static extern IntPtr pb_il2cpp_object_unbox(IntPtr obj);
 }
 
 internal static class WeedKillerRandomization
@@ -6820,9 +3357,6 @@ internal static class WeedKillerRandomization
     }
 
     // Legacy request hooks must never write native state.
-    public static void CapturePlayerSaveRequestProcessor(object? instance) { }
-    public static void TryFlushPendingNativeGrant() { }
-
     internal static void RecordConsumption(object evt, string flag)
     {
         if (_applyingNativeGrant || !Enabled || !string.Equals(flag, NativeBagFlag, StringComparison.Ordinal) ||
@@ -6910,173 +3444,8 @@ internal static class WeedKillerRandomization
         Plugin.AP?.QueueLocation(SourceLocationName);
     }
 
-    internal static bool TrySubmitProgressionFlag(object processor, string flagName, bool value, out string detail)
-    {
-        detail = string.Empty;
-        try
-        {
-            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-            Type? requestType = gameAssembly?.GetType("RecordGameProgressionInSaveDataRequest", throwOnError: false, ignoreCase: false);
-            if (requestType == null)
-            {
-                detail = "RecordGameProgressionInSaveDataRequest type not found.";
-                return false;
-            }
-
-            Type? flagType = requestType.GetProperty(
-                    "Flag", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.PropertyType
-                ?? requestType.GetField(
-                    "_Flag_k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType;
-            if (flagType == null || !flagType.IsEnum)
-            {
-                detail = "progression flag enum type not found.";
-                return false;
-            }
-
-            object flagValue;
-            try { flagValue = Enum.Parse(flagType, flagName, ignoreCase: false); }
-            catch (Exception ex)
-            {
-                detail = $"enum value '{flagName}' unavailable: {ex.GetBaseException().Message}";
-                return false;
-            }
-
-            object? request = null;
-            string ctorDescription = string.Empty;
-            foreach (ConstructorInfo ctor in requestType.GetConstructors(
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                     .Where(c => !c.GetParameters().Any(p => p.ParameterType == typeof(IntPtr)))
-                     .OrderBy(c => c.GetParameters().Length))
-            {
-                ParameterInfo[] ps;
-                try { ps = ctor.GetParameters(); }
-                catch { continue; }
-
-                var args = new object?[ps.Length];
-                bool supported = true;
-                for (int i = 0; i < ps.Length; i++)
-                {
-                    Type pt = ps[i].ParameterType;
-                    if (pt == flagType)
-                        args[i] = flagValue;
-                    else if (pt == typeof(bool))
-                        args[i] = value;
-                    else if (pt.IsEnum)
-                    {
-                        try { args[i] = Enum.Parse(pt, "INVALID", ignoreCase: true); }
-                        catch { args[i] = Activator.CreateInstance(pt); }
-                    }
-                    else if (pt.IsValueType)
-                        args[i] = Activator.CreateInstance(pt);
-                    else
-                        args[i] = null;
-                }
-
-                if (!supported)
-                    continue;
-
-                try
-                {
-                    request = ctor.Invoke(args);
-                    ctorDescription = $"ctor({string.Join(",", ps.Select(p => p.ParameterType.Name))})";
-                    if (request != null)
-                        break;
-                }
-                catch { request = null; }
-            }
-
-            if (request == null)
-            {
-                try
-                {
-                    request = Activator.CreateInstance(requestType, nonPublic: true);
-                    ctorDescription = "Activator.CreateInstance";
-                }
-                catch (Exception ex)
-                {
-                    detail = $"could not construct request: {ex.GetBaseException().Message}";
-                    return false;
-                }
-            }
-
-            // Ensure the semantic values are correct even if a permissive/default
-            // constructor was selected. Generated IL2CPP wrappers expose these
-            // backing fields in the current game build.
-            if (request == null)
-            {
-                detail = "native request construction returned null";
-                return false;
-            }
-            TryWriteMember(request, "Flag", flagValue);
-            TryWriteMember(request, "_Flag_k__BackingField", flagValue);
-            TryWriteMember(request, "Value", value);
-            TryWriteMember(request, "_Value_k__BackingField", value);
-
-            MethodInfo? process = processor.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(m =>
-                {
-                    if (!string.Equals(m.Name, "ProcessRequest", StringComparison.Ordinal))
-                        return false;
-                    ParameterInfo[] ps;
-                    try { ps = m.GetParameters(); }
-                    catch { return false; }
-                    return ps.Length == 1 && ps[0].ParameterType.IsInstanceOfType(request);
-                });
-
-            if (process == null)
-            {
-                detail = "matching PlayerSaveRequestProcessor.ProcessRequest overload not found.";
-                return false;
-            }
-
-            try
-            {
-                _applyingNativeGrant = true;
-                process.Invoke(processor, new[] { request });
-            }
-            finally
-            {
-                _applyingNativeGrant = false;
-            }
-
-            detail = $"via {ctorDescription}";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            detail = ex.GetBaseException().ToString();
-            return false;
-        }
-    }
-
-    private static bool TryWriteMember(object obj, string name, object value)
-    {
-        Type t = obj.GetType();
-        try
-        {
-            PropertyInfo? p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (p != null && p.CanWrite)
-            {
-                p.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        try
-        {
-            FieldInfo? f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (f != null)
-            {
-                f.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        return false;
-    }
+    internal static bool TrySubmitProgressionFlag(object processor, string flagName, bool value, out string detail) =>
+        NativeProgressionFlagRequest.TrySubmit(processor, flagName, value, ref _applyingNativeGrant, out detail);
 }
 
 
@@ -7316,118 +3685,6 @@ internal static class RootsIntroCutsceneBypass
     }
 }
 
-internal static class RootsStartupBootstrap
-{
-    internal const string GateOpenedFlag = "ROOTS_HUB_GATE_OPENED";
-    internal const string DifficultyCompleteFlag = "ROOTS_HUB_DIFFICULTY_ASSIGNMENT_COMPLETE";
-
-    private static readonly object Sync = new();
-    private static object? _processor;
-    private static bool _compatible;
-    private static bool _synchronized;
-    private static bool _complete;
-    private static int _attempts;
-    private static int _cooldown;
-
-    public static void Configure()
-    {
-        lock (Sync)
-        {
-            _processor = null;
-            _compatible = false;
-            _synchronized = false;
-            _complete = false;
-            _attempts = 0;
-            _cooldown = 0;
-        }
-    }
-
-    public static void ApplySlotData(Dictionary<string, object>? slotData)
-    {
-        string implementation = slotData != null &&
-                                slotData.TryGetValue("implementation_version", out object? raw)
-            ? raw?.ToString() ?? string.Empty
-            : string.Empty;
-        lock (Sync)
-        {
-            _compatible = AreaAccessPrototype.Enabled &&
-                          implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
-            _synchronized = true;
-            _complete = false;
-            _attempts = 0;
-            _cooldown = 0;
-        }
-    }
-
-    public static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null ||
-            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-        lock (Sync)
-            _processor = instance;
-    }
-
-    public static void Tick()
-    {
-        object? processor;
-        int attempts;
-        lock (Sync)
-        {
-            if (!_compatible || _complete || _cooldown-- > 0)
-                return;
-            _cooldown = 60;
-            processor = _processor;
-            attempts = _attempts;
-        }
-
-        bool gateReadable = RootsBucketRandomization.TryReadProgressionFlag(GateOpenedFlag, out bool gateOwned);
-        bool difficultyReadable = RootsBucketRandomization.TryReadProgressionFlag(DifficultyCompleteFlag, out bool difficultyOwned);
-        if (!gateReadable || !difficultyReadable || processor == null)
-            return;
-
-        StarHudDecision hudDecision = StarHudPolicy.Decide(
-            enabled: true,
-            compatible: _compatible,
-            synchronized: _synchronized,
-            roomId: DeveloperHarness.CurrentRoomId);
-
-        if (hudDecision != StarHudDecision.ShowCampaignStars)
-            return;
-
-        if (gateOwned && difficultyOwned)
-        {
-            lock (Sync)
-                _complete = true;
-            Plugin.LoggerInstance?.LogInfo(
-                "[SCRC-AP] ROOTS STARTUP BOOTSTRAP VERIFIED: native campaign HUD and difficulty bookkeeping are ready.");
-            return;
-        }
-
-        if (attempts >= 4)
-        {
-            lock (Sync)
-                _complete = true;
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] ROOTS STARTUP BOOTSTRAP FALLBACK: exact flags could not be verified after four submissions; preserving current native state.");
-            return;
-        }
-
-        bool submitted = true;
-        if (!gateOwned)
-            submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
-                processor, GateOpenedFlag, true, out _);
-        if (!difficultyOwned)
-            submitted &= WeedKillerRandomization.TrySubmitProgressionFlag(
-                processor, DifficultyCompleteFlag, true, out _);
-
-        lock (Sync)
-            _attempts++;
-        Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] ROOTS STARTUP BOOTSTRAP SUBMITTED attempt={attempts + 1} success={submitted} gateOwned={gateOwned} difficultyOwned={difficultyOwned}; Music Lab Points HUD remains untouched and no difficulty was selected.");
-    }
-}
-
 internal sealed class MusicLabBarrierKeeper : MonoBehaviour
 {
     private readonly Dictionary<string, (GameObject Object, bool ActiveSelf)> _baseline =
@@ -7474,6 +3731,7 @@ internal sealed class MusicLabBarrierKeeper : MonoBehaviour
         }
     }
 
+    private void OnDisable() => RestoreVanillaState();
     private void OnDestroy() => RestoreVanillaState();
 
     private void RestoreVanillaState()
@@ -7493,9 +3751,8 @@ internal static class CassetteSourceRandomization
     private static bool _enabled;
 
     internal static void Configure() => _enabled=false;
-    internal static void ApplySlotData(Dictionary<string,object>? slotData)
+    internal static void ApplySlotData(CassetteSlotCompatibilityResult compatibility)
     {
-        CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
         _enabled=compatibility.Compatible;
         Plugin.LoggerInstance?.LogWarning(_enabled
             ? $"[SCRC-AP] CASSETTE SOURCE RANDOMIZATION ENABLED entries={CassetteCatalog.All.Count} levelSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.LevelEarnedReward)} chestSources={CassetteCatalog.All.Count(x=>x.SourceType==CassetteSourceType.MusicLabPointChest)}."
@@ -7638,7 +3895,6 @@ internal static class CassetteReceiptRandomization
     private static bool _saveSynchronizationReady;
     private static bool _saveSynchronizationDeferredLogged;
     private static bool _saveSynchronizationReadyLogged;
-    private static bool _acceptanceDiagnosticsEnabled;
     private static CassetteProductionPersistenceCoordinator _productionPersistence =
         new(() => RequestUnityReconciliation("cassette persistence verified"));
     private static readonly CassettePersistenceAcceptanceMarkerEmitter _persistenceMarkerEmitter = new();
@@ -7647,12 +3903,7 @@ internal static class CassetteReceiptRandomization
 
     internal static bool Enabled { get; private set; }
     internal static bool IsApplyingNativeGrant => _applyingNativeGrant;
-    internal static bool IsPersistenceWriteActive
-    {
-        get { lock (Sync) return _productionPersistence.Active; }
-    }
-
-    internal static void Configure(bool acceptanceDiagnosticsEnabled = false)
+    internal static void Configure()
     {
         lock (Sync)
         {
@@ -7666,32 +3917,18 @@ internal static class CassetteReceiptRandomization
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _unityReconciliationRequested = false; _unityReconciliationReason = string.Empty; _lastIdentityDiagnostic = string.Empty;
             _saveSynchronizationReady = false; _saveSynchronizationDeferredLogged = false; _saveSynchronizationReadyLogged = false;
-            _acceptanceDiagnosticsEnabled = acceptanceDiagnosticsEnabled;
             _productionPersistence = new CassetteProductionPersistenceCoordinator(
                 () => RequestUnityReconciliation("cassette persistence verified"));
             _persistencePoll = new CassettePersistencePollScheduler();
         }
     }
 
-    internal static void SetPersistenceAcceptanceDiagnosticsEnabled(bool enabled)
+    internal static void ApplySlotData(CassetteSlotCompatibilityResult compatibility, bool bundled)
     {
-        if (enabled)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] CASSETTE PERSISTENCE DIAGNOSTICS enable deferred; restart is required so the opt-in write-completed event observer is installed at startup.");
-            return;
-        }
-        lock (Sync) _acceptanceDiagnosticsEnabled = false;
-    }
-
-    internal static void ApplySlotData(Dictionary<string, object>? slotData)
-    {
-        CassetteSlotCompatibilityResult compatibility = CassetteSlotDataCompatibility.Validate(slotData);
         bool enabled = compatibility.Compatible;
         if (!enabled) CancelPointerBoundPersistence("cassette-routing-disabled");
         lock (Sync)
         {
-            bool bundled = CassetteBundleContract.Parse(slotData).Bundled;
             if (_bundleRouting || bundled) _runtime.ReplaceOwnedSongs(Array.Empty<string>());
             _bundleRouting = bundled;
             _lastBundleSongs = null;
@@ -7746,31 +3983,6 @@ internal static class CassetteReceiptRandomization
     internal static void OnLifecyclePoint(string reason)
     {
         RequestUnityReconciliation(reason);
-    }
-
-    internal static void LogPostLoadSnapshot(string currentRoom, string reason)
-    {
-        object? processor;
-        long epoch;
-        int? slot;
-        long expectedPointer;
-        lock (Sync)
-        {
-            processor = _playerSaveRequestProcessor;
-            epoch = _runtime.Epoch;
-            slot = _runtime.ActiveSlot;
-            expectedPointer = _activeSavePointer;
-        }
-        string[] songs = { "BADASS", "HEAVY_METAL", "KEEP_ON_HUSTLIN", "ON_THE_WAY" };
-        CassettePostLoadDiagnosticState snapshot =
-            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(processor, songs);
-        string epochText = epoch > 0 ? epoch.ToString() : "<unavailable>";
-        string slotText = slot?.ToString() ?? "<unavailable>";
-        string expectedPointerText = expectedPointer != 0 ? $"0x{expectedPointer:X}" : "<unavailable>";
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] CASSETTE POST-LOAD SNAPSHOT room='{currentRoom}' reason='{reason}' " +
-            $"epoch={epochText} slot={slotText} expectedPointer={expectedPointerText} " +
-            CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(snapshot));
     }
 
     private static void RequestUnityReconciliation(string reason)
@@ -7867,23 +4079,6 @@ internal static class CassetteReceiptRandomization
         RequestUnityReconciliation("save selection completed");
     }
 
-    internal static void DeactivateLoadedSave(string reason)
-    {
-        CancelPointerBoundPersistence("save-deactivated");
-        lock (Sync)
-        {
-            _runtime.DeactivateSave();
-            _activeSaveGeneration = 0;
-            _activeSavePointer = 0;
-            _gameplayReady.BeginBoundary();
-            _joinedSaveDataRequestProcessor = null;
-            _saveSynchronizationReady = false;
-            _saveSynchronizationDeferredLogged = false;
-            _saveSynchronizationReadyLogged = false;
-        }
-        Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE SAVE EPOCH INACTIVE reason='{reason}'.");
-    }
-
     private static void CancelPointerBoundPersistence(string reason)
     {
         CassettePersistenceAcceptanceIdentity identity;
@@ -7901,7 +4096,7 @@ internal static class CassetteReceiptRandomization
 
     internal static void TryReconcile(string reason)
     {
-        string[] songs;
+        IReadOnlyList<string> songs;
         long generation;
         long epoch;
         int slot;
@@ -7914,7 +4109,7 @@ internal static class CassetteReceiptRandomization
             slot = _runtime.ActiveSlot!.Value;
             pointer = _activeSavePointer;
             if (!_gameplayReady.IsOpen(new(generation, epoch, slot, pointer))) return;
-            songs = _runtime.PendingSongs.ToArray();
+            songs = _runtime.PendingSongs;
         }
         if (!TryConfirmSaveSynchronizationReady(
                 generation, epoch, slot, pointer,
@@ -8221,7 +4416,7 @@ internal static class CassetteReceiptRandomization
                 _runtime.HasActiveSave && _gameplayReady.IsOpen(new(
                     _activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot!.Value, _activeSavePointer));
             if (_reconciliationRetry.Tick(elapsed, readyForRetry,
-                    !_saveSynchronizationReady || _runtime.PendingSongs.Count > 0))
+                    !_saveSynchronizationReady || _runtime.HasPendingSongs))
             {
                 _unityReconciliationRequested = true;
                 _unityReconciliationReason = "bounded pending delivery retry";
@@ -8241,7 +4436,7 @@ internal static class CassetteReceiptRandomization
         }
         if (reason != null) TryReconcile(reason);
 
-        string[] ready;
+        IReadOnlyList<string> ready;
         lock (Sync)
         {
             if (!_runtime.HasActiveSave ||
@@ -8252,9 +4447,10 @@ internal static class CassetteReceiptRandomization
                     _activeSavePointer)))
                 return;
             if (!_saveSynchronizationReady) return;
-            ready = _runtime.Tick(elapsed).ToArray();
+            ready = _runtime.Tick(elapsed);
         }
         foreach (string song in ready) TryReconcileSong(song, "bounded delayed verification", verificationDue: true);
+        // The verified songs carry the save identity that received them. A slot switch must invalidate that pending write.
         CassettePersistenceTargetDiagnosticWave diagnosticWave;
         bool hasDiagnosticWave;
         lock (Sync)
@@ -8274,103 +4470,11 @@ internal static class CassetteReceiptRandomization
         TryStartPointerBoundPersistence(elapsed);
     }
 
-    private static void LogPersistenceTargetOwnershipDiagnostic(CassettePersistenceTargetDiagnosticWave wave)
-    {
-        object? playerProcessor;
-        object? retainedSaveDataProcessor;
-        long generation;
-        long epoch;
-        int slot;
-        long pointer;
-        string[] ownedSongs;
-        lock (Sync)
-        {
-            if (_saveIdentity.Pending || !_runtime.HasActiveSave || wave.Songs.Count == 0 ||
-                !wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer))
-                return;
-            playerProcessor = _playerSaveRequestProcessor;
-            retainedSaveDataProcessor = _joinedSaveDataRequestProcessor;
-            generation = wave.Identity.Generation;
-            epoch = wave.Identity.Epoch;
-            slot = wave.Identity.Slot;
-            pointer = wave.Identity.StatePointer;
-            ownedSongs = _runtime.OwnedSongs.ToArray();
-        }
-
-        int frame = Time.frameCount;
-        int thread = Environment.CurrentManagedThreadId;
-        CassettePostLoadDiagnosticState selectedEvidence =
-            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(playerProcessor, ownedSongs);
-        bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-            playerProcessor,
-            retainedSaveDataProcessor,
-            slot,
-            pointer,
-            ownedSongs,
-            out CassetteDiskCommitTargetDiagnosticState target,
-            out int registryCount,
-            out string targetStage);
-        bool activeStateReadable = CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
-            playerProcessor,
-            pointer,
-            out CassettePersistenceTargetActiveState activeState,
-            out string activeStateStage);
-        bool writeStateReadable = CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(
-            playerProcessor,
-            pointer,
-            ownedSongs,
-            out CassettePublicWriteDiagnosticState writeState,
-            out string writeStateStage);
-
-        bool identityStillCurrent;
-        lock (Sync)
-        {
-            identityStillCurrent = !_saveIdentity.Pending && _runtime.HasActiveSave &&
-                wave.IsCurrent(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot, _activeSavePointer);
-        }
-
-        static string Pointer(bool readable, long value) => readable ? $"0x{value:X}" : "<unavailable>";
-        static string Value<T>(bool readable, T value) => readable ? value?.ToString() ?? "<null>" : "<unavailable>";
-        bool expectedEntryMatches = target.HasExpectedSlotEntryPointer && target.ExpectedSlotEntryPointer == pointer;
-        bool selectedEntryMatches = target.HasSelectedEntryPointer && target.SelectedEntryPointer == pointer;
-        string decision = CassettePersistenceTargetDiagnosticDecision.Classify(
-            identityStillCurrent, expectedEntryMatches, selectedEntryMatches);
-        string activeText = activeStateReadable
-            ? $"statePointer=0x{activeState.StatePointer:X} hasUnstaged={activeState.HasUnstagedChanges} " +
-              $"hasChanges={activeState.HasChanges} requiresWrite={activeState.RequiresWriteToDisk} " +
-              $"defaultBundlePresent={activeState.DefaultBundlePresent} defaultBundleChangeCount={activeState.DefaultBundleChangeCount}"
-            : $"statePointer=<unavailable> hasUnstaged=<unavailable> hasChanges=<unavailable> " +
-              $"requiresWrite=<unavailable> defaultBundlePresent=<unavailable> defaultBundleChangeCount=<unavailable> " +
-              $"activeStage='{activeStateStage}'";
-        string writeText = writeStateReadable
-            ? $"redundancyIndex={writeState.RedundancyBundleIndex} redundancyRevision={writeState.RedundancyBundleRevision} " +
-              $"lastSuccess={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.WriteState.LastSuccessTime)} " +
-              $"lastFailure={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.WriteState.LastFailureTime)} " +
-              $"failureReason='{writeState.WriteState.FailureReason ?? "<null>"}' " +
-              $"currentGameTime={CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(writeState.CurrentGameTime)}"
-            : $"redundancyIndex=<unavailable> redundancyRevision=<unavailable> lastSuccess=<unavailable> " +
-              $"lastFailure=<unavailable> failureReason=<unavailable> currentGameTime=<unavailable> writeStage='{writeStateStage}'";
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] CASSETTE PERSISTENCE TARGET SNAPSHOT generation={generation} epoch={epoch} slot={slot} " +
-            $"expectedPointer=0x{pointer:X} frame={frame} thread={thread} identityCurrent={identityStillCurrent} " +
-            $"newlyVerified=[{string.Join(",", wave.Songs)}] ownedSongs=[{string.Join(",", ownedSongs)}] " +
-            $"playerProcessorPointer={Pointer(target.HasPlayerProcessorPointer, target.PlayerProcessorPointer)} " +
-            $"registeredPersistProcessorPointer={Pointer(target.HasRegisteredPersistProcessorPointer, target.RegisteredPersistProcessorPointer)} " +
-            $"retainedSaveDataProcessorPointer={Pointer(target.HasRetainedSaveDataProcessorPointer, target.RetainedSaveDataProcessorPointer)} " +
-            $"saveDataStatePointer={Pointer(target.HasSaveDataStatePointer, target.SaveDataStatePointer)} registryCount={registryCount} " +
-            $"numericSelectedSlot={Value(target.HasSelectedPlayerSaveSlot, target.SelectedPlayerSaveSlot)} " +
-            $"expectedEntryPointer={Pointer(target.HasExpectedSlotEntryPointer, target.ExpectedSlotEntryPointer)} " +
-            $"selectedEntryPointer={Pointer(target.HasSelectedEntryPointer, target.SelectedEntryPointer)} " +
-            $"targetReadable={targetReadable} targetStage='{targetStage}' decision='{decision}' {activeText} {writeText} " +
-            CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(selectedEvidence));
-    }
-
     private static void TryStartPointerBoundPersistence(TimeSpan elapsed)
     {
         object? playerProcessor;
         object? retainedSaveDataProcessor;
-        string[] ownedSongs;
+        IReadOnlyList<string> ownedSongs;
         CassettePersistenceAcceptanceIdentity identity;
         CassettePersistenceQueuedWave wave;
         bool routingCompatible;
@@ -8392,13 +4496,12 @@ internal static class CassetteReceiptRandomization
             if (!gameplayReady || retainedSaveDataProcessor == null ||
                 !_persistencePoll.TryBegin(identity, wave.WaveId, elapsed))
                 return;
-            ownedSongs = _runtime.OwnedSongs.ToArray();
+            ownedSongs = _runtime.OwnedSongs;
         }
 
-        CassettePostLoadDiagnosticState selected =
-            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(playerProcessor, ownedSongs);
+        CassetteSelectedSaveIdentity selected = CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(playerProcessor);
         bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-            playerProcessor, retainedSaveDataProcessor, identity.Slot, identity.Pointer, ownedSongs,
+            playerProcessor, retainedSaveDataProcessor, identity.Slot, ownedSongs,
             out CassetteDiskCommitTargetDiagnosticState target, out _, out string targetStage);
         bool activeReadable = CassetteSaveTransactionAdapter.TryReadPersistenceTargetActiveState(
             playerProcessor, identity.Pointer,
@@ -8407,9 +4510,8 @@ internal static class CassetteReceiptRandomization
             playerProcessor, identity.Pointer, ownedSongs,
             out CassettePublicWriteDiagnosticState writeState, out string writeStage);
 
-        bool selectionValid = selected.SelectionValid.Readable && selected.SelectionValid.Value;
-        bool selectedPointerMatches = selected.SelectedStatePointer.Readable &&
-            selected.SelectedStatePointer.Value == identity.Pointer;
+        bool selectionValid = selected.Valid;
+        bool selectedPointerMatches = selected.Pointer == identity.Pointer;
         bool registeredRetainedMatch = CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
             target.HasRegisteredPersistProcessorPointer,
             target.RegisteredPersistProcessorPointer,
@@ -8509,25 +4611,6 @@ internal static class CassetteReceiptRandomization
         PollPointerBoundPersistence(TimeSpan.Zero, "IMMEDIATE POST");
     }
 
-    internal static void ObservePersistenceAcceptanceWriteCompletedEvent(object? nativeEvent)
-    {
-        if (!CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(
-                nativeEvent, out int slot, out bool succeeded, out string? failureReason, out string stage))
-            return;
-        CassettePersistenceAcceptanceAttempt attempt;
-        lock (Sync)
-        {
-            if (!_acceptanceDiagnosticsEnabled || !_productionPersistence.Active) return;
-            attempt = _productionPersistence.Attempt;
-        }
-        _productionPersistence.ObserveWriteCompletedEvent(
-            attempt,
-            slot,
-            succeeded,
-            $"slot={slot} succeeded={succeeded} failureReason='{failureReason ?? "<null>"}' stage='{stage}'");
-        DrainPersistenceMarkers();
-    }
-
     private static void PollPointerBoundPersistence(TimeSpan elapsed, string phase)
     {
         CassettePersistenceAcceptanceAttempt attempt;
@@ -8544,16 +4627,15 @@ internal static class CassetteReceiptRandomization
             retainedSaveDataProcessor = _joinedSaveDataRequestProcessor;
         }
 
-        CassettePostLoadDiagnosticState selected =
-            CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(playerProcessor, baseline.Songs);
+        CassetteSelectedSaveIdentity selected = CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(playerProcessor);
         bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-            playerProcessor, retainedSaveDataProcessor, attempt.Slot, attempt.Pointer, baseline.Songs,
+            playerProcessor, retainedSaveDataProcessor, attempt.Slot, baseline.Songs,
             out CassetteDiskCommitTargetDiagnosticState target, out _, out string targetStage);
         bool writeReadable = CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(
             playerProcessor, attempt.Pointer, baseline.Songs,
             out CassettePublicWriteDiagnosticState writeState, out string writeStage);
-        bool selectedMatches = selected.SelectionValid.Readable && selected.SelectionValid.Value &&
-            selected.SelectedStatePointer.Readable && selected.SelectedStatePointer.Value == attempt.Pointer;
+        bool selectedMatches = selected.Valid &&
+            selected.Pointer == attempt.Pointer;
         bool ownershipMatches = CassettePersistenceAcceptanceOwnershipProof.IsExactPointerBoundOwner(
             target.HasRegisteredPersistProcessorPointer,
             target.RegisteredPersistProcessorPointer,
@@ -8650,38 +4732,6 @@ internal static class CassetteReceiptRandomization
         Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CASSETTE SAVE IDENTITY {diagnostic}.");
     }
 
-    private static bool TryReadNativeStatus(string nativeSong, out string? status, out string detail)
-    {
-        status = null; detail = string.Empty;
-        try
-        {
-            Assembly? asm = ReflectionUtil.GameAssembly;
-            Type? enquiries = asm?.GetType("SongCassetteEnquiries", false, false);
-            Type? songType = asm?.GetType("ePlayableSong", false, false);
-            if (enquiries == null || songType == null || !songType.IsEnum) { detail = "cassette enquiries or song enum unavailable"; return false; }
-            object song = Enum.Parse(songType, nativeSong, false);
-            MethodInfo? method = enquiries.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(m => m.Name == "GetSongCassetteStatus" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == songType);
-            if (method == null) { detail = "GetSongCassetteStatus unavailable"; return false; }
-            object? raw = ReflectionUtil.UnwrapNullable(method.Invoke(null, new[] { song })); status = raw?.ToString();
-            detail = $"selected save returned {status ?? "<null>"}"; return !string.IsNullOrWhiteSpace(status);
-        }
-        catch (Exception ex) { detail = ex.GetBaseException().Message; return false; }
-    }
-
-    private static bool TryWriteMember(object obj, string name, object value)
-    {
-        try { PropertyInfo? p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (p?.CanWrite == true) { p.SetValue(obj, value); return true; } } catch { }
-        try { FieldInfo? f = obj.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance); if (f != null) { f.SetValue(obj, value); return true; } } catch { }
-        return false;
-    }
-
-    private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
-    {
-        if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null) return false;
-        if (raw is bool b) return b; if (raw is long l) return l != 0; if (raw is int i) return i != 0;
-        return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
-    }
 }
 
 
@@ -8887,28 +4937,6 @@ internal static class PlantPipesRandomization
         Plugin.AP?.QueueLocation(ActiveSourceLocationName);
     }
 
-    internal static string ReadDiagnosticState()
-    {
-        bool abilityReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out bool ability);
-        bool sourceReadable = RootsBucketRandomization.TryReadProgressionFlag(NativeSourceMarkerFlag, out bool source);
-        bool owned;
-        bool pending;
-        bool applied;
-        bool processor;
-        lock (Sync)
-        {
-            owned = _receivedCount > 0;
-            pending = _runtime.HasPendingRetry || _runtime.LastOutcome is "save-unavailable" or "processor-unavailable" or "verification-pending";
-            applied = _runtime.LastOutcome is "grant-submitted" or "verified-owned";
-            processor = _playerSaveRequestProcessor != null;
-        }
-
-        return $"room='{DeveloperHarness.CurrentRoomId}' selectedSaveReadable={abilityReadable && sourceReadable} " +
-               $"{NativeAbilityFlag}={(abilityReadable ? ability.ToString() : "<unavailable>")} " +
-               $"{NativeSourceMarkerFlag}={(sourceReadable ? source.ToString() : "<unavailable>")} " +
-               $"apOwned={owned} pending={pending} appliedThisProcess={applied} processorAvailable={processor}";
-    }
-
     private static bool ReadSlotBool(Dictionary<string, object>? slotData, string key)
     {
         if (slotData == null || !slotData.TryGetValue(key, out object? raw) || raw == null)
@@ -8995,359 +5023,9 @@ internal static class PlantPipesRandomization
                 detail = "PlayerSaveRequestProcessor unavailable after construction.";
                 return false;
             }
-            return TrySubmitProgressionFlag(processor, NativeAbilityFlag, true, out detail);
+            return NativeProgressionFlagRequest.TrySubmit(
+                processor, NativeAbilityFlag, true, ref _applyingNativeGrant, out detail);
         }
-    }
-
-    private static bool TrySubmitProgressionFlag(object processor, string flagName, bool value, out string detail)
-    {
-        detail = string.Empty;
-        try
-        {
-            Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-            Type? requestType = gameAssembly?.GetType("RecordGameProgressionInSaveDataRequest", throwOnError: false, ignoreCase: false);
-            if (requestType == null)
-            {
-                detail = "RecordGameProgressionInSaveDataRequest type not found.";
-                return false;
-            }
-
-            Type? flagType = requestType.GetProperty(
-                    "Flag", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.PropertyType
-                ?? requestType.GetField(
-                    "_Flag_k__BackingField", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType;
-            if (flagType == null || !flagType.IsEnum)
-            {
-                detail = "progression flag enum type not found.";
-                return false;
-            }
-
-            object flagValue;
-            try { flagValue = Enum.Parse(flagType, flagName, ignoreCase: false); }
-            catch (Exception ex)
-            {
-                detail = $"enum value '{flagName}' unavailable: {ex.GetBaseException().Message}";
-                return false;
-            }
-
-            object? request = null;
-            string ctorDescription = string.Empty;
-            foreach (ConstructorInfo ctor in requestType.GetConstructors(
-                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                     .Where(c => !c.GetParameters().Any(p => p.ParameterType == typeof(IntPtr)))
-                     .OrderBy(c => c.GetParameters().Length))
-            {
-                ParameterInfo[] ps;
-                try { ps = ctor.GetParameters(); }
-                catch { continue; }
-
-                var args = new object?[ps.Length];
-                for (int i = 0; i < ps.Length; i++)
-                {
-                    Type pt = ps[i].ParameterType;
-                    if (pt == flagType)
-                        args[i] = flagValue;
-                    else if (pt == typeof(bool))
-                        args[i] = value;
-                    else if (pt.IsEnum)
-                    {
-                        try { args[i] = Enum.Parse(pt, "INVALID", ignoreCase: true); }
-                        catch { args[i] = Activator.CreateInstance(pt); }
-                    }
-                    else if (pt.IsValueType)
-                        args[i] = Activator.CreateInstance(pt);
-                    else
-                        args[i] = null;
-                }
-
-                try
-                {
-                    request = ctor.Invoke(args);
-                    ctorDescription = $"ctor({string.Join(",", ps.Select(p => p.ParameterType.Name))})";
-                    if (request != null)
-                        break;
-                }
-                catch { request = null; }
-            }
-
-            if (request == null)
-            {
-                try
-                {
-                    request = Activator.CreateInstance(requestType, nonPublic: true);
-                    ctorDescription = "Activator.CreateInstance";
-                }
-                catch (Exception ex)
-                {
-                    detail = $"could not construct request: {ex.GetBaseException().Message}";
-                    return false;
-                }
-            }
-
-            if (request == null)
-            {
-                detail = "native request construction returned null";
-                return false;
-            }
-            TryWriteMember(request, "Flag", flagValue);
-            TryWriteMember(request, "_Flag_k__BackingField", flagValue);
-            TryWriteMember(request, "Value", value);
-            TryWriteMember(request, "_Value_k__BackingField", value);
-
-            MethodInfo? process = processor.GetType().GetMethods(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(m =>
-                {
-                    if (!string.Equals(m.Name, "ProcessRequest", StringComparison.Ordinal))
-                        return false;
-                    ParameterInfo[] ps;
-                    try { ps = m.GetParameters(); }
-                    catch { return false; }
-                    return ps.Length == 1 && ps[0].ParameterType.IsInstanceOfType(request);
-                });
-
-            if (process == null)
-            {
-                detail = "matching PlayerSaveRequestProcessor.ProcessRequest overload not found.";
-                return false;
-            }
-
-            try
-            {
-                _applyingNativeGrant = true;
-                process.Invoke(processor, new[] { request });
-            }
-            finally
-            {
-                _applyingNativeGrant = false;
-            }
-
-            detail = $"via {ctorDescription}";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            detail = ex.GetBaseException().ToString();
-            return false;
-        }
-    }
-
-    private static bool TryWriteMember(object obj, string name, object value)
-    {
-        Type t = obj.GetType();
-        try
-        {
-            PropertyInfo? p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (p != null && p.CanWrite)
-            {
-                p.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        try
-        {
-            FieldInfo? f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            if (f != null)
-            {
-                f.SetValue(obj, value);
-                return true;
-            }
-        }
-        catch { }
-
-        return false;
-    }
-}
-
-internal static class BottomHudDiagnostic
-{
-    private const string RoomId = "GameRoom_Hub2";
-    private const string ControlPath =
-        "Root/GameRoom_Hub2_Logic/Objects/AmProContainer/AmProRobot";
-    private const string NativeControlType = "DifficultyToggler";
-
-    private static readonly object Sync = new();
-    private static readonly Queue<string> PendingLifecycles = new();
-    private static readonly HashSet<string> PendingKeys = new(StringComparer.OrdinalIgnoreCase);
-    private static BottomHudDiagnosticPolicy _policy = new();
-    private static bool _enabled;
-
-    internal static void Configure()
-    {
-        lock (Sync)
-        {
-            _policy = new BottomHudDiagnosticPolicy();
-            PendingLifecycles.Clear();
-            PendingKeys.Clear();
-            _enabled = false;
-            EnqueueLocked("after-restart");
-        }
-    }
-
-    internal static void ApplySlotData(Dictionary<string, object>? slotData)
-    {
-        string implementation = slotData != null &&
-                                slotData.TryGetValue("implementation_version", out object? raw)
-            ? raw?.ToString() ?? string.Empty
-            : string.Empty;
-        lock (Sync)
-        {
-            _enabled = Plugin.VerboseDiscovery && implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
-            if (_enabled)
-                EnqueueLocked("direct-start");
-        }
-    }
-
-    internal static void OnLevelResultPersisted(string level)
-    {
-        if (string.Equals(level, "Level_05", StringComparison.OrdinalIgnoreCase))
-            Enqueue("after-level-1");
-    }
-
-    internal static void OnRoomTransition(string roomId)
-    {
-        if (string.Equals(roomId, RoomId, StringComparison.OrdinalIgnoreCase))
-            Enqueue("after-reload");
-    }
-
-    internal static void Tick()
-    {
-        lock (Sync)
-        {
-            if (!_enabled || PendingLifecycles.Count == 0)
-                return;
-        }
-        if (!string.Equals(DeveloperHarness.CurrentRoomId, RoomId, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        GameObject? controlObject = GameObject.Find(ControlPath);
-        string lifecycle;
-        lock (Sync)
-            lifecycle = PendingLifecycles.Peek();
-        BottomHudDiagnosticDecision decision;
-        lock (Sync)
-            decision = _policy.Decide(RoomId, lifecycle, controlObject != null);
-        if (decision == BottomHudDiagnosticDecision.SkipDuplicate)
-        {
-            lock (Sync)
-            {
-                PendingLifecycles.Dequeue();
-                PendingKeys.Remove(lifecycle);
-            }
-            return;
-        }
-        if (decision != BottomHudDiagnosticDecision.Emit || controlObject == null)
-            return;
-
-        Component? control = null;
-        string[] componentTypes;
-        try
-        {
-            Component[] components = controlObject.GetComponents<Component>();
-            componentTypes = components
-                .Where(component => component != null)
-                .Select(component => component.GetType().FullName ?? component.GetType().Name)
-                .ToArray();
-            control = components.FirstOrDefault(component =>
-                component != null &&
-                (component.GetType().Name.Contains(NativeControlType, StringComparison.OrdinalIgnoreCase) ||
-                 component.GetType().FullName?.Contains(NativeControlType, StringComparison.OrdinalIgnoreCase) == true));
-        }
-        catch
-        {
-            componentTypes = Array.Empty<string>();
-        }
-
-        string interaction = ReadBoolResult(control, "IsInteractionEnabled", "InteractionEnabled");
-        object? required = control == null ? null : ReflectionUtil.ReadMember(control, "RequiredCondition");
-        object? blocked = control == null ? null : ReflectionUtil.ReadMember(control, "BlockCondition");
-        string phase = control == null
-            ? "<unavailable>"
-            : ReflectionUtil.ReadMember(control, "Phase")?.ToString() ?? "<unavailable>";
-        bool gateReadable = RootsBucketRandomization.TryReadProgressionFlag(
-            RootsStartupBootstrap.GateOpenedFlag, out bool gateOwned);
-        bool difficultyReadable = RootsBucketRandomization.TryReadProgressionFlag(
-            RootsStartupBootstrap.DifficultyCompleteFlag, out bool difficultyOwned);
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] BOTTOM HUD SNAPSHOT lifecycle='{lifecycle}' room='{RoomId}' " +
-            $"nativeControlType='{NativeControlType}' path='{ControlPath}' " +
-            $"managedProxy='{control?.GetType().FullName ?? "<unresolved>"}' " +
-            $"components='{string.Join("|", componentTypes)}' interactionEnabled={interaction} phase={phase} " +
-            $"requiredCondition={DescribeCondition(required)} blockCondition={DescribeCondition(blocked)} " +
-            $"{RootsStartupBootstrap.GateOpenedFlag}={(gateReadable ? gateOwned.ToString() : "<unavailable>")} " +
-            $"{RootsStartupBootstrap.DifficultyCompleteFlag}={(difficultyReadable ? difficultyOwned.ToString() : "<unavailable>")} " +
-            "readOnly=True mutationRequested=False.");
-
-        lock (Sync)
-        {
-            PendingLifecycles.Dequeue();
-            PendingKeys.Remove(lifecycle);
-        }
-    }
-
-    private static void Enqueue(string lifecycle)
-    {
-        lock (Sync)
-        {
-            if (_enabled)
-                EnqueueLocked(lifecycle);
-        }
-    }
-
-    private static void EnqueueLocked(string lifecycle)
-    {
-        if (PendingKeys.Add(lifecycle))
-            PendingLifecycles.Enqueue(lifecycle);
-    }
-
-    private static string ReadBoolResult(object? target, string methodName, string memberName)
-    {
-        if (target == null)
-            return "<unavailable>";
-        try
-        {
-            MethodInfo? method = target.GetType().GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                null,
-                Type.EmptyTypes,
-                null);
-            if (method?.Invoke(target, null) is bool result)
-                return result.ToString();
-        }
-        catch { }
-        return ReflectionUtil.ReadMember(target, memberName)?.ToString() ?? "<unavailable>";
-    }
-
-    private static string DescribeCondition(object? condition)
-    {
-        if (condition == null)
-            return "<null>";
-        string type = condition.GetType().FullName ?? condition.GetType().Name;
-        string result = ReadBoolResult(condition, "IsConditionMet", "ConditionMet");
-        if (string.Equals(result, "<unavailable>", StringComparison.Ordinal))
-            result = ReadBoolResult(condition, "GetValue", "Value");
-        return $"'{type}:{result}'";
-    }
-}
-
-internal sealed class BottomHudDiagnosticKeeper : MonoBehaviour
-{
-    private int _cooldown;
-
-    public BottomHudDiagnosticKeeper(IntPtr pointer) : base(pointer)
-    {
-    }
-
-    private void Update()
-    {
-        if (_cooldown-- > 0)
-            return;
-        _cooldown = 60;
-        BottomHudDiagnostic.Tick();
     }
 }
 
@@ -10323,8 +6001,8 @@ internal static class GarageCartridgeAccess
     {
         // These two vanilla cartridge sources are already represented by the
         // existing Music Lab reward-chest checks, so do not add duplicate locations.
-        "Gradius Remix" => LocationMap.MusicLab10PointChestLocationName,
-        "Bloody Tears" => LocationMap.MusicLab46PointChestLocationName,
+        "Gradius Remix" => LocationMap.MusicLabChests.At(10).LocationName,
+        "Bloody Tears" => LocationMap.MusicLabChests.At(46).LocationName,
         "Smooch" => "Cartridge Pickup - Smooch",
         "Superstar" => "Cartridge Pickup - Superstar",
         "Vampire Killer" => "Cartridge Pickup - Vampire Killer",
@@ -10500,14 +6178,6 @@ internal static class AreaArrivalPresentationOverride
             arrival, currentRoom, progressionFlag);
     }
 
-    internal static bool IsRootsArrivalActive
-    {
-        get
-        {
-            lock (Sync)
-                return _arrival == AreaArrivalKind.RootsPhone;
-        }
-    }
 }
 
 internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
@@ -10661,12 +6331,6 @@ internal sealed class RootsAreaBaselineKeeper : MonoBehaviour
         }
     }
 
-    internal static void LogCompactStatus()
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ROOTS HOME STATUS room='{DeveloperHarness.CurrentRoomId}' rootsAccess={AreaAccessPrototype.HasArea("Roots")} gateBound={LastGateBound} starEaterBlockadeBound={LastBlockadeBound}. Exact-path baseline only; no collider probe or scene-wide scan.");
-    }
-
     private void ResetForRoomExit()
     {
         if (string.IsNullOrEmpty(_boundRoom))
@@ -10778,11 +6442,9 @@ internal sealed class MeatAreaBaselineKeeper : MonoBehaviour
 internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
 {
     private readonly MeatMouseEscortRecoveryRuntime _runtime = new();
-    private readonly MeatMouseEscortConditionDiagnosticRuntime _conditionDiagnosticRuntime = new();
     private string _boundRoom = string.Empty;
     private int _initialiseDelayFrames;
     private bool _reportedPending;
-    private bool _conditionDiagnosticEmitted;
 
     public MeatMouseEscortRecoveryKeeper(IntPtr pointer) : base(pointer)
     {
@@ -10802,9 +6464,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
             _boundRoom = MeatMouseEscortRecoveryPolicy.RoomId;
             _initialiseDelayFrames = 12;
             _runtime.Reset();
-            _conditionDiagnosticRuntime.Reset();
             _reportedPending = false;
-            _conditionDiagnosticEmitted = false;
             return;
         }
 
@@ -10842,9 +6502,10 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
                 binder: null,
                 types: new[] { typeof(IntPtr) },
                 modifiers: null);
+            // Unity returns a generic component wrapper. Use its pointer with the game-specific spawner methods.
             IntPtr rawSpawnerPointer = rawSpawner == null
                 ? IntPtr.Zero
-                : DiagnosticNativePointer(rawSpawner);
+                : ReadSpawnerPointer(rawSpawner);
             nativeSpawner = pointerConstructor != null && rawSpawnerPointer != IntPtr.Zero
                 ? pointerConstructor.Invoke(new object[] { rawSpawnerPointer })
                 : null;
@@ -10943,372 +6604,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         }
     }
 
-    private void TryEmitExactConditionDiagnostic(string room)
-    {
-        if (!_conditionDiagnosticRuntime.ShouldEvaluateFrame())
-        {
-            _conditionDiagnosticRuntime.AdvanceFrame();
-            return;
-        }
-
-        GameObject? spawnCondition = null;
-        GameObject? revolutionCondition = null;
-        try
-        {
-            spawnCondition = GameObject.Find(
-                MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath);
-            revolutionCondition = GameObject.Find(
-                MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath);
-        }
-        catch { }
-
-        bool exactSubtreeAvailable = spawnCondition != null && revolutionCondition != null &&
-            string.Equals(
-                BuildDiagnosticHierarchyPath(spawnCondition.transform),
-                MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath,
-                StringComparison.Ordinal) &&
-            string.Equals(
-                BuildDiagnosticHierarchyPath(revolutionCondition.transform),
-                MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath,
-                StringComparison.Ordinal);
-        if (_conditionDiagnosticRuntime.Observe(room, exactSubtreeAvailable) &&
-            MeatMouseEscortConditionDiagnosticPolicy.ShouldEmit(
-                room, _conditionDiagnosticEmitted, exactSubtreeAvailable))
-        {
-            _conditionDiagnosticEmitted = true;
-            try
-            {
-                EmitExactConditionDiagnostic();
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION DIAGNOSTIC failed error='{ex.GetType().Name}' readOnly=True.");
-            }
-        }
-        else if (_conditionDiagnosticRuntime.Finished && !_conditionDiagnosticEmitted)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] MEAT MOUSE ESCORT CONDITION DIAGNOSTIC skipped reason='exact SpawnCondition/RevolutionNotTriggeredCondition subtree not available during bounded polls' readOnly=True.");
-        }
-    }
-
-    private static void EmitExactConditionDiagnostic()
-    {
-        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-        Type? generalConditionType = gameAssembly?.GetType(
-            "GeneralCondition", throwOnError: false, ignoreCase: false);
-
-        foreach (string path in new[]
-        {
-            MeatMouseEscortConditionDiagnosticPolicy.SpawnConditionPath,
-            MeatMouseEscortConditionDiagnosticPolicy.RevolutionConditionPath,
-        })
-        {
-            if (!MeatMouseEscortConditionDiagnosticPolicy.ShouldInspectPath(path))
-                continue;
-
-            GameObject? scopedObject = null;
-            try { scopedObject = GameObject.Find(path); }
-            catch { }
-            string actualPath = scopedObject == null
-                ? "<missing>"
-                : BuildDiagnosticHierarchyPath(scopedObject.transform);
-            if (scopedObject == null ||
-                !string.Equals(actualPath, path, StringComparison.Ordinal))
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION OBJECT expected='{path}' actual='{actualPath}' exactMatch=False readOnly=True.");
-                continue;
-            }
-
-            var rawComponents = new List<Component>();
-            bool componentsReadable = true;
-            try
-            {
-                foreach (Component component in scopedObject.GetComponents<Component>())
-                {
-                    if (component != null)
-                        rawComponents.Add(component);
-                    if (rawComponents.Count >= 16)
-                        break;
-                }
-            }
-            catch { componentsReadable = false; }
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION OBJECT expected='{path}' actual='{actualPath}' exactMatch=True componentsReadable={componentsReadable} inspectedComponentCount={rawComponents.Count} cap=16 readOnly=True.");
-
-            for (int index = 0; index < rawComponents.Count; index++)
-            {
-                Component component = rawComponents[index];
-                IntPtr pointer = DiagnosticNativePointer(component);
-                IntPtr klass = IntPtr.Zero;
-                if (pointer != IntPtr.Zero)
-                {
-                    try { klass = mm_il2cpp_object_get_class(pointer); }
-                    catch { }
-                }
-                string nativeClass = DiagnosticNativeClassFullName(klass);
-                Type? nativeType = null;
-                try
-                {
-                    nativeType = gameAssembly?.GetType(
-                        nativeClass, throwOnError: false, ignoreCase: false);
-                }
-                catch { }
-                bool exactGeneralCondition = generalConditionType != null &&
-                    nativeType != null && generalConditionType.IsAssignableFrom(nativeType);
-                object? wrapped = null;
-                if (exactGeneralCondition && pointer != IntPtr.Zero)
-                {
-                    try
-                    {
-                        ConstructorInfo? constructor = nativeType!.GetConstructor(
-                            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                            binder: null,
-                            types: new[] { typeof(IntPtr) },
-                            modifiers: null);
-                        wrapped = constructor?.Invoke(new object[] { pointer });
-                    }
-                    catch { }
-                }
-                MeatMouseEscortConditionState state =
-                    MeatMouseEscortConditionReader.Read(wrapped);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT CONDITION COMPONENT path='{path}' index={index} managed='{component.GetType().FullName ?? "<unknown>"}' native='{nativeClass}' exactGeneralCondition={exactGeneralCondition} wrapperCreated={wrapped != null} checkIfMetReadable={state.Readable} checkIfMet={(state.Readable ? state.Met.ToString() : "<unreadable>")} readStage='{state.Stage}' readOnly=True.");
-            }
-        }
-    }
-
-    private static void EmitNativeBindingDiagnostic()
-    {
-        const string nativeSpawnerTypeName = "SpawnMeatAnimalCharacterOnDemand";
-        GameObject? container = null;
-        try
-        {
-            container = GameObject.Find(MeatMouseEscortRecoveryPolicy.NativeSpawnerPath);
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING path lookup failed path='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' error='{ex.GetType().Name}'. readOnly=True.");
-        }
-
-        string containerActualPath = container == null
-            ? "<missing>"
-            : BuildDiagnosticHierarchyPath(container.transform);
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING PATH expected='{MeatMouseEscortRecoveryPolicy.NativeSpawnerPath}' objectFound={container != null} actual='{containerActualPath}' exactHierarchyMatch={string.Equals(containerActualPath, MeatMouseEscortRecoveryPolicy.NativeSpawnerPath, StringComparison.Ordinal)} readOnly=True.");
-
-        Assembly? gameAssembly = ReflectionUtil.GameAssembly;
-        Type? nativeSpawnerType = null;
-        try
-        {
-            nativeSpawnerType = gameAssembly?.GetType(
-                nativeSpawnerTypeName, throwOnError: false, ignoreCase: false);
-        }
-        catch { }
-
-        object? il2CppType = null;
-        bool il2CppTypeConverted = false;
-        if (nativeSpawnerType != null)
-        {
-            try
-            {
-                il2CppType = Il2CppInterop.Runtime.Il2CppType.From(nativeSpawnerType);
-                il2CppTypeConverted = il2CppType != null;
-            }
-            catch { }
-        }
-
-        ConstructorInfo? pointerConstructor = nativeSpawnerType?.GetConstructor(
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            binder: null,
-            types: new[] { typeof(IntPtr) },
-            modifiers: null);
-        MethodInfo? resetSpawnCount = nativeSpawnerType?.GetMethod(
-            "SetSpawnCount",
-            BindingFlags.Public | BindingFlags.Instance,
-            binder: null,
-            types: new[] { typeof(int) },
-            modifiers: null);
-        MethodInfo? triggerSpawner = nativeSpawnerType?.GetMethod(
-            "OnTrigger",
-            BindingFlags.Public | BindingFlags.Instance,
-            binder: null,
-            types: Type.EmptyTypes,
-            modifiers: null);
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING TYPE gameAssemblyFound={gameAssembly != null} typeFound={nativeSpawnerType != null} il2CppTypeConverted={il2CppTypeConverted} pointerConstructorFound={pointerConstructor != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} readOnly=True.");
-
-        var scopedObjects = new List<(GameObject Object, string ExpectedPath, string Scope)>();
-        if (container != null)
-        {
-            if (MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(
-                    MeatMouseEscortRecoveryPolicy.NativeSpawnerPath))
-            {
-                scopedObjects.Add((
-                    container,
-                    MeatMouseEscortRecoveryPolicy.NativeSpawnerPath,
-                    "container"));
-            }
-
-            try
-            {
-                for (int childIndex = 0; childIndex < container.transform.childCount; childIndex++)
-                {
-                    Transform child = container.transform.GetChild(childIndex);
-                    if (child == null || child.gameObject == null)
-                        continue;
-
-                    string expectedChildPath =
-                        MeatMouseEscortRecoveryPolicy.NativeSpawnerPath + "/" + child.name;
-                    if (MeatMouseEscortBindingDiagnosticPolicy.ShouldInspectPath(expectedChildPath))
-                    {
-                        scopedObjects.Add((
-                            child.gameObject,
-                            expectedChildPath,
-                            "direct-child"));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING direct-child enumeration failed error='{ex.GetType().Name}'. readOnly=True.");
-            }
-        }
-
-        var exactNativeMatches = new List<(Component Component, IntPtr Pointer, string Path)>();
-        foreach ((GameObject scopedObject, string expectedPath, string scope) in scopedObjects)
-        {
-            string actualPath = BuildDiagnosticHierarchyPath(scopedObject.transform);
-            GameObject? exactLookup = null;
-            try { exactLookup = GameObject.Find(expectedPath); }
-            catch { }
-            bool exactObjectMatch = SameDiagnosticNativeObject(scopedObject, exactLookup);
-
-            var rawComponents = new List<Component>();
-            try
-            {
-                foreach (Component component in scopedObject.GetComponents<Component>())
-                {
-                    if (component != null)
-                        rawComponents.Add(component);
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING OBJECT scope='{scope}' expected='{expectedPath}' actual='{actualPath}' exactObjectMatch={exactObjectMatch} componentsReadable=False error='{ex.GetType().Name}' readOnly=True.");
-            }
-
-            object? typedComponent = null;
-            if (il2CppTypeConverted)
-            {
-                try
-                {
-                    typedComponent = scopedObject.GetComponent(
-                        (Il2CppSystem.Type)il2CppType!);
-                }
-                catch { }
-            }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING OBJECT scope='{scope}' expected='{expectedPath}' actual='{actualPath}' exactObjectMatch={exactObjectMatch} rawComponentCount={rawComponents.Count} typedGetComponentFound={typedComponent != null} readOnly=True.");
-
-            for (int componentIndex = 0; componentIndex < rawComponents.Count; componentIndex++)
-            {
-                Component component = rawComponents[componentIndex];
-                IntPtr pointer = DiagnosticNativePointer(component);
-                IntPtr klass = IntPtr.Zero;
-                if (pointer != IntPtr.Zero)
-                {
-                    try { klass = mm_il2cpp_object_get_class(pointer); }
-                    catch { }
-                }
-
-                string nativeClass = DiagnosticNativeClassFullName(klass);
-                bool exactNativeMatch = string.Equals(
-                    nativeClass, nativeSpawnerTypeName, StringComparison.Ordinal);
-                if (exactNativeMatch)
-                    exactNativeMatches.Add((component, pointer, actualPath));
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MEAT MOUSE ESCORT BINDING COMPONENT path='{actualPath}' index={componentIndex} managed='{component.GetType().FullName ?? "<unknown>"}' native='{nativeClass}' exactNativeMatch={exactNativeMatch} pointerNonzero={pointer != IntPtr.Zero} readOnly=True.");
-            }
-        }
-
-        string exactMatchLocations = exactNativeMatches.Count == 0
-            ? "<none>"
-            : string.Join("|", exactNativeMatches.Select(match => match.Path));
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING MATCH exactType='{nativeSpawnerTypeName}' count={exactNativeMatches.Count} locations='{exactMatchLocations}' readOnly=True.");
-
-        int wrapperCreatedCount = 0;
-        int characterReadableCount = 0;
-        int hasValueReadableCount = 0;
-        for (int matchIndex = 0; matchIndex < exactNativeMatches.Count; matchIndex++)
-        {
-            (Component _, IntPtr pointer, string path) = exactNativeMatches[matchIndex];
-            object? wrapped = null;
-            if (pointerConstructor != null && pointer != IntPtr.Zero)
-            {
-                try { wrapped = pointerConstructor.Invoke(new object[] { pointer }); }
-                catch { }
-            }
-            if (wrapped != null)
-                wrapperCreatedCount++;
-
-            MeatMouseEscortCharacterState characterState =
-                MeatMouseEscortCharacterReader.Read(wrapped);
-            bool characterReadable = characterState.Readable;
-            bool hasValueReadable = characterState.Readable;
-            bool? hasValue = characterState.Readable
-                ? characterState.Present
-                : null;
-            if (characterReadable)
-                characterReadableCount++;
-            if (hasValueReadable)
-                hasValueReadableCount++;
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER index={matchIndex} path='{path}' pointerConstructorFound={pointerConstructor != null} wrapperCreated={wrapped != null} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadable={characterReadable} hasValueReadable={hasValueReadable} hasValue={hasValue?.ToString() ?? "<unreadable>"} characterReadStage='{characterState.Stage}' readOnly=True.");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MEAT MOUSE ESCORT BINDING WRAPPER SUMMARY exactMatchCount={exactNativeMatches.Count} pointerConstructorFound={pointerConstructor != null} wrapperCreatedCount={wrapperCreatedCount} setSpawnCountFound={resetSpawnCount != null} onTriggerFound={triggerSpawner != null} characterReadableCount={characterReadableCount} hasValueReadableCount={hasValueReadableCount} readOnly=True.");
-    }
-
-    private static string BuildDiagnosticHierarchyPath(Transform transform)
-    {
-        try
-        {
-            var names = new List<string>();
-            for (Transform? current = transform;
-                 current != null && names.Count < 32;
-                 current = current.parent)
-                names.Add(current.name ?? "<unnamed>");
-            names.Reverse();
-            return string.Join("/", names);
-        }
-        catch
-        {
-            return "<unreadable>";
-        }
-    }
-
-    private static bool SameDiagnosticNativeObject(GameObject expected, GameObject? actual)
-    {
-        if (actual == null)
-            return false;
-        IntPtr expectedPointer = DiagnosticNativePointer(expected);
-        IntPtr actualPointer = DiagnosticNativePointer(actual);
-        return expectedPointer != IntPtr.Zero && expectedPointer == actualPointer;
-    }
-
-    private static IntPtr DiagnosticNativePointer(object value)
+    private static IntPtr ReadSpawnerPointer(object value)
     {
         try
         {
@@ -11323,45 +6619,6 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         }
     }
 
-    private static string DiagnosticNativeClassFullName(IntPtr klass)
-    {
-        if (klass == IntPtr.Zero)
-            return "<no-class>";
-
-        string ns = DiagnosticNativeAnsi(() => mm_il2cpp_class_get_namespace(klass));
-        string name = DiagnosticNativeAnsi(() => mm_il2cpp_class_get_name(klass));
-        if (string.IsNullOrWhiteSpace(name))
-            name = "<unnamed-class>";
-        return string.IsNullOrWhiteSpace(ns) ? name : ns + "." + name;
-    }
-
-    private static string DiagnosticNativeAnsi(Func<IntPtr> getter)
-    {
-        try
-        {
-            IntPtr value = getter();
-            return value == IntPtr.Zero
-                ? string.Empty
-                : Marshal.PtrToStringAnsi(value) ?? string.Empty;
-        }
-        catch
-        {
-            return string.Empty;
-        }
-    }
-
-    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "il2cpp_object_get_class")]
-    private static extern IntPtr mm_il2cpp_object_get_class(IntPtr obj);
-
-    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "il2cpp_class_get_name")]
-    private static extern IntPtr mm_il2cpp_class_get_name(IntPtr klass);
-
-    [DllImport("GameAssembly.dll", CallingConvention = CallingConvention.Cdecl,
-        EntryPoint = "il2cpp_class_get_namespace")]
-    private static extern IntPtr mm_il2cpp_class_get_namespace(IntPtr klass);
-
     private void ResetForRoomExit()
     {
         if (string.IsNullOrEmpty(_boundRoom))
@@ -11370,9 +6627,7 @@ internal sealed class MeatMouseEscortRecoveryKeeper : MonoBehaviour
         _boundRoom = string.Empty;
         _initialiseDelayFrames = 0;
         _runtime.Reset();
-        _conditionDiagnosticRuntime.Reset();
         _reportedPending = false;
-        _conditionDiagnosticEmitted = false;
     }
 }
 
@@ -11561,50 +6816,7 @@ internal static class AreaAccessPrototype
                 : $"[SCRC-AP] AREA ACCESS already unlocked area='{normalized}' source='{source}'.");
     }
 
-    public static void GrantNextLockedArea()
-    {
-        if (!Enabled)
-            return;
-
-        foreach (AreaDefinition area in Areas)
-        {
-            if (!HasArea(area.AreaName))
-            {
-                GrantArea(area.AreaName, "PAGE UP");
-                LogStatus("after PAGE UP");
-                return;
-            }
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] AREA ACCESS PAGE UP: all six major areas are already unlocked.");
-    }
-
-    public static void ResetToStartingArea()
-    {
-        if (!Enabled)
-            return;
-
-        if (APDrivenStartingArea)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] AREA ACCESS PAGE DOWN ignored in AP-driven mode; received Area Access items are authoritative for this session.");
-            LogStatus("PAGE DOWN ignored");
-            return;
-        }
-
-        lock (Sync)
-        {
-            UnlockedAreas.Clear();
-            UnlockedAreas.Add(StartingArea);
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] AREA ACCESS RESET: only starting area '{StartingArea}' is unlocked.");
-        LogStatus("after PAGE DOWN");
-    }
-
-    public static void LogStatus(string source = "END")
+    private static void LogStatus(string source)
     {
         if (!Enabled)
             return;
@@ -11827,84 +7039,6 @@ internal sealed class AreaPhoneAccessKeeper : MonoBehaviour
         _cloths.Clear();
         _lastAppliedUnlockState.Clear();
         _missingRootLogged = false;
-    }
-}
-
-internal sealed class DeveloperHotkeys : MonoBehaviour
-{
-    public DeveloperHotkeys(IntPtr pointer) : base(pointer)
-    {
-    }
-
-    private void Update()
-    {
-        if (!DeveloperHarness.Enabled)
-            return;
-
-        if (AreaAccessPrototype.Enabled)
-        {
-            if (Input.GetKeyDown(KeyCode.PageUp))
-                AreaAccessPrototype.GrantNextLockedArea();
-
-            if (Input.GetKeyDown(KeyCode.PageDown))
-                AreaAccessPrototype.ResetToStartingArea();
-
-            if (Input.GetKeyDown(KeyCode.End))
-                AreaAccessPrototype.LogStatus();
-        }
-
-        if (Input.GetKeyDown(KeyCode.Home))
-        {
-            if (AreaAccessPrototype.Enabled &&
-                string.Equals(DeveloperHarness.CurrentRoomId, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase))
-            {
-                RootsAreaBaselineKeeper.LogCompactStatus();
-            }
-            else
-            {
-                PhoneBoothDiagnostic.ScanCurrentSceneAndArm();
-            }
-        }
-
-        if (Input.GetKeyDown(KeyCode.F4))
-        {
-            bool shift =
-                Input.GetKey(KeyCode.LeftShift) ||
-                Input.GetKey(KeyCode.RightShift);
-
-            if (shift)
-                DeveloperHarness.CycleMusicLabPointOverride();
-            else
-                DeveloperHarness.StartPostAct1Discovery();
-        }
-
-        if (Input.GetKeyDown(KeyCode.F5))
-        {
-            bool control =
-                Input.GetKey(KeyCode.LeftControl) ||
-                Input.GetKey(KeyCode.RightControl);
-
-            bool alt =
-                Input.GetKey(KeyCode.LeftAlt) ||
-                Input.GetKey(KeyCode.RightAlt);
-
-            bool shift =
-                Input.GetKey(KeyCode.LeftShift) ||
-                Input.GetKey(KeyCode.RightShift);
-
-            if (!control && !alt && !shift)
-            {
-                QuestActionDiscovery.SnapshotKnownFlags();
-                MusicLabDiscovery.ScanNativeIdentityCandidates();
-                SpecialModeDiscovery.ScanCurrentScene();
-            }
-
-            if (shift)
-                DeveloperHarness.RetryBunkerStarRequirementOnce();
-            else
-                DeveloperHarness.ScanPostAct1RouteObjects();
-        }
-
     }
 }
 
@@ -12250,24 +7384,13 @@ internal sealed class MusicLabProgressionKeeper : MonoBehaviour
     }
 }
 
+// Maps native chest flags and scored song results to Music Lab and Game Garage locations.
 internal static class MusicLabDiscovery
 {
     public const string Hub6RoomId = "GameRoom_Hub6";
     public const string GarageRoomId = "GameRoom_27";
-    private const string Hub6PhoneBankRootPath = "Root/GameRoom_Hub6_Logic/Objects/Phones";
 
     private static readonly object Sync = new();
-    private static readonly CassettePostLoadSnapshotLiveGate PostLoadSnapshotLiveGate = new();
-    private static readonly string[] GarageSequenceNames =
-    {
-        "PlayBloodyTears",
-        "PlayGradiusRemix",
-        "PlaySmooch",
-        "PlaySuperstar",
-        "PlayVampireKiller",
-        "PlayWagTheDog",
-    };
-
     private static readonly (string Song, string RelativePath)[] GarageCartridgeObjects =
     {
         ("Bloody Tears", "CartridgeHolder_BloodyTears/GR27_GameCartridge_BloodyTears"),
@@ -12278,11 +7401,8 @@ internal static class MusicLabDiscovery
         ("Wag the Dog", "CartridgeHolder_SuperCrazyRhythmCastle/GR27_GameCartridge_WagTheDog"),
     };
 
-    private static bool _active;
-    private static int _sequence;
     private static string _currentGarageSong = string.Empty;
     private static bool _musicLabStageInProgress;
-    private static int _garageInteractionSnapshot;
     private static bool _garageCartridgeBaselineReady;
     private static readonly Dictionary<string, bool> GarageCartridgeBaselineActive = new(StringComparer.Ordinal);
     private static string _garagePickupCandidate = string.Empty;
@@ -12296,26 +7416,6 @@ internal static class MusicLabDiscovery
     private static MethodInfo? _getMostRecentCleanMedalMethod;
     private static MethodInfo? _getMostRecentStarRatingMethod;
 
-
-    public static bool IsMusicLabRoom(string? room) =>
-        string.Equals(room, Hub6RoomId, StringComparison.Ordinal) ||
-        string.Equals(room, GarageRoomId, StringComparison.Ordinal);
-
-    public static void ManualBegin()
-    {
-        lock (Sync)
-        {
-            _active = true;
-            _sequence = 0;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== MUSIC LAB / GAME GARAGE DISCOVERY START ===== currentRoom='{DeveloperHarness.CurrentRoomId}'.");
-
-        Record(
-            "BASELINE",
-            "Hub6 contains the phone hub + Music Lab. Cassette songs use non-default variants and award Bronze/Silver/Gold/Platinum worth 1/2/3/4 Music Lab points. GameRoom_27 is the Game Garage and its six cartridge songs share the same medal-point economy. Known chest thresholds: 5,10,20,32,46,64,89,111,140. Known rewards now mapped: 5=Old Game Data/SCGMD memory card; 10=Space Cartridge/Gradius Remix; 20=Car Battery/Meoo route; 32=Quicksand Cassette; 46=Bloodstained/Bloody Tears Cartridge. Focus: exact Garage identity from cartridge pickup/insertion state inside GameRoom_27, direct medal/star evaluations, native point source/threshold conditions, and later chest reward state without modifying progression.");
-    }
 
     public static void RecordTransition(string roomId)
     {
@@ -12337,6 +7437,7 @@ internal static class MusicLabDiscovery
             if (toHub6)
             {
                 _musicLabStageInProgress = false;
+                LocationMap.MusicLabChests.BeginVisit();
             }
 
             if (toGarage)
@@ -12348,8 +7449,6 @@ internal static class MusicLabDiscovery
             }
         }
 
-        if (fromHub6 || toHub6 || toGarage)
-            Record("ROOM TRANSITION", $"{originRoom} -> {roomId}");
     }
 
     private const int Flamenco64CollectionFlag = 150002;
@@ -12358,92 +7457,37 @@ internal static class MusicLabDiscovery
     private const string Zen111CollectionFlagName = "SONG_CASSETTE_COLLECTED_ZEN";
     private const string Wiggle140CollectionFlagName = "SONG_CASSETTE_COLLECTED_WIGGLE";
 
-    private static readonly (int Threshold, string ChestName)[] MusicLabRewardChests =
-    {
-        (5, "ManiacMemoryCardChest"),
-        (10, "GarageCartridgeChest_Gradius"),
-        (20, "CatBatteryChest"),
-        (32, "SongChest_QuickSand"),
-        (46, "GarageCartridgeChest_BloodyTears"),
-        (64, "SongChest_Flamenco"),
-        (89, "SongChest_TenFourGoodBuddy"),
-        (111, "SongChest_Zen"),
-        (140, "SongChest_Wiggle"),
-    };
-
-    private static readonly Dictionary<int, int> MusicLabRewardThresholdByFlag = new();
-    private static readonly Dictionary<int, int> MusicLabRewardFlagByThreshold = new();
-
     public static void RecordProgressionRequest(object request, string flag)
     {
-        string room = DeveloperHarness.CurrentRoomId;
+        if (DeveloperHarness.CurrentRoomId != Hub6RoomId) return;
         int? numericFlag = ReadNumericProgressionFlag(
             ReflectionUtil.ReadMember(request, "Flag")
             ?? ReflectionUtil.ReadMember(request, "_Flag_k__BackingField"));
         bool? value = ReflectionUtil.ReadBool(request, "Value")
                       ?? ReflectionUtil.ReadBool(request, "_Value_k__BackingField");
 
-        if (string.Equals(room, Hub6RoomId, StringComparison.Ordinal) && value != false)
+        if (value != false)
             TryQueueMusicLabRewardChest(flag, numericFlag, "progression request");
 
-        if (_active && IsMusicLabRoom(room))
-            Record("PROGRESSION REQUEST", $"flag='{flag}' numeric={numericFlag?.ToString() ?? "?"} value={value?.ToString() ?? "?"}");
     }
 
     public static void RecordProgressionFlagUpdated(object evt, string flag)
     {
-        string room = DeveloperHarness.CurrentRoomId;
+        if (DeveloperHarness.CurrentRoomId != Hub6RoomId) return;
         int? numericFlag = ReadNumericProgressionFlag(
             ReflectionUtil.ReadMember(evt, "ProgressionFlag")
             ?? ReflectionUtil.ReadMember(evt, "_ProgressionFlag_k__BackingField"));
         bool? isSet = ReflectionUtil.ReadBool(evt, "FlagIsSet")
                       ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField");
-        bool? wasSet = ReflectionUtil.ReadBool(evt, "FlagWasSet")
-                       ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField");
 
-        if (string.Equals(room, Hub6RoomId, StringComparison.Ordinal) && isSet != false)
+        if (isSet != false)
             TryQueueMusicLabRewardChest(flag, numericFlag, "progression flag event");
 
-        if (_active && IsMusicLabRoom(room))
-            Record("PROGRESSION FLAG UPDATED", $"flag='{flag}' numeric={numericFlag?.ToString() ?? "?"} isSet={isSet?.ToString() ?? "?"} wasSet={wasSet?.ToString() ?? "?"}");
-    }
-
-    private static string MusicLabRewardLocationName(int threshold)
-    {
-        return threshold switch
-        {
-            5 => LocationMap.MusicLab5PointChestLocationName,
-            10 => LocationMap.MusicLab10PointChestLocationName,
-            20 => LocationMap.MusicLab20PointChestLocationName,
-            32 => LocationMap.MusicLab32PointChestLocationName,
-            46 => LocationMap.MusicLab46PointChestLocationName,
-            64 => LocationMap.MusicLab64PointChestLocationName,
-            89 => LocationMap.MusicLab89PointChestLocationName,
-            111 => LocationMap.MusicLab111PointChestLocationName,
-            140 => LocationMap.MusicLab140PointChestLocationName,
-            _ => $"Music Lab - {threshold} Point Chest",
-        };
-    }
-
-    private static string MusicLabRewardChestName(int threshold)
-    {
-        foreach ((int candidateThreshold, string chestName) in MusicLabRewardChests)
-        {
-            if (candidateThreshold == threshold)
-                return chestName;
-        }
-        return "<unknown>";
     }
 
     private static void TryQueueMusicLabRewardChest(string flag, int? numericFlag, string source)
     {
-        int threshold = 0;
-
-        if (numericFlag.HasValue)
-        {
-            lock (Sync)
-                MusicLabRewardThresholdByFlag.TryGetValue(numericFlag.Value, out threshold);
-        }
+        int threshold = LocationMap.MusicLabChests.ThresholdFor(numericFlag);
 
         // The four late song rewards were already observed directly in earlier logs;
         // retain them as a fallback if an event arrives before the live Hub6 scan.
@@ -12458,24 +7502,20 @@ internal static class MusicLabDiscovery
         else if (threshold == 0 && string.Equals(flag, Wiggle140CollectionFlagName, StringComparison.OrdinalIgnoreCase))
             threshold = 140;
 
-        if (threshold == 0 && string.Equals(DeveloperHarness.CurrentRoomId, Hub6RoomId, StringComparison.Ordinal))
+        if (threshold == 0 && numericFlag.HasValue)
         {
             TryDiscoverMusicLabRewardChestFlags();
-            if (numericFlag.HasValue)
-            {
-                lock (Sync)
-                    MusicLabRewardThresholdByFlag.TryGetValue(numericFlag.Value, out threshold);
-            }
+            threshold = LocationMap.MusicLabChests.ThresholdFor(numericFlag);
         }
 
         if (threshold == 0)
             return;
 
-        string chest = MusicLabRewardChestName(threshold);
-        string locationName = MusicLabRewardLocationName(threshold);
+        var chest = LocationMap.MusicLabChests.At(threshold);
+        string locationName = chest.LocationName;
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB {threshold}-POINT CHEST COLLECTED source='{source}' flag='{flag}' numeric={numericFlag?.ToString() ?? "?"} chest='{chest}'.");
+            $"[SCRC-AP] MUSIC LAB {threshold}-POINT CHEST COLLECTED source='{source}' flag='{flag}' numeric={numericFlag?.ToString() ?? "?"} chest='{chest.ObjectName}'.");
         Plugin.LoggerInstance?.LogInfo(
             $"[SCRC-AP] AP LOCATION '{locationName}' source='Music Lab {threshold}-point reward chest'.");
         if (!CassetteSourceRandomization.QueueCatalogSourceByLocation(
@@ -12486,44 +7526,27 @@ internal static class MusicLabDiscovery
         }
     }
 
-    private static bool TryDiscoverMusicLabRewardChestFlags()
+    private static bool TryDiscoverMusicLabRewardChestFlags() =>
+        DeveloperHarness.CurrentRoomId == Hub6RoomId && LocationMap.MusicLabChests.Discover(ReadChestFlag);
+
+    private static int? ReadChestFlag(MusicLabChest chest)
     {
-        if (!string.Equals(DeveloperHarness.CurrentRoomId, Hub6RoomId, StringComparison.Ordinal))
-            return false;
+        var interaction = GameObject.Find(chest.InteractionPath);
+        if (interaction == null ||
+            !TryReadNativeMusicLabRewardChestMetadata(interaction, out int threshold, out int progressionFlag))
+            return null;
 
-        int found = 0;
-        foreach ((int expectedThreshold, string chestName) in MusicLabRewardChests)
+        // A different native requirement would report the wrong AP check.
+        if (threshold != chest.Threshold)
         {
-            string interactionPath =
-                $"Root/GameRoom_Hub6_Logic/Objects/RewardChests/{chestName}/Interaction";
-            GameObject? interaction = GameObject.Find(interactionPath);
-            if (interaction == null)
-                continue;
-
-            if (!TryReadNativeMusicLabRewardChestMetadata(interaction, out int threshold, out int progressionFlag))
-                continue;
-
-            // The native unlockRequirement is authoritative. If a future build moves a
-            // chest, log it rather than silently assigning the flag to the wrong AP check.
-            if (threshold != expectedThreshold)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB REWARD CHEST metadata mismatch chest='{chestName}' expectedThreshold={expectedThreshold} nativeThreshold={threshold}; skipped.");
-                continue;
-            }
-
-            lock (Sync)
-            {
-                MusicLabRewardFlagByThreshold[threshold] = progressionFlag;
-                MusicLabRewardThresholdByFlag[progressionFlag] = threshold;
-            }
-
-            found++;
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB REWARD CHEST MAP threshold={threshold} chest='{chestName}' nativeCollectionFlag={progressionFlag}.");
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MUSIC LAB REWARD CHEST metadata mismatch chest='{chest.ObjectName}' expectedThreshold={chest.Threshold} nativeThreshold={threshold}; skipped.");
+            return null;
         }
 
-        return found == MusicLabRewardChests.Length;
+        Plugin.LoggerInstance?.LogInfo(
+            $"[SCRC-AP] MUSIC LAB REWARD CHEST MAP threshold={threshold} chest='{chest.ObjectName}' nativeCollectionFlag={progressionFlag}.");
+        return progressionFlag;
     }
 
     private static bool TryReadNativeMusicLabRewardChestMetadata(
@@ -12683,14 +7706,12 @@ internal static class MusicLabDiscovery
         Type flagType = parameters[0].ParameterType;
 
         int collected = 0;
-        foreach ((int threshold, string chestName) in MusicLabRewardChests)
+        foreach (var chest in LocationMap.MusicLabChests.Chests)
         {
-            int numericFlag;
-            lock (Sync)
-            {
-                if (!MusicLabRewardFlagByThreshold.TryGetValue(threshold, out numericFlag))
-                    return false;
-            }
+            int threshold = chest.Threshold;
+            string chestName = chest.ObjectName;
+            if (!LocationMap.MusicLabChests.TryGetFlag(threshold, out int numericFlag))
+                return false;
 
             try
             {
@@ -12743,28 +7764,6 @@ internal static class MusicLabDiscovery
         return null;
     }
 
-    public static void RecordBagItem(object request)
-    {
-        if (!_active || !IsMusicLabRoom(DeveloperHarness.CurrentRoomId))
-            return;
-
-        DumpRelevantMembers(
-            request,
-            "BAG ITEM REQUEST",
-            new[] { "bag", "item", "identifier", "cassette", "cartridge", "memory" });
-    }
-
-    public static void RecordAbilityItem(object request)
-    {
-        if (!_active || !IsMusicLabRoom(DeveloperHarness.CurrentRoomId))
-            return;
-
-        DumpRelevantMembers(
-            request,
-            "ABILITY ITEM REQUEST",
-            new[] { "ability", "item", "identifier" });
-    }
-
     public static void PollGarageCartridgeSelection()
     {
         if (!string.Equals(DeveloperHarness.CurrentRoomId, GarageRoomId, StringComparison.Ordinal))
@@ -12814,8 +7813,8 @@ internal static class MusicLabDiscovery
             }
         }
 
-        var missing = new List<string>();
-        var inactive = new List<string>();
+        int missingCount = 0, inactiveCount = 0;
+        string missingSong = string.Empty, inactiveSong = string.Empty;
 
         foreach (var cartridge in GarageCartridgeObjects)
         {
@@ -12835,7 +7834,8 @@ internal static class MusicLabDiscovery
 
             if (tr == null || tr.gameObject == null)
             {
-                missing.Add(cartridge.Song);
+                missingCount++;
+                missingSong = cartridge.Song;
                 continue;
             }
 
@@ -12843,15 +7843,18 @@ internal static class MusicLabDiscovery
             try { active = tr.gameObject.activeSelf; }
             catch { }
             if (!active)
-                inactive.Add(cartridge.Song);
+            {
+                inactiveCount++;
+                inactiveSong = cartridge.Song;
+            }
         }
 
         // v0.67.20 proved the inserted Bloody Tears holder copy is present but
         // activeSelf=false while the other floor cartridges remain active.
         // Treat exactly one such transition as authoritative.
-        if (inactive.Count == 1)
+        if (inactiveCount == 1)
         {
-            string song = inactive[0];
+            string song = inactiveSong;
             bool changed;
             lock (Sync)
             {
@@ -12864,8 +7867,6 @@ internal static class MusicLabDiscovery
             {
                 Plugin.LoggerInstance?.LogWarning(
                     $"[SCRC-AP] MUSIC LAB GARAGE SONG CAPTURE source='cartridge holder inactive after insert' song='{song}'.");
-                if (_active)
-                    Record("GARAGE CARTRIDGE INSERTED", $"song='{song}'");
             }
             return;
         }
@@ -12873,9 +7874,9 @@ internal static class MusicLabDiscovery
         // While carried, the selected cartridge is temporarily reparented out
         // of the Cartridges subtree. This is only a candidate; insertion above
         // is the confirmation used for result identity.
-        if (inactive.Count == 0 && missing.Count == 1)
+        if (inactiveCount == 0 && missingCount == 1)
         {
-            string song = missing[0];
+            string song = missingSong;
             bool changed;
             lock (Sync)
             {
@@ -12892,7 +7893,7 @@ internal static class MusicLabDiscovery
         // If the held cartridge is returned to its floor holder without being
         // inserted, clear only the candidate. Keep any confirmed song cached
         // until another insertion or the room changes.
-        if (inactive.Count == 0 && missing.Count == 0)
+        if (inactiveCount == 0 && missingCount == 0)
         {
             lock (Sync)
                 _garagePickupCandidate = string.Empty;
@@ -12901,20 +7902,11 @@ internal static class MusicLabDiscovery
 
     public static void RecordScoredSongRequest(object request)
     {
-        string currentRoom = DeveloperHarness.CurrentRoomId;
-        bool isGarage = string.Equals(currentRoom, GarageRoomId, StringComparison.Ordinal);
-        bool isCassetteStage;
-        lock (Sync)
-            isCassetteStage = _musicLabStageInProgress && !isGarage;
-
-        // v0.67.28 attempted the scored-song request as an early identity source; some cassette starts do not issue it.
-        // Garage already used it as a fallback; cassette discovery now observes
-        // it too so unknown cassettes can be identified without finishing them.
-        if (!isGarage && !isCassetteStage)
+        // Cassette medals use the level variant in the saved result. This request identifies the Garage cartridge.
+        if (!string.Equals(DeveloperHarness.CurrentRoomId, GarageRoomId, StringComparison.Ordinal))
             return;
 
         object? songValue = null;
-        string sourceMember = string.Empty;
 
         foreach (string name in new[]
         {
@@ -12932,7 +7924,6 @@ internal static class MusicLabDiscovery
                 continue;
 
             songValue = candidate;
-            sourceMember = name;
             break;
         }
 
@@ -12955,98 +7946,58 @@ internal static class MusicLabDiscovery
                     object? candidate = null;
                     try { candidate = ReflectionUtil.UnwrapNullable(field.GetValue(request)); } catch { }
                     string? text = ReflectionUtil.ExtractIdentifier(candidate);
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST FIELD name='{fieldName}' type='{field.FieldType?.FullName}' value='{text ?? "<null/unreadable>"}'.");
 
-                    if (songValue == null && candidate != null && !string.IsNullOrWhiteSpace(text))
+                    if (candidate != null && !string.IsNullOrWhiteSpace(text))
                     {
                         songValue = candidate;
-                        sourceMember = fieldName;
+                        break;
                     }
                 }
             }
             catch { }
 
-            try
+            if (songValue == null)
             {
-                foreach (PropertyInfo property in type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                try
                 {
-                    if (property.GetIndexParameters().Length != 0)
-                        continue;
-
-                    string propertyName = property.Name ?? string.Empty;
-                    string propertyType = property.PropertyType?.Name ?? string.Empty;
-                    if (!propertyName.Contains("song", StringComparison.OrdinalIgnoreCase) &&
-                        !propertyType.Contains("song", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    object? candidate = null;
-                    try { candidate = ReflectionUtil.UnwrapNullable(property.GetValue(request)); } catch { }
-                    string? text = ReflectionUtil.ExtractIdentifier(candidate);
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] MUSIC LAB GARAGE SCORED SONG REQUEST PROPERTY name='{propertyName}' type='{property.PropertyType?.FullName}' value='{text ?? "<null/unreadable>"}'.");
-
-                    if (songValue == null && candidate != null && !string.IsNullOrWhiteSpace(text))
+                    foreach (PropertyInfo property in type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
                     {
-                        songValue = candidate;
-                        sourceMember = propertyName;
+                        if (property.GetIndexParameters().Length != 0)
+                            continue;
+
+                        string propertyName = property.Name ?? string.Empty;
+                        string propertyType = property.PropertyType?.Name ?? string.Empty;
+                        if (!propertyName.Contains("song", StringComparison.OrdinalIgnoreCase) &&
+                            !propertyType.Contains("song", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        object? candidate = null;
+                        try { candidate = ReflectionUtil.UnwrapNullable(property.GetValue(request)); } catch { }
+                        string? text = ReflectionUtil.ExtractIdentifier(candidate);
+
+                        if (candidate != null && !string.IsNullOrWhiteSpace(text))
+                        {
+                            songValue = candidate;
+                            break;
+                        }
                     }
                 }
+                catch { }
             }
-            catch { }
         }
 
         string rawSong = ReflectionUtil.ExtractIdentifier(songValue) ?? string.Empty;
 
-        if (isGarage)
+        string friendly = FriendlyGarageSong(rawSong);
+        if (string.IsNullOrWhiteSpace(friendly))
         {
-            string friendly = FriendlyGarageSong(rawSong);
-            if (!string.IsNullOrWhiteSpace(friendly))
-            {
-                lock (Sync)
-                    _currentGarageSong = friendly;
-
-                Record(
-                    "GARAGE SONG SELECTED",
-                    $"song='{friendly}' raw='{rawSong}' source='SetScoredSongInCurrentLevelRequest.{sourceMember}'.");
-            }
-            else
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB GARAGE scored-song request observed but song identity could not be decoded; requestType='{request.GetType().FullName}'.");
-            }
-
+            Plugin.LoggerInstance?.LogWarning(
+                $"[SCRC-AP] MUSIC LAB GARAGE scored-song request observed but song identity could not be decoded; requestType='{request.GetType().FullName}'.");
             return;
         }
 
-    }
-
-    private static string FriendlyCassetteSongFromRawSong(string rawSong)
-    {
-        if (string.IsNullOrWhiteSpace(rawSong))
-            return "<unavailable>";
-
-        string raw = rawSong.Trim();
-        foreach (string prefix in new[] { "ePlayableSong_", "PlayableSong_", "Song_" })
-        {
-            if (raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                raw = raw[prefix.Length..];
-                break;
-            }
-        }
-
-        // Preserve the exact raw identifier in the log; this display form is
-        // only for readability and is not used as an AP key.
-        string[] words = raw.Replace('-', '_')
-            .Split(new[] { '_' }, StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0)
-            return rawSong;
-
-        return string.Join(" ", words.Select(word =>
-            word.Length <= 2
-                ? word.ToUpperInvariant()
-                : char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant()));
+        lock (Sync)
+            _currentGarageSong = friendly;
     }
 
     private static string FriendlyGarageSong(string raw)
@@ -13095,8 +8046,7 @@ internal static class MusicLabDiscovery
         string sticker,
         string stickerPro)
     {
-        // F5 and other diagnostics may call the same scoring enquiry. AP checks
-        // are only generated from the real result path.
+        // Only a completed result may queue the cumulative sticker checks.
         if (!string.Equals(reason, "result", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -13513,22 +8463,6 @@ internal static class MusicLabDiscovery
 
     }
 
-    public static void RecordPersistedEvent(
-        object evt,
-        string level,
-        string variant,
-        int? score)
-    {
-        if (!IsMusicLabResult(level, variant))
-            return;
-
-
-        Record(
-            "RESULT PERSISTED",
-            $"identity='{DescribeSongIdentity(level, variant)}' internal={level} variant={variant} score={score?.ToString() ?? "?"}");
-
-    }
-
     private static bool IsMusicLabResult(string level, string variant)
     {
         if (string.Equals(level, "Level_27", StringComparison.OrdinalIgnoreCase))
@@ -13566,268 +8500,6 @@ internal static class MusicLabDiscovery
             cleaned = cleaned[(marker + 1)..];
 
         return $"Music Lab Cassette - {cleaned}";
-    }
-
-    public static void ScanCurrentScene()
-    {
-        if (!DeveloperHarness.Enabled)
-            return;
-
-        string room = DeveloperHarness.CurrentRoomId;
-        if (!IsMusicLabRoom(room))
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB F5 ignored outside Hub6/GameRoom_27; currentRoom='{room}'.");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== MUSIC LAB F5 FOCUSED SCAN BEGIN ===== currentRoom='{room}'.");
-
-        if (string.Equals(room, Hub6RoomId, StringComparison.Ordinal))
-            ScanHub6();
-        else
-            ScanGarage();
-
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== MUSIC LAB F5 FOCUSED SCAN END =====");
-    }
-
-    private static void ScanHub6()
-    {
-        GameObject? phoneBank = GameObject.Find(Hub6PhoneBankRootPath);
-        CassettePostLoadSnapshotGateDecision snapshotDecision =
-            PostLoadSnapshotLiveGate.Observe(phoneBank != null);
-        if (snapshotDecision.LogDeferred)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] CASSETTE POST-LOAD SNAPSHOT DEFERRED room='{DeveloperHarness.CurrentRoomId}' " +
-                $"reason='Hub6 scene is not live' missingMarker='{Hub6PhoneBankRootPath}'.");
-        }
-        if (snapshotDecision.ReadSnapshot)
-        {
-            CassetteReceiptRandomization.LogPostLoadSnapshot(
-                DeveloperHarness.CurrentRoomId,
-                "plain F5 after Hub6 became live");
-        }
-        bool reconciled = ReconcileCollectedRewardChests();
-        int mapped;
-        lock (Sync)
-            mapped = MusicLabRewardFlagByThreshold.Count;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB REWARD CHEST STATUS thresholds=5/10/20/32/46/64/89/111/140 mappedNativeFlags={mapped}/9 reconcileComplete={reconciled}. F5 is read-only except for queuing AP checks for rewards the native save already says are collected.");
-
-        ScanNativeIdentityCandidates();
-    }
-
-    public static void ScanNativeIdentityCandidates()
-    {
-        Plugin.LoggerInstance?.LogWarning(
-            "[SCRC-AP] ===== V06763 NATIVE IDENTITY DIAGNOSTIC BEGIN ===== readOnly=True.");
-
-        int hubCandidates = 0;
-        foreach (Transform tr in Resources.FindObjectsOfTypeAll<Transform>())
-        {
-            if (tr == null)
-                continue;
-
-            string path = BuildHierarchy(tr);
-            GameObject go;
-            try { go = tr.gameObject; }
-            catch { continue; }
-            if (go == null)
-                continue;
-
-            string[] componentTypes;
-            try
-            {
-                componentTypes = go.GetComponents<Component>()
-                    .Where(component => component != null)
-                    .Select(component => component.GetType().FullName ?? component.GetType().Name)
-                    .ToArray();
-            }
-            catch
-            {
-                componentTypes = Array.Empty<string>();
-            }
-
-            if (!NativeIdentityDiagnosticPolicy.IsHub6Candidate(path, componentTypes))
-                continue;
-
-            bool activeSelf = false;
-            bool activeInHierarchy = false;
-            try
-            {
-                activeSelf = go.activeSelf;
-                activeInHierarchy = go.activeInHierarchy;
-            }
-            catch { }
-
-            hubCandidates++;
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] V06763 HUB6 CANDIDATE path='{path}' activeSelf={activeSelf} activeInHierarchy={activeInHierarchy} managedComponents='{string.Join("|", componentTypes)}'.");
-            DumpExactObjectComponents(path, "V06763 HUB6 CANDIDATE");
-        }
-
-        int difficultyTypes = 0;
-        Type[] gameTypes;
-        try { gameTypes = ReflectionUtil.GameAssembly?.GetTypes() ?? Array.Empty<Type>(); }
-        catch { gameTypes = Array.Empty<Type>(); }
-
-        foreach (Type type in gameTypes
-                     .Where(type => NativeIdentityDiagnosticPolicy.IsDifficultyType(type.FullName ?? type.Name))
-                     .OrderBy(type => type.FullName, StringComparer.Ordinal))
-        {
-            string[] members;
-            try
-            {
-                members = type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
-                    .Select(member => $"{member.MemberType}:{member.Name}")
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(name => name, StringComparer.Ordinal)
-                    .ToArray();
-            }
-            catch
-            {
-                members = Array.Empty<string>();
-            }
-
-            if (members.Length == 0)
-                continue;
-
-            difficultyTypes++;
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] V06763 DIFFICULTY TYPE fullName='{type.FullName}' members='{string.Join("|", members)}'.");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== V06763 NATIVE IDENTITY DIAGNOSTIC END ===== hubCandidates={hubCandidates} difficultyTypes={difficultyTypes} readOnly=True.");
-    }
-
-    private static void ScanGarage()
-    {
-        DumpGarageInteractionSnapshot();
-        ProbeGarageScoringState("F5");
-
-        foreach (string sequenceName in GarageSequenceNames)
-        {
-            string sequenceRoot =
-                $"Root/GameRoom_27_Logic/GameRoom_27_Script/MiscSequences/{sequenceName}";
-            string scoredSong = sequenceRoot + "/SetScoredSong";
-
-            DumpExactObjectComponents(scoredSong, $"GARAGE {sequenceName} SetScoredSong");
-        }
-
-        DumpExactSubtreeComponents(
-            "Root/GameRoom_27_Logic/Objects/Cartridges",
-            "GARAGE CARTRIDGES",
-            100,
-            false);
-
-        DumpExactSubtreeComponents(
-            "Root/GameRoom_27_Logic/Objects/Medals",
-            "GARAGE MEDALS",
-            100,
-            true);
-
-        string current;
-        lock (Sync)
-            current = _currentGarageSong;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB GARAGE selectedSong='{(string.IsNullOrWhiteSpace(current) ? "<unknown/not started>" : current)}'.");
-    }
-
-    // v0.67.23 diagnostic helper retained: managed GetComponents<Component>() often reports game scripts as
-    // UnityEngine.Component. The wrapped Pointer still addresses the real IL2CPP
-    // object, so query its native class/field metadata directly. This is read-only.
-    private static void DumpNativeIl2CppComponents(string path)
-    {
-        GameObject? go = GameObject.Find(path);
-        if (go == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB 64 NATIVE OBJECT missing path='{path}'.");
-            return;
-        }
-
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB 64 NATIVE OBJECT components failed path='{path}': {ex.GetBaseException().Message}");
-            return;
-        }
-
-        int index = 0;
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            index++;
-            IntPtr obj = GetNativePointer(component);
-            if (obj == IntPtr.Zero)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB 64 NATIVE COMPONENT path='{path}' index={index} managed='{component.GetType().FullName}' pointer=<zero>.");
-                continue;
-            }
-
-            IntPtr klass = IntPtr.Zero;
-            try { klass = ml_il2cpp_object_get_class(obj); }
-            catch { }
-
-            string className = NativeClassFullName(klass);
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB 64 NATIVE COMPONENT path='{path}' index={index} managed='{component.GetType().FullName}' class='{className}'.");
-
-            DumpNativeFields(obj, klass, path, className);
-        }
-    }
-
-    private static void DumpNativeFields(IntPtr obj, IntPtr klass, string path, string rootClassName)
-    {
-        if (obj == IntPtr.Zero || klass == IntPtr.Zero)
-            return;
-
-        int emitted = 0;
-        IntPtr current = klass;
-        for (int depth = 0; current != IntPtr.Zero && depth < 7 && emitted < 48; depth++)
-        {
-            IntPtr iter = IntPtr.Zero;
-            while (emitted < 48)
-            {
-                IntPtr field;
-                try { field = ml_il2cpp_class_get_fields(current, ref iter); }
-                catch { field = IntPtr.Zero; }
-
-                if (field == IntPtr.Zero)
-                    break;
-
-                string fieldName = NativeAnsi(() => ml_il2cpp_field_get_name(field));
-                if (string.IsNullOrWhiteSpace(fieldName))
-                    fieldName = "<unnamed>";
-
-                IntPtr fieldType = IntPtr.Zero;
-                try { fieldType = ml_il2cpp_field_get_type(field); } catch { }
-                string fieldTypeName = NativeTypeName(fieldType);
-
-                if (fieldName is "m_CachedPtr" or "m_InstanceID")
-                    continue;
-
-                string value = NativeFieldValue(field, obj, fieldTypeName);
-                string declaring = NativeClassFullName(current);
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB 64 NATIVE FIELD path='{path}' rootClass='{rootClassName}' declaring='{declaring}' name='{fieldName}' type='{fieldTypeName}' value='{value}'.");
-                emitted++;
-            }
-
-            try { current = ml_il2cpp_class_get_parent(current); }
-            catch { current = IntPtr.Zero; }
-        }
     }
 
     private static IntPtr GetNativePointer(object value)
@@ -14003,627 +8675,18 @@ internal static class MusicLabDiscovery
     [DllImport(MusicLabNativeLibrary, CallingConvention = CallingConvention.Cdecl, EntryPoint = "il2cpp_runtime_invoke")]
     private static extern IntPtr ml_il2cpp_runtime_invoke(IntPtr method, IntPtr obj, IntPtr parameters, ref IntPtr exc);
 
-    private static void DumpGarageInteractionSnapshot()
-    {
-        int snapshot = ++_garageInteractionSnapshot;
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== MUSIC LAB GARAGE INTERACTION SNAPSHOT #{snapshot:00} BEGIN =====");
-
-        const string cartridgeRootPath = "Root/GameRoom_27_Logic/Objects/Cartridges";
-        GameObject? cartridgeRoot = GameObject.Find(cartridgeRootPath);
-        if (cartridgeRoot == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} cartridge root not found path='{cartridgeRootPath}'.");
-        }
-        else
-        {
-            try
-            {
-                int count = 0;
-                foreach (Transform tr in cartridgeRoot.transform.GetComponentsInChildren<Transform>(true))
-                {
-                    if (tr == null || tr.gameObject == null)
-                        continue;
-
-                    string path = BuildHierarchy(tr);
-                    string parent = tr.parent != null ? BuildHierarchy(tr.parent) : "<none>";
-                    Plugin.LoggerInstance?.LogWarning(
-                        $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} CARTRIDGE path='{path}' parent='{parent}' activeSelf={SafeActiveSelf(tr)} activeInHierarchy={SafeActiveInHierarchy(tr)}.");
-
-                    // Only the exact cartridge subtree is inspected. Relevant component
-                    // state is useful for detecting held/inserted/selected transitions.
-                    DumpRelevantGarageInteractionComponents(tr.gameObject, path, snapshot);
-
-                    if (++count >= 120)
-                        break;
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} cartridge traversal failed: {ex.GetBaseException().Message}");
-            }
-        }
-
-        foreach (string sequenceName in GarageSequenceNames)
-        {
-            string rootPath = $"Root/GameRoom_27_Logic/GameRoom_27_Script/MiscSequences/{sequenceName}";
-            GameObject? sequenceRoot = GameObject.Find(rootPath);
-            if (sequenceRoot == null)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} SEQUENCE name='{sequenceName}' found=False.");
-                continue;
-            }
-
-            Transform tr = sequenceRoot.transform;
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} SEQUENCE name='{sequenceName}' found=True activeSelf={SafeActiveSelf(tr)} activeInHierarchy={SafeActiveInHierarchy(tr)} childCount={tr.childCount}.");
-
-            DumpRelevantGarageInteractionComponents(sequenceRoot, rootPath, snapshot);
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ===== MUSIC LAB GARAGE INTERACTION SNAPSHOT #{snapshot:00} END =====");
-    }
-
-    private static void DumpRelevantGarageInteractionComponents(GameObject go, string path, int snapshot)
-    {
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch { return; }
-
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            Type type = component.GetType();
-            string fullTypeName = type.FullName ?? type.Name ?? string.Empty;
-            if (fullTypeName.StartsWith("UnityEngine.", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] GARAGE SNAPSHOT #{snapshot:00} COMPONENT path='{path}' type='{fullTypeName}'.");
-
-            DumpRelevantMembers(
-                component,
-                $"GARAGE SNAPSHOT #{snapshot:00} {type.Name}",
-                new[]
-                {
-                    "cartridge", "song", "track", "selected", "insert", "slot",
-                    "held", "hold", "carry", "pickup", "interact", "state", "active",
-                    "playing", "play", "item", "identifier"
-                });
-        }
-    }
-
-    private static void DumpExactSubtreeHierarchy(
-        string rootPath,
-        string label,
-        int transformCap)
-    {
-        GameObject? root = GameObject.Find(rootPath);
-        if (root == null)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label}: exact root not found '{rootPath}'.");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- MUSIC LAB {label} BEGIN root='{rootPath}' -----");
-
-        int visited = 0;
-
-        try
-        {
-            foreach (Transform tr in root.transform.GetComponentsInChildren<Transform>(true))
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                visited++;
-                if (visited > transformCap)
-                    break;
-
-                string path = BuildHierarchy(tr);
-                string parent = tr.parent != null ? BuildHierarchy(tr.parent) : "<none>";
-                int sibling = -1;
-                int childCount = -1;
-                try { sibling = tr.GetSiblingIndex(); } catch { }
-                try { childCount = tr.childCount; } catch { }
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB {label} NODE #{visited:000} path='{path}' parent='{parent}' sibling={sibling} childCount={childCount} activeSelf={SafeActiveSelf(tr)} activeInHierarchy={SafeActiveInHierarchy(tr)}.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label} hierarchy scan failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- MUSIC LAB {label} END visited={visited} -----");
-    }
-
-    private static void DumpExactSubtreeComponents(
-        string rootPath,
-        string label,
-        int transformCap,
-        bool onlyInterestingNames)
-    {
-        GameObject? root = GameObject.Find(rootPath);
-        if (root == null)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB {label}: exact root not found '{rootPath}'.");
-            return;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- MUSIC LAB {label} BEGIN root='{rootPath}' -----");
-
-        int visited = 0;
-        int dumped = 0;
-
-        try
-        {
-            foreach (Transform tr in root.transform.GetComponentsInChildren<Transform>(true))
-            {
-                if (tr == null || tr.gameObject == null)
-                    continue;
-
-                visited++;
-                if (visited > transformCap)
-                    break;
-
-                string name = tr.name ?? string.Empty;
-                string lower = name.ToLowerInvariant();
-
-                if (onlyInterestingNames &&
-                    !lower.Contains("condition") &&
-                    !lower.Contains("interaction") &&
-                    !lower.Contains("point") &&
-                    !lower.Contains("medal") &&
-                    !lower.Contains("score") &&
-                    !lower.Contains("chest") &&
-                    !lower.Contains("reward") &&
-                    !lower.Contains("memory") &&
-                    !lower.Contains("cartridge") &&
-                    !lower.Contains("cassette"))
-                {
-                    continue;
-                }
-
-                string path = BuildHierarchy(tr);
-                DumpComponents(tr.gameObject, path);
-                dumped++;
-
-                if (dumped >= 80)
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label} subtree scan failed: {ex.GetBaseException().Message}");
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] ----- MUSIC LAB {label} END visited={visited} componentObjects={dumped} -----");
-    }
-
-    private static void DumpExactObjectComponents(string path, string label)
-    {
-        GameObject? go = GameObject.Find(path);
-        if (go == null)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB {label}: object not found '{path}'.");
-            return;
-        }
-
-        // v0.67.13 only reflected components whose managed assembly name was
-        // exactly Assembly-CSharp. IL2CPP interop wrappers do not reliably report
-        // that assembly name, which hid the useful SetScoredSong component.
-        // This is intentionally limited to the six exact SetScoredSong objects.
-        try
-        {
-            var components = go.GetComponents<Component>();
-            foreach (Component component in components)
-            {
-                if (component == null)
-                    continue;
-
-                Type type = component.GetType();
-                string assemblyName;
-                try { assemblyName = type.Assembly.GetName().Name ?? string.Empty; }
-                catch { assemblyName = string.Empty; }
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] MUSIC LAB EXACT COMPONENT path='{path}' type='{type.FullName}' assembly='{assemblyName}'.");
-
-                MethodInfo[] methods;
-                try
-                {
-                    methods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-                }
-                catch
-                {
-                    methods = Array.Empty<MethodInfo>();
-                }
-
-                foreach (MethodInfo method in methods.Take(32))
-                {
-                    string signature;
-                    try { signature = string.Join(",", method.GetParameters().Select(p => p.ParameterType.Name)); }
-                    catch { signature = "?"; }
-
-                    Plugin.LoggerInstance?.LogInfo(
-                        $"[SCRC-AP] MUSIC LAB EXACT METHOD path='{path}' type='{type.FullName}' method='{method.Name}({signature})' returns='{method.ReturnType.Name}'.");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label}: exact component dump failed: {ex.GetBaseException().Message}");
-        }
-
-        DumpComponents(go, path);
-    }
-
-    private static void DumpComponents(GameObject go, string path)
-    {
-        Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Component> components;
-        try { components = go.GetComponents<Component>(); }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB COMPONENTS path='{path}' failed: {ex.GetBaseException().Message}");
-            return;
-        }
-
-        foreach (Component component in components)
-        {
-            if (component == null)
-                continue;
-
-            Type type = component.GetType();
-            string assemblyName;
-            try { assemblyName = type.Assembly.GetName().Name ?? string.Empty; }
-            catch { assemblyName = string.Empty; }
-
-            string fullTypeName = type.FullName ?? type.Name ?? string.Empty;
-
-            // Stay narrow to the already-selected Hub6 chest / Garage objects,
-            // but do not assume IL2CPP wrapper types report Assembly-CSharp as
-            // their managed assembly. v0.67.13 filtered the useful components out.
-            if (fullTypeName.StartsWith("UnityEngine.", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB COMPONENT path='{path}' type='{type.FullName}' assembly='{assemblyName}'.");
-
-            DumpRelevantMembers(
-                component,
-                $"COMPONENT {type.Name}",
-                new[]
-                {
-                    "point", "medal", "score", "threshold", "require", "count", "total",
-                    "value", "condition", "cassette", "cartridge", "memory", "item", "song", "track"
-                });
-
-            DumpRelevantMethods(component, path);
-        }
-    }
-
-    private static void DumpRelevantMembers(
-        object obj,
-        string label,
-        IEnumerable<string> keywords)
-    {
-        if (!Plugin.VerboseDiscovery) return;
-        string[] loweredKeywords = keywords.Select(k => k.ToLowerInvariant()).ToArray();
-        Type type = obj.GetType();
-        int emitted = 0;
-
-        FieldInfo[] fields;
-        try
-        {
-            fields = type.GetFields(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        }
-        catch
-        {
-            fields = Array.Empty<FieldInfo>();
-        }
-
-        foreach (FieldInfo field in fields)
-        {
-            string lowerName = field.Name.ToLowerInvariant();
-            if (!loweredKeywords.Any(lowerName.Contains))
-                continue;
-
-            object? value = null;
-            try { value = field.GetValue(obj); }
-            catch { }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label} FIELD name='{field.Name}' type='{field.FieldType.FullName}' value='{SafeDiagnosticValue(value)}'.");
-
-            emitted++;
-            if (emitted >= 32)
-                return;
-        }
-
-        PropertyInfo[] properties;
-        try
-        {
-            properties = type.GetProperties(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        }
-        catch
-        {
-            properties = Array.Empty<PropertyInfo>();
-        }
-
-        foreach (PropertyInfo property in properties)
-        {
-            if (property.GetIndexParameters().Length != 0)
-                continue;
-
-            string lowerName = property.Name.ToLowerInvariant();
-            if (!loweredKeywords.Any(lowerName.Contains))
-                continue;
-
-            Type pt = property.PropertyType;
-            bool simpleType =
-                pt == typeof(string) ||
-                pt == typeof(bool) ||
-                pt == typeof(int) ||
-                pt == typeof(float) ||
-                pt == typeof(double) ||
-                pt.IsEnum ||
-                pt.Name.Contains("Identifier", StringComparison.OrdinalIgnoreCase) ||
-                pt.Name.Contains("DefinedInt", StringComparison.OrdinalIgnoreCase);
-
-            if (!simpleType)
-                continue;
-
-            object? value = null;
-            try { value = property.GetValue(obj); }
-            catch { }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] MUSIC LAB {label} PROPERTY name='{property.Name}' type='{pt.FullName}' value='{SafeDiagnosticValue(value)}'.");
-
-            emitted++;
-            if (emitted >= 32)
-                return;
-        }
-    }
-
-    private static void DumpRelevantMethods(Component component, string path)
-    {
-        Type type = component.GetType();
-        MethodInfo[] methods;
-        try
-        {
-            methods = type.GetMethods(
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-        }
-        catch
-        {
-            return;
-        }
-
-        int emitted = 0;
-        foreach (MethodInfo method in methods)
-        {
-            string lower = method.Name.ToLowerInvariant();
-            if (!lower.Contains("begin") &&
-                !lower.Contains("trigger") &&
-                !lower.Contains("interact") &&
-                !lower.Contains("condition") &&
-                !lower.Contains("evaluate") &&
-                !lower.Contains("require") &&
-                !lower.Contains("point") &&
-                !lower.Contains("medal") &&
-                !lower.Contains("score") &&
-                !lower.Contains("value") &&
-                !lower.StartsWith("is") &&
-                !lower.StartsWith("can") &&
-                !lower.StartsWith("get"))
-            {
-                continue;
-            }
-
-            string signature;
-            try
-            {
-                signature = string.Join(",", method.GetParameters().Select(p => p.ParameterType.Name));
-            }
-            catch
-            {
-                signature = "?";
-            }
-
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] MUSIC LAB METHOD path='{path}' type='{type.Name}' method='{method.Name}({signature})' returns='{method.ReturnType.Name}'.");
-
-            emitted++;
-            if (emitted >= 18)
-                break;
-        }
-    }
-
-    private static string SafeDiagnosticValue(object? value)
-    {
-        if (value == null)
-            return "<null>";
-
-        try
-        {
-            Type type = value.GetType();
-            if (value is string ||
-                value is bool ||
-                value is byte ||
-                value is sbyte ||
-                value is short ||
-                value is ushort ||
-                value is int ||
-                value is uint ||
-                value is long ||
-                value is ulong ||
-                value is float ||
-                value is double ||
-                value is decimal ||
-                type.IsEnum)
-            {
-                return value.ToString() ?? "<null>";
-            }
-
-            if (type.Name.Contains("DefinedInt", StringComparison.OrdinalIgnoreCase))
-            {
-                MethodInfo? getValue = type.GetMethod(
-                    "GetValue",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-                    null,
-                    Type.EmptyTypes,
-                    null);
-
-                if (getValue != null)
-                {
-                    try
-                    {
-                        object? result = getValue.Invoke(value, Array.Empty<object>());
-                        return $"{type.Name}.GetValue()={result?.ToString() ?? "<null>"}";
-                    }
-                    catch
-                    {
-                        return $"<{type.Name}: GetValue failed>";
-                    }
-                }
-            }
-
-            string? identifier = ReflectionUtil.ExtractIdentifier(value);
-            if (!string.IsNullOrWhiteSpace(identifier))
-                return identifier;
-
-            return $"<{type.FullName}>";
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-
-    private static bool SafeActiveSelf(Transform tr)
-    {
-        try { return tr.gameObject.activeSelf; }
-        catch { return false; }
-    }
-
-    private static bool SafeActiveInHierarchy(Transform tr)
-    {
-        try { return tr.gameObject.activeInHierarchy; }
-        catch { return false; }
-    }
-
-    private static string BuildHierarchy(Transform tr)
-    {
-        try
-        {
-            var names = new List<string>();
-            Transform? current = tr;
-
-            while (current != null)
-            {
-                names.Add(current.name ?? "<unnamed>");
-                current = current.parent;
-            }
-
-            names.Reverse();
-            return string.Join("/", names);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-
-    private static void Record(string kind, string detail)
-    {
-        int sequence;
-        lock (Sync)
-        {
-            if (!_active)
-                return;
-
-            sequence = ++_sequence;
-        }
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] MUSIC LAB TRACE #{sequence:000} [{kind}] {detail}");
-    }
-}
-
-
-internal static class NativeProgression
-{
-    private static object? _playerSaveRequestProcessor;
-    private static readonly object ProcessorLock = new();
-
-    public static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null) return;
-
-        Type t = instance.GetType();
-        if (t.Name != "PlayerSaveRequestProcessor") return;
-
-        bool changed;
-        lock (ProcessorLock)
-        {
-            changed = !ReferenceEquals(_playerSaveRequestProcessor, instance);
-            _playerSaveRequestProcessor = instance;
-        }
-
-        if (changed)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] Captured live PlayerSaveRequestProcessor instance ({t.FullName}).");
-        }
-    }
-
-    public static void ApplyArchipelagoItem(string itemName)
-    {
-        if (AreaAccessPrototype.TryApplyItem(itemName))
-            return;
-
-        if (CassetteReceiptRandomization.TryApplyItem(itemName))
-            return;
-
-    }
 }
 
 internal static class ProgressionPatches
 {
     public static bool ProgressionRequestPrefix(object? __instance, object[]? __args)
     {
-        NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
         GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
-        WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request prefix");
-        RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return true;
@@ -14634,6 +8697,8 @@ internal static class ProgressionPatches
 
         GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);
 
+        // A single pickup can report a location and grant a vanilla bag item. Source handlers
+        // observe the request here before a randomized reward handler can suppress the grant.
         if (!BunkerRuntime.BeforeProgressionRequest(req, flag)) return false;
         ExpandedChecks.BeforeProgressionRequest(req, flag);
         if (!QuestChecks.BeforeProgressionRequest(req, flag)) return false;
@@ -14658,17 +8723,13 @@ internal static class ProgressionPatches
 
     public static void ProgressionRequestPostfix(object? __instance, object[]? __args)
     {
-        NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
         GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        WeedKillerRandomization.CapturePlayerSaveRequestProcessor(__instance);
-        WeedKillerRandomization.TryFlushPendingNativeGrant();
         PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
         CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
-        RootsBucketRandomization.CapturePlayerSaveRequestProcessor(__instance);
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
         if (req == null) return;
@@ -14706,25 +8767,8 @@ internal static class ProgressionPatches
 
     }
 
-    public static void BagItemRequestPostfix(object? __instance, object[]? __args)
-    {
-        NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
+    // This callback can supply the live processor before the first progression flag is written.
+    public static void BagItemRequestPostfix(object? __instance) =>
         GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
-
-        object? req = ReflectionUtil.FindArg(__args, "ObtainBagItemRequest");
-        if (req == null) return;
-
-
-    }
-
-    public static void AbilityItemRequestPostfix(object? __instance, object[]? __args)
-    {
-        NativeProgression.CapturePlayerSaveRequestProcessor(__instance);
-
-        object? req = ReflectionUtil.FindArg(__args, "EarnAbilityItemRequest");
-        if (req == null) return;
-
-
-    }
 
 }

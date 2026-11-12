@@ -17,6 +17,4 @@ internal static class GarageVanillaEntrancePolicy
 
     internal static bool ShouldSuppressSourceGrant(bool enabled, string song) =>
         ShouldRandomizeSong(enabled, song);
-
-    internal static bool ShouldWriteNativeSaveFlags(bool enabled) => false;
 }

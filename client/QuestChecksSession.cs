@@ -10,13 +10,12 @@ internal sealed class QuestChecksSession
     private readonly HashSet<long> _checks = new();
     private bool _configured, _ready;
     internal QuestChecksSession(long generation) { _generation = generation; }
-    internal void Configure(string identity, bool enabled, IEnumerable<long> checks)
+    internal void Configure(string identity, QuestJournalRecord? restored, IEnumerable<long> checks)
     {
         lock (_sync) {
-            var restored = enabled ? QuestChecks.Journal.Load(identity) : null;
-            QuestChecks.State.Configure(_generation, identity, enabled, restored);
+            QuestChecks.State.Configure(_generation, identity, restored != null, restored);
             _checks.UnionWith(checks); _configured = true; Publish();
-            if (enabled) QuestChecks.ReplayJournal(restored!.Completed);
+            if (restored != null) QuestChecks.ReplayJournal(restored.Completed);
         }
     }
     internal void HandlePacket(object packet)
@@ -28,8 +27,10 @@ internal sealed class QuestChecksSession
                 else if (!_ready || received.Index != _items.Count) { _ready = false; QuestChecks.State.Suspend(_generation); return; }
                 _items.AddRange(received.Items.Select(item => item.Item));
             }
-            if (packet is RoomUpdatePacket update && update.CheckedLocations != null)
+            else if (packet is RoomUpdatePacket update && update.CheckedLocations != null)
                 _checks.UnionWith(update.CheckedLocations);
+            else
+                return;
             Publish();
         }
     }

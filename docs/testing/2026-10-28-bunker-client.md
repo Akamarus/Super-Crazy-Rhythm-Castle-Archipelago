@@ -1,4 +1,4 @@
-# Bunker client candidate — 2026-10-28
+# Bunker client candidate â€” 2026-10-28
 
 Unreleased schema21 client implements authenticated Bunker Keycard, Demon Key, Virus, Cheat Codes and Game Ender receipts; durable consumption/source journals bound to AP identity and selected native slot; six Bunker checks; and selected-ending victory. Source conversion suppresses native grants. Demon pickup is observed only at its Hub8 award boundary, never from AP receipts or bag polling. Native Gecko Data Stick/Note Pad remain unchanged.
 

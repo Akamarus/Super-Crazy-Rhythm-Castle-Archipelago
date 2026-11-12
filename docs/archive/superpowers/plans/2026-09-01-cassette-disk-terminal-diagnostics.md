@@ -10,7 +10,7 @@
 
 **Tech Stack:** C#/.NET 6, Harmony, IL2CPP public reflection, existing console regression project.
 
-**Spec:** `.superpowers/sdd/2026-08-30-cassette-save-transaction/final-boundary-implementation-report.md`
+**Original implementation record:** [Save transaction report at the release revision](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/blob/cc45a569ad2279747cd89070ff1c4c00ab8ab642/.superpowers/sdd/2026-08-30-cassette-save-transaction/final-boundary-implementation-report.md). The [cassette acceptance ledger](../../testing/2026-08-29-full-cassette-acceptance.md) records the earlier in-game readback and restart checks.
 
 ## Global Constraints
 

@@ -11,20 +11,18 @@ internal static class QuestNativeVirtualHooks
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
     private delegate bool CheckCondition(IntPtr instance, IntPtr methodInfo);
-    private static readonly List<Hook> Hooks = new();
-    private static readonly List<VoidHook> VoidHooks = new();
+    private static readonly OwnedNativeHooks Hooks = new();
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void InvokeStep(IntPtr instance, IntPtr methodInfo);
     private sealed class VoidHook
     {
         internal readonly InvokeStep Replacement;
         internal InvokeStep Original = null!;
-        internal INativeDetour Detour = null!;
         private readonly Func<object, bool> _admit;
         internal VoidHook(Func<object, bool> admit) { _admit = admit; Replacement = Invoke; }
         private void Invoke(IntPtr instance, IntPtr methodInfo)
         {
-            if (!QuestChecks.Enabled) { Original(instance, methodInfo); return; }
+            if (!Hooks.Active || !QuestChecks.Enabled) { Original(instance, methodInfo); return; }
             string path = "";
             if (_admit == QuestCheckHooks.CharacterUnlockStepPrefix && ExpandedChecks.State.Handles(KingUnlockSource.LocationId)) {
                 try { path = QuestCheckHooks.PathFor(new Component(instance)); }
@@ -41,11 +39,10 @@ internal static class QuestNativeVirtualHooks
     {
         internal readonly CheckCondition Replacement;
         internal CheckCondition Original = null!;
-        internal INativeDetour Detour = null!;
         internal Hook() { Replacement = Invoke; }
         private bool Invoke(IntPtr instance, IntPtr methodInfo)
         {
-            if (!QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId))
+            if (!Hooks.Active || !QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId))
                 return Original(instance, methodInfo);
             return NativeConditionInvocation.Run(() => {
                 bool result = false;
@@ -57,7 +54,7 @@ internal static class QuestNativeVirtualHooks
 
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0 || VoidHooks.Count != 0) return Hooks.Count + VoidHooks.Count;
+        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
         foreach (string name in QuestConditionHookPlan.DedicatedTypes)
         {
             try
@@ -77,8 +74,7 @@ internal static class QuestNativeVirtualHooks
                     IL2CPP.il2cpp_type_get_name_((IntPtr)metadata.ReturnType) != "System.Boolean" || metadata.MethodPointer == IntPtr.Zero)
                     throw new InvalidOperationException("Native condition signature mismatch");
                 var hook = new Hook();
-                hook.Detour = INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original);
-                Hooks.Add(hook);
+                Hooks.Add(INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original), hook.Replacement);
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Hooked native {name}.CheckIfMet with direct original trampoline.");
             }
             catch (Exception ex) { Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest native hook {name} unavailable: {ex.GetBaseException().Message}"); }
@@ -106,12 +102,14 @@ internal static class QuestNativeVirtualHooks
                     IL2CPP.il2cpp_type_get_name_((IntPtr)metadata.ReturnType) != "System.Void" || metadata.MethodPointer == IntPtr.Zero)
                     throw new InvalidOperationException("Native sequence signature mismatch");
                 var hook = new VoidHook(spec.Item4);
-                hook.Detour = INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original);
-                VoidHooks.Add(hook);
+                Hooks.Add(INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original), hook.Replacement);
                 Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Hooked native {spec.Item2}.{spec.Item3} with direct original trampoline.");
             }
             catch (Exception ex) { Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest native hook {spec.Item2}.{spec.Item3} unavailable: {ex.GetBaseException().Message}"); }
         }
-        return Hooks.Count + VoidHooks.Count;
+        return Hooks.Count;
     }
+
+    internal static bool Shutdown() => Hooks.Shutdown(ex =>
+        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Quest native hook detach failed: {ex.GetBaseException().Message}"));
 }

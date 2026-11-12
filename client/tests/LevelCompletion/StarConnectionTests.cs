@@ -26,7 +26,7 @@ internal static partial class ConnectionTests
     {
         // Each independent client below represents a new app lifetime; retain real state across its reconnects.
         ExpandedChecks.State=new();
-        var client=new ArchipelagoClient("test","slot","",false);
+        var client=new ArchipelagoClient("test","slot","");
         var first=Login(StarContract(campaign));
         first.BeforeLoginReturns=()=>first.Socket.Receive(Stars(0,1));
         Connect(client,first,true);
@@ -77,35 +77,35 @@ internal static partial class ConnectionTests
         oldData["star_items_active"]=false;oldData["client_star_gate_enforcement_active"]=false;
         oldData["expanded_check_locations"]=ExpandedCheckCatalog.Entries.ToDictionary(e=>e.Name,e=>e.Id);
         ExpandedChecks.State=new();
-        var oldClient=new ArchipelagoClient("test","slot","",false);var old=Login(oldData);
+        var oldClient=new ArchipelagoClient("test","slot","");var old=Login(oldData);
         old.BeforeLoginReturns=()=>old.Socket.Receive(Stars(0,66));Connect(oldClient,old,true);
         Check(ApStarMode.Native,ApStars.State.Mode,"schema18 production login retains native Star mode");
         Check(false,ExpandedChecks.State.Handles(187256335),"schema18 production login excludes new checks");
         Check(false,oldClient.SendStarGoal(identity),"schema18 does not send AP Star victory");oldClient.Shutdown();
 
         ApStarNativeHooks.Ready=false;
-        var noHooks=new ArchipelagoClient("test","slot","",false);Connect(noHooks,Login(StarContract(campaign)),false);
+        var noHooks=new ArchipelagoClient("test","slot","");Connect(noHooks,Login(StarContract(campaign)),false);
         Check(false,noHooks.Connected,"missing required native hooks reject schema19 login");noHooks.Shutdown();ApStarNativeHooks.Ready=true;
         var routeData=StarContract(campaign);
         routeData["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation", "-cell-tower-path-1-generation-foundation");
         routeData["cell_tower_open_route"]=true;
         CellTowerPathPatches.Ready=false;
-        var noRoute=new ArchipelagoClient("test","slot","",false);Connect(noRoute,Login(routeData),false);
+        var noRoute=new ArchipelagoClient("test","slot","");Connect(noRoute,Login(routeData),false);
         Check(false,noRoute.Connected,"new route rejects missing native path hook at production login");noRoute.Shutdown();
         CellTowerPathPatches.Ready=true;
         ExpandedChecks.State=new();
-        var withRoute=new ArchipelagoClient("test","slot","",false);Connect(withRoute,Login(routeData),true);
+        var withRoute=new ArchipelagoClient("test","slot","");Connect(withRoute,Login(routeData),true);
         Check(true,withRoute.Connected,"new route accepted with installed native path hook");
         Check(true,ExpandedChecks.State.Handles(187256335),"new route retains expanded checks");withRoute.Shutdown();
         var invalid=StarContract(campaign);invalid["star_item_count"]=65;
-        var malformed=new ArchipelagoClient("test","slot","",false);Connect(malformed,Login(invalid),false);
+        var malformed=new ArchipelagoClient("test","slot","");Connect(malformed,Login(invalid),false);
         Check(false,malformed.Connected,"malformed Star contract rejected through production login");malformed.Shutdown();
         var bundles=StarContract(campaign);
         bundles["schema_version"]=20;
         bundles["cassette_bundle_size"]=2;
         bundles["cassette_bundles"]=Enumerable.Range(0,15).ToDictionary(n=>$"Cassette Bundle {n+1:00}",n=>CassetteCatalog.All.Skip(n*2).Take(2).Select(c=>c.ItemName).ToArray());
         ExpandedChecks.State=new();
-        var bundleClient=new ArchipelagoClient("test","slot","",false);
+        var bundleClient=new ArchipelagoClient("test","slot","");
         typeof(ArchipelagoClient).GetField("_connectionGeneration",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.SetValue(bundleClient,100L);
         var bundleSession=Login(bundles);
         bundleSession.BeforeLoginReturns=()=>bundleSession.Socket.Receive(new ReceivedItemsPacket{Index=0,Items=new[]{new NetworkItem{Item=187256164}}});
@@ -116,7 +116,7 @@ internal static partial class ConnectionTests
         bundleClient.Shutdown();
         CassetteBundleSessionHistory.WithSongs((managed,songs)=>Check(0,songs.Count,"production shutdown removes bundle authority"));
         bundles.Remove("cassette_bundles");
-        var invalidBundles=new ArchipelagoClient("test","slot","",false);Connect(invalidBundles,Login(bundles),false);
+        var invalidBundles=new ArchipelagoClient("test","slot","");Connect(invalidBundles,Login(bundles),false);
         Check(false,invalidBundles.Connected,"schema20 missing bundle map rejects real login");invalidBundles.Shutdown();
         var bunker=StarContract(campaign);
         bunker["schema_version"]=21;bunker["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation","-bunker-1-generation-foundation");
@@ -124,12 +124,12 @@ internal static partial class ConnectionTests
         bunker["bunker_item_ids"]=BunkerCatalog.Items.ToDictionary(i=>i.Name,i=>i.Id);bunker["bunker_check_ids"]=BunkerCatalog.Checks.ToDictionary(i=>i.Name,i=>i.Id);
         ((Dictionary<string,int>)bunker["generated_star_requirements"])["Level 22"]=1;((Dictionary<string,int>)bunker["star_eater_requirements"])["Secret Bunker"]=0;
         bunker["cassette_bundle_size"]=1;bunker["cassette_bundles"]=new Dictionary<string,string[]>();
-        BunkerRuntime.Ready=false;var missingBunker=new ArchipelagoClient("test","slot","",false);Connect(missingBunker,Login(bunker),false);missingBunker.Shutdown();BunkerRuntime.Ready=true;
-        ExpandedChecks.State=new();var bunkerClient=new ArchipelagoClient("test","slot","",false);var bunkerSession=Login(bunker);
+        BunkerRuntime.Ready=false;var missingBunker=new ArchipelagoClient("test","slot","");Connect(missingBunker,Login(bunker),false);missingBunker.Shutdown();BunkerRuntime.Ready=true;
+        ExpandedChecks.State=new();var bunkerClient=new ArchipelagoClient("test","slot","");var bunkerSession=Login(bunker);
         bunkerSession.BeforeLoginReturns=()=>bunkerSession.Socket.Receive(new ReceivedItemsPacket{Index=0,Items=new[]{new NetworkItem{Item=187256179}}});
         Connect(bunkerClient,bunkerSession,true);Check(true,BunkerRuntime.State.Ready,"schema21 publishes authenticated Bunker history");
         Check(true,BunkerRuntime.State.Bind(2,_=>false,BunkerRuntime.Journal.Save),"fresh native slot binds for schema21");
-        Check(true,BunkerRuntime.State.ShouldGrant(187256179,false),"production connection delivers Keycard ownership");
+        Check(true,BunkerRuntime.State.HasUnconsumedReceipt(187256179),"production connection delivers Keycard ownership");
         Check("true_ending",ApStars.State.Settings.Ending,"production connection preserves selected ending");
         bunkerSession.Socket.Receive(new ReceivedItemsPacket{Index=5,Items=Array.Empty<NetworkItem>()});Check(false,BunkerRuntime.State.Ready,"history gap suspends Bunker authority");
         bunkerClient.Shutdown();Check(false,BunkerRuntime.State.Enabled,"shutdown removes Bunker state");

@@ -624,17 +624,12 @@ class WorldIntegrationTests(unittest.TestCase):
     def test_shared_multiworld_capacity_and_pool_are_scoped_per_player(self):
         multiworld = FakeMultiWorld()
         worlds = [
-            self.make_world(player=player, multiworld=multiworld)
-            for player in (1, 2)
+            self.make_world(player=1, difficulty=0, multiworld=multiworld),
+            self.make_world(player=2, difficulty=1, multiworld=multiworld),
         ]
         for world in worlds:
             world.generate_early()
             world.create_regions()
-
-        self.assertEqual(
-            [world._active_unfilled_location_capacity() for world in worlds],
-            [164, 164],
-        )
 
         for world in worlds:
             world.create_items()
@@ -644,7 +639,7 @@ class WorldIntegrationTests(unittest.TestCase):
                 sum(item.player == player for item in multiworld.itempool)
                 for player in (1, 2)
             ],
-            [164, 164],
+            [164, 222],
         )
 
     def test_item_pool_rejects_insufficient_active_locations(self):
@@ -1077,7 +1072,9 @@ class WorldIntegrationTests(unittest.TestCase):
         facts = json.loads(fixture_path.read_text(encoding="utf-8"))
         world = self.make_world(seed=facts["seed"], difficulty=0)
         world.generate_early()
-        active = world.active_location_names
+        world.create_regions()
+        world.set_rules()
+        active = self.addressed_names(world)
 
         platinum_placements = [
             placement
@@ -1086,12 +1083,7 @@ class WorldIntegrationTests(unittest.TestCase):
         ]
         for placement in platinum_placements:
             with self.subTest(**placement):
-                self.assertFalse(
-                    self.module.required_progression_allowed(placement["location"], active)
-                )
-
-        world.create_regions()
-        world.set_rules()
+                self.assertNotIn(placement["location"], active)
         chest = world.multiworld.get_location("Music Lab - 64 Point Chest", world.player)
         plant_pipes = world.create_item("Plant Pipes")
         self.assertTrue(chest.item_rule(plant_pipes))
@@ -1166,16 +1158,20 @@ class WorldIntegrationTests(unittest.TestCase):
             self.collect_placement_spheres(world, impossible_state, impossible_chain)
         )
 
-    def test_unmodeled_checks_accept_other_world_filler_but_not_important_items(self):
-        from types import SimpleNamespace
+    def test_foreign_placement_uses_the_source_policy_and_item_classification(self):
         world = self.build_world(difficulty=0)
-        filler = SimpleNamespace(name="Other world filler", player=2,
-                                 classification=world.create_item("Stardust").classification)
+        filler, progression, useful = [
+            types.SimpleNamespace(player=2, name=f"Foreign {name}",
+                                  classification=world.create_item(name).classification)
+            for name in ("Stardust", "Plant Pipes", "Meoo")
+        ]
         for name in ("Demonic Tower - Completion", "Cartridge Pickup - Smooch"):
             source = world.multiworld.get_location(name, 1)
             self.assertTrue(source.item_rule(filler), name)
-            self.assertFalse(source.item_rule(world.create_item("Plant Pipes")), name)
-            self.assertFalse(source.item_rule(world.create_item("Meoo")), name)
+            self.assertFalse(source.item_rule(progression), name)
+            self.assertFalse(source.item_rule(useful), name)
+        combo = world.multiworld.get_location("Roots - Combo Bucket Conversion", 1)
+        self.assertTrue(combo.item_rule(progression))
 
     def test_safe_location_rules_allow_filler_and_point_chests_allow_progression(self):
         world = self.build_world(difficulty=0)

@@ -8,7 +8,7 @@ Candidate uses that exact post-registration boundary to swap only Old Tom's two 
 
 The pre-nectar note/Star Eater/onward-door sequence has user acceptance below. Normal nectar delivery after using the early path remains the outstanding native regression. Cold Storage opening was previously tested in the post-nectar branch; retain its other conservative requirements.
 
-## Gameplay acceptance — October 22, 2026
+## Gameplay acceptance â€” October 22, 2026
 
 The user confirmed the pre-nectar route works like vanilla: read the note in front of Old Tom, leave and re-enter the area, feed the now-accessible Star Eater, then reach the onward door after it moves. Three screenshots show the connected path, feed prompt, and onward door prompt. This validates that sequence, not skipping the note. Subsequent normal nectar delivery remains a separate untested regression.
 

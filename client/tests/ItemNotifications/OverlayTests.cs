@@ -17,23 +17,29 @@ internal static class OverlayTests
         if (GUI.ScrollViews != 1 || (int)typeof(ItemNotificationOverlay).GetField("_drawnCount", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(overlay)! != 1)
             throw new Exception("an oversized first popup must draw a scrollable card and accrue visible time");
         for (int i = 0; i < 62; i++) { Invoke("Update"); Invoke("OnGUI"); }
-        if (feed.Visible.Length != 1 || !feed.Visible[0].Text.Contains("Following reward"))
+        if (feed.Visible.Count != 1 || !feed.Visible[0].Text.Contains("Following reward"))
             throw new Exception("oversized popup must expire and allow the next reward through");
         GUI.LongLabels.Clear(); GUI.ScrollViews = 0;
         Input.Next = KeyCode.F6; Invoke("Update"); Invoke("OnGUI");
         if (GUI.ScrollViews != 1 || GUI.LongLabels.Count != 2 || GUI.LongLabels.Any(label => label.Height < label.Required))
             throw new Exception("history must retain complete wrapped reward and location text in a scrollable viewport");
+        int measurements = GUIStyle.Measurements;
         double outstanding = feed.OutstandingCount;
         for (int i = 0; i < 70; i++) { Invoke("Update"); Invoke("OnGUI"); }
         if (feed.OutstandingCount != outstanding) throw new Exception("scrollable history must continue pausing popup lifetimes");
+        if (GUIStyle.Measurements != measurements) throw new Exception("unchanged F6 history must reuse its measured layout");
+        feed.Receive(1, 2, new[] { new NotificationReceipt("Third reward", "Sam", "New source", false) });
+        Invoke("Update"); Invoke("OnGUI");
+        if (GUIStyle.Measurements <= measurements) throw new Exception("new history must refresh row measurements");
+        measurements = GUIStyle.Measurements;
+        Screen.width += 20; Invoke("OnGUI");
+        if (GUIStyle.Measurements <= measurements) throw new Exception("history must rewrap when its width changes");
+        measurements = GUIStyle.Measurements;
+        Screen.height = 1080; Invoke("OnGUI");
+        if (GUIStyle.Measurements <= measurements) throw new Exception("history must rewrap at a new display scale");
         feed.Reset();
         Console.WriteLine("PASS: real overlay oversized-card progress, wrapped history, and history timer pause (fake Unity rendering boundary)");
     }
-}
-
-namespace RhythmCastleAP
-{
-    internal static class ClientPerformance { internal static IDisposable? Measure(string name) => null; }
 }
 
 // Deterministic font metrics let the real overlay exercise narrow-screen wrapping
@@ -58,7 +64,9 @@ namespace UnityEngine
         public int fontSize = 12; public bool wordWrap, richText; public FontStyle fontStyle;
         public GUIStyle() { }
         public GUIStyle(GUIStyle other) { fontSize = other.fontSize; }
-        public float CalcHeight(GUIContent content, float width) => Math.Max(1, (float)Math.Ceiling(content.Text.Length / Math.Max(1, Math.Floor(width / (fontSize * 0.5f))))) * fontSize;
+        public static int Measurements;
+        public float CalcHeight(GUIContent content, float width) { Measurements++; return RequiredHeight(content.Text, width); }
+        public float RequiredHeight(string text, float width) => Math.Max(1, (float)Math.Ceiling(text.Length / Math.Max(1, Math.Floor(width / (fontSize * 0.5f))))) * fontSize;
     }
     public sealed class GUISkin { public GUIStyle label = new(); }
     public static class GUI
@@ -66,7 +74,7 @@ namespace UnityEngine
         public static GUISkin skin = new(); public static Color color; public static int depth, ScrollViews;
         public static readonly List<(float Height, float Required)> LongLabels = new();
         public static void Box(Rect rect, string text) { }
-        public static void Label(Rect rect, string text, GUIStyle? style) { if (text.Length > 100) LongLabels.Add((rect.height, style!.CalcHeight(new GUIContent(text), rect.width))); }
+        public static void Label(Rect rect, string text, GUIStyle? style) { if (text.Length > 100) LongLabels.Add((rect.height, style!.RequiredHeight(text, rect.width))); }
         public static bool Button(Rect rect, string text) => false;
         public static Vector2 BeginScrollView(Rect viewport, Vector2 position, Rect content) { ScrollViews++; return position; }
         public static void EndScrollView() { }

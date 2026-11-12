@@ -26,6 +26,11 @@ an inventory/hash/notice check, not an originality or legal-compliance guarantee
 
 ## Correcting older downloads
 
+To validate an existing release archive, run `tools/package_release.py --validate`
+from the checkout that supplied its notices. The validator compares the archive's
+notice text with that checkout. For example, v0.30.1 reuses the v0.30.0 APWorld,
+so use the v0.30.0 checkout to verify that asset.
+
 The same tool accepts an original ZIP/APWorld as input. Every original payload
 byte is preserved; only licensing documents and DISTRIBUTION.json are added.
 Record the original archive hash, correct source reference and new artifact hash.
@@ -33,7 +38,8 @@ Keep originals locally for comparison. Updating public downloads is a separate
 approved publication step; update checksums and describe the packaging-only change.
 Do not compile a development candidate into a historical release.
 
-All 8 historical client releases use the same two dependency binaries. Historical
-APWorld source references may differ from their release tags; consult the audit.
+The eight client releases in the October 2026 packaging audit used the same
+two dependency binaries. The audit records the source reference and before/after
+hashes for each corrected archive. [Historical packaging audit](releases/packaging-corrections-2026-10-11.json)
 Runtime behavior, IDs, versions, seed placements and save formats are unchanged
 by adding notices. This does not establish acceptance by Archipelago moderators.

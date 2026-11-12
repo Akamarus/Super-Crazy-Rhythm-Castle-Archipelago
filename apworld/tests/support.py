@@ -30,12 +30,6 @@ class OptionValue:
         self.value = value
 
 
-class FakeLocation:
-    def __init__(self, name: str):
-        self.name = name
-        self.access_rule = None
-
-
 class FakeMultiWorld:
     def __init__(self):
         self.itempool = []
@@ -45,6 +39,10 @@ class FakeMultiWorld:
 
     def push_precollected(self, item):
         self.precollected.append(item)
+
+    def get_locations(self, player: int):
+        return [location for region in self.regions if region.player == player
+                for location in region.locations]
 
     def get_location(self, name: str, player: int):
         for region in self.regions:

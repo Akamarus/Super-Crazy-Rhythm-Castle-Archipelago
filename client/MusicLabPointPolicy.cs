@@ -329,7 +329,7 @@ internal sealed class MusicLabPointRuntime
         Clear(identity, MusicLabPointRuntimeMode.AwaitingInitialSynchronization, "awaiting initial synchronization");
     }
 
-    internal void Synchronize(MusicLabPointSessionIdentity identity, IEnumerable<MusicLabPointReceipt> receipts)
+    internal (bool UnknownItem, bool OverCap) Synchronize(MusicLabPointSessionIdentity identity, IEnumerable<MusicLabPointReceipt> receipts)
     {
         ArgumentNullException.ThrowIfNull(receipts);
         bool synchronizationAllowed = Snapshot.Mode is
@@ -337,20 +337,29 @@ internal sealed class MusicLabPointRuntime
             MusicLabPointRuntimeMode.Synchronized or
             MusicLabPointRuntimeMode.RetainedDisconnected;
         if (!synchronizationAllowed || _identity != identity)
-            return;
+            return default;
 
         HashSet<int> seenIndexes = new();
-        HashSet<int> acceptedIndexes = new();
-        int total = 0;
+        int accepted = 0;
+        long total = 0;
+        bool unknownItem = false;
         foreach (MusicLabPointReceipt receipt in receipts)
         {
-            if (!seenIndexes.Add(receipt.Index) || !ValuesById.TryGetValue(receipt.ItemId, out int value))
-                continue;
-            acceptedIndexes.Add(receipt.Index);
-            total = Math.Min(180, total + value);
+            if (!seenIndexes.Add(receipt.Index)) continue;
+            if (ValuesById.TryGetValue(receipt.ItemId, out int value))
+            {
+                accepted++;
+                total += value;
+            }
+            else if (receipt.ItemId is < 187256101 or > 187256183)
+            {
+                // docs/IDS.md reserves this entire span, including non-point items.
+                unknownItem = true;
+            }
         }
 
-        Snapshot = new(MusicLabPointRuntimeMode.Synchronized, total, acceptedIndexes.Count, "synchronized received-item history");
+        Snapshot = new(MusicLabPointRuntimeMode.Synchronized, (int)Math.Min(180, total), accepted, "synchronized received-item history");
+        return (unknownItem, total > 180);
     }
 
     internal void MarkDisconnected(MusicLabPointSessionIdentity identity)
@@ -362,14 +371,14 @@ internal sealed class MusicLabPointRuntime
 
     internal void Reset() => Clear(null, MusicLabPointRuntimeMode.Native, "native");
 
-    internal int ResolveEffectiveScore(int nativeScore, int? developerOverride) =>
+    internal int ResolveEffectiveScore(int nativeScore) =>
         Snapshot.Mode switch
         {
             MusicLabPointRuntimeMode.AwaitingInitialSynchronization => 0,
             MusicLabPointRuntimeMode.Incompatible => 0,
             MusicLabPointRuntimeMode.Synchronized => Snapshot.Total,
             MusicLabPointRuntimeMode.RetainedDisconnected => Snapshot.Total,
-            _ => developerOverride ?? nativeScore,
+            _ => nativeScore,
         };
 
     private void Clear(MusicLabPointSessionIdentity? identity, MusicLabPointRuntimeMode mode, string detail)

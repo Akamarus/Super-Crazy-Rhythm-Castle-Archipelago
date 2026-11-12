@@ -9,8 +9,7 @@
 *.pdb
 
 # Generated release artifacts
-/dist/*
-!/dist/.gitkeep
+/dist/
 *.apworld
 *.zip
 *.rar

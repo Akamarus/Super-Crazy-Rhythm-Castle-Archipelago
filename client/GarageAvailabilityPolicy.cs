@@ -2,19 +2,6 @@ using System.Reflection;
 
 namespace RhythmCastleAP;
 
-internal enum GarageObjectRole
-{
-    Initialization,
-    SongCartridge,
-}
-
-internal enum GarageObjectDecision
-{
-    Vanilla,
-    Active,
-    Inactive,
-}
-
 internal readonly record struct GarageEntrancePreviewOwnership(
     string Song,
     string NativeCartridgeType,
@@ -31,21 +18,6 @@ internal static class GarageAvailabilityPolicy
     {
         "LevelPreviewUIData",
     };
-
-    internal static GarageObjectDecision Decide(
-        bool enabled,
-        bool compatible,
-        bool ownsCartridge,
-        GarageObjectRole role)
-    {
-        if (!enabled || !compatible)
-            return GarageObjectDecision.Vanilla;
-        if (role == GarageObjectRole.Initialization)
-            return GarageObjectDecision.Active;
-        return ownsCartridge
-            ? GarageObjectDecision.Active
-            : GarageObjectDecision.Inactive;
-    }
 
     internal static bool TryResolveEntrancePreviewOwned(
         bool enabled,

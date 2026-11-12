@@ -506,7 +506,7 @@ False(keeperSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal), "o
     bool eligibilitySnapshot = true;
     True(lifecycle.End(2, () => { }), "disconnect ends the grant-race generation");
     var grantCount = 0;
-    if (eligibilitySnapshot && lifecycle.TryAcquire(2, out LifecycleLease? grantLease))
+    if (eligibilitySnapshot && lifecycle.TryAcquireCurrent(out _, out LifecycleLease? grantLease))
     {
         using (grantLease)
             grantCount++;
@@ -518,7 +518,8 @@ False(keeperSource.Contains("_releaseVisit.Poll(", StringComparison.Ordinal), "o
 {
     var lifecycle = new GenerationLeaseGate();
     True(lifecycle.TryBegin(3, () => { }), "leased generation begins");
-    True(lifecycle.TryAcquire(3, out LifecycleLease? grantLease), "active generation grants a lease");
+    True(lifecycle.TryAcquireCurrent(out long generation, out LifecycleLease? grantLease), "active generation grants a lease");
+    Equal(3L, generation, "lease identifies the active generation");
     using var endStarted = new ManualResetEventSlim();
     using var endCompleted = new ManualResetEventSlim();
     Task endTask = Task.Run(() =>
@@ -646,17 +647,6 @@ False(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(inserted with
     "an unreadable current bag sample that carries a stale held value never records insertion");
 var cases = new[] { inserted with { InGarage = false }, inserted with { PreviousBagReadable = false }, inserted with { PreviousBagHeld = false }, inserted with { ReleasedThisVisit = false }, inserted with { ApOwned = false }, inserted with { ServerValue = GarageInsertionServerValue.Unknown }, inserted with { ServerValue = GarageInsertionServerValue.Inserted }, inserted with { Compatible = false }, inserted with { UsesPhysicalVanillaEntrance = true } };
 foreach (var observation in cases) False(GarageCartridgeInsertionPolicy.ShouldRecordInsertion(observation), "insertion evidence gate");
-False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Unknown, true),
-    "randomized Garage cartridge stays unavailable while server insertion state is unknown");
-False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted, false),
-    "randomized Garage cartridge stays unavailable before a current-visit native bag sample");
-True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.NotInserted, true),
-    "randomized Garage cartridge releases only from authoritative not-inserted state");
-True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(false, GarageInsertionServerValue.Inserted, false),
-    "inserted randomized Garage cartridge releases for song availability without a native bag item");
-True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(true, GarageInsertionServerValue.Unknown, false),
-    "physical vanilla Garage entrance remains independent of AP server insertion state");
-
 var cartridgeKeys = GarageCartridgeNativePolicy.RandomizedCartridges.ToDictionary(x => x.Song, x => x.ServerInsertionKey);
 
 {
@@ -1238,11 +1228,6 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
                 resetEpoch: 1,
                 inGarageApproachRoom: true),
             "mutation accepting pre-Garage Vampire Killer evidence violates its physical vanilla path");
-        CheckTrue(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-                usesPhysicalVanillaEntrance: true,
-                GarageInsertionServerValue.Unknown,
-                currentVisitNativeBagHeldObserved: false),
-            "mutation gating physical Vampire Killer on AP pending evidence breaks vanilla entry");
     }
 
     CheckTrue(progressionRequestPrefixMethod.Contains(
@@ -1959,20 +1944,10 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     coordinator.BeginConnection(1, store);
-    False(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-            false,
-            coordinator.GetServerValue("Bloody Tears"),
-            true),
-        "keeper release policy rejects the coordinator's initial unknown state");
     store.CompleteNextRead(cartridgeKeys["Bloody Tears"], GarageInsertionReadResult.KnownTrue);
     await Eventually(
         () => coordinator.GetServerValue("Bloody Tears") == GarageInsertionServerValue.Inserted,
         "coordinator transitions unknown insertion state to inserted");
-    True(GarageCartridgeInsertionPolicy.ShouldReleaseObject(
-            false,
-            coordinator.GetServerValue("Bloody Tears"),
-            true),
-        "keeper release policy opens for song availability after inserted state becomes authoritative");
 }
 
 {
@@ -2001,7 +1976,9 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     coordinator.BeginConnection(1, store);
     foreach (var key in store.ReadKeys)
-        store.CompleteNextRead(key, key == cartridgeKeys["Bloody Tears"] ? GarageInsertionReadResult.Malformed : GarageInsertionReadResult.Failed);
+        store.CompleteNextRead(key, key == cartridgeKeys["Bloody Tears"]
+            ? GarageInsertionReadResult.MalformedValue(key, JTokenType.Array)
+            : GarageInsertionReadResult.ReadFailure(key, "TimeoutException"));
     await Task.Delay(20);
     Equal(GarageInsertionServerValue.Unknown, coordinator.GetServerValue("Bloody Tears"), "malformed reads remain unknown");
     False(coordinator.InitialSyncReady, "malformed or failed reads keep the initial sync gate closed");

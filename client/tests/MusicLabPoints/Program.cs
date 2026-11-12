@@ -74,7 +74,8 @@ static MusicLabPointCompatibilityResult Validate(Action<Dictionary<string, objec
 }
 
 MusicLabPointRandomization.ReportGetterAvailability(true);
-using (var exporter = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("py",
+string python = Environment.GetEnvironmentVariable("PYTHON") ?? (OperatingSystem.IsWindows() ? "py" : "python3");
+using (var exporter = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(python,
     "apworld/tests/export_client_slot_data.py") { RedirectStandardOutput = true, UseShellExecute = false })!)
 {
     string json = exporter.StandardOutput.ReadToEnd();
@@ -92,7 +93,7 @@ using (var exporter = System.Diagnostics.Process.Start(new System.Diagnostics.Pr
         MusicLabPointRandomization.ApplySlotData(data, "game", "current-world", "slot", 200);
         MusicLabPointRandomization.SynchronizeHistory(200,
             new[] { new MusicLabPointReceipt(0, 187256153), new MusicLabPointReceipt(1, 187256154), new MusicLabPointReceipt(2, 187256155) });
-        Equal(31, MusicLabPointRandomization.ResolveEffectiveScore(99, 140), "current contract uses weighted AP history for effective score");
+        Equal(31, MusicLabPointRandomization.ResolveEffectiveScore(99), "current contract uses weighted AP history for effective score");
         foreach (string field in new[] { "schema_version", "music_lab_points_schema", "music_lab_point_values", "implementation_version" })
         {
             var invalid = RoundTripSlotData(world);
@@ -177,7 +178,6 @@ Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateS
 Console.WriteLine("PASS: installed_packet_login_json_contract_and_strict_scalar_boundaries");
 GetterAvailabilityTests.Run(CompatibleSlotData);
 PacketHistoryTests.Run(CompatibleSlotData);
-NativeOverrideTests.Run(CompatibleSlotData);
 
 MusicLabPointCompatibilityResult missing = Validate(data => data.Remove("music_lab_point_total_value"));
 Equal(MusicLabPointCompatibilityMode.IncompatibleClaim, missing.Mode, "missing field fails closed");
@@ -253,13 +253,12 @@ MusicLabPointCompatibilityResult malformed = MusicLabPointContract.ValidateSlotD
 MusicLabPointRuntime runtime = new();
 runtime.Configure(legacy, identity);
 Equal(MusicLabPointRuntimeMode.Native, runtime.Snapshot.Mode, "legacy config is native");
-Equal(42, runtime.ResolveEffectiveScore(42, null), "native uses native score");
-Equal(73, runtime.ResolveEffectiveScore(42, 73), "developer override applies only in native mode");
+Equal(42, runtime.ResolveEffectiveScore(42), "native uses native score");
 
 runtime.Configure(compatible, identity);
 Equal(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, runtime.Snapshot.Mode, "compatible config awaits history");
 Equal(0, runtime.Snapshot.Total, "awaiting total is zero");
-Equal(0, runtime.ResolveEffectiveScore(42, 73), "awaiting ignores native and override");
+Equal(0, runtime.ResolveEffectiveScore(42), "awaiting defers the native score");
 
 runtime.Synchronize(identity, new[]
 {
@@ -270,7 +269,7 @@ runtime.Synchronize(identity, new[]
 Equal(MusicLabPointRuntimeMode.Synchronized, runtime.Snapshot.Mode, "history synchronizes");
 Equal(31, runtime.Snapshot.Total, "weighted receipts sum");
 Equal(3, runtime.Snapshot.AcceptedInstances, "accepted instances count");
-Equal(31, runtime.ResolveEffectiveScore(42, 73), "synchronized total wins over override");
+Equal(31, runtime.ResolveEffectiveScore(42), "synchronized returns the synchronized total");
 
 runtime.Synchronize(identity, new[]
 {
@@ -288,7 +287,7 @@ Equal(30, runtime.Snapshot.AcceptedInstances, "all known receipt instances are c
 
 runtime.MarkDisconnected(identity);
 Equal(MusicLabPointRuntimeMode.RetainedDisconnected, runtime.Snapshot.Mode, "disconnect retains synchronized total");
-Equal(180, runtime.ResolveEffectiveScore(42, 73), "retained total wins over override");
+Equal(180, runtime.ResolveEffectiveScore(42), "retained returns the synchronized total");
 runtime.Configure(compatible, identity);
 Equal(MusicLabPointRuntimeMode.RetainedDisconnected, runtime.Snapshot.Mode, "same identity reconnect retains total");
 runtime.Synchronize(identity, new[]
@@ -305,14 +304,14 @@ Equal(0, runtime.Snapshot.Total, "different identity clears retained total");
 runtime.Configure(malformed, identity);
 Equal(MusicLabPointRuntimeMode.Incompatible, runtime.Snapshot.Mode, "malformed v0.23 enters incompatible mode");
 Equal(0, runtime.Snapshot.Total, "malformed v0.23 has zero total");
-Equal(0, runtime.ResolveEffectiveScore(42, 73), "incompatible ignores native and override");
+Equal(0, runtime.ResolveEffectiveScore(42), "incompatible defers the native score");
 
 runtime.Reset();
 Equal(MusicLabPointRuntimeMode.Native, runtime.Snapshot.Mode, "reset returns to native");
 Equal(0, runtime.Snapshot.AcceptedInstances, "reset clears receipts");
 
 MusicLabPointRandomization.Configure();
-Equal(42, MusicLabPointRandomization.ResolveEffectiveScore(42, null), "adapter starts native");
+Equal(42, MusicLabPointRandomization.ResolveEffectiveScore(42), "adapter starts native");
 MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a", 1L);
 Equal(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, MusicLabPointRandomization.Snapshot.Mode, "adapter validates slot data before history");
 foreach (string name in new[] { "Music Lab Point", "Music Lab Point Bundle", "Music Lab Point Large Bundle" })
@@ -342,7 +341,7 @@ Equal(41, MusicLabPointRandomization.Snapshot.Total, "same identity reconnect re
 MusicLabPointRandomization.SynchronizeHistory(1L, Array.Empty<MusicLabPointReceipt>());
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "old callback cannot overwrite reconnect");
 MusicLabPointRandomization.SynchronizeHistory(2L, new[] { new MusicLabPointReceipt(0, 187256154) });
-Equal(10, MusicLabPointRandomization.ResolveEffectiveScore(99, 180), "adapter score uses refreshed history");
+Equal(10, MusicLabPointRandomization.ResolveEffectiveScore(99), "adapter score uses refreshed history");
 MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-b", "slot-a", 3L);
 Equal(0, MusicLabPointRandomization.Snapshot.Total, "replacement identity cannot inherit an old total");
 MusicLabPointRandomization.SynchronizeHistory(2L, history);
@@ -354,110 +353,22 @@ Equal(MusicLabPointRuntimeMode.Native, MusicLabPointRandomization.Snapshot.Mode,
 Equal(0, MusicLabPointRandomization.Snapshot.Total, "shutdown clears authoritative total");
 MusicLabPointRandomization.ApplySlotData(new Dictionary<string, object> { ["implementation_version"] = V023 }, "Super Crazy Rhythm Castle", "seed-a", "slot-a", 4L);
 MusicLabPointRandomization.SynchronizeHistory(4L, history);
-Equal(0, MusicLabPointRandomization.ResolveEffectiveScore(99, 180), "invalid contract fails closed in adapter");
+Equal(0, MusicLabPointRandomization.ResolveEffectiveScore(99), "invalid contract fails closed in adapter");
 MusicLabPointRandomization.ApplySlotData(null, "Super Crazy Rhythm Castle", "legacy", "slot-a", 5L);
-Equal(99, MusicLabPointRandomization.ResolveEffectiveScore(99, null), "legacy adapter keeps native score");
+Equal(99, MusicLabPointRandomization.ResolveEffectiveScore(99), "legacy adapter keeps native score");
 MusicLabPointRandomization.Reset();
 
-foreach (bool experimental in new[] { false, true })
-{
-    bool fallbackCalled = false;
-    Func<string, bool> miss = _ => false;
-    Func<string, bool> point = name => MusicLabPointRandomization.TryHandleItemName(name);
-    Action<string> fallback = _ => fallbackCalled = true;
-    Equal(true, ReceivedItemDispatch.TryApply("Music Lab Point Bundle", experimental, miss, miss, miss, miss, miss, miss, miss, point, fallback), "point dispatch always consumes point item");
-    Equal(false, fallbackCalled, "point dispatch suppresses experimental native fallback");
-    Equal(0, MusicLabPointRandomization.Snapshot.Total, "point dispatch never changes authoritative state");
-}
-
-// Reproduce the two concurrent read leases used by login and ItemReceived.
-// A library receipt update replaces its cached history while login holds the old
-// collection. The real adapter must order acquisition and publication together.
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "race-seed", "slot-a", 10L);
-var sessionGate = new SessionGenerationLeaseGate<object>();
-var raceSession = new object();
-Equal(true, sessionGate.TryAdmit(10L), "race generation admitted");
-Equal(true, sessionGate.TryPublish(raceSession, 10L, _ => { }, out _), "race session published");
-MusicLabPointReceipt[] cachedHistory = { new(0, 187256153) };
-using var loginCapturedHistory = new ManualResetEventSlim();
-using var releaseLoginHistory = new ManualResetEventSlim();
-using var callbackStarted = new ManualResetEventSlim();
-using var callbackAcquiredHistory = new ManualResetEventSlim();
-Exception? loginError = null;
-Exception? callbackError = null;
-var loginThread = new Thread(() =>
-{
-    try
-    {
-        Equal(true, sessionGate.TryAcquire(raceSession, 10L, out LifecycleLease? lease), "login holds current read lease");
-        using (lease)
-            MusicLabPointRandomization.SynchronizeHistory(10L, () =>
-            {
-                MusicLabPointReceipt[] captured = Volatile.Read(ref cachedHistory);
-                loginCapturedHistory.Set();
-                if (!releaseLoginHistory.Wait(TimeSpan.FromSeconds(5)))
-                    throw new InvalidOperationException("login history was not released");
-                return captured;
-            });
-    }
-    catch (Exception error) { loginError = error; }
-}) { IsBackground = true };
-var callbackThread = new Thread(() =>
-{
-    try
-    {
-        Equal(true, sessionGate.TryAcquire(raceSession, 10L, out LifecycleLease? lease), "callback holds concurrent current read lease");
-        using (lease)
-        {
-            callbackStarted.Set();
-            MusicLabPointRandomization.SynchronizeHistory(10L, () =>
-            {
-                callbackAcquiredHistory.Set();
-                return Volatile.Read(ref cachedHistory);
-            });
-        }
-    }
-    catch (Exception error) { callbackError = error; }
-}) { IsBackground = true };
-bool callbackReadWhileLoginPaused;
-loginThread.Start();
-try
-{
-    Equal(true, loginCapturedHistory.Wait(TimeSpan.FromSeconds(5)), "login captures old cached history");
-    Volatile.Write(ref cachedHistory, new[] { new MusicLabPointReceipt(0, 187256153), new MusicLabPointReceipt(1, 187256155) });
-    callbackThread.Start();
-    Equal(true, callbackStarted.Wait(TimeSpan.FromSeconds(5)), "new callback enters under concurrent read lease");
-    var deadline = System.Diagnostics.Stopwatch.StartNew();
-    var spinner = new SpinWait();
-    while ((callbackThread.ThreadState & (ThreadState.WaitSleepJoin | ThreadState.Stopped)) == 0)
-    {
-        if (deadline.Elapsed > TimeSpan.FromSeconds(5))
-            throw new InvalidOperationException("callback did not reach synchronization boundary");
-        spinner.SpinOnce();
-    }
-    callbackReadWhileLoginPaused = callbackAcquiredHistory.IsSet;
-}
-finally
-{
-    releaseLoginHistory.Set();
-    Equal(true, loginThread.Join(TimeSpan.FromSeconds(5)), "login history publication completes");
-    if ((callbackThread.ThreadState & ThreadState.Unstarted) == 0)
-        Equal(true, callbackThread.Join(TimeSpan.FromSeconds(5)), "callback history publication completes");
-}
-if (loginError != null) throw new InvalidOperationException("login worker failed", loginError);
-if (callbackError != null) throw new InvalidOperationException("callback worker failed", callbackError);
-Equal(21, MusicLabPointRandomization.Snapshot.Total, "older same-generation login history cannot overwrite newer callback history");
-Equal(false, callbackReadWhileLoginPaused, "history acquisition waits for prior acquisition and publication");
-Equal(true, callbackAcquiredHistory.IsSet, "new callback acquires history after login publishes");
-MusicLabPointRandomization.Reset();
-Console.WriteLine("PASS: same_generation_login_callback_history_is_serialized");
+Func<string, bool> miss = _ => false;
+Equal(true, ReceivedItemDispatch.TryApply("Music Lab Point Bundle", miss, miss, miss, miss, miss, miss, miss, MusicLabPointRandomization.TryHandleItemName), "point dispatch consumes point item");
+Equal(false, ReceivedItemDispatch.TryApply("Unknown receipt", miss, miss, miss, miss, miss, miss, miss, MusicLabPointRandomization.TryHandleItemName), "unmatched receipt stays unhandled");
+Equal(0, MusicLabPointRandomization.Snapshot.Total, "dispatch never changes authoritative point state");
 
 // Source-level architecture guards are required for this Unity/IL2CPP boundary.
 // Behavioral point-policy/history tests above remain independent of the game.
 string pluginPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../Plugin.cs"));
 string pluginSource = File.ReadAllText(pluginPath);
 string pointScoreSource = pluginSource[pluginSource.IndexOf("internal static class MusicLabPointOverride", StringComparison.Ordinal)..]
-    .Split("internal static class MusicLabPointDiagnostic", StringSplitOptions.None)[0];
+    .Split("internal static class WeedKillerRandomization", StringSplitOptions.None)[0];
 string chestReaderSource = pluginSource.Split("private static bool TryDiscoverMusicLabRewardChestFlags()", StringSplitOptions.None)[1]
     .Split("private static int ParseTrailingNativeInt", StringSplitOptions.None)[0];
 foreach (string forbidden in new[] { "INativeDetour", "BuildState", "il2cpp_method_get_pointer", "TryResolvePointBoundary", "TryReadPointBoundary", "GetType(OwnerName" })
@@ -467,9 +378,6 @@ Equal(false, pluginSource.Contains("EnableMusicLabPointBoundaryDiagnostics", Str
     "temporary boundary diagnostic config must be removed");
 Equal(false, pluginSource.Contains("MusicLabPointBoundaryDiagnostics", StringComparison.Ordinal),
     "temporary boundary class and all load/getter/F5 integrations must be removed");
-string f5Source = pluginSource.Split("if (Input.GetKeyDown(KeyCode.F5))", StringSplitOptions.None)[1]
-    .Split("if (Input.GetKeyDown(KeyCode.F6))", StringSplitOptions.None)[0];
-Equal(false, f5Source.Contains("Boundary", StringComparison.Ordinal), "plain F5 has no Music Lab boundary interception");
 Equal(false, pluginSource.Contains("GetType(\"Hub06MedalScoreRewardChest\"", StringComparison.Ordinal),
     "the invalid generated chest owner must not be CLR-loaded");
 // The score/metadata guards above remain scoped to Music Lab. Unrelated quest
@@ -478,9 +386,7 @@ Equal(false, File.Exists(Path.Combine(Path.GetDirectoryName(pluginPath)!, "tests
     "the rejected installed-interop probe must be removed");
 Contains("nameof(MusicLabPointOverridePatches.GetMedalScorePostfix)", pluginSource,
     "existing managed getter Harmony hook must be preserved");
-Contains("MusicLabPointOverride.RecordNativeScore(__result);", pointScoreSource,
-    "existing native-score recording must be preserved");
-// A missing AP branch, loose room match, or early developer return must fail.
+// Exercise the installed postfix across each session mode and exact room match.
 foreach (string mode in new[] { "non-ap", "legacy", "awaiting", "synchronized", "retained", "incompatible" })
 {
     MusicLabPointRandomization.Reset();
@@ -496,21 +402,14 @@ foreach (string mode in new[] { "non-ap", "legacy", "awaiting", "synchronized", 
         if (mode == "retained") MusicLabPointRandomization.OnDisconnected(50);
     }
     foreach (string room in new[] { "GameRoom_Hub6", "GameRoom_Hub2", "GameRoom_Hub6_Logic", "", "GameRoom_Level27" })
-    foreach (bool enabled in new[] { false, true })
-    foreach (bool suppressed in new[] { false, true })
-    foreach (int? cheat in new int?[] { null, 64, 140 })
     {
         DeveloperHarness.CurrentRoomId = room;
-        DeveloperHarness.Enabled = enabled;
-        ScoreFixture.SetOverride(cheat);
-        MusicLabPointOverridePatches.SuppressOverride = suppressed;
         int result = 37;
         MusicLabPointOverridePatches.GetMedalScorePostfix(ref result);
-        int expected = enabled && !suppressed ? cheat ?? 37 : 37;
-        if (!suppressed && room == "GameRoom_Hub6" && mode is not ("non-ap" or "legacy"))
+        int expected = 37;
+        if (room == "GameRoom_Hub6" && mode is not ("non-ap" or "legacy"))
             expected = mode is "synchronized" or "retained" ? 30 : 0;
-        Equal(expected, result, $"production postfix {mode}/{room}/developer={enabled}/suppressed={suppressed}/cheat={cheat}");
-        Equal(37, ScoreFixture.LastNativeScore, "postfix records original score before replacement");
+        Equal(expected, result, $"production postfix {mode}/{room}");
     }
 }
 Console.WriteLine("PASS: production_postfix_room_scope_and_score_precedence");
@@ -553,7 +452,7 @@ Contains("cap anomaly", string.Join('\n', Plugin.LoggerInstance.Messages), "over
 int anomalyLogCount = Plugin.LoggerInstance.Messages.Count;
 MusicLabPointRandomization.SynchronizeHistory(61, excessHistory);
 Equal(anomalyLogCount, Plugin.LoggerInstance.Messages.Count, "replayed anomaly and state remain quiet");
-MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256103), new MusicLabPointReceipt(1, 187256152) });
+MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256103), new MusicLabPointReceipt(1, 187256152), new MusicLabPointReceipt(2, 187256164), new MusicLabPointReceipt(3, 187256183) });
 Equal(false, Plugin.LoggerInstance.Messages.Any(m => m.Contains("unknown received item ID", StringComparison.Ordinal)), "valid unrelated SCRC IDs are quiet");
 MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 999999999) });
 Contains("unknown received item ID ignored for Music Lab Points", string.Join('\n', Plugin.LoggerInstance.Messages), "unrecognized received ID is observable");
@@ -565,19 +464,8 @@ Contains("contract rejected", string.Join('\n', Plugin.LoggerInstance.Messages),
 MusicLabPointRandomization.Reset();
 Console.WriteLine("PASS: bounded_contract_history_reconnect_anomaly_and_getter_logs");
 
-string chestCatalog = pluginSource.Split("private static readonly (int Threshold, string ChestName)[] MusicLabRewardChests", StringSplitOptions.None)[1]
-    .Split("private static readonly Dictionary<int, int>", StringSplitOptions.None)[0];
-foreach (string chest in new[]
-{
-    "(5, \"ManiacMemoryCardChest\")", "(10, \"GarageCartridgeChest_Gradius\")",
-    "(20, \"CatBatteryChest\")", "(32, \"SongChest_QuickSand\")",
-    "(46, \"GarageCartridgeChest_BloodyTears\")", "(64, \"SongChest_Flamenco\")",
-    "(89, \"SongChest_TenFourGoodBuddy\")", "(111, \"SongChest_Zen\")", "(140, \"SongChest_Wiggle\")",
-})
-    Contains(chest, chestCatalog, "existing native chest threshold/path mapping is preserved");
-Contains("Root/GameRoom_Hub6_Logic/Objects/RewardChests/{chestName}/Interaction", chestReaderSource,
-    "chest discovery must retain its exact native paths");
-Contains("threshold != expectedThreshold", chestReaderSource, "native threshold mismatches must be rejected");
+MusicLabChestTests.Run();
+Contains("threshold != chest.Threshold", chestReaderSource, "native threshold mismatches must be rejected");
 Contains("NativeFieldValue(field, obj, NativeTypeName(fieldType))", chestReaderSource,
     "chest thresholds must come from the established native field reader");
 foreach (string forbidden in new[] { "SetValue(", "Marshal.Write", "field_set", "QueueLocation", "SetPhase(", "__result", "ResolveEffectiveScore(", ".Invoke(", "BuildState" })

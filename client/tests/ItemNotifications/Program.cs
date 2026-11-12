@@ -4,35 +4,42 @@ NotificationReceipt R(string item, bool own=false) => new(item, "Alex", "Light H
 var feed = new ItemNotificationFeed();
 feed.Connect(1, "seed:team:slot");
 feed.Receive(1, 0, new[]{R("Old item")});
-Check(feed.History.Length == 1, "initial history must be available to review");
+Check(feed.History.Count == 1, "initial history must be available to review");
 feed.Advance(0);
-Check(feed.Visible.Length == 0, "initial history must not spam popups");
+Check(feed.Visible.Count == 0, "initial history must not spam popups");
 feed.Receive(1, 1, new[]{R("Plant Pipes")});
 feed.Advance(0);
-Check(feed.Visible.Length == 1 && feed.Visible[0].Text.Contains("Received Plant Pipes from Alex"), "new received item must be visible");
+Check(feed.Visible.Count == 1 && feed.Visible[0].Text.Contains("Received Plant Pipes from Alex"), "new received item must be visible");
+var oldHistory = feed.History;
+var oldVisible = feed.Visible;
+feed.Advance(0.1);
+Check(ReferenceEquals(oldHistory, feed.History) && ReferenceEquals(oldVisible, feed.Visible),
+    "countdown reuses both immutable render snapshots");
 feed.Connect(2, "seed:team:slot");
 feed.Receive(2, 0, new[]{R("Old item"),R("Plant Pipes"),R("Car Battery")});
-Check(feed.History.Length == 3, "reconnect must show only unseen receipts, including offline arrivals");
+Check(feed.History.Count == 3, "reconnect must show only unseen receipts, including offline arrivals");
+Check(oldHistory.Count == 2 && oldVisible.Count == 1 && !ReferenceEquals(oldHistory, feed.History),
+    "a network callback publishes new history without modifying the frame already being drawn");
 feed.Receive(1, 3, new[]{R("STALE")});
-Check(feed.History.Length == 3, "old connection must not publish");
+Check(feed.History.Count == 3, "old connection must not publish");
 feed.Receive(2, 5, new[]{R("GAP")});
-Check(feed.History.Length == 3, "history gap must not invent receipts");
+Check(feed.History.Count == 3, "history gap must not invent receipts");
 feed.Receive(2, 3, new[]{R("Own reward",true)});
 Check(feed.History[0].Text.Contains("Found Own reward"), "self reward should have one clear found message");
 feed.Send(2, "location:123:receiver:2", "Weed Killer", "Sam", "Gecko");
 feed.Send(2, "location:123:receiver:2", "Weed Killer", "Sam", "Gecko");
 Check(feed.History.Count(x=>x.Text.Contains("Sent Weed Killer to Sam"))==1,"confirmed sends must deduplicate");
 feed.Advance(7);
-Check(feed.Visible.Length <= 3, "burst must not cover the screen");
+Check(feed.Visible.Count <= 3, "burst must not cover the screen");
 feed.Connect(3,"different-seed");
-Check(feed.History.Length==0 && feed.Visible.Length==0,"identity switch must clear notifications");
+Check(feed.History.Count==0 && feed.Visible.Count==0,"identity switch must clear notifications");
 feed.Receive(3,0,Enumerable.Range(0,150).Select(i=>R("Item "+i)).ToArray());
-Check(feed.History.Length==100 && feed.History[0].Text.Contains("Item 149"),"bounded history keeps latest receipts");
+Check(feed.History.Count==100 && feed.History[0].Text.Contains("Item 149"),"bounded history keeps latest receipts");
 feed.Receive(3,150,new[]{R("New arrival")});feed.Advance(0);
-Check(feed.Visible.Length==1,"new identity establishes its own receipt baseline");
-feed.Advance(6.1);Check(feed.Visible.Length==0,"popup must expire without changing history");
+Check(feed.Visible.Count==1,"new identity establishes its own receipt baseline");
+feed.Advance(6.1);Check(feed.Visible.Count==0,"popup must expire without changing history");
 Check(feed.History[0].Text.Contains("New arrival"),"expired popup stays in history");
-feed.Reset();Check(feed.History.Length==0,"shutdown clears feed");
+feed.Reset();Check(feed.History.Count==0,"shutdown clears feed");
 Console.WriteLine("PASS: item history, live receipts, replay deduplication, offline arrivals, self finds, sends, identity isolation, burst bounds, expiry.");
 
 var burst = new ItemNotificationFeed();burst.Connect(1,"burst");burst.Receive(1,0,Array.Empty<NotificationReceipt>());
@@ -41,9 +48,9 @@ burst.Advance(0);Check(burst.Visible[0].Text.Contains("Reward 0"),"burst queue m
 burst.Advance(20,0);Check(burst.Visible[0].Text.Contains("Reward 0"),"hidden popups must not expire");
 burst.Advance(6.1,1);Check(burst.Visible[0].Text.Contains("Reward 1"),"only the card that fit on screen should expire");
 var displayed = new List<string>{"Received Reward 0 from Alex"};
-while(burst.Visible.Length>0){displayed.Add(burst.Visible[0].Text);burst.Advance(6.1,1);}
+while(burst.Visible.Count>0){displayed.Add(burst.Visible[0].Text);burst.Advance(6.1,1);}
 Check(displayed.SequenceEqual(Enumerable.Range(0,125).Select(i=>"Received Reward "+i+" from Alex")),"every reward in a burst must receive visible time in arrival order");
-Check(burst.History.Length==100,"unseen popup retention must not unbound recent history");
+Check(burst.History.Count==100,"unseen popup retention must not unbound recent history");
 AdapterTests.Run();
 
 var sentReplay = new ItemNotificationFeed();

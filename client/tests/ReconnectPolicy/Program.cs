@@ -46,34 +46,41 @@ Equal(
     "closed socket after login ends the established session and reconnects");
 
 var policy = new ReconnectPolicy();
-Equal<TimeSpan?>(null, policy.NextDelay(), "connected startup has no retry");
+Equal<TimeSpan?>(null, policy.NextAttempt()?.Delay, "connected startup has no retry");
 
 policy.OnUnexpectedDisconnect();
-Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextDelay(), "first retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(2), policy.NextDelay(), "second retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "third retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fourth retry stays responsive");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "fifth retry stays responsive");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(5), policy.NextDelay(), "bounded repeated retry stays responsive");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextAttempt()?.Delay, "first retry");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(2), policy.NextAttempt()?.Delay, "second retry");
+foreach (int seconds in new[] { 5, 10, 20, 40, 60, 60, 60 })
+{
+    var delay = policy.NextAttempt()!.Value.Delay.TotalSeconds;
+    True(delay >= seconds * .8 && delay <= seconds, $"jittered backoff up to {seconds} seconds");
+}
 
-policy.OnConnected();
-Equal<TimeSpan?>(null, policy.NextDelay(), "successful login resets retries");
+var queued = policy.NextAttempt()!.Value;
+policy.OnActionRequired();
+False(policy.IsCurrent(queued), "a permanent failure cancels a waiting worker");
+False(policy.OnUnexpectedDisconnect(), "late socket close cannot restart blocked retries");
+Equal<TimeSpan?>(null, policy.NextAttempt()?.Delay, "no retry after a permanent failure");
+
+policy.ResetRetries();
+Equal<TimeSpan?>(null, policy.NextAttempt()?.Delay, "successful login resets retries");
 policy.OnUnexpectedDisconnect();
-Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextDelay(), "recovery starts fresh schedule");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(1), policy.NextAttempt()?.Delay, "recovery starts fresh schedule");
 
 policy.OnDeliberateShutdown();
-Equal<TimeSpan?>(null, policy.NextDelay(), "shutdown cancels pending retry");
+Equal<TimeSpan?>(null, policy.NextAttempt()?.Delay, "shutdown cancels pending retry");
 policy.OnUnexpectedDisconnect();
-Equal<TimeSpan?>(null, policy.NextDelay(), "socket close during shutdown is ignored");
+Equal<TimeSpan?>(null, policy.NextAttempt()?.Delay, "socket close during shutdown is ignored");
 
 var recoveryLifecycle = new ReconnectPolicy();
 recoveryLifecycle.OnUnexpectedDisconnect();
 Equal(true, recoveryLifecycle.ReconnectRequested, "socket close records reconnect intent");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(1), recoveryLifecycle.NextDelay(), "socket close schedules retry");
-Equal<TimeSpan?>(TimeSpan.FromSeconds(2), recoveryLifecycle.NextDelay(), "failed login advances retry");
-recoveryLifecycle.OnConnected();
+Equal<TimeSpan?>(TimeSpan.FromSeconds(1), recoveryLifecycle.NextAttempt()?.Delay, "socket close schedules retry");
+Equal<TimeSpan?>(TimeSpan.FromSeconds(2), recoveryLifecycle.NextAttempt()?.Delay, "failed login advances retry");
+recoveryLifecycle.ResetRetries();
 Equal(false, recoveryLifecycle.ReconnectRequested, "successful login clears reconnect intent");
-Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered login stops worker");
+Equal<TimeSpan?>(null, recoveryLifecycle.NextAttempt()?.Delay, "successful recovered login stops worker");
 
 {
     var deferredPolicy = new ReconnectPolicy();
@@ -103,7 +110,7 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
     True(delayObtained.Wait(TimeSpan.FromSeconds(1)), "old callback schedules retry and worker obtains its delay token");
     Equal(TimeSpan.FromSeconds(1), delayedAttempt!.Value.Delay, "old worker captured the first retry delay");
     lock (connectionLock)
-        deferredPolicy.OnConnected();
+        deferredPolicy.ResetRetries();
     wakeWorker.Set();
     await oldWorker;
     False(admitted, "old worker is denied after replacement clears and advances retry intent");
@@ -115,7 +122,7 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
     var connectionLock = new object();
     currentPolicy.OnUnexpectedDisconnect();
     ReconnectAttempt oldAttempt = currentPolicy.NextAttempt()!.Value;
-    currentPolicy.OnConnected();
+    currentPolicy.ResetRetries();
     currentPolicy.OnUnexpectedDisconnect();
     ReconnectAttempt currentAttempt = currentPolicy.NextAttempt()!.Value;
     var sessionCreationCount = 0;
@@ -185,7 +192,7 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
         True(admissionStarted.Wait(TimeSpan.FromSeconds(5)), "retry worker attempts admission while replacement holds the connection lock");
         WaitUntilBlocked(worker, "retry admission waits behind the replacement connection lock");
         False(workerFinished.IsSet, "retry admission cannot complete while replacement holds the connection lock");
-        serializedPolicy.OnConnected();
+        serializedPolicy.ResetRetries();
         False(workerFinished.IsSet, "replacement invalidates retry intent before releasing the connection lock");
     }
     finally
@@ -237,7 +244,7 @@ Equal<TimeSpan?>(null, recoveryLifecycle.NextDelay(), "successful recovered logi
         lock (connectionLock)
         {
             replacementAcquireSequence = Interlocked.Increment(ref sequence);
-            serializedPolicy.OnConnected();
+            serializedPolicy.ResetRetries();
             replacementAcquiredLock.Set();
         }
     });
@@ -298,7 +305,7 @@ True(itemWiring.Contains("session.Socket.PacketReceived += packet =>", StringCom
     itemWiring.Contains("using (packetLease)", StringComparison.Ordinal) &&
     itemWiring.Contains("pointHistory.HandlePacket(packet)", StringComparison.Ordinal),
     "complete packets are processed under the current session generation lease");
-True(itemWiring.Contains("MusicLabPointRandomization.TryHandleItemName,", StringComparison.Ordinal), "point names are consumed by item dispatch");
+True(itemWiring.Contains("MusicLabPointRandomization.TryHandleItemName", StringComparison.Ordinal), "point names are consumed by item dispatch");
 string ending = pluginSource[pluginSource.IndexOf("private bool ClearCurrentSession(", StringComparison.Ordinal)..pluginSource.IndexOf("private void RequestReconnect(", StringComparison.Ordinal)];
 True(ending.Contains("MusicLabPointRandomization.OnDisconnected(generation)", StringComparison.Ordinal), "accepted session ending retains synchronized points");
 True(ending.Contains("CampaignLevelRandomization.OnDisconnected()", StringComparison.Ordinal), "temporary disconnect retains campaign compatibility state");

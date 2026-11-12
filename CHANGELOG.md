@@ -1,38 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Pause automatic reconnect when the player needs to correct their login or restore a damaged quest journal. Temporary outages and occupied slots retry with increasing delays up to one minute.
+- Preserve pending quest checks across failed logins and identify the journal file that needs attention in the client log.
+- Limit memory used for notifications before login and reuse the F6 history layout between changes.
+- Release gameplay hooks and plugin-created Unity components on unload and restore Star Eater threshold changes the client still owns.
+
 ## v0.30.1 — November 8, 2026 — Client 0.77.1 / APWorld 0.30.0
 
 - Default remote server addresses to encrypted WebSockets without automatic plaintext fallback; explicit `ws://` remains available for trusted plaintext servers and loopback defaults remain compatible.
 - Bound incoming decompressed messages to 32 MiB before JSON parsing and terminate partial messages after 60 seconds. Idle connections remain supported. Refuse connections if the receive protection cannot load.
 - Preserve the existing dependency DLLs, APWorld contracts, item IDs and seed/save behavior. Build and automated tests are separate from pending in-game acceptance.
 
-## v0.30.0 — Bunker and True Ending
+[Full notes and limits](docs/releases/v0.30.1.md).
 
-October 28, 2026. Client 0.77.0 / APWorld 0.30.0.
+## v0.30.0 — October 28, 2026 — Client 0.77.0 / APWorld 0.30.0
 
-## New progression
+- Added Bunker progression, six checks and an optional True Ending goal, with schema 21 support in Universal Tracker.
+- Opened the Demolition Training and School Trip doors with Lobby Access and Old Tom's route with Cell Tower Access.
+- Repaired the final-level transition crash and retired F8 recording and temporary profiling hooks.
 
-- Optional True Ending victory alongside the default King Ferdinand ending.
-- Randomized Bunker Keycard, Demon Key, Virus, Cheat Codes and Game Ender, plus six new checks.
-- Bunker progression defaults to enabled; requires at least two goal Stars. The Bunker Star Eater always requires fewer Stars than the Level 22 entrance and its Superstar cartridge source is randomized.
-- The Demon Key controls the separate Devil quest; Gecko's Data Stick and Note Pad remain native quest setup.
-- New seeds open Demolition Training and School Trip doors with Lobby Access, retaining generated Star gates.
-- Cell Tower Access opens Old Tom's connecting route without nectar delivery; read the note and leave/re-enter the area to update the Star Eater route.
-
-## Fixes and cleanup
-
-- Correct incompatible Bunker/goal settings to raise Archipelago OptionError, rather than generation crashes.
-- Replace an unsafe native event conversion implicated in final-level transition crashes.
-- Remove F8 movement recording and temporary profiling/diagnostic callbacks while preserving movement repairs and ordinary error logging.
-- Add schema21 Universal Tracker reconstruction and preserve legacy schema19/20 rules.
-
-## Updating and validation
-
-Install the client archive with its licenses and scrc.apworld into Archipelago's custom_worlds folder while applications are closed. Use a fresh seed and native save for the new Bunker options. Existing schema19/20 rooms retain their original placements and rules; do not regenerate an active room. Keep its YAML for Universal Tracker. The Ionium YAML creator may still offer the previous indexed version until this release is indexed.
-
-The corrected APWorld passed Ionium's full browser CI preset on Archipelago 0.6.7 and 0.6.8: 458 unit tests, 29,000 attempted fuzz cases, zero failures/timeouts, including Universal Tracker. Invalid option combinations were correctly ignored. Version metadata is updated for this release; index CI remains authoritative.
-
-The native Gecko quest and final ending were investigated in staged saves, but the complete randomized schema21 receipt/source/goal flow has not yet completed an end-to-end gameplay acceptance run. Intermittent performance reports and broader multiplayer coverage remain open. See [known issues](docs/KNOWN_ISSUES.md) and [testing](docs/TESTING.md).
+[Full notes and limits](docs/releases/v0.30.0.md).
 
 ## v0.29.2 — October 22, 2026 — Client 0.76.2 / APWorld 0.29.0
 
@@ -43,7 +32,7 @@ The native Gecko quest and final ending were investigated in staged saves, but t
 
 [Full notes and limits](docs/releases/v0.29.2.md).
 
-## v0.29.1 â€” October 12, 2026 â€” Client 0.76.1 / APWorld 0.29.0
+## v0.29.1 — October 12, 2026 — Client 0.76.1 / APWorld 0.29.0
 
 - Repair the captured player movement stalls without changing display mode or imposing a frame-rate cap.
 - Add bounded, opt-in F8 timing evidence and repair counters.

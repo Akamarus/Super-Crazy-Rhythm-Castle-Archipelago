@@ -297,13 +297,13 @@ def validate_cassette_catalog(
             )
         source_names_by_id[entry.source_id] = entry.source_name
 
-    for source_id, source_name in source_names_by_id.items():
-        for registered_name, registered_id in registered_locations.items():
-            if registered_id == source_id and registered_name != source_name:
-                raise ValueError(
-                    f"new cassette source ID collision for {source_name}: "
-                    f"{source_id} is already assigned to {registered_name}"
-                )
+    for registered_name, registered_id in registered_locations.items():
+        source_name = source_names_by_id.get(registered_id)
+        if source_name is not None and registered_name != source_name:
+            raise ValueError(
+                f"new cassette source ID collision for {source_name}: "
+                f"{registered_id} is already assigned to {registered_name}"
+            )
 
     for entry in catalog:
         if not entry.native_song:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Set
 
-from .campaign_levels import CAMPAIGN_LOCATION_NAMES, CAMPAIGN_LOCATION_TIERS
+from .campaign_levels import CAMPAIGN_LEVELS, CAMPAIGN_LOCATION_TIERS
 
 DIFFICULTY_NAMES = ("Normal", "Hard", "Expert", "Perfection")
 MEDAL_TIERS = ("Bronze", "Silver", "Gold", "Platinum")
@@ -21,10 +21,7 @@ CAMPAIGN_TIERS_BY_DIFFICULTY = {
     3: frozenset(("Completion", "1 Star", "2 Stars", "3 Stars")),
 }
 CAMPAIGN_LOCATION_TIERS_BY_NAME = {
-    name: tier
-    for name in CAMPAIGN_LOCATION_NAMES
-    for tier in CAMPAIGN_LOCATION_TIERS
-    if name.endswith(f" - {tier}")
+    level.location_name(tier): tier for level in CAMPAIGN_LEVELS for tier in CAMPAIGN_LOCATION_TIERS
 }
 MEDAL_TIER_SETS = tuple(
     frozenset(MEDAL_TIERS[:limit]) for limit in MEDAL_TIER_LIMIT
@@ -43,7 +40,7 @@ def filter_locations_for_difficulty(
     difficulty: int,
 ) -> tuple[str, ...]:
     _validate_difficulty(difficulty)
-    return tuple(name for name in location_names if is_location_active(name, difficulty))
+    return tuple(name for name in location_names if _is_active(name, difficulty))
 
 
 def active_location_names(
@@ -70,25 +67,33 @@ def medal_tiers(difficulty: int) -> frozenset[str]:
     return MEDAL_TIER_SETS[difficulty]
 
 
-def _recognized_campaign_tier(location_name: str) -> str | None:
-    return CAMPAIGN_LOCATION_TIERS_BY_NAME.get(location_name)
-
-
 def is_location_active(location_name: str, difficulty: int) -> bool:
     _validate_difficulty(difficulty)
-    campaign_tier = _recognized_campaign_tier(location_name)
+    return _is_active(location_name, difficulty)
+
+
+def _is_active(location_name: str, difficulty: int) -> bool:
+    campaign_tier = CAMPAIGN_LOCATION_TIERS_BY_NAME.get(location_name)
     if campaign_tier is not None:
         return campaign_tier in CAMPAIGN_TIERS_BY_DIFFICULTY[difficulty]
-    medal_tier = _recognized_medal_tier(location_name)
-    if medal_tier is not None:
-        return medal_tier in medal_tiers(difficulty)
+    if location_name.startswith(TIERED_PREFIXES):
+        medal = location_name.rpartition(" - ")[2]
+        if medal in MEDAL_TIERS:
+            return medal in MEDAL_TIER_SETS[difficulty]
     return True
 
 
-def _recognized_medal_tier(location_name: str) -> str | None:
-    if not location_name.startswith(TIERED_PREFIXES):
-        return None
-    for tier in MEDAL_TIERS:
-        if location_name.endswith(f" - {tier}"):
-            return tier
-    return None
+def location_metadata(names: Set[str], difficulty: int) -> dict:
+    """Describe actual addressed checks for slot export and Tracker validation."""
+    active_star_tiers = campaign_star_tiers(difficulty)
+    active_medals = medal_tiers(difficulty)
+    campaign = sorted(name for name in CAMPAIGN_LOCATION_TIERS_BY_NAME if name in names)
+    tiers = {CAMPAIGN_LOCATION_TIERS_BY_NAME[name] for name in campaign}
+    return {
+        "difficulty_filtering_active": True,
+        "active_location_count": len(names),
+        "active_campaign_locations": campaign,
+        "active_campaign_location_tiers": [tier for tier in CAMPAIGN_LOCATION_TIERS if tier in tiers],
+        "active_campaign_star_tiers": sorted(active_star_tiers),
+        "active_medal_tiers": [tier for tier in MEDAL_TIERS if tier in active_medals],
+    }

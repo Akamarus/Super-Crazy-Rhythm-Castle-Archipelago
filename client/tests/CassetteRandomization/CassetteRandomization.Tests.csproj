@@ -3,4 +3,19 @@
   <ItemGroup><Compile Include="..\..\ReflectionUtil.cs" Link="ReflectionUtil.cs" /><Compile Include="..\..\CassetteCatalog.cs" Link="CassetteCatalog.cs" /><Compile Include="..\..\CassetteNativeRequestFactory.cs" Link="CassetteNativeRequestFactory.cs" /><Compile Include="..\..\CassetteRandomizationPolicy.cs" Link="CassetteRandomizationPolicy.cs" /><Compile Include="..\..\CassetteSaveTransactionAdapter.cs" Link="CassetteSaveTransactionAdapter.cs" /><Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" /></ItemGroup>
   <ItemGroup><PackageReference Include="Newtonsoft.Json" Version="13.0.3" /></ItemGroup>
   <ItemGroup><None Include="..\..\..\contracts\cassette-contract-v1.json" Link="cassette-contract-v1.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../CassetteBundles.cs" Link="CassetteBundles.cs" />
+    <Compile Include="../../HubReadinessProbePolicy.cs" Link="HubReadinessProbePolicy.cs" />
+    <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+  </ItemGroup>
+  <!-- Run the same receipt and frame callbacks as the plugin without loading Unity. -->
+  <Target Name="CompileReceiptRuntime" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
+      <SlotSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^internal static class CassetteSlotDataCompatibility\b.*?^}').Value)</SlotSource>
+      <ReceiptSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^internal static class CassetteReceiptRandomization\b.*?^}').Value)</ReceiptSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionCassetteReceipt.cs" Lines="using System.Reflection%3B using UnityEngine%3B namespace RhythmCastleAP%3B $(SlotSource) $(ReceiptSource)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)ProductionCassetteReceipt.cs" /></ItemGroup>
+  </Target>
 </Project>

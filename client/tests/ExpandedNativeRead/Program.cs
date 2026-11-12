@@ -18,17 +18,23 @@ Check(CurrentPlayerSaveEnquiries.FlagCalls==2,"no native lookup for unknown mark
 Check(ExpandedCheckResults.ReadFlag("PRISON_HUB_STAR_EATER_FED")==true,"Cell native enum recognized");
 CurrentPlayerSaveEnquiries.Flag=false;
 Check(ExpandedCheckResults.ReadFlag("PRISON_HUB_STAR_EATER_FED")==false,"Cell saved value read live");
+Check(ExpandedCheckResults.ReadFlag("LOBBY_HUB_PLUNGER_HAND_IN") == null, "unknown catalog name excluded");
+Check(ExpandedCheckResults.ReadFlag("LOBBY_HUB_LIFT_KEY_USED") == null, "recognized source absent from the native enum is unreadable");
+CurrentPlayerSaveEnquiries.Throw = true;
+Check(ExpandedCheckResults.ReadFlag(source) == null, "flag getter failure is unreadable");
+CurrentPlayerSaveEnquiries.Throw = false;
+Check(ExpandedCheckResults.ReadFlag(source) == false, "same flag recovers after a temporary native failure");
 int calls=CurrentPlayerSaveEnquiries.Calls;
 Check(ExpandedCheckResults.ReadCompleted("Level_06","LevelVariant_Default") == null,"normal variant excluded");
 Check(ExpandedCheckResults.ReadCompleted("Level_12","LevelVariant_DevilMode") == null,"unknown pairing excluded");
 Check(CurrentPlayerSaveEnquiries.Calls==calls,"unmapped result never reads native save");
 CurrentPlayerSaveEnquiries.Throw = true;
 Check(ExpandedCheckResults.ReadCompleted("Level_06","LevelVariant_BeeMode") == null,"unreadable fails closed");
-Console.WriteLine("Expanded native binary result reader: 29 assertions passed.");
+Console.WriteLine("Expanded native result and progression flag reads passed.");
 public sealed class LevelIdentifier { public static int Constructions; public string Value; public LevelIdentifier(string value) {Constructions++;Value=value;} }
 public sealed class LevelVariantIdentifier { public static int Constructions; public string Value; public LevelVariantIdentifier(string value) {Constructions++;Value=value;} }
 public static class CurrentPlayerSaveEnquiries {
- public static bool Flag; public static int FlagCalls; public static bool GetProgressionFlagValue(eGameProgressionFlag flag) {FlagCalls++;return Flag;}
+ public static bool Flag; public static int FlagCalls; public static bool GetProgressionFlagValue(eGameProgressionFlag flag) {FlagCalls++;if(Throw)throw new InvalidOperationException();return Flag;}
  public static bool Success,Throw; public static int Calls; public static string Last="";
  public static bool HasBinaryResultLevelVariantBeenCompleted(LevelIdentifier level,LevelVariantIdentifier variant) {
   Calls++; Last=level.Value+"|"+variant.Value; if(Throw)throw new InvalidOperationException();return Success;

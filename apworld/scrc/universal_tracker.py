@@ -1,8 +1,8 @@
 """Restore server-authored logic for Universal Tracker, never reroll its gates."""
-from copy import deepcopy
-
 from . import bunker as bunker_logic
 from .cassette_bundles import validate_bundles
+from .difficulty import location_metadata
+from .native_logic import star_eater_requirements
 from .star_requirements import LEVEL_NAMES, validate_star_requirements
 from .starting_areas import STARTING_AREA_NAMES, VALIDATED_STARTING_AREAS
 
@@ -26,9 +26,11 @@ def tracker_slot_data(slot_data: dict) -> dict:
         raise ValueError("SCRC Bunker capability mismatch")
     if selected_goal not in bunker_logic.GOALS or (not active and selected_goal != "king_ferdinand"):
         raise ValueError("SCRC invalid victory goal")
+    bunker_metadata = bunker_logic.metadata(active, selected_goal)
     if active:
-        for key,value in bunker_logic.metadata(True,selected_goal).items():
-            if not _same_contract_value(slot_data.get(key),value): raise ValueError("SCRC invalid " + key)
+        for key, value in bunker_metadata.items():
+            if not _same_contract_value(slot_data.get(key), value):
+                raise ValueError("SCRC invalid " + key)
     size = slot_data.get("cassette_bundle_size", 1)
     groups = validate_bundles(size, slot_data.get("cassette_bundles", {}))
     if schema != 21 and (schema == 20) != (size > 1):
@@ -55,7 +57,7 @@ def tracker_slot_data(slot_data: dict) -> dict:
     metadata = _validate_metadata(slot_data, difficulty, requirements)
     return {
         **metadata,
-        **bunker_logic.metadata(active,selected_goal),
+        **bunker_metadata,
         "schema_version": schema,
         "cell_tower_open_route": route,
         "lobby_open_doors": lobby,
@@ -72,6 +74,7 @@ def tracker_slot_data(slot_data: dict) -> dict:
 
 
 def _same_contract_value(actual, expected):
+    # Python compares True equal to 1, but these are distinct JSON wire types.
     if type(actual) is not type(expected):
         return False
     if isinstance(expected, dict):
@@ -86,27 +89,13 @@ def _same_contract_value(actual, expected):
 
 def _validate_metadata(slot_data, difficulty, requirements):
     # Import the completed catalog lazily: the world imports this parser itself.
-    from . import (LOCATION_NAME_TO_ID, CARTRIDGE_SOURCE_LOCATIONS,
-                  VANILLA_GARAGE_CARTRIDGE_SONG, LOBBY_BEAN_TRUMPET_AWARD)
-    from .campaign_levels import CAMPAIGN_LOCATION_NAMES, CAMPAIGN_LOCATION_TIERS
-    from .difficulty import filter_locations_for_difficulty, campaign_star_tiers, medal_tiers, MEDAL_TIERS
-    from .native_logic import star_eater_requirements
+    from . import _active_check_names
 
-    active = {name for name in filter_locations_for_difficulty(LOCATION_NAME_TO_ID, difficulty)
-              if name not in (CARTRIDGE_SOURCE_LOCATIONS[VANILLA_GARAGE_CARTRIDGE_SONG],
-                              LOBBY_BEAN_TRUMPET_AWARD)
-              and not name.startswith("Development Cache ")
-              and (slot_data.get("bunker_progression",False) or name not in bunker_logic.CHECK_IDS)}
-    campaign = sorted(active.intersection(CAMPAIGN_LOCATION_NAMES))
+    bunker = slot_data.get("bunker_progression", False)
+    active = _active_check_names(difficulty, bunker)
     expected = {
-        "star_eater_requirements": star_eater_requirements(requirements, slot_data.get("bunker_progression",False)),
-        "active_location_count": len(active),
-        "active_campaign_locations": campaign,
-        "active_campaign_location_tiers": [tier for tier in CAMPAIGN_LOCATION_TIERS
-                                           if any(n.endswith(f" - {tier}") for n in campaign)],
-        "active_campaign_star_tiers": sorted(campaign_star_tiers(difficulty)),
-        "active_medal_tiers": [tier for tier in MEDAL_TIERS if tier in medal_tiers(difficulty)],
-        "difficulty_filtering_active": True,
+        "star_eater_requirements": star_eater_requirements(requirements, bunker),
+        **location_metadata(active, difficulty),
     }
     for key, value in expected.items():
         # Legacy schema 19 may omit derived metadata. Present metadata is always
@@ -115,4 +104,4 @@ def _validate_metadata(slot_data, difficulty, requirements):
             continue
         if key not in slot_data or not _same_contract_value(slot_data[key], value):
             raise ValueError(f"SCRC tracker slot has incompatible {key}")
-    return deepcopy(expected)
+    return expected

@@ -36,18 +36,7 @@ internal interface IPreviewAbilityNativeAdapter
     bool TrySubmit(string nativeFlag, out string detail);
 }
 
-internal interface IPreviewAbilityReconciler
-{
-    string NativeFlag { get; }
-    string LastOutcome { get; }
-    IPreviewAbilityNativeAdapter NativeAdapterForTests { get; }
-    void Configure(bool compatible);
-    void NoteReceivedCount(int count);
-    void OnLifecyclePoint(string reason);
-    void TickPending(TimeSpan elapsed);
-}
-
-internal abstract class PreviewAbilityReconcilerBase : IPreviewAbilityReconciler
+internal abstract class PreviewAbilityReconcilerBase
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(1);
     private readonly IPreviewAbilityNativeAdapter _native;
@@ -63,7 +52,6 @@ internal abstract class PreviewAbilityReconcilerBase : IPreviewAbilityReconciler
 
     public abstract string NativeFlag { get; }
     public string LastOutcome { get; private set; } = "not-evaluated";
-    public IPreviewAbilityNativeAdapter NativeAdapterForTests => _native;
 
     public void Configure(bool compatible) => _compatible = compatible;
 
@@ -76,7 +64,7 @@ internal abstract class PreviewAbilityReconcilerBase : IPreviewAbilityReconciler
     public void OnLifecyclePoint(string reason)
     {
         bool owned = false;
-        bool readable = _native.SaveAvailable && _native.TryRead(NativeFlag, out owned);
+        bool readable = _receivedCount > 0 && _compatible && _native.SaveAvailable && _native.TryRead(NativeFlag, out owned);
         bool? nativeFlag = readable ? owned : null;
         PreviewAbilityReconcileDecision decision = PreviewAbilityReconcilePolicy.Decide(
             _receivedCount,

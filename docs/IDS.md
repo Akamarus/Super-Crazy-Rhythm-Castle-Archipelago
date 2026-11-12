@@ -1,5 +1,12 @@
-## Unreleased schema21 Bunker allocation
-Original IDs are unchanged. Native bag/source mappings verified from interop metadata and slot2 quest captures.
+# Permanent Archipelago ID registry
+
+The base ID is `187256000`. Item and location IDs occupy separate namespaces. Published and tested IDs remain reserved for their original purpose, including IDs that are no longer generated.
+
+**Next safe item ID: 187256184. Next safe location ID: 187256342.**
+
+## Schema 21 Bunker allocation (APWorld 0.30.0)
+
+Native bag and source mappings were verified from interop metadata and slot 2 quest captures.
 
 | Item | ID | Native bag flag |
 |---|---:|---|
@@ -18,10 +25,9 @@ Original IDs are unchanged. Native bag/source mappings verified from interop met
 | Secret Bunker - Demon Key Pickup |187256340|BUNKER_HUB_DEMON_KEY|
 | True Ending - Completion |187256341|OVERALL_PROGRESS_BEAT_KING_TWO|
 
-**Next safe item ID: 187256184. Next safe location ID: 187256342.**
-Demon Key pickup uses the native award boundary: client must distinguish receipt from source, not report every bag-flag change as a check. This client support is pending.
+Demon Key pickup uses the native award in the Secret Bunker. The client tracks that source separately from AP item receipts. Full randomized gameplay acceptance remains pending.
 
-## Schema20 cassette bundle items (published APWorld 0.29.0)
+## Schema 20 cassette bundle items (APWorld 0.29.0)
 
 Confirmed scope: existing 30 native cassette mappings, random pairs or triples per seed.
 Permanent item IDs **187256164–187256178** map in order to **Cassette Bundle 01–15**.
@@ -30,20 +36,11 @@ These names identify ordinal seed-authored bundles; song membership is recorded 
 triples use the first 10. Individual cassette IDs remain unchanged and accepted.
 Item and location ID spaces are separate. No new locations are allocated.
 
-**Next safe item ID: 187256179. Next safe location ID: 187256336.**
-Older next-safe statements below describe their historical schema.
-
-# Permanent Archipelago ID Registry
-
-**Base ID:** `187256000`
-
-Once an item or location ID has existed in a published/tested datapackage, it is never reused for a different thing. Gaps remain reserved.
-
-## Current schema 19 additions
+## Schema 19 additions (APWorld 0.28.0)
 
 Client 0.75.0 / APWorld 0.28.0 adds Cell 334 and King 335 after native mapping.
 The expanded map contains 39 entries; legacy schema 18 clients retain their 37-entry map.
-Star item 187256118 is active with 66 instances. Next safe location 187256336 and item 187256164.
+Star item 187256118 is active with 66 instances.
 
 | Offset | ID | Native source |
 | --- | --- | --- |
@@ -51,8 +48,7 @@ Star item 187256118 is active with 66 instances. Next safe location 187256336 an
 | +335 | 187256335 | Royal Corridor - King Ferdinand Unlocked; KING (6) award sequence in GameRoom_28B |
 
 King remains a native reward-source check; no new King ownership item is generated.
-Current totals: Normal 164 / Hard 222 / Expert 280 / Perfection 316.
-Older allocation/status paragraphs below are historical where explicitly versioned.
+Schema 19 totals were Normal 164 / Hard 222 / Expert 280 / Perfection 316.
 
 ## Location IDs
 
@@ -82,12 +78,9 @@ Older allocation/status paragraphs below are historical where explicitly version
 | `+296` | `187256296` | Game Garage - Old Game Data Hand-In |
 | `+297` | `187256297` | Roots - Star Eater Fed (AP Star threshold) |
 
-**Next safe location offset:** `+336`
-**Next safe location ID:** `187256336`
-
 The v0.18 allocation contains **178** network locations, including four ordinary
 Level 22 checks. Victory remains a separate addressless event.
-Historical v0.24 registry: **286** named network locations, including 13 inactive reservations. Its active totals were Normal 121 / Hard 179 / Expert 237 / Perfection 273; the current schema 19 totals are above.
+The v0.24 registry contained **286** named network locations, including 13 inactive reservations. Its active totals were Normal 121 / Hard 179 / Expert 237 / Perfection 273.
 
 ### Full cassette source IDs
 
@@ -246,11 +239,11 @@ Cassette` source at `187256186`.
 | `+115` | `187256115` | Wag the Dog Cartridge |
 | `+116` | `187256116` | Weed Killer |
 | `+117` | `187256117` | Plant Pipes |
-| `+118` | `187256118` | Star — registered for the generation foundation; not yet active in the live item pool |
+| `+118` | `187256118` | Star (66 generated instances) |
 | `+119` | `187256119` | Hip Glasses |
 | `+120` | `187256120` | Chicken Bucket |
-| `+121` | `187256121` | Hypno Pan — registered preview; excluded from generated pools |
-| `+122` | `187256122` | Violance — registered preview; excluded from generated pools |
+| `+121` | `187256121` | Hypno Pan (progression) |
+| `+122` | `187256122` | Violance (progression) |
 | `+123` | `187256123` | Money Cassette (I Got Money native song) |
 | `+124` | `187256124` | The Little Things Cassette |
 | `+125` | `187256125` | No Plan B Cassette |
@@ -293,9 +286,6 @@ Cassette` source at `187256186`.
 | `+162` | `187256162` | Meoo (useful character unlock) |
 | `+163` | `187256163` | Maniac (useful character unlock) |
 
-**Next safe item offset:** `+164`
-**Next safe item ID:** `187256164`
-
 ## Rule for changes
 
 Before assigning an ID:
@@ -324,7 +314,7 @@ recorded in [the acceptance record](archive/testing/2026-09-16-quest-checks-cand
 
 ## v0.27 supplemental checks (schema 18 candidate)
 
-Existing IDs remain unchanged. Important Letters reuses reserved187256292; Bean Trumpet187256293 remains inactive. New IDs187256298 through187256333 are allocated only to the mapped candidates below. Next safe location ID187256334; next safe item ID187256164 unchanged. No new item instances.
+Important Letters uses the previously reserved location 187256292. Bean Trumpet 187256293 remains inactive. This allocation added locations 187256298 through 187256333 for the mapped checks below.
 
 | ID | Location | Native source |
 | --- | --- | --- |

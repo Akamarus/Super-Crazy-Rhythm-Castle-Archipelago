@@ -66,26 +66,6 @@ static (bool ContractMatched, int ChangedCount) ApplyEntrancePreview(
     return (contractMatched, changedCount);
 }
 
-foreach (bool owns in new[] { false, true })
-{
-    Equal(GarageObjectDecision.Active,
-        GarageAvailabilityPolicy.Decide(true, true, owns, GarageObjectRole.Initialization),
-        "holder and play initialization always remain active");
-    Equal(owns ? GarageObjectDecision.Active : GarageObjectDecision.Inactive,
-        GarageAvailabilityPolicy.Decide(true, true, owns, GarageObjectRole.SongCartridge),
-        "only matching song cartridge follows AP ownership");
-}
-
-foreach (GarageObjectRole role in Enum.GetValues<GarageObjectRole>())
-{
-    Equal(GarageObjectDecision.Vanilla,
-        GarageAvailabilityPolicy.Decide(false, true, false, role),
-        "disabled AP preserves vanilla");
-    Equal(GarageObjectDecision.Vanilla,
-        GarageAvailabilityPolicy.Decide(true, false, false, role),
-        "incompatible slot preserves vanilla");
-}
-
 var entrancePreviewCases = new[]
 {
     (Enabled: true, Compatible: true, NativeType: "SUPERSTAR", NativeOwned: false,
@@ -297,10 +277,6 @@ Equal(true,
 Equal(true,
     GarageVanillaEntrancePolicy.ShouldSuppressSourceGrant(false, "Vampire Killer"),
     "v0.20 retains its old Vampire Killer source behavior");
-Equal(false,
-    GarageVanillaEntrancePolicy.ShouldWriteNativeSaveFlags(true),
-    "v0.21 requires the physical vanilla pickup and never writes its save flags");
-
 string[] expectedNativeMappings =
 {
     "Bloody Tears|Bloody Tears Cartridge|LEVEL_27_CARTRIDGE_BLOODYTEARS_BAG_ITEM|BLOODY_TEARS|scrc:garage_inserted:v1:bloody_tears",

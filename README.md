@@ -15,6 +15,8 @@ It lets you play Rhythm Castle in an Archipelago multiworld, where the items you
 - In-game item notifications and recent-item history.
 - Universal Tracker support and compatibility with supported older seeds.
 
+With Bunker progression enabled (the default), the check counts are **Normal 170 / Hard 228 / Expert 286 / Perfection 322**. With it disabled, they are **Normal 164 / Hard 222 / Expert 280 / Perfection 316**.
+
 ## How it works
 
 The project has two main parts: a C# client that runs inside the game through BepInEx, and a Python APWorld that handles seed generation and progression rules.

@@ -16,11 +16,12 @@ internal static class GarageNativeHolderPatches
     private static readonly ReadFlag FlagReplacement = Flag;
     private static HandleReady? _readyOriginal;
     private static ReadFlag? _flagOriginal;
-    private static INativeDetour? _readyDetour, _flagDetour;
+    private static readonly OwnedNativeHooks Hooks = new();
     private static readonly Dictionary<int, string> FlagNames = new();
     [ThreadStatic] private static int _holderScope;
     internal static unsafe int Install()
     {
+        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
         try {
             IntPtr name = Marshal.StringToHGlobalAnsi("Assembly-CSharp");
             IntPtr assembly;
@@ -54,14 +55,22 @@ internal static class GarageNativeHolderPatches
             if (Enum.GetUnderlyingType(enumType) != typeof(int)) throw new InvalidOperationException("Unexpected flag ABI");
             foreach (var cartridge in GarageCartridgeNativePolicy.RandomizedCartridges)
                 FlagNames.Add(Convert.ToInt32(Enum.Parse(enumType, cartridge.NativeCollectedFlag)), cartridge.NativeCollectedFlag);
-            _flagDetour = INativeDetour.CreateAndApply(flagInfo.MethodPointer, FlagReplacement, out _flagOriginal);
-            _readyDetour = INativeDetour.CreateAndApply(readyInfo.MethodPointer, ReadyReplacement, out _readyOriginal);
+            Hooks.Add(INativeDetour.CreateAndApply(flagInfo.MethodPointer, FlagReplacement, out _flagOriginal), FlagReplacement);
+            Hooks.Add(INativeDetour.CreateAndApply(readyInfo.MethodPointer, ReadyReplacement, out _readyOriginal), ReadyReplacement);
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] Garage native holder initialization ownership ready; vanilla holder placement retained.");
             return 2;
         } catch (Exception ex) {
+            Shutdown();
             Plugin.LoggerInstance?.LogError($"[SCRC-AP] Garage native holder ownership unavailable: {ex.GetBaseException().Message}");
             return 0;
         }
+    }
+    internal static bool Shutdown()
+    {
+        bool released = Hooks.Shutdown(ex =>
+            Plugin.LoggerInstance?.LogError($"[SCRC-AP] Garage holder hook detach failed: {ex.GetBaseException().Message}"));
+        if (released) FlagNames.Clear();
+        return released;
     }
     private static void Ready(IntPtr instance, byte evt, IntPtr methodInfo)
     {
@@ -72,7 +81,7 @@ internal static class GarageNativeHolderPatches
     private static bool Flag(int flag, IntPtr methodInfo)
     {
         try {
-            if (_holderScope > 0 && DeveloperHarness.CurrentRoomId == "GameRoom_27" && FlagNames.TryGetValue(flag, out string? name)) {
+            if (Hooks.Active && _holderScope > 0 && DeveloperHarness.CurrentRoomId == "GameRoom_27" && FlagNames.TryGetValue(flag, out string? name)) {
                 bool? owned = GarageHolderOwnershipPolicy.Resolve(name, GarageCartridgeAccess.Enabled, true, GarageCartridgeAccess.HasCartridge);
                 if (owned.HasValue) return owned.Value;
             }

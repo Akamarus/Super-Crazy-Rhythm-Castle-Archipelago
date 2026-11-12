@@ -1,6 +1,6 @@
 # RhythmCastleAP client
 
-C# BepInEx/IL2CPP client for Super Crazy Rhythm Castle. Current client: **0.76.1**, released with v0.29.1 and compatible with unchanged APWorld 0.29.0.
+C# BepInEx/IL2CPP client for Super Crazy Rhythm Castle. See the [project overview](../docs/PROJECT_OVERVIEW.md) for the released client and supported APWorld versions.
 
 For downloaded releases, follow [Install and connect](../docs/INSTALL.md); no SDK is needed. Everyone uses `jack.rhythmcastle.archipelago.cfg`; set your generated player name in its Slot field.
 

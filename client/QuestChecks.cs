@@ -10,6 +10,9 @@ internal static class QuestChecks
     private static long _revision = -1;
     private static readonly Dictionary<string, string> Last = new();
     private static readonly Dictionary<long, string> Admitted = new();
+    private static readonly (long Item, string Character)[] CharacterRewards = {
+        (QuestChecksPolicy.Meoo, "GHOST_CAT"), (QuestChecksPolicy.Maniac, "GUITAR_MANIAC")
+    };
     internal static readonly QuestChecksJournal Journal = new(Path.Combine(BepInEx.Paths.ConfigPath, "RhythmCastleAP", "quest-checks"));
     internal static bool Handles(string name) => QuestChecksPolicy.Items.ContainsKey(name);
     internal static bool Enabled => State.Enabled;
@@ -69,12 +72,13 @@ internal static class QuestChecks
     internal static bool BeforeProgressionRequest(object request, string flag)
     {
         if (_applying || !Enabled) return true;
-        if (ReflectionUtil.ReadBool(request, "Value") == true &&
-            flag is "OUTSIDE_HUB_PLUNGER_COLLECTED" or "ROOTS_HUB_STAR_EATER_FED")
-            WithBoundSave((_, _) => { });
-        if (ReflectionUtil.ReadBool(request, "Value") != false) return true;
+        if (flag is "OUTSIDE_HUB_PLUNGER_COLLECTED" or "ROOTS_HUB_STAR_EATER_FED") {
+            if (ReflectionUtil.ReadBool(request, "Value") == true)
+                WithBoundSave((_, _) => { });
+            return true;
+        }
         long? source = QuestChecksPolicy.SourceForEvent(DeveloperHarness.CurrentRoomId, flag, true, false);
-        if (!source.HasValue || ReadFlag(flag) != true) return true;
+        if (!source.HasValue || ReflectionUtil.ReadBool(request, "Value") != false || ReadFlag(flag) != true) return true;
         bool prepared = false;
         WithBoundSave((_, _) => prepared = State.PrepareHandIn(source.Value, Journal.Save));
         return prepared;
@@ -127,8 +131,10 @@ internal static class QuestChecks
                 State.CancelPending(pending, Journal.Save);
         }
         // Durable native collection markers recover pickup/feed checks after reconnect.
-        if (ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED") == true) Complete(QuestChecksPolicy.PlungerPickup);
-        if (ReadFlag("ROOTS_HUB_STAR_EATER_FED") == true) Complete(QuestChecksPolicy.RootsStarEater);
+        if (!state.Checked.Contains(QuestChecksPolicy.PlungerPickup) && ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED") == true)
+            Complete(QuestChecksPolicy.PlungerPickup);
+        if (!state.Checked.Contains(QuestChecksPolicy.RootsStarEater) && ReadFlag("ROOTS_HUB_STAR_EATER_FED") == true)
+            Complete(QuestChecksPolicy.RootsStarEater);
         if (state.Owned.Contains(QuestChecksPolicy.Plunger) &&
             ReadFlag("PLUNGER_BAG_ITEM") == false && ReadFlag("LOBBY_HUB_MEAT_DOOR_BLOCKER_PLUNGERED") == false)
         {
@@ -136,17 +142,18 @@ internal static class QuestChecks
             try { WeedKillerRandomization.TrySubmitProgressionFlag(processor, "PLUNGER_BAG_ITEM", true, out _); }
             finally { _applying = false; }
         }
-        foreach (var entry in new[] { (QuestChecksPolicy.Meoo, "GHOST_CAT"), (QuestChecksPolicy.Maniac, "GUITAR_MANIAC") })
+        foreach (var (item, character) in CharacterRewards)
         {
-            if (!state.Owned.Contains(entry.Item1)) continue;
-            bool? owned = ReadCharacter(entry.Item2);
+            if (!state.Owned.Contains(item)) continue;
+            bool? owned = ReadCharacter(character);
             if (owned == false) {
                 _applying = true;
-                try { GrantCharacter(processor, entry.Item2); }
-                catch (Exception ex) { Log(entry.Item2, "grant retry: " + ex.GetBaseException().Message); }
+                try { GrantCharacter(processor, character); }
+                catch (Exception ex) { Log(character, "grant retry: " + ex.GetBaseException().Message); }
                 finally { _applying = false; }
+                owned = ReadCharacter(character);
             }
-            Log(entry.Item2, $"save='{identity}' unlocked={ReadCharacter(entry.Item2)?.ToString() ?? "unknown"}");
+            Log(character, $"save='{identity}' unlocked={owned?.ToString() ?? "unknown"}");
         }
     }
     private static void Log(string key, string text) {

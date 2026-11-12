@@ -1,4 +1,6 @@
 """Schema21 Bunker contracts; old seeds never opt in implicitly."""
+from .native_logic import can_complete
+
 ITEMS = {
     'Bunker Keycard': (187256179, 'LIFT_KEY_BAG_ITEM'),
     'Demon Key': (187256180, 'BUNKER_HUB_DEMON_KEY'),
@@ -18,32 +20,37 @@ ITEM_IDS = {n:v[0] for n,v in ITEMS.items()}
 CHECK_IDS = {n:v[0] for n,v in CHECKS.items()}
 GOALS = ('king_ferdinand', 'true_ending')
 
-def enabled(world):
-    return getattr(world, 'bunker_progression', False)
 
 def can_enter(world, state):
-    from .native_logic import can_complete
-    return state.has('Bunker Keycard',world.player) and can_complete(world,state,6)
+    return state.has('Bunker Keycard', world.player) and can_complete(world, state, 6)
+
 
 def can_install(world, state):
-    from .native_logic import can_complete
-    return can_enter(world,state) and state.has('Game Ender',world.player) and can_complete(world,state,15)
+    return (can_enter(world, state) and state.has('Game Ender', world.player)
+            and can_complete(world, state, 15))
 
-def can_finish(world,state):
-    from .native_logic import can_complete
-    return can_install(world,state) and can_complete(world,state,22)
 
-def rule(world,name,state):
-    from .native_logic import can_complete
-    if not can_enter(world,state): return False
-    if name=='Secret Bunker - Demon Key Pickup': return True
-    if name=='Lift Quest - Virus Retrieved': return can_complete(world,state,5)
-    if name=='School Trip - Cheat Codes Retrieved': return can_complete(world,state,9)
-    if name=='Meat Dimension - Game Ender Created':
-        return all(state.has(n,world.player) for n in ('Meat Dimension Access','Virus','Cheat Codes'))
-    if name=='Central Mainframe - Game Ender Used': return can_install(world,state)
-    if name=='True Ending - Completion': return can_finish(world,state)
+def can_finish(world, state):
+    return can_install(world, state) and can_complete(world, state, 22)
+
+
+def rule(world, name, state):
+    if name == 'Central Mainframe - Game Ender Used':
+        return can_install(world, state)
+    if name == 'True Ending - Completion':
+        return can_finish(world, state)
+    if not can_enter(world, state):
+        return False
+    if name == 'Secret Bunker - Demon Key Pickup':
+        return True
+    if name == 'Lift Quest - Virus Retrieved':
+        return can_complete(world, state, 5)
+    if name == 'School Trip - Cheat Codes Retrieved':
+        return can_complete(world, state, 9)
+    if name == 'Meat Dimension - Game Ender Created':
+        return all(state.has(item, world.player) for item in ('Meat Dimension Access', 'Virus', 'Cheat Codes'))
     raise ValueError(name)
+
 
 def metadata(active, goal):
     return {'bunker_progression': active, 'goal': goal,

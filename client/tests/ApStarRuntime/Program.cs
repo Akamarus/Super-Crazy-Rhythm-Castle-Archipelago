@@ -2,12 +2,12 @@ using RhythmCastleAP;
 using UnityEngine;
 int checks=0,sends=0;string dir=Path.Combine(Path.GetTempPath(),"ap-star-runtime-fixtures-"+Guid.NewGuid());
 void Check(bool value,string label){if(!value)throw new Exception(label);checks++;}
-void Setup(string id,int stars=25,string? path=null){ApStars.State.Reset();ApStars.Configure(_=>{sends++;return true;},path??dir);ApStars.State.Configure(1,id,new(ApStarMode.Awaiting,25,new Dictionary<string,int>{{"Level 22",1}},new Dictionary<string,int>()));ApStars.State.Publish(1,Enumerable.Repeat(ApStarContract.StarId,stars));CassetteReceiptRandomization.Save="epoch:a";CassetteReceiptRandomization.Ready=true;Time.unscaledTime+=2;}
+void Setup(string id,int stars=25,string? path=null){ApStars.State.Reset();ApStars.Configure(_=>{sends++;return true;},path??dir);ApStars.State.Configure(1,id,new(ApStarMode.Awaiting,25,new Dictionary<string,int>{{"Level 22",1}},new Dictionary<string,int>()));ApStars.State.Publish(1,stars);CassetteReceiptRandomization.Save="epoch:a";CassetteReceiptRandomization.Ready=true;Time.unscaledTime+=2;}
 void Start(){ApStars.OnAdmittedStart("Level_28","LevelVariant_Default");}
 void Complete(bool success=true,bool save=true){ApStars.BeforePersistResult(new {DidPlayersSucceed=success,ShouldSaveScore=save});ApStars.BeforeApplyResult(new {LevelIdentifier="Level_28",LevelVariantIdentifier="LevelVariant_Default"});}
 void Persist(string variant="LevelVariant_Default"){ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=variant});}
 void Tick(){Time.unscaledTime+=2;ApStars.TickUnity();}
-Setup("early",24);Start();Complete();ApStars.State.Publish(1,Enumerable.Repeat(ApStarContract.StarId,25));Persist();Tick();Check(sends==0,"receipt after completion cannot qualify old attempt");
+Setup("early",24);Start();Complete();ApStars.State.Publish(1,25);Persist();Tick();Check(sends==0,"receipt after completion cannot qualify old attempt");
 Complete();Persist();Tick();Check(sends==0,"duplicate completion request cannot rearm consumed early start");
 Start();Complete();Persist();Tick();Check(sends==1,"qualified replay sends after matching persistence");Persist();Tick();Check(sends==1,"duplicate persisted event cannot send again");
 Setup("early");Tick();Check(sends==2,"qualified durable goal restores after process-state reset");
@@ -21,15 +21,21 @@ Setup("apply-mismatch");Start();Complete();ApStars.BeforeApplyResult(new {LevelI
 Setup("unready");CassetteReceiptRandomization.Ready=false;Start();Complete();Persist();Tick();Check(sends==2,"unstable native save cannot qualify");
 Directory.CreateDirectory(dir);string bad=Path.Combine(dir,"not-a-directory");File.WriteAllText(bad,"block");Setup("diskfail",25,bad);Start();Complete();Persist();Tick();Check(sends==2,"journal failure prevents goal delivery");
 Setup("getter");DeveloperHarness.CurrentRoomId="GameRoom_Hub2";ApStarEaterThresholds.CurrentRoomReady=false;Check(ApStars.ResolveTotal(66)==0,"unapplied eater threshold fails closed");ApStarEaterThresholds.CurrentRoomReady=true;Check(ApStars.ResolveTotal(66)==25,"ready eater uses AP currency");Check(!ApStars.CanEnter("",""),"active unknown identity denied");
+foreach (string room in new[] { "GameRoom_Hub5B", "GameRoom_Hub8" })
+{
+    DeveloperHarness.CurrentRoomId = room;
+    Check(ApStars.ResolveTotal(7) == 25, $"Ready {room} uses AP stars");
+}
+DeveloperHarness.CurrentRoomId = "GameRoom_Hub2";
 Setup("blocked-banner",3);
 ApStars.State.Configure(2,"blocked-banner",new(ApStarMode.Awaiting,40,new Dictionary<string,int>{{"Level 11",8}},new Dictionary<string,int>()));
-ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,3));
+ApStars.State.Publish(2,3);
 ApStars.ReportBlocked("Level_12","LevelVariant_Default");GUI.Last="";ApStars.RenderOverlay();
 Check(GUI.Last.Contains("Act 1: Flavor") && GUI.Last.Contains("8 AP Stars") && GUI.Last.Contains("5 more"),"blocked entry explains level, requirement and missing Stars");
 Time.unscaledTime+=3;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("Act 1: Flavor"),"blocked notice remains visible beyond old two-second preview");
 ApStars.ReportBlocked("Level_12","LevelVariant_Default");Time.unscaledTime+=4;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("Act 1: Flavor"),"repeated attempt refreshes one notice");
-ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,8));GUI.Last="";ApStars.RenderOverlay();Check(!GUI.Last.Contains("collect"),"receiving enough Stars removes stale denial");
-ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,3));ApStars.ReportBlocked("Level_12","LevelVariant_Default");Time.unscaledTime+=7;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","blocked notice expires");
+ApStars.State.Publish(2,8);GUI.Last="";ApStars.RenderOverlay();Check(!GUI.Last.Contains("collect"),"receiving enough Stars removes stale denial");
+ApStars.State.Publish(2,3);ApStars.ReportBlocked("Level_12","LevelVariant_Default");Time.unscaledTime+=7;GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","blocked notice expires");
 ApStars.ReportBlocked("Level_12","LevelVariant_Default");ApStars.OnNativeBoundary();GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last=="","save boundary clears stale entry feedback");
 ApStars.State.Configure(3,"awaiting-banner",new(ApStarMode.Awaiting,40,new Dictionary<string,int>{{"Level 11",8}},new Dictionary<string,int>()));ApStars.ReportBlocked("Level_12","LevelVariant_Default");GUI.Last="";ApStars.RenderOverlay();Check(GUI.Last.Contains("synchronize") && !GUI.Last.Contains("collect"),"unsynchronized state explains waiting instead of inventing a shortage");
 DeveloperHarness.CurrentRoomId="GameRoom_Hub6";GUI.Last="";ApStars.RenderOverlay();Check(!GUI.Last.Contains("Entry locked"),"room change hides old blocked banner");
@@ -43,7 +49,7 @@ CassetteReceiptRandomization.Ready=false;Persist();CassetteReceiptRandomization.
 Setup("delayed-boundary");Start();Complete();baseline=sends;
 CassetteReceiptRandomization.Ready=false;Persist();ApStars.OnNativeBoundary();CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"explicit boundary invalidates deferred evidence");
 Setup("delayed-early",24);Start();Complete();baseline=sends;
-CassetteReceiptRandomization.Ready=false;Persist();ApStars.State.Publish(1,Enumerable.Repeat(ApStarContract.StarId,25));CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"later Stars do not qualify deferred early clear");
+CassetteReceiptRandomization.Ready=false;Persist();ApStars.State.Publish(1,25);CassetteReceiptRandomization.Ready=true;Tick();Check(sends==baseline,"later Stars do not qualify deferred early clear");
 Setup("delayed-start-again");Start();Complete();baseline=sends;
 CassetteReceiptRandomization.Ready=false;Persist();CassetteReceiptRandomization.Ready=true;Start();Tick();Check(sends==baseline+1,"starting another level preserves already confirmed completion");
 Setup("native-null-variant");Start();Complete();baseline=sends;
@@ -58,20 +64,20 @@ ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.N
 Setup("native-nullable-conflict");Start();Complete();baseline=sends;
 ApStars.OnResultPersisted(new {Level="Level_28",LevelVariant=new NativeFixture.Nullable<string>(true, "LevelVariant_DevilMode")});Tick();Check(sends==baseline,"native nullable conflicting variant rejected");
 Setup("true-normal-clear");
-ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));
+ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,25);
 baseline=sends;Start();Complete();Persist();Tick();Check(sends==baseline,"normal ending cannot satisfy true ending goal");
 RootsBucketRandomization.Flags["OVERALL_PROGRESS_USED_GAME_ENDER"]=true;Start();Complete();Persist();Tick();Check(sends==baseline,"true ending requires confirmed native ending flag");
 RootsBucketRandomization.Flags["OVERALL_PROGRESS_BEAT_KING_TWO"]=true;Tick();Check(sends==baseline+1,"true ending waits for native completion then sends");
-Setup("true-normal-clear");ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));Tick();Check(sends==baseline+2,"true ending journal survives reconnect");
-Setup("early");ApStars.State.Configure(2,"early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));baseline=sends;Tick();Check(sends==baseline,"normal ending journal cannot restore true ending goal");
-Setup("true-early",24);ApStars.State.Configure(2,"true-early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,24));Start();Complete();ApStars.State.Publish(2,Enumerable.Repeat(ApStarContract.StarId,25));Persist();Tick();Check(sends==baseline,"true ending cannot retroactively qualify after late Stars");
+Setup("true-normal-clear");ApStars.State.Configure(2,"true-normal-clear",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,25);Tick();Check(sends==baseline+2,"true ending journal survives reconnect");
+Setup("early");ApStars.State.Configure(2,"early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,25);baseline=sends;Tick();Check(sends==baseline,"normal ending journal cannot restore true ending goal");
+Setup("true-early",24);ApStars.State.Configure(2,"true-early",new(ApStarMode.Awaiting,25,new Dictionary<string,int>(),new Dictionary<string,int>(),BunkerEnabled:true,Ending:"true_ending"));ApStars.State.Publish(2,24);Start();Complete();ApStars.State.Publish(2,25);Persist();Tick();Check(sends==baseline,"true ending cannot retroactively qualify after late Stars");
 Console.WriteLine($"{checks} AP Star runtime checks passed");
 namespace RhythmCastleAP {
  internal static class RootsBucketRandomization { internal static readonly Dictionary<string,bool> Flags=new(); internal static bool TryReadProgressionFlag(string name,out bool value){value=Flags.GetValueOrDefault(name);return true;} }
  internal static class Plugin {internal static Log? LoggerInstance;}internal class Log{public void LogInfo(string s){}public void LogError(string s){}}
  internal static class DeveloperHarness{internal static string CurrentRoomId="GameRoom_Hub7";}
  internal static class CassetteReceiptRandomization{internal static bool Ready=true;internal static string Save="epoch:a";internal static void WithStableQuestItemSave(Action<object,string>a){if(Ready)a(new object(),Save);}}
- internal static class ApStarEaterThresholds{internal static bool CurrentRoomReady=true;internal static bool IsReadyForRoom(string room)=>CurrentRoomReady;internal static void Tick(string r,IReadOnlyDictionary<string,int>? m){}}
+ internal static class ApStarEaterThresholds{internal static bool CurrentRoomReady=true;internal static bool CanUseStarTotal(string room)=>CurrentRoomReady;internal static void Tick(string r,IReadOnlyDictionary<string,int>? m){}}
 }
 namespace BepInEx{public static class Paths{public static string ConfigPath=>Path.GetTempPath();}}
 namespace UnityEngine{public static class Time{public static float unscaledTime;}public static class Screen{public static int height=>1080;public static int width=>1920;}public struct Rect{public Rect(int a,int b,int c,int d){}}public enum TextAnchor{MiddleCenter}public class GUIStyle{public GUIStyle(object o){}public int fontSize;public bool wordWrap,richText;public TextAnchor alignment;}public class GUISkin{public object box=new();}public static class GUI{public static int depth;public static GUISkin skin=new();public static string Last="";public static void Box(Rect r,string s){Last=s;}public static void Box(Rect r,string s,GUIStyle style){Last=s;}}}

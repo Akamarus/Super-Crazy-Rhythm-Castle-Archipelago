@@ -15,7 +15,6 @@ class CampaignLevel:
     internal_id: str
     area: str
     required_items: tuple[str, ...] = ()
-    progression_safe: bool = False
 
     def location_name(self, tier: str) -> str:
         return f"Level {self.number} - {tier}"
@@ -33,7 +32,6 @@ verified_requirements = {
     21: ("Plant Pipes",),
     22: (),
 }
-progression_safe_levels = frozenset((1, 2, 3, 4, 5, 22))
 
 
 def _level(number: int, display_name: str, internal_id: str, area: str) -> CampaignLevel:
@@ -43,7 +41,6 @@ def _level(number: int, display_name: str, internal_id: str, area: str) -> Campa
         internal_id,
         area,
         verified_requirements.get(number, ()),
-        number in progression_safe_levels,
     )
 
 

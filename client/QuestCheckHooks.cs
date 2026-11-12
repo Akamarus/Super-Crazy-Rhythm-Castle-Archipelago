@@ -7,6 +7,12 @@ namespace RhythmCastleAP;
 internal static class QuestCheckHooks
 {
     internal static bool Ready { get; private set; }
+    internal static bool Shutdown()
+    {
+        Ready = false;
+        QuestSharedConditionHook.Reset();
+        return QuestNativeVirtualHooks.Shutdown();
+    }
     internal static int Install(Harmony harmony)
     {
         int count = QuestNativeVirtualHooks.Install();
@@ -54,9 +60,8 @@ internal static class QuestCheckHooks
         if (!QuestChecks.Enabled || !QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId)) return true;
         if (__instance is not Component component || component.name is not ("MeooIsUnlockedCondition" or "HaveMeooBatteryCondition" or "AlreadyHaveCatCharacter" or "Condition" or "Condition.01")) return true;
         if (!QuestChecks.IsCurrentSaveBound()) return true;
-        var state = QuestChecks.State.Snapshot;
         string path = PathFor(__instance);
-        bool? result = QuestChecksPolicy.ConditionResult(path, state.Checked,
+        bool? result = QuestChecksPolicy.ConditionResult(path, id => QuestChecks.State.IsCompleted(id),
             () => QuestChecks.ReadFlag("CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM"),
             () => QuestChecks.ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED"), QuestChecks.ReadFlag);
         if (!result.HasValue) return true;

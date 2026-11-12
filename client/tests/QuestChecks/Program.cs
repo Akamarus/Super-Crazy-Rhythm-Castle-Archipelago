@@ -34,11 +34,11 @@ foreach (string file in new[] { "QuestNativeVirtualHooks.cs", "QuestCheckHooks.c
     Check(File.ReadAllText(Path.Combine("client", file)).Contains("!QuestChecksPolicy.IsConditionRoom(DeveloperHarness.CurrentRoomId)"),
         "outer and inner production dispatch share the tested room predicate: " + file);
 const string batteryChestCondition = "Root/GameRoom_Hub6_Logic/Objects/RewardChests/CatBatteryChest/Interaction/Condition/AlreadyHaveCatCharacter";
-Check(QuestChecksPolicy.ConditionResult(batteryChestCondition, new HashSet<long>{QuestChecksPolicy.BatteryHandIn}, () => false, () => false) == false,
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition, id => id == QuestChecksPolicy.BatteryHandIn, () => false, () => false) == false,
     "completed battery hand-in and AP Meoo cannot block the unopened randomized chest");
-Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("AlreadyHaveCatCharacter", "AlreadyHaveCatBattery"), new HashSet<long>(), () => false, () => false) == null,
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("AlreadyHaveCatCharacter", "AlreadyHaveCatBattery"), _ => false, () => false, () => false) == null,
     "chest collection flag condition remains native");
-Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("CatBatteryChest", "OtherChest"), new HashSet<long>(), () => false, () => false) == null,
+Check(QuestChecksPolicy.ConditionResult(batteryChestCondition.Replace("CatBatteryChest", "OtherChest"), _ => false, () => false, () => false) == null,
     "unrelated chest character conditions remain native");
 
 foreach (var chest in new[] {
@@ -47,13 +47,13 @@ foreach (var chest in new[] {
 {
     string path = "Root/GameRoom_Hub6_Logic/Objects/RewardChests/" + chest.Item1;
     foreach (bool collected in new[] { false, true })
-        Check(QuestChecksPolicy.ConditionResult(path, new HashSet<long>(), () => false, () => false,
+        Check(QuestChecksPolicy.ConditionResult(path, _ => false, () => false, () => false,
             flag => { Check(flag == chest.Item2, "reads exact chest source flag"); return collected; }) == collected,
             "cartridge ownership does not block uncollected chest; collected source stays blocked");
-    Check(QuestChecksPolicy.ConditionResult(path, new HashSet<long>(), () => false, () => false, _ => null) == null,
+    Check(QuestChecksPolicy.ConditionResult(path, _ => false, () => false, () => false, _ => null) == null,
         "unknown collected flag preserves original native condition");
     foreach (string other in new[] { path + "/AlreadyHaveCartridge", path + "/AlreadyCollectedCartridge", path.Replace("RewardChests", "OtherChests") })
-        Check(QuestChecksPolicy.ConditionResult(other, new HashSet<long>(), () => false, () => false,
+        Check(QuestChecksPolicy.ConditionResult(other, _ => throw new Exception("unrelated path consulted check history"), () => false, () => false,
             _ => throw new Exception("unrelated path read a chest flag")) == null, "unrelated condition remains native");
 }
 Check(QuestChecksPolicy.Validate(null) == QuestChecksMode.Legacy, "non AP remains native");
@@ -93,13 +93,14 @@ Check(state.Snapshot.Checked.Contains(QuestChecksPolicy.MemoryHandIn), "server c
 state.Reset(); Check(!state.Snapshot.Enabled, "reset");
 string meooPath = "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/";
 var none = new HashSet<long>();
-Check(QuestChecksPolicy.ConditionResult(meooPath+"MeooIsUnlockedCondition", none, () => true, () => false) == false, "early Meoo ownership never blocks handin");
-Check(QuestChecksPolicy.ConditionResult(meooPath+"HaveMeooBatteryCondition", none, () => false, () => false) == false, "chest alone cannot admit handin");
-Check(QuestChecksPolicy.ConditionResult(meooPath+"HaveMeooBatteryCondition", none, () => true, () => false) == true, "early battery needs no native chest");
-Check(QuestChecksPolicy.ConditionResult("CharacterSelection/MeooIsUnlockedCondition", none, () => true, () => false) == null, "character selection unchanged");
-Check(QuestChecksPolicy.ConditionResult("Root/GameRoom_Hub1B_Logic/Objects/CollectableBagObjects/Plunger/Condition", none, () => false, () => false) == true, "early held/used plunger cannot hide source");
+Check(QuestChecksPolicy.ConditionResult(meooPath+"MeooIsUnlockedCondition", none.Contains, () => true, () => false) == false, "early Meoo ownership never blocks handin");
+Check(QuestChecksPolicy.ConditionResult(meooPath+"HaveMeooBatteryCondition", none.Contains, () => false, () => false) == false, "chest alone cannot admit handin");
+Check(QuestChecksPolicy.ConditionResult(meooPath+"HaveMeooBatteryCondition", none.Contains, () => true, () => false) == true, "early battery needs no native chest");
+Check(QuestChecksPolicy.ConditionResult("CharacterSelection/MeooIsUnlockedCondition", none.Contains, () => true, () => false) == null, "character selection unchanged");
+Check(QuestChecksPolicy.ConditionResult("Root/GameRoom_Hub1B_Logic/Objects/CollectableBagObjects/Plunger/Condition", none.Contains, () => false, () => false) == true, "early held/used plunger cannot hide source");
 string temp = Path.Combine(Path.GetTempPath(), "scrc-quest-tests-" + Guid.NewGuid());
 var journal = new QuestChecksJournal(temp);
+QuestJournalTests.Run(Path.Combine(temp, "journal"), Check);
 state.Configure(5, "offline-seed", true);
 state.BindSlot(4, journal.Save);
 Check(state.RecordSource(QuestChecksPolicy.MemoryHandIn, journal.Save), "offline handin journaled");
@@ -125,9 +126,17 @@ Console.WriteLine($"Quest checks: {checks} assertions passed.");
 
 QuestChecks.State.Reset();
 var session = new QuestChecksSession(10);
-session.Configure("session-seed", true, Array.Empty<long>());
+session.Configure("session-seed", new QuestJournalRecord(4, new[] { QuestChecksPolicy.PlungerPickup }, Array.Empty<long>()), Array.Empty<long>());
+Check(QuestChecks.State.NativeSlot == 4 && QuestChecks.State.IsCompleted(QuestChecksPolicy.PlungerPickup),
+    "session uses the journal validated before slot setup");
 session.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index = 0, Items = Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
 Check(QuestChecks.State.Snapshot.Ready, "complete index-zero receipt history accepted");
+long inventoryRevision = QuestChecks.State.Revision;
+session.HandlePacket(new object());
+session.HandlePacket(new Archipelago.MultiClient.Net.Packets.RoomUpdatePacket());
+Check(QuestChecks.State.Revision == inventoryRevision, "unrelated packets do not trigger a native quest reconciliation");
+session.HandlePacket(new Archipelago.MultiClient.Net.Packets.RoomUpdatePacket { CheckedLocations = new[] { QuestChecksPolicy.BatteryHandIn } });
+Check(QuestChecks.State.Snapshot.Checked.Contains(QuestChecksPolicy.BatteryHandIn), "room check updates still publish with the current inventory");
 session.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index = 8, Items = Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
 Check(!QuestChecks.State.Snapshot.Ready, "gapped history suspends published readiness");
 session.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index = 0, Items = Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
@@ -179,3 +188,5 @@ Check(QuestConditionHookPlan.IsSharedEntry("IsGameProgressionFlagTrueCondition",
 Check(!QuestConditionHookPlan.IsSharedEntry("GeneralCondition", "CheckIfMet"), "base condition does not dispatch quest twice");
 Check(!QuestConditionHookPlan.IsSharedEntry("IsGameProgressionFlagTrueCondition", "ReliesOn"), "dependency query never becomes a quest condition");
 Console.WriteLine("Shared native condition ownership: 8 assertions passed.");
+
+NativeHookOwnershipTests.Run();

@@ -13,8 +13,7 @@ static PlantPipesDecision Decide(
     bool save = true,
     bool processor = true,
     bool nativeOwned = false,
-    bool attemptOutstanding = false,
-    int retryCount = 0) =>
+    bool attemptOutstanding = false) =>
     PlantPipesReconciler.Decide(new PlantPipesSnapshot(
         compatible,
         synchronized,
@@ -22,8 +21,7 @@ static PlantPipesDecision Decide(
         save,
         processor,
         nativeOwned,
-        attemptOutstanding,
-        retryCount));
+        attemptOutstanding));
 
 static string MethodBody(string source, string signature, string nextSignature)
 {

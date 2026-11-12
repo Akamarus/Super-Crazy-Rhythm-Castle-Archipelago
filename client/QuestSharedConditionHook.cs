@@ -11,6 +11,7 @@ internal static class QuestSharedConditionHook
 {
     private static bool _aliasVerified;
     internal static bool Ready { get; private set; }
+    internal static void Reset() { Ready = false; _aliasVerified = false; }
     internal static unsafe void VerifyAlias()
     {
         try

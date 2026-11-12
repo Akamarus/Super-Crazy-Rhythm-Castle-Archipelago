@@ -35,14 +35,5 @@ Check(!retry.Tick(TimeSpan.FromSeconds(1),true,true),"new pending work starts a 
 Check(!retry.Tick(TimeSpan.FromSeconds(1),false,true),"new save boundary clears the previous interval");
 Check(!retry.Tick(TimeSpan.FromSeconds(1),true,true),"reopened gate does not inherit old elapsed time");
 Check(retry.Tick(TimeSpan.FromSeconds(1),true,true),"reopened gate resumes retries");
-var reports=new List<string>();
-ClientPerformance.Configure(false,reports.Add);
-using(ClientPerformance.Measure("fixture")) {} ClientPerformance.Frame(31,"room");
-Check(reports.Count==0,"profiling disabled by default has no reports");
-ClientPerformance.Configure(true,reports.Add); ClientPerformance.Frame(0,"room");
-for(int i=0;i<60;i++){using(ClientPerformance.Measure("fixture")) {} ClientPerformance.Frame(.5,"room");}
-Check(reports.Count==1 && reports[0].Contains("fixture:calls=60"),"timings aggregate in a single bounded report");
-ClientPerformance.Frame(.1,"new room");
-Check(reports.Count==1,"short transition does not flood logs");
-Console.WriteLine($"{checks} reflection checks passed");
+Console.WriteLine($"{checks} reflection, hub readiness and cassette retry checks passed");
 class Fixture {public int Value{get;set;}=1;public int Field=3;public int Throwing=>throw new Exception();public int this[int x]=>x;}

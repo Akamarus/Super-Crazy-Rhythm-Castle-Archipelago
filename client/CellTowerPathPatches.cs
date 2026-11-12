@@ -12,9 +12,10 @@ internal static class CellTowerPathPatches
     private delegate void HandleRegistered(IntPtr instance, IntPtr evt, IntPtr methodInfo);
     private static readonly HandleRegistered Replacement = Registered;
     private static HandleRegistered? _original;
-    private static BepInEx.Unity.IL2CPP.Hook.INativeDetour? _detour;
+    private static readonly OwnedNativeHooks Hooks = new();
     internal static unsafe int Install(Harmony harmony, Assembly? assembly)
     {
+        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
         Ready = false;
         if (assembly == null) return 0;
         try {
@@ -43,7 +44,7 @@ internal static class CellTowerPathPatches
                 Il2CppInterop.Runtime.IL2CPP.il2cpp_type_get_name_((IntPtr)info.ReturnType) != "System.Void" ||
                 Il2CppInterop.Runtime.IL2CPP.il2cpp_type_get_name_(Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param(target, 0)) != "GameRoomRegisteredExistingEntitiesEvent")
                 throw new InvalidOperationException("Unexpected Cell path registration signature");
-            _detour = BepInEx.Unity.IL2CPP.Hook.INativeDetour.CreateAndApply(info.MethodPointer, Replacement, out _original);
+            Hooks.Add(BepInEx.Unity.IL2CPP.Hook.INativeDetour.CreateAndApply(info.MethodPointer, Replacement, out _original), Replacement);
             Ready = true;
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CELL PATH native registration hook installed; event ABI validated, no value boxing.");
             return 1;
@@ -52,11 +53,17 @@ internal static class CellTowerPathPatches
             return 0;
         }
     }
+    internal static bool Shutdown()
+    {
+        Ready = false;
+        return Hooks.Shutdown(ex =>
+            Plugin.LoggerInstance?.LogError($"[SCRC-AP] Cell Tower hook detach failed: {ex.GetBaseException().Message}"));
+    }
     private static void Registered(IntPtr instance, IntPtr evt, IntPtr methodInfo)
     {
         // Preserve native initialization for every object before applying the exact Cell Tower repair.
         _original!(instance, evt, methodInfo);
-        if (instance == IntPtr.Zero || !AreaAccessPrototype.Enabled ||
+        if (!Hooks.Active || instance == IntPtr.Zero || !AreaAccessPrototype.Enabled ||
             !AreaAccessPrototype.AuthenticatedCompatibleSession || !AreaAccessPrototype.HasArea("Cell Tower")) return;
         try { AfterRegistered(Il2CppInterop.Runtime.Runtime.Il2CppObjectPool.Get<Component>(instance)); }
         catch (Exception ex) { Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CELL PATH callback failed: {ex.GetType().Name}."); }

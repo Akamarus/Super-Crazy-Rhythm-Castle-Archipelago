@@ -43,8 +43,6 @@ internal static class CharacterQuestItemPolicy
         }
         catch { return CharacterQuestItemMode.Invalid; }
     }
-    internal static bool ShouldSuppress(bool enabled, string room, string flag, bool value) =>
-        enabled && value && room == "GameRoom_Hub6" && IsBagFlag(flag);
     internal static bool IsBagFlag(string flag)
     {
         foreach (var item in All)

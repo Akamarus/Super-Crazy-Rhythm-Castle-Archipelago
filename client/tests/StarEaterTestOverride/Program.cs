@@ -16,3 +16,30 @@ Check(StarEaterTestOverridePolicy.Select("GameRoom_Hub7",100,25)==null,"Royal cl
 Check(StarEaterTestOverridePolicy.Select("GameRoom_Hub8",25,100)==null,"Bunker clamps to native maximum");
 Check(StarEaterTestOverridePolicy.Select("GameRoom_Hub7",-1,66)?.Required==0,"negative clamps to zero");
 Console.WriteLine($"{passed} Star Eater override assertions passed.");
+
+var original = new byte[] { 7, 8, 9 };
+var applied = new byte[] { 1, 2, 3 };
+IntPtr address = System.Runtime.InteropServices.Marshal.AllocHGlobal(applied.Length);
+try
+{
+    var patch = new LegacyStarEaterPatch(address, original, applied);
+    System.Runtime.InteropServices.Marshal.Copy(applied, 0, address, applied.Length);
+    int writes = 0;
+    bool Restore(IntPtr target, byte[] value)
+    {
+        writes++;
+        System.Runtime.InteropServices.Marshal.Copy(value, 0, target, value.Length);
+        return true;
+    }
+    Check(!patch.TryRestore((_, _) => false), "failed restore leaves the patch retryable");
+    Check(!patch.TryRestore((_, _) => true), "a reported write must release the owned bytes before unload succeeds");
+    Check(patch.TryRestore(Restore) && writes == 1 &&
+        System.Runtime.InteropServices.Marshal.ReadByte(address) == 7, "retry restores owned bytes");
+    Check(patch.TryRestore(Restore) && writes == 1, "repeated restore does not rewrite original bytes");
+    System.Runtime.InteropServices.Marshal.WriteByte(address, 33);
+    Check(patch.TryRestore(Restore) && writes == 1 &&
+        System.Runtime.InteropServices.Marshal.ReadByte(address) == 33, "later owner's change survives cleanup");
+}
+finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(address); }
+Console.WriteLine("Legacy Star Eater patch ownership checks passed.");
+PluginComponentOwnershipTests.Run();

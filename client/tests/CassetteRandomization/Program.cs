@@ -25,6 +25,16 @@ bundleRuntime.ReplaceOwnedSongs(new[]{"JOLT_CITY"});
 if(bundleRuntime.PendingSongs.Single()!="JOLT_CITY")throw new Exception("new bundle map cannot retain old queued songs");
 bundleRuntime.ActivateSave(2);
 if(bundleRuntime.PendingSongs.Single()!="JOLT_CITY")throw new Exception("new save reconciles authenticated bundle songs");
+bundleRuntime.Observe("UNOWNED", "HAVE_IN_BAG");
+Equal(true, bundleRuntime.HasPendingSongs, "an unrelated observation cannot satisfy an owned song");
+bundleRuntime.Observe("JOLT_CITY", "HAVE_DEPOSITED");
+Equal(false, bundleRuntime.HasPendingSongs, "settled inventory has no pending work");
+bundleRuntime.ReplaceOwnedSongs(new[]{"ZEN"});
+Equal(true, bundleRuntime.HasPendingSongs, "replacing a settled bundle drops its previous satisfaction");
+bundleRuntime.DeactivateSave();
+Equal(false, bundleRuntime.HasPendingSongs, "pending work waits while no save is active");
+bundleRuntime.ActivateSave(3);
+Equal(true, bundleRuntime.HasPendingSongs, "activating a new save checks retained ownership again");
 
 static void Equal<T>(T expected, T actual, string scenario) { if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"{scenario}: expected {expected}, got {actual}"); }
 static void SequenceEqual(IEnumerable<string> expected, IEnumerable<string> actual, string scenario) { var e=expected.ToArray(); var a=actual.ToArray(); if (!e.SequenceEqual(a, StringComparer.Ordinal)) throw new InvalidOperationException($"{scenario}: expected [{string.Join(", ",e)}], got [{string.Join(", ",a)}]"); }
@@ -60,10 +70,8 @@ static IReadOnlyList<string> ExtractMethods(string source, string signaturePrefi
 }
 
 bool cassetteHandlerCalled = false;
-bool experimentalFallbackCalled = false;
-bool cassetteHandledWithExperimentalProgressionDisabled = ReceivedItemDispatch.TryApply(
+bool cassetteHandled = ReceivedItemDispatch.TryApply(
     "Heavy Metal Cassette",
-    applyReceivedProgression: false,
     areaAccessHandler: _ => false,
     garageCartridgeHandler: _ => false,
     weedKillerHandler: _ => false,
@@ -75,11 +83,9 @@ bool cassetteHandledWithExperimentalProgressionDisabled = ReceivedItemDispatch.T
         cassetteHandlerCalled = itemName == "Heavy Metal Cassette";
         return true;
     },
-    musicLabPointHandler: _ => false,
-    experimentalFallback: _ => experimentalFallbackCalled = true);
-Equal(true, cassetteHandledWithExperimentalProgressionDisabled, "cassette dispatch is handled when experimental progression is disabled");
+    musicLabPointHandler: _ => throw new Exception("Already handled by the cassette handler"));
+Equal(true, cassetteHandled, "recognized cassette dispatch is handled");
 Equal(true, cassetteHandlerCalled, "cassette dispatch invokes the always-on cassette handler");
-Equal(false, experimentalFallbackCalled, "cassette dispatch does not invoke experimental fallback");
 
 TestCassetteRequest.ResetCounters();
 var constructedRequest = CassetteNativeRequestFactory.TryCreateHaveInBagRequest(
@@ -233,12 +239,8 @@ string activateLoadedSave = ExtractMethods(pluginSource, "internal static void A
 Equal(false, activateLoadedSave.Contains("if (!_slotDataSynchronized || !Enabled) return", StringComparison.Ordinal), "save selection establishes its epoch even before AP slot data arrives");
 
 string reconcileSource = ExtractMethods(pluginSource, "internal static void TryReconcile(").Single();
-Equal(true, reconcileSource.Contains("TryReconcileSong(song", StringComparison.Ordinal), "reconciliation delegates each epoch-pending song");
 string reconcileSongSource = ExtractMethods(pluginSource, "private static void TryReconcileSong(").Single();
-Equal(true, reconcileSongSource.Contains("TryReadCassetteStatus(processor!, nativeSong", StringComparison.Ordinal), "reconciliation reads before writing");
-Equal(true, reconcileSongSource.Contains("TrySubmitHaveInBag(processor!, nativeSong", StringComparison.Ordinal), "reconciliation uses exact semantic request adapter");
 Equal(false, reconcileSongSource.Contains("HAVE_DEPOSITED", StringComparison.Ordinal), "reconciliation never submits deposited status");
-Equal(true, reconcileSongSource.Contains("verificationDue &&", StringComparison.Ordinal) && reconcileSongSource.Contains("_runtime.RecordVerification(nativeSong, null)", StringComparison.Ordinal), "an unreadable scheduled verification is consumed once without enabling a duplicate grant");
 Equal(true, reconcileSongSource.Contains("_productionPersistence.CanSubmitNativeCassetteGrant(", StringComparison.Ordinal),
     "semantic grant admission delegates active-write coordination to the executable production coordinator");
 
@@ -261,8 +263,6 @@ string receiptTryApply = ExtractMethods(receiptRandomizationSource, "internal st
 Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette receipt\")", StringComparison.Ordinal), "active-save AP receipt schedules prompt Unity-thread reconciliation");
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
 string unityTick = ExtractMethods(receiptRandomizationSource, "private static void TickUnityCore(").Single();
-Equal(true, unityTick.Contains("_runtime.Tick(elapsed)", StringComparison.Ordinal), "Unity keeper advances bounded verification timers with actual elapsed time");
-Equal(true, unityTick.IndexOf("if (!_saveSynchronizationReady) return", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "deferred synchronization freezes semantic grant verification until an observation proves readiness");
 Equal(false, unityTick.Contains("TickDiskCommit", StringComparison.Ordinal), "Unity keeper does not run a synthetic disk-commit timer");
 Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
@@ -302,29 +302,11 @@ Equal(false, pluginSource.Contains("EnableCassettePointerBoundPersistenceAccepta
 Equal(false, pluginSource.Contains("if (cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal), "retired write-completed diagnostic hook has no startup registration");
 Equal(false, pluginSource.Contains("CassetteReceiptRandomization.Configure(\n            acceptanceDiagnosticsEnabled: cassettePointerBoundPersistenceAcceptance.Value)", StringComparison.Ordinal),
     "production configuration no longer binds an acceptance diagnostic toggle");
-string acceptanceConfigUpdate = ExtractMethods(receiptRandomizationSource, "internal static void SetPersistenceAcceptanceDiagnosticsEnabled(").Single();
-Equal(true, acceptanceConfigUpdate.Contains("if (enabled)", StringComparison.Ordinal) && acceptanceConfigUpdate.Contains("restart is required", StringComparison.Ordinal),
-    "runtime diagnostic opt-in cannot start without the startup-only event hook; enabling requires a restart");
-Equal(false, acceptanceConfigUpdate.Contains("_productionPersistence.Cancel", StringComparison.Ordinal),
-    "changing acceptance diagnostics cannot cancel or control production durability");
 Equal(false, unityTick.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "Unity update cannot submit synthetic Persist requests");
-int delayedVerificationLoopIndex = unityTick.IndexOf("foreach (string song in ready) TryReconcileSong", StringComparison.Ordinal);
-int diagnosticWaveConsumeIndex = unityTick.IndexOf("TryConsumeNewlyVerifiedGrantDiagnosticWave", StringComparison.Ordinal);
-Equal(true, delayedVerificationLoopIndex >= 0 && diagnosticWaveConsumeIndex > delayedVerificationLoopIndex, "Unity update consumes a diagnostic wave only after every due delayed verification has run");
-int productionWaveEnqueueIndex = unityTick.IndexOf("_productionPersistence.TryEnqueue", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
-int persistenceEligibilityIndex = unityTick.IndexOf("TryStartPointerBoundPersistence", diagnosticWaveConsumeIndex, StringComparison.Ordinal);
-Equal(true, productionWaveEnqueueIndex > diagnosticWaveConsumeIndex && persistenceEligibilityIndex > productionWaveEnqueueIndex,
-    "newly verified waves are identity-bound and queued before any production eligibility attempt");
 Equal(false, unityTick.Contains("LogPersistenceTargetOwnershipDiagnostic", StringComparison.Ordinal), "newly verified grant waves no longer schedule an investigation-only ownership snapshot");
-string persistenceTargetLogger = ExtractMethods(receiptRandomizationSource, "private static void LogPersistenceTargetOwnershipDiagnostic(").Single();
-foreach (string requiredRead in new[] { "ReadCassettePostLoadDiagnostic", "TryReadDiskCommitTargetDiagnostic", "TryReadPersistenceTargetActiveState", "TryReadPublicWriteDiagnosticState" })
-    Equal(true, persistenceTargetLogger.Contains(requiredRead, StringComparison.Ordinal), $"persistence target snapshot uses existing public diagnostic boundary {requiredRead}");
-foreach (string prohibitedMutation in new[] { "TrySubmitHaveInBag", "SubmitRequest", "ProcessRequest", "PersistAllChangesInBundle", "RequestUrgentWriteToDisk", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave" })
-    Equal(false, persistenceTargetLogger.Contains(prohibitedMutation, StringComparison.Ordinal), $"persistence target snapshot contains no mutation path {prohibitedMutation}");
-Equal(true, persistenceTargetLogger.Contains("CASSETTE PERSISTENCE TARGET SNAPSHOT", StringComparison.Ordinal), "persistence target diagnostic has one exact live log marker");
 string persistenceStarter = ExtractMethods(receiptRandomizationSource, "private static void TryStartPointerBoundPersistence(").Single();
 int pollAdmission = persistenceStarter.IndexOf("_persistencePoll.TryBegin", StringComparison.Ordinal);
-int firstOwnershipRead = persistenceStarter.IndexOf("ReadCassettePostLoadDiagnostic", StringComparison.Ordinal);
+int firstOwnershipRead = persistenceStarter.IndexOf("ReadSelectedSaveIdentity", StringComparison.Ordinal);
 Equal(true, pollAdmission >= 0 && pollAdmission < firstOwnershipRead,
     "deferred cassette waves must rate-limit ownership reads before entering native reflection");
 Equal(true, selectedMutationPostfix.Contains("QueueSaveBoundarySignal(slot, kind, __instance)", StringComparison.Ordinal),
@@ -353,12 +335,6 @@ Equal(true, persistencePrepareAdmissionIndex >= 0 &&
             persistenceMarkInvokedIndex > persistenceAdapterCallbackIndex &&
             persistenceInvokedAdmissionIndex > persistenceMarkInvokedIndex,
     "coordinator installs PRE before the adapter callback and admits INVOKED only after the still-active token accepts it");
-string acceptanceEventObserver = ExtractMethods(
-    receiptRandomizationSource, "internal static void ObservePersistenceAcceptanceWriteCompletedEvent(").Single();
-Equal(true, acceptanceEventObserver.Contains("_acceptanceDiagnosticsEnabled", StringComparison.Ordinal),
-    "uncorrelated native event hints are observed only when startup diagnostics were enabled");
-Equal(false, acceptanceEventObserver.Contains("terminal: true", StringComparison.Ordinal),
-    "uncorrelated native events never emit a terminal production marker");
 string persistenceMarkerDrain = ExtractMethods(
     receiptRandomizationSource, "private static void DrainPersistenceMarkers(").Single();
 Equal(true, persistenceMarkerDrain.Contains("_persistenceMarkerEmitter.Drain", StringComparison.Ordinal) &&
@@ -373,17 +349,12 @@ Equal(2, receiptRandomizationSource.Split("LogPersistence(", StringSplitOptions.
     "production lifecycle has exactly one logger definition and one serialized emitter call; transition callers never log independently");
 Equal(true, persistenceCoordinatorSource.Contains("_markers.TryBeginAttempt", StringComparison.Ordinal),
     "PRE admission is atomic with attempt preparation inside the coordinator");
-Equal(true, acceptanceEventObserver.Contains("_productionPersistence.ObserveWriteCompletedEvent", StringComparison.Ordinal) &&
-            persistenceCoordinatorSource.Contains("_markers.TryAppend", StringComparison.Ordinal),
-    "event observation and marker admission delegate atomically to the coordinator");
 foreach (string prohibitedAcceptance in new[] { "SubmitRequest", "ProcessRequest", "PersistSaveChangeBundleRequest", "PersistAllSaveChangeBundlesRequest", "TriggerUrgentSaveWriteIfAnyChangesRequest", "RequestWriteForPlayerSave", "SaveDataManager" })
     Equal(false, persistenceStarter.Contains(prohibitedAcceptance, StringComparison.Ordinal), $"production starter cannot use prohibited path {prohibitedAcceptance}");
 foreach (string marker in new[] { "PRE", "INVOKED", "IMMEDIATE POST", "VERIFIED", "FAILED", "TIMEOUT", "CANCELLED" })
     Equal(true, receiptRandomizationSource.Contains($"CASSETTE PERSISTENCE {marker}", StringComparison.Ordinal), $"production emits exact bounded marker {marker}");
 Equal(false, receiptRandomizationSource.Contains("CASSETTE PERSISTENCE EVENT", StringComparison.Ordinal),
     "normal production has no event lifecycle marker");
-Equal(true, persistenceCoordinatorSource.Contains("CassettePersistenceAttemptPolicy.SequentialVerifiedBatches", StringComparison.Ordinal),
-    "compatible routing uses the sequential production persistence policy independently of diagnostics");
 string persistencePoll = ExtractMethods(receiptRandomizationSource, "private static void PollPointerBoundPersistence(").Single();
 Equal(true, persistencePoll.Contains("_productionPersistence.Observe", StringComparison.Ordinal) &&
             persistenceCoordinatorSource.Contains("_waves.Complete", StringComparison.Ordinal) &&
@@ -548,17 +519,7 @@ Equal(true, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "first res
 Equal(false, resultLogDeduper.ShouldLog("success|slot=3|pointer=700"), "identical resolved result is suppressed");
 Equal(true, resultLogDeduper.ShouldLog("success|slot=4|pointer=800"), "changed resolved slot logs");
 Equal(true, resultLogDeduper.ShouldLog("failure|match-count:0"), "changed unresolved stage logs");
-var synchronizationDiagnosticDeduper = new CassetteBoundedDiagnosticSignatureDeduplicator(capacity: 8);
-Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "initial unavailable synchronization comparison logs");
-Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "repeated unavailable synchronization comparison is deduplicated");
-Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot4/pointer700|global=0"), "changed loaded-save enquiry comparison logs once");
-Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot4/pointer700|global=0"), "repeated loaded-save comparison is deduplicated");
-Equal(true, synchronizationDiagnosticDeduper.ShouldLog("enquiry=slot3/pointer900|global=0"), "changed mismatch comparison logs once");
-for (int signatureIndex = 0; signatureIndex < 5; signatureIndex++)
-    Equal(true, synchronizationDiagnosticDeduper.ShouldLog($"bounded-{signatureIndex}"), $"unique signature {signatureIndex} fits the fixed diagnostic budget");
-Equal(false, synchronizationDiagnosticDeduper.ShouldLog("over-budget"), "fixed synchronization diagnostic budget prevents unbounded logging");
-Equal(false, synchronizationDiagnosticDeduper.ShouldLog("enquiry=unavailable|global=0"), "previous signature remains deduplicated after intervening states");
-Console.WriteLine("PASS: most_recent_logs_are_bounded_and_deduplicated");
+Console.WriteLine("PASS: most_recent_logs_are_deduplicated");
 
 var joinProbe = new CassetteRegularSavePointerJoinProbe();
 object saveDataProcessorA = new();
@@ -665,6 +626,13 @@ SequenceEqual(fixtureMappings, clientMappings, "neutral fixture matches complete
 var compatibleItems = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.ItemName, StringComparer.Ordinal);
 var compatibleSources = CassetteCatalog.All.ToDictionary(x => x.DisplaySong, x => x.SourceName, StringComparer.Ordinal);
 var compatibleReused = CassetteCatalog.All.Where(x => x.ReusesExistingLocation).ToDictionary(x => x.DisplaySong, x => x.SourceName, StringComparer.Ordinal);
+CassetteVerificationTests.Run(new Dictionary<string, object>
+{
+    ["full_cassette_randomization"] = true,
+    ["cassette_schema"] = 1, ["cassette_count"] = 30,
+    ["cassette_items"] = compatibleItems, ["cassette_sources"] = compatibleSources,
+    ["cassette_reused_locations"] = compatibleReused,
+});
 var networkSlotMap = JObject.Parse("{\"The Little Things\":\"The Little Things Cassette\"}");
 var parsedNetworkSlotMap = CassetteSlotMapReader.Read(networkSlotMap);
 Equal(1, parsedNetworkSlotMap.Count, "network JObject slot map count");
@@ -717,28 +685,12 @@ foreach (var trigger in entry.Triggers)
     var earlyReceipt = CassetteRandomizationPolicy.DecideLevelEvaluation(trigger.Level,trigger.Variant,true,allOwned);
     Equal(true,earlyReceipt.SourceLocationsToQueue.Contains(entry.SourceName),$"early receipt cannot erase {entry.SourceName} on {trigger.Level}/{trigger.Variant}");
 }
-Equal(false,CassetteRandomizationPolicy.UseSelectedSaveChangedEventHook,"crashing hook disabled");
+Equal(false, pluginSource.Contains("SelectedSaveChangedEvent", StringComparison.Ordinal), "the unsafe selected-save changed event is never hooked");
 Equal(true, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:false), "native point-chest Quicksand bag grant is randomized");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:true), "AP receipt may grant Quicksand later");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("I_GOT_MONEY", CassetteRandomizationPolicy.HaveInBag, fromArchipelago:false), "level cassette grants are handled by the evaluator hook");
 Equal(false, CassetteRandomizationPolicy.ShouldSuppressNativePointChestGrant("QUICKSAND", CassetteRandomizationPolicy.HaveDeposited, fromArchipelago:false), "deposited state is never intercepted");
 
-
-
-var authoritativeState = new AuthoritativeSaveState(TestCassetteStatus.HAVE_IN_BAG);
-var authoritativeProcessor = new AuthoritativeProcessor(authoritativeState);
-Equal(true,
-    CassetteAuthoritativeStateReader.TryRead(
-        authoritativeProcessor,
-        typeof(TestSong),
-        nameof(TestSong.QUIERES_BAILAR),
-        out string? authoritativeStatus,
-        out string authoritativeDetail),
-    "processor-selected save status is readable without the private bundle predicate");
-Equal(nameof(TestCassetteStatus.HAVE_IN_BAG), authoritativeStatus, "authoritative reader returns processor-selected status");
-Equal(1, authoritativeProcessor.ObtainStateCalls, "authoritative reader obtains current processor state once");
-Equal(1, authoritativeState.StatusReads, "authoritative reader reads current cassette status once");
-Equal(true, authoritativeDetail.Contains("processor-selected save returned HAVE_IN_BAG", StringComparison.Ordinal), "authoritative detail names the read source and status");
 
 
 var preSelection = new CassetteSaveEpochRuntime();
@@ -827,16 +779,10 @@ Equal(true, persistenceDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave
 SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, verifiedWave.Songs, "one diagnostic wave contains every newly verified grant in stable order");
 Equal(new CassettePersistenceTargetDiagnosticIdentity(9, 1, 4, 0x700), verifiedWave.Identity,
     "the verified wave captures generation, epoch, slot, and pointer atomically");
-Equal(true, verifiedWave.IsCurrent(generation: 9, epoch: 1, slot: 4, statePointer: 0x700),
-    "the verified wave accepts only its exact save identity");
 Equal(false, persistenceDiagnosticWave.TryConsumeNewlyVerifiedGrantDiagnosticWave(
     generation: 9, statePointer: 0x700, out _),
     "a verified wave is consumed at most once");
 SequenceEqual(new[] { "BADASS", "HEAVY_METAL" }, persistenceDiagnosticWave.OwnedSongs, "the snapshot retains all AP-owned cassette evidence, not only the last verified song");
-persistenceDiagnosticWave.ActivateSave(4);
-Equal(false, verifiedWave.IsCurrent(generation: 9, epoch: persistenceDiagnosticWave.Epoch, slot: 4, statePointer: 0x700),
-    "a boundary racing after consumption rejects the stale captured wave");
-
 var queuedBoundaryDiagnosticWave = new CassetteSaveEpochRuntime();
 queuedBoundaryDiagnosticWave.Receive("BADASS");
 queuedBoundaryDiagnosticWave.ActivateSave(4);
@@ -967,8 +913,7 @@ var firstSequentialVerifiedState = new CassettePublicWriteDiagnosticState(
     RedundancyBundleRevision: 17,
     StatePointer: 0x8800,
     Statuses: new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag });
-var sequentialRuntime = new CassettePointerBoundPersistenceRuntime(
-    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+var sequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 sequentialRuntime.BeginEpoch(sequentialIdentity);
 Equal(true, sequentialRuntime.TryPrepare(
     sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt firstSequentialAttempt),
@@ -980,7 +925,7 @@ Equal(true, sequentialRuntime.MarkInvoked(firstSequentialAttempt),
 Equal(CassettePersistenceAcceptanceOutcome.Verified,
     sequentialRuntime.Observe(
         firstSequentialAttempt, sequentialIdentity, firstSequentialVerifiedState,
-        statusesRetained: true, stateReadable: true, TimeSpan.FromMilliseconds(16), out _),
+        statusesRetained: true, stateReadable: true, TimeSpan.FromMilliseconds(16)),
     "the unchanged success predicate verifies the first sequential batch");
 var secondSequentialBaseline = firstSequentialBaseline with
 {
@@ -995,8 +940,7 @@ Equal(true, sequentialRuntime.TryPrepare(
 Equal(true, secondSequentialAttempt.Id > firstSequentialAttempt.Id,
     "sequential attempt identifiers increase monotonically");
 
-var indeterminateSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
-    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+var indeterminateSequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 indeterminateSequentialRuntime.BeginEpoch(sequentialIdentity);
 indeterminateSequentialRuntime.TryPrepare(
     sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt indeterminateSequentialAttempt);
@@ -1006,8 +950,7 @@ Equal(CassettePersistenceAcceptanceOutcome.Failed,
 Equal(false, indeterminateSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
     "an indeterminate batch tombstones sequential persistence for the epoch");
 
-var failedSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
-    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+var failedSequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 failedSequentialRuntime.BeginEpoch(sequentialIdentity);
 failedSequentialRuntime.TryPrepare(
     sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt failedSequentialAttempt);
@@ -1015,13 +958,12 @@ failedSequentialRuntime.MarkInvoked(failedSequentialAttempt);
 Equal(CassettePersistenceAcceptanceOutcome.Failed,
     failedSequentialRuntime.Observe(
         failedSequentialAttempt, sequentialIdentity, firstSequentialVerifiedState,
-        statusesRetained: false, stateReadable: true, TimeSpan.Zero, out _),
+        statusesRetained: false, stateReadable: true, TimeSpan.Zero),
     "a polling status regression fails closed in sequential mode");
 Equal(false, failedSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
     "a polling failure tombstones sequential persistence for the epoch");
 
-var timedOutSequentialRuntime = new CassettePointerBoundPersistenceRuntime(
-    CassettePersistenceAttemptPolicy.SequentialVerifiedBatches);
+var timedOutSequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 timedOutSequentialRuntime.BeginEpoch(sequentialIdentity);
 timedOutSequentialRuntime.TryPrepare(
     sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt timedOutSequentialAttempt);
@@ -1038,36 +980,16 @@ for (int second = 0; second < 129; second++)
     Equal(CassettePersistenceAcceptanceOutcome.Pending,
         timedOutSequentialRuntime.Observe(
             timedOutSequentialAttempt, sequentialIdentity, unchangedSequentialState,
-            statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
+            statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1)),
         $"sequential batch remains pending through active-update second {second + 1}");
 Equal(CassettePersistenceAcceptanceOutcome.Timeout,
     timedOutSequentialRuntime.Observe(
         timedOutSequentialAttempt, sequentialIdentity, unchangedSequentialState,
-        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
+        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1)),
     "sequential mode preserves the 130-second hard timeout");
 Equal(false, timedOutSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
     "a timed-out batch tombstones sequential persistence for the epoch");
 
-var oneShotCompatibilityRuntime = new CassettePointerBoundPersistenceRuntime(
-    CassettePersistenceAttemptPolicy.OneShotPerEpoch);
-oneShotCompatibilityRuntime.BeginEpoch(sequentialIdentity);
-oneShotCompatibilityRuntime.TryPrepare(
-    sequentialIdentity, firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt oneShotCompatibilityAttempt);
-oneShotCompatibilityRuntime.MarkInvoked(oneShotCompatibilityAttempt);
-Equal(CassettePersistenceAcceptanceOutcome.Verified,
-    oneShotCompatibilityRuntime.Observe(
-        oneShotCompatibilityAttempt, sequentialIdentity, firstSequentialVerifiedState,
-        statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
-    "one-shot mode preserves the acceptance success predicate");
-Equal(false, oneShotCompatibilityRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
-    "one-shot compatibility still rejects a second verified batch in the epoch");
-oneShotCompatibilityRuntime.BeginEpoch(sequentialIdentity with { Generation = 61, Epoch = 13, Pointer = 0x9900 });
-Equal(true, oneShotCompatibilityRuntime.TryPrepare(
-    sequentialIdentity with { Generation = 61, Epoch = 13, Pointer = 0x9900 },
-    firstSequentialBaseline, out CassettePersistenceAcceptanceAttempt nextEpochCompatibilityAttempt),
-    "a new one-shot epoch may prepare again");
-Equal(true, nextEpochCompatibilityAttempt.Id > oneShotCompatibilityAttempt.Id,
-    "attempt identifiers remain monotonic across epoch boundaries");
 Console.WriteLine("PASS: pointer_bound_persistence_runtime_supports_sequential_verified_batches");
 
 var deferredPollSchedule = new CassettePersistencePollScheduler();
@@ -1462,7 +1384,7 @@ Equal(queuedStaleCancelWaveB.WaveId, retainedQueuedWaveB.WaveId,
     "stale cancellation preserves the exact immutable queued B wave");
 Console.WriteLine("PASS: production_persistence_coordinator_rejects_stale_epoch_cancellation");
 
-var acceptanceRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var acceptanceRuntime = new CassettePointerBoundPersistenceRuntime();
 var acceptanceIdentity = new CassettePersistenceAcceptanceIdentity(41, 7, 4, 0x700);
 var acceptanceBaseline = new CassettePersistenceAcceptanceBaseline(
     new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"),
@@ -1471,16 +1393,7 @@ var acceptanceBaseline = new CassettePersistenceAcceptanceBaseline(
     new[] { "BADASS", "HEAVY_METAL" });
 acceptanceRuntime.BeginEpoch(acceptanceIdentity);
 Equal(true, acceptanceRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt acceptanceAttempt),
-    "opt-in acceptance installs an immutable token and PRE baseline before invocation");
-Equal(CassettePersistenceAcceptanceEventOutcome.SuccessWake,
-    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt, eventSlot: 4, succeeded: true),
-    "a synchronous matching success event is retained after token installation");
-Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
-    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt, eventSlot: 3, succeeded: true),
-    "a wrong-slot event is ignored");
-Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
-    acceptanceRuntime.ObserveWriteCompletedEvent(acceptanceAttempt with { Epoch = 8 }, eventSlot: 4, succeeded: true),
-    "a stale identity event is ignored");
+    "cassette persistence installs an immutable token and PRE baseline before invocation");
 Equal(true, acceptanceRuntime.MarkInvoked(acceptanceAttempt), "completed native calls move the prepared token to polling");
 Equal(CassettePersistenceAcceptanceOutcome.Pending,
     acceptanceRuntime.Observe(
@@ -1488,18 +1401,18 @@ Equal(CassettePersistenceAcceptanceOutcome.Pending,
         new CassettePublicWriteDiagnosticState(
             acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
             new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
-        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1), out _),
-    "event alone cannot prove success while write flags and PRE revision remain unchanged");
+        statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1)),
+    "a submitted write remains pending while its flags and revision are unchanged");
 Equal(CassettePersistenceAcceptanceOutcome.Verified,
     acceptanceRuntime.Observe(
         acceptanceAttempt, acceptanceIdentity,
         new CassettePublicWriteDiagnosticState(
             new CassettePublicWriteState(false, false, 10, 8, "IO_ERROR"), 12, false, 0, 6, 0x700,
             new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
-        statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+        statusesRetained: true, stateReadable: true, TimeSpan.Zero),
     "cleared public flags plus advanced redundancy beyond immutable PRE proves success");
-Equal(false, acceptanceRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
-    "a completed trial cannot retry in the same epoch");
+Equal(true, acceptanceRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+    "a verified batch allows the next batch for this save");
 
 foreach ((string Case, CassettePublicWriteDiagnosticState State, bool Statuses, bool Readable, CassettePersistenceAcceptanceOutcome Expected) failure in new[]
 {
@@ -1509,63 +1422,27 @@ foreach ((string Case, CassettePublicWriteDiagnosticState State, bool Statuses, 
     ("unreadable", default, true, false, CassettePersistenceAcceptanceOutcome.Failed),
 })
 {
-    var failedRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+    var failedRuntime = new CassettePointerBoundPersistenceRuntime();
     failedRuntime.BeginEpoch(acceptanceIdentity);
     failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt failedAttempt);
     failedRuntime.MarkInvoked(failedAttempt);
     Equal(failure.Expected, failedRuntime.Observe(
         failedAttempt, acceptanceIdentity, failure.State, failure.Statuses, failure.Readable,
-        TimeSpan.Zero, out _), $"acceptance {failure.Case} fails closed");
+        TimeSpan.Zero), $"acceptance {failure.Case} fails closed");
     Equal(false, failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
         $"acceptance {failure.Case} tombstones the epoch");
 }
 
-var identityFailureRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var identityFailureRuntime = new CassettePointerBoundPersistenceRuntime();
 identityFailureRuntime.BeginEpoch(acceptanceIdentity);
 identityFailureRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt identityFailureAttempt);
 identityFailureRuntime.MarkInvoked(identityFailureAttempt);
 Equal(CassettePersistenceAcceptanceOutcome.Failed, identityFailureRuntime.Observe(
     identityFailureAttempt, acceptanceIdentity with { Pointer = 0x701 }, default,
-    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
+    statusesRetained: true, stateReadable: true, TimeSpan.Zero),
     "pointer or save identity change fails the active trial");
 
-var eventFailureRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
-eventFailureRuntime.BeginEpoch(acceptanceIdentity);
-eventFailureRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt eventFailureAttempt);
-Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake,
-    eventFailureRuntime.ObserveWriteCompletedEvent(eventFailureAttempt, 4, succeeded: false),
-    "an uncorrelated same-slot failed event is a wake hint, never terminal");
-Equal(true, eventFailureRuntime.Active, "failed event alone leaves the current attempt active");
-Equal(true, eventFailureRuntime.MarkInvoked(eventFailureAttempt), "failed event hint cannot block invocation completion");
-Equal(CassettePersistenceAcceptanceOutcome.Pending, eventFailureRuntime.Observe(
-    eventFailureAttempt, acceptanceIdentity, new CassettePublicWriteDiagnosticState(
-        acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
-        new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
-    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out bool failedEventObserved),
-    "failed event alone cannot complete or tombstone the attempt without advanced public failure evidence");
-Equal(true, failedEventObserved, "failed event hint is retained for bounded diagnostics");
-
-var staleSameSlotEventRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
-staleSameSlotEventRuntime.BeginEpoch(acceptanceIdentity);
-staleSameSlotEventRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt cancelledSameSlotAttempt);
-staleSameSlotEventRuntime.Cancel("save-boundary");
-var freshSameSlotIdentity = acceptanceIdentity with { Generation = 42, Epoch = 8 };
-staleSameSlotEventRuntime.BeginEpoch(freshSameSlotIdentity);
-staleSameSlotEventRuntime.TryPrepare(freshSameSlotIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt freshSameSlotAttempt);
-Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake,
-    staleSameSlotEventRuntime.ObserveWriteCompletedEvent(freshSameSlotAttempt, eventSlot: 4, succeeded: false),
-    "an old uncorrelated same-slot failure can only wake the fresh trial whose token the handler currently holds");
-Equal(true, staleSameSlotEventRuntime.MarkInvoked(freshSameSlotAttempt),
-    "old same-slot failure cannot tombstone a fresh epoch's invocation");
-Equal(CassettePersistenceAcceptanceOutcome.Pending, staleSameSlotEventRuntime.Observe(
-    freshSameSlotAttempt, freshSameSlotIdentity,
-    new CassettePublicWriteDiagnosticState(
-        acceptanceBaseline.WriteState, 11, true, 2, 5, 0x700,
-        new Dictionary<string, string> { ["BADASS"] = CassetteRandomizationPolicy.HaveInBag, ["HEAVY_METAL"] = CassetteRandomizationPolicy.HaveInBag }),
-    statusesRetained: true, stateReadable: true, TimeSpan.Zero, out _),
-    "cancel then fresh same-slot prepare remains pending after the prior epoch's failed event");
-
-var indeterminateRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var indeterminateRuntime = new CassettePointerBoundPersistenceRuntime();
 indeterminateRuntime.BeginEpoch(acceptanceIdentity);
 indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt indeterminateAttempt);
 Equal(CassettePersistenceAcceptanceOutcome.Failed,
@@ -1574,7 +1451,7 @@ Equal(CassettePersistenceAcceptanceOutcome.Failed,
 Equal(false, indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
     "indeterminate promotion is never retried in the epoch");
 
-var timeoutRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var timeoutRuntime = new CassettePointerBoundPersistenceRuntime();
 timeoutRuntime.BeginEpoch(acceptanceIdentity);
 timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt timeoutAttempt);
 timeoutRuntime.MarkInvoked(timeoutAttempt);
@@ -1584,23 +1461,22 @@ var unchangedAcceptanceState = new CassettePublicWriteDiagnosticState(
 for (int second = 0; second < 129; second++)
     Equal(CassettePersistenceAcceptanceOutcome.Pending, timeoutRuntime.Observe(
         timeoutAttempt, acceptanceIdentity, unchangedAcceptanceState, true, stateReadable: true,
-        TimeSpan.FromSeconds(1), out _), $"acceptance remains pending through active-update second {second + 1}");
+        TimeSpan.FromSeconds(1)), $"acceptance remains pending through active-update second {second + 1}");
 Equal(CassettePersistenceAcceptanceOutcome.Timeout, timeoutRuntime.Observe(
     timeoutAttempt, acceptanceIdentity, unchangedAcceptanceState, true, stateReadable: true,
-    TimeSpan.FromSeconds(1), out _), "acceptance times out at 130 active-update seconds");
+    TimeSpan.FromSeconds(1)), "acceptance times out at 130 active-update seconds");
 Equal(false, timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _), "timeout tombstones the epoch");
 
-var cancelledRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
+var cancelledRuntime = new CassettePointerBoundPersistenceRuntime();
 cancelledRuntime.BeginEpoch(acceptanceIdentity);
 cancelledRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt cancelledAttempt);
 Equal(CassettePersistenceAcceptanceOutcome.Cancelled, cancelledRuntime.Cancel("save-boundary"), "save boundary cancels logical acceptance state");
-Equal(CassettePersistenceAcceptanceEventOutcome.Ignored,
-    cancelledRuntime.ObserveWriteCompletedEvent(cancelledAttempt, 4, true), "late event after cancellation is ignored");
 cancelledRuntime.BeginEpoch(acceptanceIdentity with { Generation = 42, Epoch = 8 });
 Equal(true, cancelledRuntime.TryPrepare(
-    acceptanceIdentity with { Generation = 42, Epoch = 8 }, acceptanceBaseline, out _),
-    "a genuinely new save epoch may run one fresh opt-in trial");
-Console.WriteLine("PASS: pointer_bound_acceptance_runtime_is_one_shot_identity_safe_and_event_insufficient");
+    acceptanceIdentity with { Generation = 42, Epoch = 8 }, acceptanceBaseline, out var newEpochAttempt),
+    "the new save epoch can accept a batch");
+Equal(true, newEpochAttempt.Id > cancelledAttempt.Id, "attempt IDs increase across save epochs");
+Console.WriteLine("PASS: cassette_write_verification_checks_identity_and_readback");
 
 var orderedMarkerJournal = new CassettePersistenceAcceptanceMarkerJournal();
 var orderedMarkerEmitter = new CassettePersistenceAcceptanceMarkerEmitter();
@@ -1766,7 +1642,6 @@ foreach ((string Case, CassettePersistenceAcceptanceEligibilityEvidence Evidence
         $"{gateFailure.Case}: missing acceptance evidence fails closed");
     Equal(gateFailure.Stage, gateStage, $"{gateFailure.Case}: acceptance gate retains an exact stage");
 }
-Equal(false, CassettePersistenceAcceptanceDefaults.Enabled, "acceptance runtime default is false independently of config binding text");
 Console.WriteLine("PASS: pointer_bound_acceptance_requires_every_approved_gate");
 
 var boundedSchedule = new CassetteSaveEpochRuntime();
@@ -1792,265 +1667,14 @@ staleVerification.RecordVerification("BADASS", null);
 Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "reload clears prior attempt and revalidates new epoch");
 Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
-var diskCommit = new CassetteDiskCommitRuntime();
-Equal(TimeSpan.Zero, CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromSeconds(-1)), "negative keeper elapsed contributes no active write time");
-Equal(TimeSpan.FromMilliseconds(500), CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromMilliseconds(500)), "normal update elapsed is preserved");
-Equal(TimeSpan.FromSeconds(1), CassetteDiskCommitRuntime.CapActiveUpdateElapsed(TimeSpan.FromMinutes(5)), "suspension-sized wall elapsed is capped to one active update second");
-diskCommit.Stage("BADASS"); diskCommit.Stage("THE_HEIST"); diskCommit.Stage("BADASS");
-Equal(2, diskCommit.Songs.Count, "one reconciliation wave coalesces cassette grants");
-var dirtyWrite = new CassettePublicWriteState(true, false, 10, null, null);
-var phaseRuntime = new CassetteDiskCommitRuntime();
-phaseRuntime.Stage("BADASS");
-Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt phaseAttempt), "verified wave captures a distinct prepared transaction");
-Equal(CassetteDiskCommitEventOutcome.Ignored, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, true), "late prior success event between baseline and submit is ignored");
-Equal(CassetteDiskCommitEventOutcome.Ignored, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, false), "late prior failure event between baseline and submit is ignored");
-Equal(CassetteDiskCommitOutcome.None, phaseRuntime.Observe(phaseAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out bool phasePending), "prior advanced timestamp cannot complete a merely prepared transaction");
-Equal(false, phasePending, "prepared transaction emits no submitted-write notice");
-Equal(true, phaseRuntime.MarkSubmitted(phaseAttempt, new(false, false, 11, null, null)), "successful public submit transitions the exact prepared attempt with a refreshed post-submit baseline");
-Equal(CassetteDiskCommitEventOutcome.SuccessWake, phaseRuntime.ObserveWriteCompletedEvent(phaseAttempt, 4, true), "event is accepted only after exact attempt is submitted");
-Equal(CassetteDiskCommitOutcome.Pending, phaseRuntime.Observe(phaseAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out phasePending), "timestamp that advanced before submit cannot prove the submitted attempt");
-Equal(CassetteDiskCommitOutcome.Success, phaseRuntime.Observe(phaseAttempt, new(false, false, 12, null, null), true, TimeSpan.Zero, out phasePending), "submitted attempt requires a later public-state advance");
-
-var diagnosticRuntime = new CassetteDiskCommitRuntime();
-diagnosticRuntime.Stage("ON_THE_WAY");
-Equal(true, diagnosticRuntime.TryPrepare(17, 2, 4, 0x444, dirtyWrite, out CassetteDiskCommitAttempt diagnosticAttempt), "diagnostic attempt prepares without changing transaction semantics");
-Equal(true, diagnosticRuntime.TryGetPreparedAttempt(out CassetteDiskCommitAttempt capturedPreparedAttempt), "prepared attempt is observable for bounded ignored-event diagnostics");
-Equal(diagnosticAttempt, capturedPreparedAttempt, "prepared diagnostic capture preserves the exact attempt token");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Pre, out CassetteDiskCommitDiagnosticContext preDiagnostic), "PRE diagnostic is admitted once for the exact attempt");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Pre, out _), "PRE diagnostic has a one-snapshot budget");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreTarget, out CassetteDiskCommitDiagnosticContext preTargetDiagnostic), "PRE_TARGET diagnostic is admitted once for the prepared attempt");
-Equal(CassetteDiskCommitDiagnosticPhase.PreTarget, preTargetDiagnostic.Phase, "PRE_TARGET diagnostic preserves its phase");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreTarget, out _), "PRE_TARGET diagnostic has a one-snapshot budget");
-Equal(0, preDiagnostic.EventOrdinal, "PRE snapshot precedes all accepted events");
-Equal(TimeSpan.Zero, preDiagnostic.Elapsed, "PRE snapshot starts at zero active-update elapsed");
-SequenceEqual(new[] { "ON_THE_WAY" }, preDiagnostic.ActiveSongs, "PRE snapshot captures frozen active songs");
-Equal(0, preDiagnostic.QueuedSongs.Count, "PRE snapshot has no later queued songs");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored, out CassetteDiskCommitDiagnosticContext ignoredPreparedEvent), "one prepared-phase ignored event record is admitted");
-Equal(1, ignoredPreparedEvent.EventOrdinal, "prepared-phase ignored event receives the first diagnostic event ordinal");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PreparedEventIgnored, out _), "prepared-phase ignored event record is bounded");
-Equal(false, diagnosticRuntime.Active, "diagnostic admission cannot mark a prepared attempt submitted");
-Equal(true, diagnosticRuntime.MarkSubmitted(diagnosticAttempt, dirtyWrite), "normal submission transition remains authoritative after diagnostics");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Post, out _), "POST diagnostic is admitted once after submission");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Post, out _), "POST diagnostic has a one-snapshot budget");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PostTarget, out CassetteDiskCommitDiagnosticContext postTargetDiagnostic), "POST_TARGET diagnostic is admitted once for the submitted attempt");
-Equal(CassetteDiskCommitDiagnosticPhase.PostTarget, postTargetDiagnostic.Phase, "POST_TARGET diagnostic preserves its phase");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.PostTarget, out _), "POST_TARGET diagnostic has a one-snapshot budget");
-diagnosticRuntime.Stage("KEEP_ON_HUSTLIN");
-Equal(CassetteDiskCommitEventOutcome.SuccessWake, diagnosticRuntime.ObserveWriteCompletedEvent(diagnosticAttempt, 4, true), "matching event is accepted independently of diagnostics");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Event, out CassetteDiskCommitDiagnosticContext eventDiagnostic), "accepted EVENT diagnostic is admitted once");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.Event, out _), "accepted EVENT diagnostic has a one-snapshot budget");
-Equal(2, eventDiagnostic.EventOrdinal, "accepted EVENT snapshot follows the prepared-phase ignored event ordinal");
-SequenceEqual(new[] { "ON_THE_WAY" }, eventDiagnostic.ActiveSongs, "EVENT snapshot retains the frozen submitted wave");
-SequenceEqual(new[] { "KEEP_ON_HUSTLIN" }, eventDiagnostic.QueuedSongs, "EVENT snapshot distinguishes songs queued after submission");
-Equal(CassetteDiskCommitOutcome.Pending, diagnosticRuntime.Observe(diagnosticAttempt, dirtyWrite, true, TimeSpan.FromSeconds(11), out bool diagnosticStillPending), "diagnostic transaction reaches the unchanged still-pending threshold");
-Equal(true, diagnosticStillPending, "normal runtime reports the unchanged still-pending transition");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out CassetteDiskCommitDiagnosticContext stillPendingDiagnostic), "STILL_PENDING diagnostic is admitted once");
-Equal(TimeSpan.FromSeconds(11), stillPendingDiagnostic.Elapsed, "STILL_PENDING snapshot carries exact active-update elapsed");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.StillPending, out _), "STILL_PENDING diagnostic has a one-snapshot budget");
-Equal(CassetteDiskCommitOutcome.HardTimeout, diagnosticRuntime.Observe(diagnosticAttempt, dirtyWrite, true, TimeSpan.FromSeconds(119), out diagnosticStillPending), "diagnostic transaction reaches the unchanged hard watchdog");
-Equal(true, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out CassetteDiskCommitDiagnosticContext hardTimeoutDiagnostic), "HARD_TIMEOUT diagnostic remains claimable after the terminal transition");
-Equal(TimeSpan.FromSeconds(130), hardTimeoutDiagnostic.Elapsed, "HARD_TIMEOUT snapshot carries exact active-update elapsed");
-Equal(false, diagnosticRuntime.TryClaimDiagnostic(diagnosticAttempt, CassetteDiskCommitDiagnosticPhase.HardTimeout, out _), "HARD_TIMEOUT diagnostic has a one-snapshot budget");
-Equal(false, diagnosticRuntime.HasWork, "diagnostic snapshot claims cannot unblock an indeterminate transaction");
-Equal(true, diagnosticRuntime.TryGetLastTerminalAttempt(out CassetteDiskCommitAttempt watchdogTombstone), "hard watchdog preserves a bounded terminal-attempt tombstone");
-Equal(diagnosticAttempt, watchdogTombstone, "watchdog tombstone preserves exact attempt identity");
-Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 3), "wrong-slot event cannot consume late-event budget");
-Equal(true, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "matching inactive event claims one header-only late-event record");
-Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "late-event record is bounded once per terminal tombstone");
-Equal(false, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(3, out _, out _), "wrong-slot rebuild cannot consume lifecycle diagnostic pair");
-Equal(true, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(4, out long lifecycleToken, out CassetteDiskCommitDiagnosticContext lifecycleBefore), "matching-slot terminal tombstone admits one lifecycle BEFORE snapshot");
-Equal(CassetteDiskCommitDiagnosticPhase.LifecycleBefore, lifecycleBefore.Phase, "lifecycle prefix is labeled BEFORE");
-SequenceEqual(new[] { "ON_THE_WAY" }, lifecycleBefore.ActiveSongs, "lifecycle snapshot preserves terminal active songs");
-Equal(false, diagnosticRuntime.TryCompleteSaveStateLifecycleDiagnostic(lifecycleToken, 3, out _), "wrong-slot postfix cannot consume the correlated lifecycle AFTER snapshot");
-Equal(true, diagnosticRuntime.TryCompleteSaveStateLifecycleDiagnostic(lifecycleToken, 4, out CassetteDiskCommitDiagnosticContext lifecycleAfter), "matching lifecycle postfix admits one AFTER snapshot");
-Equal(CassetteDiskCommitDiagnosticPhase.LifecycleAfter, lifecycleAfter.Phase, "lifecycle postfix is labeled AFTER");
-Equal(false, diagnosticRuntime.TryBeginSaveStateLifecycleDiagnostic(4, out _, out _), "terminal attempt admits only one lifecycle pair");
-diagnosticRuntime.Reset();
-Equal(false, diagnosticRuntime.TryGetLastTerminalAttempt(out _), "identity reset clears terminal tombstone");
-Equal(false, diagnosticRuntime.TryClaimLateEvent(diagnosticAttempt, 4), "identity reset clears late-event diagnostic eligibility");
 Equal("present=False value=<null> bits=<null>", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(null), "nullable formatter identifies absent GameTime exactly");
 Equal("present=True value=10.25 bits=0x4024800000000000", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(10.25), "nullable formatter preserves round-trip value and IEEE bits");
 Equal(true, CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(double.NaN).StartsWith("present=True value=NaN bits=0x", StringComparison.Ordinal), "nullable formatter preserves special double value and IEEE bits");
 
-var routingCommit = new CassetteDiskCommitRuntime();
-var routingDiagnostics = new CassetteBundleRoutingDiagnosticRuntime();
-CassetteDiskCommitAttempt routingCandidate = routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444);
-Equal(1L, routingCandidate.Id, "pre-grant routing diagnostics preview the next monotonic disk attempt without starting it");
-Equal(false, routingCommit.Active, "routing preview is behavior-neutral and cannot activate persistence");
-Equal(false, routingCommit.HasWork, "routing preview cannot stage disk work");
-Equal(false, routingDiagnostics.TryResolveGlobalAttempt(null, routingCandidate, out _), "unrelated global request before an AP record candidate cannot consume the future attempt budget");
-routingDiagnostics.RegisterRelevantSong(routingCandidate, "BADASS", establishCandidate: true);
-Equal(true, routingDiagnostics.TryResolveGlobalAttempt(null, routingCandidate, out CassetteDiskCommitAttempt resolvedCandidate), "relevant AP record establishes the only pre-attempt global diagnostic candidate");
-Equal(routingCandidate, resolvedCandidate, "pre-attempt global diagnostic resolves the exact AP record candidate");
-SequenceEqual(new[] { "BADASS" }, routingDiagnostics.GetRelevantSongs(routingCandidate), "nested global boundary retains AP request song before delayed verification stages it");
-Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "BADASS", new[] { "BADASS" }, out CassetteBundleRoutingDiagnosticToken recordRoutingToken), "record-song entry is admitted once per attempt/song/boundary");
-Equal(false, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "BADASS", new[] { "BADASS" }, out _), "duplicate record-song entry is bounded");
-Equal(true, routingDiagnostics.TryComplete(recordRoutingToken, out CassetteBundleRoutingDiagnosticToken recordRoutingExit), "record-song exit is correlated to its admitted entry");
-Equal(CassetteBundleRoutingPhase.Exit, recordRoutingExit.Phase, "correlated routing completion is labeled EXIT");
-Equal(false, routingDiagnostics.TryComplete(recordRoutingToken, out _), "duplicate record-song exit is bounded");
-Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.RecordSong, "ON_THE_WAY", new[] { "ON_THE_WAY" }, out _), "another song retains its own bounded record diagnostic");
-Equal(true, routingDiagnostics.TryBegin(routingCandidate, CassetteBundleRoutingBoundary.PersistBundle, "<bundle>", new[] { "BADASS", "ON_THE_WAY" }, out CassetteBundleRoutingDiagnosticToken persistRoutingToken), "persist boundary has an independent budget for the same attempt");
-routingCommit.Stage("BADASS");
-Equal(true, routingCommit.TryPrepare(31, 6, 4, 0x444, new(true, false, null, null, null), out CassetteDiskCommitAttempt preparedRoutingAttempt), "routing candidate becomes the real disk attempt only through the existing prepare path");
-Equal(routingCandidate, preparedRoutingAttempt, "pre-grant routing candidate correlates to the later disk attempt exactly");
-Equal(preparedRoutingAttempt, routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444), "active routing diagnostics use the exact current attempt token");
-routingDiagnostics.RegisterRelevantSong(preparedRoutingAttempt, "ON_THE_WAY", establishCandidate: false);
-SequenceEqual(new[] { "BADASS", "ON_THE_WAY" }, routingDiagnostics.GetRelevantSongs(preparedRoutingAttempt), "queued record song joins nested global snapshots during another active attempt");
-Equal(true, routingDiagnostics.TryResolveGlobalAttempt(preparedRoutingAttempt, routingCommit.PreviewRoutingDiagnosticAttempt(31, 6, 4, 0x444), out CassetteDiskCommitAttempt resolvedActive), "real active attempt authorizes global diagnostic without speculative admission");
-Equal(preparedRoutingAttempt, resolvedActive, "global diagnostic prefers the real prepared attempt");
-Equal(true, routingDiagnostics.TryComplete(persistRoutingToken, out _), "persist exit remains correlated after the existing prepare transition");
-routingDiagnostics.Reset();
-Equal(false, routingDiagnostics.TryComplete(recordRoutingToken, out _), "identity reset invalidates stale routing callbacks");
-
-phaseRuntime.Stage("BADASS");
-Equal(true, phaseRuntime.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt newerAttempt), "same identity can prepare a later monotonic attempt");
-Equal(true, phaseRuntime.MarkSubmitted(newerAttempt, dirtyWrite), "later attempt is submitted");
-Equal(true, newerAttempt.Id > phaseAttempt.Id, "attempt token increases monotonically");
-Equal(CassetteDiskCommitOutcome.None, phaseRuntime.Observe(phaseAttempt, new(false, false, 12, null, null), true, TimeSpan.FromSeconds(130), out phasePending), "stale overlapping poll cannot mutate later same-identity attempt");
-Equal(true, phaseRuntime.Active, "later attempt remains active after stale poll returns");
-Equal(true, phaseRuntime.TryReportRejectedEvent(newerAttempt), "first rejected event diagnostic is admitted for an attempt");
-Equal(false, phaseRuntime.TryReportRejectedEvent(newerAttempt), "alternating rejected event stages share a fixed one-log budget");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(new(1, 7, 1, 4, 400), 4, true), "pre-submit write event is ignored");
-Equal(true, diskCommit.TryPrepare(7, 1, 4, 400, dirtyWrite, out CassetteDiskCommitAttempt diskAttempt), "dirty verified wave prepares one disk transaction");
-Equal(false, diskCommit.TryPrepare(7, 1, 4, 400, dirtyWrite, out _), "prepared wave cannot submit a duplicate persist");
-Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "dirty verified wave records successful request submission");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 3, true), "wrong-slot write event is ignored");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Generation = 8 }, 4, true), "wrong-generation write event is ignored");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Epoch = 2 }, 4, true), "wrong-epoch write event is ignored");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt with { Pointer = 401 }, 4, true), "wrong-pointer write event is ignored");
-Equal(CassetteDiskCommitEventOutcome.SuccessWake, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, true), "matching successful event wakes verification");
-Equal(CassetteDiskCommitEventOutcome.Ignored, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, true), "duplicate successful event is bounded");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, new(true, true, 10, null, null), true, TimeSpan.FromSeconds(1), out bool reportStillPending), "event cannot complete without public state proof");
-Equal(false, reportStillPending, "one second does not emit a still-pending notice");
-Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(diskAttempt, new(false, false, 11, null, null), true, TimeSpan.FromSeconds(1), out reportStillPending), "advanced successful write completes transaction");
-Equal(false, diskCommit.HasWork, "successful disk commit clears batched songs");
-
-diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out diskAttempt), "first verified wave prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "first verified wave submits");
-diskCommit.Stage("THE_HEIST");
-Equal(CassetteDiskCommitOutcome.Success, diskCommit.Observe(diskAttempt, new(false, false, 11, null, null), true, TimeSpan.Zero, out reportStillPending), "first wave can complete after a later grant verifies");
-Equal(true, diskCommit.HasWork, "grant verified after submission remains queued for its own disk transaction");
-Equal(1, diskCommit.Songs.Count, "successful write clears only the submitted wave");
-Equal("THE_HEIST", diskCommit.Songs[0], "later verified grant is never attributed to the earlier write");
-
-diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out diskAttempt), "failure case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failure case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, new(true, false, 10, 12, "IO_ERROR"), true, TimeSpan.Zero, out reportStillPending), "advanced failure fails transaction");
-Equal(false, diskCommit.HasWork, "failed wave is bounded until a new epoch or newly verified song");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext failureTimeDiagnostic), "ordinary poll failure retains one terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.FailureTimeAdvanced, failureTimeDiagnostic.FailureKind, "advanced failure time has a distinct failure kind");
-Equal(true, failureTimeDiagnostic.FailureDetail.Contains("baselineBits=<null>", StringComparison.Ordinal) && failureTimeDiagnostic.FailureDetail.Contains("currentBits=0x4028000000000000", StringComparison.Ordinal), "failure-time diagnostic includes exact baseline/current IEEE bits");
-Equal(false, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), "terminal FAILURE snapshot is bounded once");
-Equal(true, diskCommit.TryGetLastTerminalAttempt(out CassetteDiskCommitAttempt ordinaryFailureTombstone), "ordinary failure preserves terminal tombstone");
-Equal(diskAttempt, ordinaryFailureTombstone, "ordinary failure tombstone preserves attempt token");
-diskCommit.Stage("KEEP_ON_HUSTLIN");
-Equal(true, diskCommit.TryPrepare(8, 2, 4, 401, dirtyWrite, out CassetteDiskCommitAttempt postFailureAttempt), "new revision may preserve existing retry semantics after ordinary failure");
-Equal(true, diskCommit.TryGetLastTerminalAttempt(out ordinaryFailureTombstone), "later preparation does not erase prior terminal tombstone");
-Equal(diskAttempt, ordinaryFailureTombstone, "prior terminal tombstone remains until identity reset or later terminal outcome");
-Equal(false, diskCommit.TryClaimLateEvent(diskAttempt, 4), "newer same-identity attempt permanently invalidates ambiguous late-event attribution to older tombstone");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "failure-reason case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failure-reason case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite with { FailureReason = "VALIDATION_FAILED" }, true, TimeSpan.Zero, out reportStillPending), "changed failure reason retains existing fail-closed outcome");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext failureReasonDiagnostic), "failure-reason transition retains terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.FailureReasonChanged, failureReasonDiagnostic.FailureKind, "changed failure reason has a distinct failure kind");
-Equal(true, failureReasonDiagnostic.FailureDetail.Contains("current='VALIDATION_FAILED'", StringComparison.Ordinal), "failure-reason diagnostic includes current public reason");
-foreach (CassetteDiskCommitFailureDiagnostic postFailure in new[]
-{
-    CassetteDiskCommitFailureDiagnostic.IdentityUnreadable("post-identity"),
-    CassetteDiskCommitFailureDiagnostic.PointerMismatch(0x401, 0x402),
-    CassetteDiskCommitFailureDiagnostic.StatusUnreadable("BADASS", "post-status"),
-    CassetteDiskCommitFailureDiagnostic.StatusRegression("BADASS", "HAVE_NOT_EARNED"),
-    CassetteDiskCommitFailureDiagnostic.FailureTimeAdvanced(8, 9),
-    CassetteDiskCommitFailureDiagnostic.FailureReasonChanged("IO_ERROR", "VALIDATION_FAILED"),
-})
-{
-    var postSubmitRuntime = new CassetteDiskCommitRuntime();
-    postSubmitRuntime.Stage("BADASS");
-    Equal(true, postSubmitRuntime.TryPrepare(9, 2, 4, 401, dirtyWrite, out CassetteDiskCommitAttempt postSubmitAttempt), $"post-submit {postFailure.Kind} case prepares");
-    Equal(CassetteDiskCommitOutcome.HardTimeout, postSubmitRuntime.MarkSubmissionIndeterminate(postSubmitAttempt, postFailure), $"post-submit {postFailure.Kind} preserves indeterminate blocking outcome");
-    Equal(true, postSubmitRuntime.TryClaimDiagnostic(postSubmitAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext postSubmitFailureDiagnostic), $"post-submit {postFailure.Kind} exposes one terminal FAILURE snapshot");
-    Equal(postFailure.Kind, postSubmitFailureDiagnostic.FailureKind, $"post-submit {postFailure.Kind} preserves exact cause");
-    Equal(postFailure.Detail, postSubmitFailureDiagnostic.FailureDetail, $"post-submit {postFailure.Kind} preserves exact detail");
-    Equal(false, postSubmitRuntime.TryClaimDiagnostic(postSubmitAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), $"post-submit {postFailure.Kind} terminal snapshot is bounded once");
-    Equal(false, postSubmitRuntime.HasWork, $"post-submit {postFailure.Kind} remains indeterminately blocked");
-}
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "failed event case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "failed event case submits");
-Equal(CassetteDiskCommitEventOutcome.Failure, diskCommit.ObserveWriteCompletedEvent(diskAttempt, 4, false), "matching failed event fails closed immediately");
-Equal(false, diskCommit.HasWork, "failed event blocks the submitted wave");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext eventFailureDiagnostic), "failed completion event retains one terminal FAILURE snapshot");
-Equal(CassetteDiskCommitFailureKind.EventFailure, eventFailureDiagnostic.FailureKind, "failed completion event has an exact failure kind");
-Equal(false, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out _), "failed completion event terminal snapshot is bounded once");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(9, 2, 4, 401, dirtyWrite, out diskAttempt), "hard-timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "hard-timeout case submits");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(10), out reportStillPending), "native write is not terminated at ten seconds");
-Equal(false, reportStillPending, "ten seconds remains below the still-pending notice");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(1), out reportStillPending), "native write remains pending at eleven seconds");
-Equal(true, reportStillPending, "eleven seconds emits the one still-pending notice");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(118.999), out reportStillPending), "transaction remains pending immediately before hard watchdog");
-Equal(false, reportStillPending, "still-pending notice is emitted at most once");
-diskCommit.Stage("THE_HEIST");
-Equal(CassetteDiskCommitOutcome.HardTimeout, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromMilliseconds(1), out reportStillPending), "active-update hard watchdog expires at 130 seconds");
-Equal(false, reportStillPending, "hard timeout does not duplicate the pending notice");
-Equal(false, diskCommit.HasWork, "indeterminate hard-timeout wave cannot resubmit despite a newer active revision");
-diskCommit.Stage("KEEP_ON_HUSTLIN");
-Equal(false, diskCommit.HasWork, "newly staged work cannot unblock an indeterminate hard-timeout wave");
-diskCommit.Reset();
-Equal(false, diskCommit.HasWork, "identity reset clears the indeterminate transaction");
-diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 2, 4, 401, dirtyWrite, out diskAttempt), "epoch-switch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "epoch-switch case submits");
-Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Epoch = 3 }, dirtyWrite, true, TimeSpan.Zero, out reportStillPending), "stale epoch token cannot mutate transaction");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 401, dirtyWrite, out diskAttempt), "pointer-switch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "pointer-switch case submits");
-Equal(CassetteDiskCommitOutcome.None, diskCommit.Observe(diskAttempt with { Pointer = 402 }, dirtyWrite, true, TimeSpan.Zero, out reportStillPending), "stale pointer token cannot mutate transaction");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "status-regression case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "status-regression case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.Observe(diskAttempt, dirtyWrite, false, CassetteDiskCommitFailureDiagnostic.StatusRegression("BADASS", "HAVE_NOT_EARNED"), TimeSpan.Zero, out reportStillPending), "cassette status regression fails closed");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext statusRegressionDiagnostic), "status regression retains terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.StatusRegression, statusRegressionDiagnostic.FailureKind, "status regression has a distinct failure kind");
-Equal("song='BADASS' status='HAVE_NOT_EARNED'", statusRegressionDiagnostic.FailureDetail, "status regression records exact song and status");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "status-unreadable case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "status-unreadable case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.StatusUnreadable("BADASS", "status-invoke:InvalidOperationException"), TimeSpan.Zero, out reportStillPending), "unreadable status preserves existing fail-closed outcome");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext statusUnreadableDiagnostic), "unreadable status retains terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.StatusUnreadable, statusUnreadableDiagnostic.FailureKind, "unreadable status has a distinct failure kind");
-Equal("song='BADASS' stage='status-invoke:InvalidOperationException'", statusUnreadableDiagnostic.FailureDetail, "unreadable status records exact song and stage");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "identity-unreadable case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "identity-unreadable case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.IdentityUnreadable("processor-identity-obtain-state-invoke"), TimeSpan.Zero, out reportStillPending), "unreadable identity preserves existing fail-closed outcome");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext identityUnreadableDiagnostic), "unreadable identity retains terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.IdentityUnreadable, identityUnreadableDiagnostic.FailureKind, "unreadable identity has a distinct failure kind");
-Equal("stage='processor-identity-obtain-state-invoke'", identityUnreadableDiagnostic.FailureDetail, "unreadable identity records exact stage");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "pointer-mismatch case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "pointer-mismatch case submits");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObserveUnavailable(diskAttempt, false, CassetteDiskCommitFailureDiagnostic.PointerMismatch(0x402, 0x403), TimeSpan.Zero, out reportStillPending), "pointer mismatch preserves existing fail-closed outcome");
-Equal(true, diskCommit.TryClaimDiagnostic(diskAttempt, CassetteDiskCommitDiagnosticPhase.Failure, out CassetteDiskCommitDiagnosticContext pointerMismatchDiagnostic), "pointer mismatch retains terminal snapshot");
-Equal(CassetteDiskCommitFailureKind.PointerMismatch, pointerMismatchDiagnostic.FailureKind, "pointer mismatch has a distinct failure kind");
-Equal("expected=0x402 observed=0x403", pointerMismatchDiagnostic.FailureDetail, "pointer mismatch records exact pointers");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "unreadable-state timeout case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "unreadable-state timeout case submits");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObserveUnavailable(diskAttempt, true, TimeSpan.FromSeconds(11), out reportStillPending), "temporarily unreadable write state remains pending within the hard bound");
-Equal(true, reportStillPending, "unreadable public state emits the same bounded pending notice");
-Equal(CassetteDiskCommitOutcome.HardTimeout, diskCommit.ObserveUnavailable(diskAttempt, true, TimeSpan.FromSeconds(119), out reportStillPending), "unreadable write state cannot postpone hard timeout indefinitely");
-diskCommit.Reset(); diskCommit.Stage("BADASS"); Equal(true, diskCommit.TryPrepare(10, 3, 4, 402, dirtyWrite, out diskAttempt), "unreadable-state identity case prepares"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "unreadable-state identity case submits");
-Equal(CassetteDiskCommitOutcome.None, diskCommit.ObserveUnavailable(diskAttempt with { Pointer = 403 }, true, TimeSpan.Zero, out reportStillPending), "stale identity token cannot mutate transaction when write state is unreadable");
-diskCommit.Reset(); diskCommit.Stage("BADASS");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromSeconds(9), out bool reportDeferred), "pre-submit state acquisition remains pending within its bound");
-Equal(true, reportDeferred, "pre-submit acquisition reports its first deferred read");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromMilliseconds(999), out reportDeferred), "pre-submit acquisition remains pending immediately before timeout");
-Equal(false, reportDeferred, "repeated pre-submit failure is not reported again");
-Equal(CassetteDiskCommitOutcome.Timeout, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromMilliseconds(1), out reportDeferred), "pre-submit acquisition times out after ten seconds");
-Equal(false, reportDeferred, "terminal timeout does not duplicate the initial deferred report");
-Equal(false, diskCommit.HasWork, "timed-out pre-submit wave is blocked");
-Equal(CassetteDiskCommitOutcome.None, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.FromSeconds(10), out reportDeferred), "blocked pre-submit wave cannot restart itself");
-Equal(false, reportDeferred, "blocked pre-submit wave emits no further deferred reports");
-diskCommit.Stage("THE_HEIST");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(4, 4, 404, false, 0, false, TimeSpan.Zero, out reportDeferred), "new revision unblocks pre-submit acquisition");
-Equal(true, reportDeferred, "new work revision receives one new deferred report");
-diskCommit.Reset(); diskCommit.Stage("BADASS");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(5, 4, 405, true, 405, true, TimeSpan.Zero, out reportDeferred), "matching identity begins pre-submit acquisition");
-Equal(CassetteDiskCommitOutcome.Cancelled, diskCommit.ObservePreSubmitUnavailable(5, 4, 405, true, 406, false, TimeSpan.Zero, out reportDeferred), "readable pointer change fails closed during pre-submit acquisition");
-Equal(false, diskCommit.HasWork, "identity-changed pre-submit wave is blocked until reset");
-diskCommit.Reset(); diskCommit.Stage("BADASS");
-Equal(CassetteDiskCommitOutcome.Failure, diskCommit.ObservePreSubmitUnavailable(6, 4, 406, true, 406, false, TimeSpan.Zero, out reportDeferred), "status regression fails closed before submission");
-diskCommit.Reset(); diskCommit.Stage("BADASS");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.ObservePreSubmitUnavailable(7, 4, 407, true, 407, true, TimeSpan.FromSeconds(9), out reportDeferred), "identity reset starts a fresh acquisition bound");
-Equal(true, diskCommit.TryPrepare(11, 7, 4, 407, dirtyWrite, out diskAttempt), "readable state prepares transaction after pre-submit acquisition"); Equal(true, diskCommit.MarkSubmitted(diskAttempt, dirtyWrite), "readable state submits after acquisition");
-Equal(CassetteDiskCommitOutcome.Pending, diskCommit.Observe(diskAttempt, dirtyWrite, true, TimeSpan.FromSeconds(9), out reportStillPending), "pre-submit acquisition time is not charged to submitted write confirmation");
-diskCommit.Reset();
-Equal(false, diskCommit.TryPrepare(12, 3, 4, 402, dirtyWrite, out _), "no verified songs means no persist");
 var alreadyDurableEpoch = new CassetteSaveEpochRuntime(); alreadyDurableEpoch.Receive("BADASS"); alreadyDurableEpoch.ActivateSave(4);
 alreadyDurableEpoch.Observe("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(false, alreadyDurableEpoch.IsPending("BADASS"), "already durable cassette status queues no grant or disk transaction");
-Console.WriteLine("PASS: retired_disk_commit_runtime_has_no_production_wiring");
+Console.WriteLine("PASS: already_durable_cassette_needs_no_grant");
 
 
 foreach (var triggerGroup in CassetteCatalog.All
@@ -2075,25 +1699,6 @@ Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSave(out _), "loaded sav
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x400));
 Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSave(out int selectedSlot), "loaded save accepts matching slot and state enquiries");
 Equal(4, selectedSlot, "loaded save returns selected slot number");
-Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out int identitySlot, out long identityPointer), "loaded save identity reads public native pointer");
-Equal(4, identitySlot, "loaded save identity preserves slot");
-Equal(0x400L, identityPointer, "loaded save identity preserves pointer");
-Equal(true, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out string identityStage), "diagnostic identity overload succeeds");
-Equal("success", identityStage, "identity success stage is bounded");
-PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: false, value: 0);
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "empty slot fails closed");
-Equal("slot-empty", identityStage, "empty slot has exact stage");
-PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(hasValue: true, value: 4);
-PlayerSaveManagementEnquiries.SelectedState = null;
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "null state fails closed");
-Equal("state-null", identityStage, "null state has exact stage");
-PlayerSaveManagementEnquiries.SelectedState = new object();
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "missing pointer fails closed");
-Equal("pointer-missing", identityStage, "missing pointer has exact stage");
-PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(IntPtr.Zero);
-Equal(false, CassetteSaveTransactionAdapter.TryGetLoadedSaveIdentity(out _, out _, out identityStage), "zero pointer fails closed");
-Equal("pointer-zero", identityStage, "zero pointer has exact stage");
-
 var transactionState = new TransactionSaveState(eSongCassetteStatus.HAVE_IN_BAG);
 var transactionProcessor = new PlayerSaveRequestProcessor(transactionState);
 Equal(true, CassetteSaveTransactionAdapter.TryReadCassetteStatus(transactionProcessor, nameof(ePlayableSong.QUIERES_BAILAR), out string? transactionStatus), "transaction adapter reads current processor state");
@@ -2173,12 +1778,9 @@ Equal(0, RecordSongCassetteStatusInSaveDataRequest.SemanticConstructorCalls, "su
 Equal(0, semanticProcessor.LastRequest.BundleSetterCalls, "submission never invokes the broken nullable setter");
 Equal("actualSong='QUIERES_BAILAR' actualStatus='HAVE_IN_BAG' actualBundle='present=False value=<null>' effectiveBundle='DEFAULT/1(native absent fallback)'", submitDetail, "submission detail reports verified absence and the native fallback");
 var publicWriteProcessor = new PublicWriteProcessorFixture(new PublicWriteStateFixture());
-Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(publicWriteProcessor, out CassettePublicWriteState publicWriteState, out string publicWriteStage), "adapter reads the public write-completion contract");
-Equal(new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"), publicWriteState, "adapter returns exact public write-completion values");
-Equal("success", publicWriteStage, "public write-completion read reports success");
 GameTimeEnquiries.CurrentGameTime = new FakeGameTime(10.5);
 Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassettePublicWriteDiagnosticState publicDiagnosticState, out string publicDiagnosticStage), "adapter reads one public diagnostic save-state snapshot");
-Equal(publicWriteState, publicDiagnosticState.WriteState, "diagnostic state preserves the exact public write state");
+Equal(new CassettePublicWriteState(true, false, 10, 8, "IO_ERROR"), publicDiagnosticState.WriteState, "diagnostic state preserves the exact public write state");
 Equal(0x700L, publicDiagnosticState.StatePointer, "diagnostic state preserves the public state pointer");
 Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), publicDiagnosticState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "diagnostic state reads statuses from the same public state object");
 Equal(10.5, publicDiagnosticState.CurrentGameTime, "diagnostic state reads public current GameTime");
@@ -2186,60 +1788,6 @@ Equal(true, publicDiagnosticState.HasUnstagedChanges, "diagnostic state reads pu
 Equal(2, publicDiagnosticState.RedundancyBundleIndex, "diagnostic state reads public redundancy index");
 Equal(7, publicDiagnosticState.RedundancyBundleRevision, "diagnostic state reads public redundancy revision");
 Equal("success", publicDiagnosticStage, "public diagnostic state reports success");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteLifecycleDiagnosticState(publicWriteProcessor, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassettePublicWriteDiagnosticState lifecycleDiagnosticState, out string lifecycleDiagnosticStage), "lifecycle diagnostic reads one public state object without rejecting a rebuilt pointer");
-Equal(0x700L, lifecycleDiagnosticState.StatePointer, "lifecycle diagnostic reports the observed public pointer");
-Equal(2, lifecycleDiagnosticState.RedundancyBundleIndex, "lifecycle diagnostic reports observed redundancy index");
-Equal(7, lifecycleDiagnosticState.RedundancyBundleRevision, "lifecycle diagnostic reports observed redundancy revision");
-Equal(10d, lifecycleDiagnosticState.WriteState.LastSuccessTime, "lifecycle diagnostic reports nullable public success time");
-Equal(8d, lifecycleDiagnosticState.WriteState.LastFailureTime, "lifecycle diagnostic reports nullable public failure time");
-Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), lifecycleDiagnosticState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "lifecycle diagnostic reports active-song status from the same public state object");
-Equal("success", lifecycleDiagnosticStage, "lifecycle diagnostic reports success");
-var recordRoutingRequest = new RoutingFixture.RecordSongCassetteStatusInSaveDataRequest(
-    ePlayableSong.BADASS,
-    eSongCassetteStatus.HAVE_IN_BAG,
-    new(true, ePlayerSaveChangeBundleKey.DEFAULT));
-Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(recordRoutingRequest, out CassetteRecordSongRoutingPayload recordPayload, out string routingStage), "record-song diagnostic reads the exact public request payload");
-Equal(new CassetteRecordSongRoutingPayload(nameof(ePlayableSong.BADASS), nameof(eSongCassetteStatus.HAVE_IN_BAG), true, nameof(ePlayerSaveChangeBundleKey.DEFAULT)), recordPayload, "record-song payload preserves song, status, and nullable bundle");
-Equal("success", routingStage, "record-song payload reports success");
-Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new RoutingFixture.RecordSongCassetteStatusInSaveDataRequest(ePlayableSong.BADASS, eSongCassetteStatus.HAVE_IN_BAG, new(false, default)), out recordPayload, out routingStage), "record-song diagnostic preserves an empty public nullable bundle");
-Equal(false, recordPayload.BundlePresent, "empty record-song bundle remains absent");
-Equal<string?>(null, recordPayload.Bundle, "empty record-song bundle does not invent DEFAULT");
-Equal(true, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new EmptyInteropRoutingFixture.RecordSongCassetteStatusInSaveDataRequest(), out recordPayload, out routingStage), "proven IL2CPP empty record-song bundle is normalized diagnostically");
-Equal(false, recordPayload.BundlePresent, "IL2CPP empty record-song bundle remains absent");
-Equal(false, CassetteSaveTransactionAdapter.TryReadRecordSongCassetteStatusRequest(new ThrowingRoutingFixture.RecordSongCassetteStatusInSaveDataRequest(), out _, out routingStage), "throwing public record-song status fails diagnostically");
-Equal("routing-record-status-get-invocation:InvalidOperationException:record-status", routingStage, "throwing record-song status identifies its exact stage");
-var persistRoutingRequest = new RoutingFixture.PersistSaveChangeBundleRequest(new(true, ePlayerSaveChangeBundleKey.DEFAULT), eSaveFileWriteType.URGENT);
-Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(persistRoutingRequest, out CassettePersistBundleRoutingPayload persistPayload, out routingStage), "narrow persist diagnostic reads the exact public request payload");
-Equal(new CassettePersistBundleRoutingPayload(true, nameof(ePlayerSaveChangeBundleKey.DEFAULT), nameof(eSaveFileWriteType.URGENT)), persistPayload, "narrow persist payload preserves nullable bundle and write type");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new RoutingFixture.PersistSaveChangeBundleRequest(new(false, default), eSaveFileWriteType.URGENT), out persistPayload, out routingStage), "narrow persist diagnostic preserves an absent managed nullable bundle");
-Equal(false, persistPayload.BundlePresent, "absent managed narrow-persist bundle remains absent");
-Equal<string?>(null, persistPayload.Bundle, "absent managed narrow-persist bundle does not invent DEFAULT");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new EmptyInteropRoutingFixture.PersistSaveChangeBundleRequest(), out persistPayload, out routingStage), "proven IL2CPP empty narrow-persist bundle is normalized diagnostically");
-Equal(false, persistPayload.BundlePresent, "IL2CPP empty narrow-persist bundle remains absent");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new ThrowingRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "throwing public narrow-persist bundle fails diagnostically");
-Equal("routing-persist-bundle-get-invocation:InvalidOperationException:persist-bundle", routingStage, "throwing narrow-persist bundle identifies its exact stage");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new ThrowingWriteTypeRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "throwing public narrow-persist write type fails diagnostically");
-Equal("routing-persist-write-type-get-invocation:InvalidOperationException:persist-write-type", routingStage, "throwing narrow-persist write type identifies its exact stage");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPersistSaveChangeBundleRequest(new EmptyRoutingFixture.PersistSaveChangeBundleRequest(), out _, out routingStage), "empty public narrow-persist write type fails diagnostically");
-Equal("routing-persist-write-type-empty", routingStage, "empty narrow-persist write type identifies its exact stage");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new PersistAllSaveChangeBundlesRequest(eSaveFileWriteType.NON_URGENT), out string? persistAllWriteType, out routingStage), "persist-all diagnostic reads its public write type");
-Equal(nameof(eSaveFileWriteType.NON_URGENT), persistAllWriteType, "persist-all diagnostic preserves actual write type");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new ThrowingRoutingFixture.PersistAllSaveChangeBundlesRequest(), out _, out routingStage), "throwing public persist-all write type fails diagnostically");
-Equal("routing-persist-all-write-type-get-invocation:InvalidOperationException:persist-all-write-type", routingStage, "throwing persist-all write type identifies its exact stage");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPersistAllSaveChangeBundlesRequest(new EmptyRoutingFixture.PersistAllSaveChangeBundlesRequest(), out _, out routingStage), "empty public persist-all write type fails diagnostically");
-Equal("routing-persist-all-write-type-empty", routingStage, "empty persist-all write type identifies its exact stage");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveBundleRoutingState(publicWriteProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out CassetteBundleRoutingState playerRoutingState, out routingStage), "record-song boundary reads one coherent public player state");
-Equal(0x700L, playerRoutingState.StatePointer, "record-song boundary preserves exact public state pointer");
-Equal(true, playerRoutingState.HasUnstagedChanges, "record-song boundary preserves public unstaged flag");
-Equal(nameof(eSongCassetteStatus.HAVE_IN_BAG), playerRoutingState.Statuses[nameof(ePlayableSong.QUIERES_BAILAR)], "record-song boundary reads status from the same state object");
-var saveDataRoutingProcessor = new SaveDataBundleRoutingProcessorFixture(
-    new SaveDataBundleRoutingStateFixture(new(true, 4), new() { [4] = new PublicWriteStateFixture() }));
-Equal(true, CassetteSaveTransactionAdapter.TryReadSaveDataBundleRoutingState(saveDataRoutingProcessor, 0x700, new[] { nameof(ePlayableSong.QUIERES_BAILAR) }, out int routingSlot, out CassetteBundleRoutingState saveDataRoutingState, out routingStage), "save-data boundary reads its own selected public player state");
-Equal(4, routingSlot, "save-data boundary preserves actual public selected slot");
-Equal(0x700L, saveDataRoutingState.StatePointer, "save-data boundary correlates the expected player-state pointer");
-Equal(true, saveDataRoutingState.HasUnstagedChanges, "save-data boundary preserves public unstaged flag");
-Equal(false, CassetteSaveTransactionAdapter.TryReadSaveDataBundleRoutingState(new SaveDataBundleRoutingProcessorFixture(new MissingSelectedSlotSaveDataBundleRoutingStateFixture()), 0x700, Array.Empty<string>(), out _, out _, out routingStage), "missing public selected slot fails at the exact routing stage");
-Equal("routing-save-data-selected-slot-missing", routingStage, "missing public selected slot has an exact stage");
 var playerTargetState = new DiskCommitTargetPlayerStateFixture(
     new IntPtr(0x700), eSongCassetteStatus.HAVE_IN_BAG, eSongCassetteStatus.INVALID,
     hasUnstagedChanges: true, hasChanges: true, requiresWriteToDisk: true, defaultBundleChanges: 2);
@@ -2260,7 +1808,7 @@ RequestSystem.SetRegisteredProcessors(new DirectLookupRegistryFixture(new()
     [new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest))] = new RegisteredRequestProcessor(registeredPersistProcessorWrapper),
 }));
 bool targetReadable = CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
     out CassetteDiskCommitTargetDiagnosticState targetDiagnostic, out int targetRegistryCount, out string targetStage);
 Equal("success", targetStage, "target diagnostic reports success");
@@ -2295,7 +1843,7 @@ var missingSelectedRegisteredProcessor = new SaveDataRequestProcessor(new IntPtr
 var missingSelectedRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), missingSelectedRegisteredProcessor);
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(missingSelectedRegisteredWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
     out CassetteDiskCommitTargetDiagnosticState missingSelectedDiagnostic,
     out int missingSelectedRegistryCount,
@@ -2321,7 +1869,7 @@ var emptySelectedRegisteredProcessor = new SaveDataRequestProcessor(new IntPtr(0
 var emptySelectedRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), emptySelectedRegisteredProcessor);
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(emptySelectedRegisteredWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
     out CassetteDiskCommitTargetDiagnosticState emptySelectedDiagnostic,
     out _,
@@ -2349,7 +1897,7 @@ foreach ((object saveDataState, string expectedStagePrefix, string caseName) in 
     var selectedFailureRegisteredWrapper = new RequestProcessor(new IntPtr(0x444), selectedFailureRegisteredProcessor);
     RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(selectedFailureRegisteredWrapper));
     Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-        targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+        targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
         new[] { nameof(ePlayableSong.QUIERES_BAILAR) },
         out CassetteDiskCommitTargetDiagnosticState selectedFailureDiagnostic,
         out _, out string selectedFailureStage),
@@ -2385,18 +1933,6 @@ Equal(true, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvo
 Equal("success", pointerBoundStage, "pointer-bound plan preparation reports success");
 Equal(0, pointerBoundCalls.Count, "plan resolution performs no persistence mutation");
 
-var synchronousAdapterRuntime = new CassettePointerBoundPersistenceAcceptanceRuntime();
-synchronousAdapterRuntime.BeginEpoch(acceptanceIdentity);
-synchronousAdapterRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out CassettePersistenceAcceptanceAttempt synchronousAdapterAttempt);
-CassettePersistenceAcceptanceEventOutcome synchronousAdapterEvent = CassettePersistenceAcceptanceEventOutcome.Ignored;
-var synchronousMarkerOrder = new List<string> { "PRE" };
-pointerBoundState.OnUrgentWrite = () =>
-{
-    synchronousAdapterEvent = synchronousAdapterRuntime.ObserveWriteCompletedEvent(
-        synchronousAdapterAttempt, 4, succeeded: false);
-    if (synchronousAdapterEvent != CassettePersistenceAcceptanceEventOutcome.Ignored)
-        synchronousMarkerOrder.Add("EVENT");
-};
 Equal(CassettePointerBoundPersistenceInvocationResult.Invoked,
     CassetteSaveTransactionAdapter.InvokePointerBoundPersistence(
         pointerBoundPlan, out string pointerBoundInvokeStage),
@@ -2404,14 +1940,6 @@ Equal(CassettePointerBoundPersistenceInvocationResult.Invoked,
 Equal("success", pointerBoundInvokeStage, "successful pointer-bound invocation reports success");
 SequenceEqual(new[] { "PersistAllChangesInBundle:DEFAULT:1", "RequestUrgentWriteToDisk" }, pointerBoundCalls,
     "pointer-bound invocation calls DEFAULT promotion then urgent write exactly once on the same state");
-if (synchronousAdapterRuntime.MarkInvoked(synchronousAdapterAttempt))
-    synchronousMarkerOrder.Add("INVOKED");
-Equal(CassettePersistenceAcceptanceEventOutcome.FailureWake, synchronousAdapterEvent,
-    "attempt token exists before a synchronous uncorrelated failure callback from the urgency call");
-SequenceEqual(new[] { "PRE", "EVENT", "INVOKED" }, synchronousMarkerOrder,
-    "synchronous failure hint logs EVENT before INVOKED and emits no terminal FAILED marker");
-Equal(true, synchronousAdapterRuntime.Active,
-    "synchronous uncorrelated failure event leaves the invoked trial pending for public-state polling");
 Equal(0, RequestSystem.SubmitCount, "pointer-bound invocation never constructs or submits a generic request");
 
 Equal(false, CassetteSaveTransactionAdapter.TryPreparePointerBoundPersistenceInvocation(
@@ -2452,69 +1980,7 @@ foreach ((bool ThrowPromotion, bool ThrowUrgency, CassettePointerBoundPersistenc
 }
 Console.WriteLine("PASS: pointer_bound_acceptance_adapter_uses_exact_public_state_methods_in_order");
 
-var synchronizationDiagnosticGlobalState = new DiskCommitTargetSaveDataStateFixture(
-    new IntPtr(0x333), new(true, 0), new());
-var synchronizationDiagnosticProcessor = new SaveDataRequestProcessor(new IntPtr(0x222), synchronizationDiagnosticGlobalState);
-var synchronizationDiagnosticWrapper = new RequestProcessor(new IntPtr(0x222), synchronizationDiagnosticProcessor);
-RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(synchronizationDiagnosticWrapper));
 PlayerSaveManagementEnquiries.ResetDiagnosticState();
-Equal(false, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
-    synchronizationDiagnosticProcessor,
-    out CassetteSaveSynchronizationObservationState preLoadSynchronizationDiagnostic,
-    out string preLoadSynchronizationStage),
-    "pre-load unavailable enquiries remain diagnostic-only and unreadable");
-Equal(false, preLoadSynchronizationDiagnostic.HasEnquirySlot, "pre-load diagnostic cannot invent an enquiry slot");
-Equal(false, preLoadSynchronizationDiagnostic.HasEnquiryStatePointer, "pre-load diagnostic cannot invent an enquiry state pointer");
-Equal(true, preLoadSynchronizationDiagnostic.HasValidExistingSaveSelected, "public validity enquiry remains independently observable before load");
-Equal(false, preLoadSynchronizationDiagnostic.IsAValidExistingSaveSelected, "pre-load validity enquiry reports false");
-Equal(true, preLoadSynchronizationDiagnostic.HasRegisteredPersistProcessorPointer, "pre-load diagnostic preserves registered processor identity");
-Equal(0x222L, preLoadSynchronizationDiagnostic.RegisteredPersistProcessorPointer, "pre-load diagnostic reads the exact registered processor pointer");
-Equal(true, preLoadSynchronizationDiagnostic.HasRetainedSaveDataProcessorPointer, "pre-load diagnostic preserves retained processor identity");
-Equal(true, preLoadSynchronizationDiagnostic.ProcessorPointersMatch, "pre-load diagnostic proves registered and retained processor identity match");
-Equal(true, preLoadSynchronizationDiagnostic.HasRegisteredSelectedSlot, "pre-load diagnostic preserves the registered SaveData selected slot");
-Equal(0, preLoadSynchronizationDiagnostic.RegisteredSelectedSlot, "pre-load diagnostic exposes the unreliable global slot zero");
-Equal("enquiry-slot-empty", preLoadSynchronizationDiagnostic.EnquiryStage, "pre-load diagnostic preserves the first exact enquiry failure");
-Equal("readiness-selected-slot-observed", preLoadSynchronizationDiagnostic.RegisteredStateStage, "pre-load diagnostic records the exact registered-state observation stage");
-Equal(false, string.IsNullOrWhiteSpace(preLoadSynchronizationStage), "pre-load diagnostic returns a bounded combined stage");
-
-PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 4);
-PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
-PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
-Equal(true, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
-    synchronizationDiagnosticProcessor,
-    out CassetteSaveSynchronizationObservationState loadedSynchronizationDiagnostic,
-    out string loadedSynchronizationStage),
-    "loaded-save enquiries remain readable while registered SaveData still reports slot zero");
-Equal(4, loadedSynchronizationDiagnostic.EnquirySlot, "loaded diagnostic preserves public enquiry slot four");
-Equal(0x700L, loadedSynchronizationDiagnostic.EnquiryStatePointer, "loaded diagnostic preserves public enquiry state pointer");
-Equal(true, loadedSynchronizationDiagnostic.IsAValidExistingSaveSelected, "loaded diagnostic preserves public validity result");
-Equal(0, loadedSynchronizationDiagnostic.RegisteredSelectedSlot, "loaded diagnostic independently preserves registered global slot zero");
-Equal(true, loadedSynchronizationDiagnostic.ProcessorPointersMatch, "loaded diagnostic keeps registered-retained identity proof separate from slot readiness");
-Equal("success", loadedSynchronizationStage, "fully readable comparison reports success without authorizing the gate");
-
-PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 3);
-PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x900));
-Equal(true, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
-    synchronizationDiagnosticProcessor,
-    out CassetteSaveSynchronizationObservationState mismatchedSynchronizationDiagnostic,
-    out _),
-    "mismatched loaded-save enquiries remain observable diagnostics");
-Equal(3, mismatchedSynchronizationDiagnostic.EnquirySlot, "mismatch diagnostic preserves the observed enquiry slot");
-Equal(0x900L, mismatchedSynchronizationDiagnostic.EnquiryStatePointer, "mismatch diagnostic preserves the observed enquiry pointer");
-
-PlayerSaveManagementEnquiries.ThrowOnSlotRead = true;
-Equal(false, CassetteSaveTransactionAdapter.TryReadSaveSynchronizationObservationDiagnostic(
-    synchronizationDiagnosticProcessor,
-    out CassetteSaveSynchronizationObservationState throwingSynchronizationDiagnostic,
-    out string throwingSynchronizationStage),
-    "throwing public enquiry is contained inside the diagnostic boundary");
-Equal("enquiry-slot-get-invocation:InvalidOperationException:diagnostic-slot-read", throwingSynchronizationDiagnostic.EnquiryStage, "throwing slot enquiry has an exact stage");
-Equal(true, throwingSynchronizationDiagnostic.HasRegisteredSelectedSlot, "throwing enquiry does not discard the independently readable registered selected slot");
-Equal(false, string.IsNullOrWhiteSpace(throwingSynchronizationStage), "throwing diagnostic returns a bounded combined stage");
-PlayerSaveManagementEnquiries.ResetDiagnosticState();
-Equal(0, RequestSystem.SubmitCount, "synchronization comparison diagnostics never submit a request");
-Console.WriteLine("PASS: save_synchronization_observation_diagnostics_are_public_bounded_and_behavior_neutral");
-
 PlayerSaveManagementEnquiries.SelectedSlot = new FakeIl2CppNullable<int>(true, 0);
 PlayerSaveManagementEnquiries.SelectedState = new FakePlayerSavePublicState(new IntPtr(0x700));
 PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
@@ -2632,141 +2098,31 @@ PlayerSaveManagementEnquiries.ResetDiagnosticState();
 Console.WriteLine("PASS: delayed_verification_reproves_selected_save_identity_before_status_read");
 
 PlayerSaveManagementEnquiries.ResetDiagnosticState();
-SongCassetteEnquiries.ResetDiagnosticState();
-var selectedPostLoadState = new PostLoadCassetteState(
-    pointer: 0x700,
-    hasUnstagedChanges: false,
-    effectiveStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>
-    {
-        [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_IN_BAG,
-        [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
-        [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
-        [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
-    },
-    canonicalStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>
-    {
-        [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_NOT_EARNED,
-        [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
-        [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
-        [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
-    });
-var processorPostLoadState = new PostLoadCassetteState(
-    pointer: 0x700,
-    hasUnstagedChanges: false,
-    effectiveStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>(),
-    canonicalStatuses: new Dictionary<ePlayableSong, eSongCassetteStatus>());
+var identityOnlyState = new SelectedIdentityOnlyState { PointerValue = new IntPtr(0x700) };
+PlayerSaveManagementEnquiries.SelectedState = identityOnlyState;
 PlayerSaveManagementEnquiries.ValidExistingSaveSelected = true;
-PlayerSaveManagementEnquiries.SelectedState = selectedPostLoadState;
-SongCassetteEnquiries.Statuses = new Dictionary<ePlayableSong, eSongCassetteStatus>
-{
-    [ePlayableSong.BADASS] = eSongCassetteStatus.HAVE_IN_BAG,
-    [ePlayableSong.HEAVY_METAL] = eSongCassetteStatus.HAVE_NOT_EARNED,
-    [ePlayableSong.KEEP_ON_HUSTLIN] = eSongCassetteStatus.HAVE_IN_BAG,
-    [ePlayableSong.ON_THE_WAY] = eSongCassetteStatus.HAVE_NOT_EARNED,
-};
-SongCassetteEnquiries.BagSongs = new() { ePlayableSong.BADASS, ePlayableSong.KEEP_ON_HUSTLIN };
-string[] postLoadSongs = { "BADASS", "HEAVY_METAL", "KEEP_ON_HUSTLIN", "ON_THE_WAY" };
-CassettePostLoadDiagnosticState postLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
-    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
-Equal(true, postLoadDiagnostic.SelectionValid.Readable, "post-load diagnostic reads public selected-save validity");
-Equal(true, postLoadDiagnostic.SelectionValid.Value, "post-load diagnostic preserves valid selected-save result");
-Equal("success", postLoadDiagnostic.SelectionValid.Stage, "post-load validity includes its exact stage");
-Equal(0x700L, postLoadDiagnostic.SelectedStatePointer.Value, "post-load diagnostic reads selected-state pointer");
-Equal(0x700L, postLoadDiagnostic.ProcessorStatePointer.Value, "post-load diagnostic reads processor-state pointer");
-Equal(false, postLoadDiagnostic.HasUnstagedChanges.Value, "post-load diagnostic reads public unstaged state");
-Equal(2, postLoadDiagnostic.BagCount.Value, "post-load diagnostic reads public UI bag count");
-Equal(true, postLoadDiagnostic.HasAnyBagCassettes.Value, "post-load diagnostic reads public UI any-bag state");
-SequenceEqual(new[] { "BADASS", "KEEP_ON_HUSTLIN" }, postLoadDiagnostic.BagSongs.Value!, "post-load diagnostic reads public UI bag list");
-CassettePostLoadSongDiagnostic badassPostLoad = postLoadDiagnostic.Songs.Single(song => song.Song == "BADASS");
-Equal("HAVE_IN_BAG", badassPostLoad.EffectiveStatus.Value, "post-load diagnostic reads effective selected-state status");
-Equal("HAVE_NOT_EARNED", badassPostLoad.CanonicalStatus.Value, "post-load diagnostic reads canonical selected-state status");
-Equal("HAVE_IN_BAG", badassPostLoad.EnquiryStatus.Value, "post-load diagnostic reads public static enquiry status");
-Equal(true, badassPostLoad.InUiBag.Value, "post-load diagnostic derives per-song UI bag membership from fetched list");
-Equal(false, postLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").InUiBag.Value, "post-load diagnostic reports absent UI bag song");
-string formattedPostLoad = CassetteSaveTransactionAdapter.FormatCassettePostLoadDiagnostic(postLoadDiagnostic);
-Equal(true, formattedPostLoad.Contains("BADASS{effective=HAVE_IN_BAG@success canonical=HAVE_NOT_EARNED@success enquiry=HAVE_IN_BAG@success uiBag=True@success}", StringComparison.Ordinal), "compact diagnostic preserves effective/canonical/enquiry/UI evidence");
-Equal(0, RequestSystem.SubmitCount, "post-load diagnostic never submits a request");
-Console.WriteLine("PASS: post_load_cassette_snapshot_reads_matching_public_state_and_ui_bag");
-
-PlayerSaveManagementEnquiries.SelectedState = new PostLoadCassetteState(
-    pointer: 0x701,
-    hasUnstagedChanges: true,
-    effectiveStatuses: selectedPostLoadState.EffectiveStatuses,
-    canonicalStatuses: selectedPostLoadState.CanonicalStatuses);
-CassettePostLoadDiagnosticState divergentPostLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
-    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
-Equal(0x701L, divergentPostLoadDiagnostic.SelectedStatePointer.Value, "post-load diagnostic preserves divergent selected pointer");
-Equal(0x700L, divergentPostLoadDiagnostic.ProcessorStatePointer.Value, "post-load diagnostic independently preserves processor pointer");
-Equal(0, RequestSystem.SubmitCount, "pointer-divergence observation never submits a request");
-Console.WriteLine("PASS: post_load_cassette_snapshot_exposes_pointer_divergence");
-
+Equal(new CassetteSelectedSaveIdentity(true, 0x700),
+    CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(transactionProcessor),
+    "selected save identity needs only validity and pointer");
 PlayerSaveManagementEnquiries.ThrowOnValidityRead = true;
-var partialPostLoadState = new PostLoadCassetteState(
-    pointer: 0x702,
-    hasUnstagedChanges: true,
-    effectiveStatuses: selectedPostLoadState.EffectiveStatuses,
-    canonicalStatuses: selectedPostLoadState.CanonicalStatuses)
-{
-    ThrowEffectiveSong = ePlayableSong.HEAVY_METAL,
-};
-PlayerSaveManagementEnquiries.SelectedState = partialPostLoadState;
-SongCassetteEnquiries.ThrowStatusSong = ePlayableSong.KEEP_ON_HUSTLIN;
-SongCassetteEnquiries.ThrowOnCount = true;
-CassettePostLoadDiagnosticState partialPostLoadDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
-    new ThrowingPostLoadCassetteProcessor(), postLoadSongs);
-Equal(false, partialPostLoadDiagnostic.SelectionValid.Readable, "throwing validity remains unavailable");
-Equal("selection-validity-get-invocation:InvalidOperationException:diagnostic-validity-read", partialPostLoadDiagnostic.SelectionValid.Stage, "throwing validity preserves exact stage");
-Equal(0x702L, partialPostLoadDiagnostic.SelectedStatePointer.Value, "later selected pointer survives independent validity failure");
-Equal(true, partialPostLoadDiagnostic.HasUnstagedChanges.Value, "later unstaged evidence survives independent validity failure");
-Equal(false, partialPostLoadDiagnostic.ProcessorStatePointer.Readable, "throwing processor pointer remains unavailable");
-Equal(false, partialPostLoadDiagnostic.BagCount.Readable, "throwing bag count remains unavailable");
-Equal(true, partialPostLoadDiagnostic.HasAnyBagCassettes.Readable, "independent any-bag evidence survives count failure");
-Equal(true, partialPostLoadDiagnostic.BagSongs.Readable, "independent bag list evidence survives count failure");
-Equal(false, partialPostLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").EffectiveStatus.Readable, "one throwing effective status does not erase other evidence");
-Equal("HAVE_NOT_EARNED", partialPostLoadDiagnostic.Songs.Single(song => song.Song == "HEAVY_METAL").CanonicalStatus.Value, "canonical status survives same-song effective failure");
-Equal(false, partialPostLoadDiagnostic.Songs.Single(song => song.Song == "KEEP_ON_HUSTLIN").EnquiryStatus.Readable, "one throwing static enquiry is isolated");
-Equal("HAVE_IN_BAG", partialPostLoadDiagnostic.Songs.Single(song => song.Song == "BADASS").EffectiveStatus.Value, "another song remains readable after partial failures");
-Equal(0, RequestSystem.SubmitCount, "partial post-load diagnostic failures never submit a request");
-
-partialPostLoadState.ThrowOnPointerRead = true;
-partialPostLoadState.ThrowOnHasUnstagedRead = true;
+Equal(new CassetteSelectedSaveIdentity(false, 0x700),
+    CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(transactionProcessor),
+    "an unreadable validity flag cannot authorize a write, even when the pointer matches");
 PlayerSaveManagementEnquiries.ThrowOnValidityRead = false;
-CassettePostLoadDiagnosticState throwingSelectedMembersDiagnostic = CassetteSaveTransactionAdapter.ReadCassettePostLoadDiagnostic(
-    new PostLoadCassetteProcessor(processorPostLoadState), postLoadSongs);
-Equal(false, throwingSelectedMembersDiagnostic.SelectedStatePointer.Readable, "throwing selected pointer is isolated as unavailable");
-Equal(false, throwingSelectedMembersDiagnostic.HasUnstagedChanges.Readable, "throwing HasUnstagedChanges is isolated as unavailable");
-Equal(true, throwingSelectedMembersDiagnostic.SelectionValid.Value, "validity evidence survives throwing selected-state properties");
-Equal("HAVE_IN_BAG", throwingSelectedMembersDiagnostic.Songs.Single(song => song.Song == "BADASS").EffectiveStatus.Value, "status evidence survives throwing selected-state properties");
-Equal(true, throwingSelectedMembersDiagnostic.BagSongs.Readable, "UI bag evidence survives throwing selected-state properties");
-Console.WriteLine("PASS: post_load_cassette_snapshot_preserves_partial_readable_evidence");
-
-string scanHub6Source = ExtractMethods(pluginSource, "private static void ScanHub6(").Single();
-string scanGarageSource = ExtractMethods(pluginSource, "private static void ScanGarage(").Single();
-var liveHubGate = new CassettePostLoadSnapshotLiveGate();
-int gatedSnapshotReads = 0;
-int gatedDeferredLogs = 0;
-foreach (bool phoneBankLive in new[] { false, false, true })
-{
-    CassettePostLoadSnapshotGateDecision decision = liveHubGate.Observe(phoneBankLive);
-    if (decision.ReadSnapshot) gatedSnapshotReads++;
-    if (decision.LogDeferred) gatedDeferredLogs++;
-}
-Equal(1, gatedSnapshotReads, "two pre-live F5 observations perform zero reads and one live F5 performs exactly one snapshot read");
-Equal(1, gatedDeferredLogs, "repeated pre-live F5 observations emit one bounded deferred record");
-CassettePostLoadSnapshotGateDecision laterAbsentDecision = liveHubGate.Observe(phoneBankLive: false);
-Equal(false, laterAbsentDecision.ReadSnapshot, "later absent phone bank cannot read a cassette snapshot");
-Equal(true, laterAbsentDecision.LogDeferred, "a completed live wave resets bounded deferred reporting for a later absence wave");
-Equal(true, scanHub6Source.Contains("CassetteReceiptRandomization.LogPostLoadSnapshot", StringComparison.Ordinal), "Hub6 plain-F5 path invokes one cassette post-load snapshot");
-Equal(true, scanHub6Source.Contains("DeveloperHarness.CurrentRoomId", StringComparison.Ordinal), "Hub6 snapshot records the observed current room instead of a hard-coded label");
-int liveMarkerIndex = scanHub6Source.IndexOf("GameObject.Find(Hub6PhoneBankRootPath)", StringComparison.Ordinal);
-int snapshotReadIndex = scanHub6Source.IndexOf("CassetteReceiptRandomization.LogPostLoadSnapshot", StringComparison.Ordinal);
-Equal(true, liveMarkerIndex >= 0, "Hub6 F5 checks the exact live phone-bank scene marker");
-Equal(true, liveMarkerIndex < snapshotReadIndex, "Hub6 live marker is checked before any cassette snapshot read");
-Equal(true, scanHub6Source.Contains("CASSETTE POST-LOAD SNAPSHOT DEFERRED", StringComparison.Ordinal), "pre-live Hub6 F5 emits the bounded deferred diagnostic");
-Equal(true, pluginSource.Contains("Root/GameRoom_Hub6_Logic/Objects/Phones", StringComparison.Ordinal), "post-load snapshot uses the proven Hub6 phone-bank marker");
-Equal(false, scanGarageSource.Contains("LogPostLoadSnapshot", StringComparison.Ordinal), "Garage F5 path does not invoke the Hub6 cassette snapshot");
-Equal(false, scanGarageSource.Contains("Hub6PhoneBankRootPath", StringComparison.Ordinal), "Garage F5 remains independent of the Hub6 live marker");
-Equal(1, pluginSource.Split("CassetteReceiptRandomization.LogPostLoadSnapshot", StringSplitOptions.None).Length - 1, "cassette snapshot has exactly one production call site");
+PlayerSaveManagementEnquiries.ThrowOnStateRead = true;
+Equal(new CassetteSelectedSaveIdentity(true, null),
+    CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(transactionProcessor),
+    "an unreadable selected state cannot authorize a write under a valid selection");
+PlayerSaveManagementEnquiries.ThrowOnStateRead = false;
+identityOnlyState.PointerValue = IntPtr.Zero;
+Equal(new CassetteSelectedSaveIdentity(true, null),
+    CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(transactionProcessor), "a zero pointer cannot identify a save");
+identityOnlyState.ThrowOnPointer = true;
+Equal(new CassetteSelectedSaveIdentity(true, null),
+    CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(transactionProcessor), "corrupt pointer getter cannot identify a save");
+Equal(0, identityOnlyState.CassetteReads, "save identity never inspects a cassette status or inventory");
+Equal(0, RequestSystem.SubmitCount, "read-only save selection never submits a request");
+PlayerSaveManagementEnquiries.ResetDiagnosticState();
 
 var gameplayGate = new CassetteGameplayReadyGate();
 var gameplayIdentity = new CassetteGameplayReadyIdentity(Generation: 8, Epoch: 3, Slot: 4, Pointer: 0x700);
@@ -2876,34 +2232,29 @@ int reconcileGameplayGateIndex = reconcileSource.IndexOf("_gameplayReady.IsOpen"
 Equal(true, reconcileGameplayGateIndex >= 0 && reconcileGameplayGateIndex < reconcileSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "closed gameplay gate prevents reconciliation before any native readiness/status read");
 int reconcileSongGameplayGateIndex = reconcileSongSource.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal);
 Equal(true, reconcileSongGameplayGateIndex >= 0 && reconcileSongGameplayGateIndex < reconcileSongSource.IndexOf("TryConfirmSaveSynchronizationReady", StringComparison.Ordinal), "every status read, grant, and delayed verification rechecks exact gameplay readiness");
-Equal(true, unityTick.IndexOf("_gameplayReady.IsOpen", StringComparison.Ordinal) < unityTick.IndexOf("_runtime.Tick(elapsed)", StringComparison.Ordinal), "closed gameplay gate freezes bounded verification timers");
 Equal(false, gameplayObserveSource.Contains("ActivateLoadedSave", StringComparison.Ordinal), "Hub6 readiness never creates a new save epoch");
-string postLoadLoggerSource = ExtractMethods(pluginSource, "internal static void LogPostLoadSnapshot(").Single();
-string postLoadReaderSource = ExtractMethods(transactionAdapterSource, "internal static CassettePostLoadDiagnosticState ReadCassettePostLoadDiagnostic(").Single();
+string postLoadReaderSource = ExtractMethods(transactionAdapterSource, "internal static CassetteSelectedSaveIdentity ReadSelectedSaveIdentity(").Single();
 foreach (string forbiddenDiagnosticCall in new[]
 {
     "TrySubmitHaveInBag", "RecordSongCassetteStatusInSaveDataRequest", "ProcessRequest", "Persist",
     "TriggerUrgent", "RequestWrite", "SubmitRequest", "TryReconcile", "RequestUnityReconciliation", "RecordSubmission",
 })
     Equal(false,
-        postLoadLoggerSource.Contains(forbiddenDiagnosticCall, StringComparison.OrdinalIgnoreCase) ||
         postLoadReaderSource.Contains(forbiddenDiagnosticCall, StringComparison.OrdinalIgnoreCase),
         $"post-load diagnostic boundary forbids {forbiddenDiagnosticCall}");
-Equal(true, postLoadLoggerSource.Contains("ReadCassettePostLoadDiagnostic", StringComparison.Ordinal), "post-load logger delegates only to the public-state diagnostic reader");
-Equal(0, RequestSystem.SubmitCount, "read-only Hub6 diagnostic wiring submits no request");
+Equal(0, RequestSystem.SubmitCount, "selected-save identity reads submit no request");
 PlayerSaveManagementEnquiries.ResetDiagnosticState();
-SongCassetteEnquiries.ResetDiagnosticState();
-Console.WriteLine("PASS: post_load_cassette_snapshot_is_wired_once_only_to_hub6_plain_f5_and_read_only");
+Console.WriteLine("PASS: cassette_readback_is_read_only");
 
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(registeredPersistProcessorWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     targetPlayerProcessor, new MissingSelectedSlotSaveDataBundleRoutingStateFixture(),
-    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out _, out string targetFailureStage),
+    expectedSlot: 4, Array.Empty<string>(), out _, out _, out string targetFailureStage),
     "target diagnostic fails only its observational read when the retained save-data processor contract is missing");
 Equal("target-save-data-processor-pointer-missing", targetFailureStage, "target diagnostic exposes the exact missing retained-processor pointer stage");
 selectedTargetState.ThrowHasChanges = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out _, out string targetThrowingStage),
     "throwing target-side public member remains isolated to the diagnostic read");
 Equal("target-selected-has-changes-get-invocation:InvalidOperationException:target-has-changes", targetThrowingStage, "throwing target-side public member retains its exact stage");
@@ -2911,18 +2262,18 @@ Equal(0, RequestSystem.SubmitCount, "throwing target diagnostic cannot submit an
 selectedTargetState.ThrowHasChanges = false;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     new PrivateGetterPointerTargetProcessorFixture(playerTargetState), retainedSaveDataProcessor,
-    expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(), out _, out _, out string privatePointerStage),
+    expectedSlot: 4, Array.Empty<string>(), out _, out _, out string privatePointerStage),
     "a property with a non-public Pointer getter is rejected before reflection readback");
 Equal("target-player-processor-pointer-getter-non-public", privatePointerStage, "private Pointer getter has an exact public-boundary stage");
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
     new DiskCommitTargetPlayerProcessorFixture(new IntPtr(0x111), new PrivateGetterHasChangesTargetStateFixture()),
-    retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700, Array.Empty<string>(),
+    retainedSaveDataProcessor, expectedSlot: 4, Array.Empty<string>(),
     out _, out _, out string privateHasChangesStage),
     "a property with a public setter and non-public HasChanges getter is rejected before reflection readback");
 Equal("target-player-has-changes-getter-non-public", privateHasChangesStage, "private HasChanges getter has an exact public-boundary stage");
 selectedTargetState.ThrowPointer = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out _, out string throwingPointerStage),
     "a throwing selected-entry Pointer getter is isolated from the transaction");
 Equal("target-selected-entry-pointer-get-invocation:InvalidOperationException:target-pointer", throwingPointerStage, "throwing selected-entry Pointer getter retains its exact stage");
@@ -2934,7 +2285,7 @@ oversizedEntries[new PublicTypeKeyFixture(nameof(PersistSaveChangeBundleRequest)
 var oversizedRegistry = new DirectLookupRegistryFixture(oversizedEntries);
 RequestSystem.SetRegisteredProcessors(oversizedRegistry);
 Equal(true, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int oversizedRegistryCount, out string oversizedRegistryStage),
     "a registry larger than 128 entries resolves Persist by exact direct lookup");
 Equal("success", oversizedRegistryStage, "oversized direct lookup reports success");
@@ -2946,7 +2297,7 @@ var missingEntries = Enumerable.Range(0, 150).ToDictionary(
 var missingRegistry = new DirectLookupRegistryFixture(missingEntries);
 RequestSystem.SetRegisteredProcessors(missingRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int missingRegistryCount, out string missingRegistryStage),
     "missing exact Persist key fails without enumeration");
 Equal(150, missingRegistryCount, "missing-key failure preserves public Count");
@@ -2955,7 +2306,7 @@ Equal(0, missingRegistry.GetEnumeratorCalls, "missing exact Persist key does not
 RequestSystem.SetRegisteredProcessors(oversizedRegistry);
 Il2CppType.ThrowOnFrom = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int conversionRegistryCount, out string conversionStage),
     "throwing public Il2CppType conversion fails diagnostically");
 Equal(129, conversionRegistryCount, "conversion failure preserves public Count");
@@ -2963,7 +2314,7 @@ Equal("target-registry-key-convert-invocation:InvalidOperationException:il2cpp-t
 Il2CppType.ThrowOnFrom = false;
 Il2CppType.ConvertedNameOverride = "WrongPersistRequest";
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int keyMismatchRegistryCount, out string keyMismatchStage),
     "converted key with the wrong public Name fails before lookup");
 Equal(129, keyMismatchRegistryCount, "converted-key mismatch preserves public Count");
@@ -2972,7 +2323,7 @@ Il2CppType.ConvertedNameOverride = null;
 var missingLookupRegistry = new MissingTryGetRegistryFixture(37);
 RequestSystem.SetRegisteredProcessors(missingLookupRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int missingLookupRegistryCount, out string missingLookupStage),
     "registry without public exact TryGetValue fails diagnostically without enumeration");
 Equal(37, missingLookupRegistryCount, "missing TryGetValue failure preserves public Count");
@@ -2981,7 +2332,7 @@ Equal(0, missingLookupRegistry.GetEnumeratorCalls, "missing TryGetValue never fa
 var broadKeyRegistry = new BroadKeyRegistryFixture(registeredPersistProcessorWrapper);
 RequestSystem.SetRegisteredProcessors(broadKeyRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int broadKeyRegistryCount, out string broadKeyStage),
     "broad object-key TryGetValue is rejected instead of treated as the exact registry contract");
 Equal(1, broadKeyRegistryCount, "broad-key rejection preserves public Count");
@@ -2989,7 +2340,7 @@ Equal("target-registry-try-get-missing", broadKeyStage, "broad-key overload does
 var wrongOutRegistry = new WrongOutRegistryFixture(registeredPersistProcessorWrapper);
 RequestSystem.SetRegisteredProcessors(wrongOutRegistry);
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int wrongOutRegistryCount, out string wrongOutStage),
     "wrong out-registration TryGetValue is rejected before invocation");
 Equal(1, wrongOutRegistryCount, "wrong-out rejection preserves public Count");
@@ -2997,7 +2348,7 @@ Equal("target-registry-try-get-missing", wrongOutStage, "wrong out-registration 
 var wrongNativeWrapper = new RequestProcessor(new IntPtr(0x444));
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(wrongNativeWrapper, otherEntries: 128));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int wrongNativeRegistryCount, out string wrongNativeStage),
     "registered base Processor with the wrong native class fails closed before state acquisition");
 Equal(129, wrongNativeRegistryCount, "wrong native class preserves the large public registry Count");
@@ -3007,7 +2358,7 @@ var throwingCastTarget = new SaveDataRequestProcessor(new IntPtr(0x444), targetS
 var throwingCastWrapper = new RequestProcessor(new IntPtr(0x444), throwingCastTarget) { ThrowOnTryCast = true };
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(throwingCastWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int throwingCastRegistryCount, out string throwingCastStage),
     "throwing public TryCast remains isolated to the diagnostic read");
 Equal(1, throwingCastRegistryCount, "throwing cast preserves public registry Count");
@@ -3017,7 +2368,7 @@ var derivedCastTarget = new DerivedSaveDataRequestProcessor(new IntPtr(0x444), t
 var derivedCastWrapper = new RequestProcessor(new IntPtr(0x444), derivedCastTarget);
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(derivedCastWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int derivedCastRegistryCount, out string derivedCastStage),
     "cast result with a non-exact managed wrapper type fails closed");
 Equal(1, derivedCastRegistryCount, "wrong managed cast type preserves public registry Count");
@@ -3027,7 +2378,7 @@ var mismatchedPointerTarget = new SaveDataRequestProcessor(new IntPtr(0x445), ta
 var mismatchedPointerWrapper = new RequestProcessor(new IntPtr(0x444), mismatchedPointerTarget);
 RequestSystem.SetRegisteredProcessors(BuildTargetRegistry(mismatchedPointerWrapper));
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int mismatchedPointerRegistryCount, out string mismatchedPointerStage),
     "cast wrapper at a different native pointer fails closed");
 Equal(1, mismatchedPointerRegistryCount, "cast pointer mismatch preserves public registry Count");
@@ -3051,7 +2402,7 @@ Equal(false, CassetteSaveTransactionAdapter.TryRewrapPublicSaveDataProcessorForD
 Equal("target-registry-persist-processor-try-cast-ambiguous:2", ambiguousCastStage, "ambiguous TryCast has an exact stage");
 RequestSystem.SetRegisteredProcessors(new ThrowingCountRegistryFixture());
 Equal(false, CassetteSaveTransactionAdapter.TryReadDiskCommitTargetDiagnostic(
-    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4, expectedPointer: 0x700,
+    targetPlayerProcessor, retainedSaveDataProcessor, expectedSlot: 4,
     Array.Empty<string>(), out _, out int throwingCount, out string throwingCountStage),
     "throwing public registry Count remains isolated to diagnostics");
 Equal(-1, throwingCount, "throwing Count cannot invent a registry size");
@@ -3068,50 +2419,26 @@ GameTimeEnquiries.ThrowOnRead = true;
 Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(publicWriteProcessor, 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "throwing public CurrentGameTime getter fails the diagnostic read only");
 Equal("write-diagnostic-current-game-time-get-invocation:InvalidOperationException:current-game-time-diagnostic", publicDiagnosticStage, "throwing public CurrentGameTime getter has an exact invocation stage");
 GameTimeEnquiries.ThrowOnRead = false;
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateSuccessNullableWriteStateFixture()), out _, out publicWriteStage), "private success-time nullable contract fails closed");
-Equal("write-success-time-nullable-contract-missing", publicWriteStage, "private success-time wrapper reports the exact public boundary failure");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), out _, out publicWriteStage), "private failure-reason nullable contract fails closed");
-Equal("write-failure-reason-nullable-contract-missing", publicWriteStage, "private failure-reason wrapper reports the exact public boundary failure");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new PrivateSuccessNullableWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "private success-time nullable contract fails closed");
+Equal("write-diagnostic-success-time-nullable-contract-missing", publicDiagnosticStage, "private success-time wrapper reports the exact public boundary failure");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new PrivateReasonNullableWriteStateFixture()), 0x700, Array.Empty<string>(), out _, out publicDiagnosticStage), "private failure-reason nullable contract fails closed");
+Equal("write-diagnostic-failure-reason-nullable-contract-missing", publicDiagnosticStage, "private failure-reason wrapper reports the exact public boundary failure");
 RequestSystem.Reset();
-PersistSaveChangeBundleRequest.ResetConstructionCounters();
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new ThrowingObtainPublicWriteProcessorFixture(), out CassettePublicWriteState failedWriteState, out publicWriteStage), "throwing ObtainState fails closed");
-Equal(default(CassettePublicWriteState), failedWriteState, "throwing ObtainState exposes no partial write state");
-Equal("write-state-obtain-state-invoke-invocation:NullReferenceException:obtain-state", publicWriteStage, "throwing ObtainState identifies its exact invocation stage");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new ThrowingHasChangesWriteStateFixture()), out failedWriteState, out publicWriteStage), "throwing HasChanges fails closed");
-Equal(default(CassettePublicWriteState), failedWriteState, "throwing HasChanges exposes no partial write state");
-Equal("write-state-has-changes-get-invocation:NullReferenceException:has-changes", publicWriteStage, "throwing HasChanges identifies its exact getter stage");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new ThrowingSuccessNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "throwing success nullable fails closed");
-Equal(default(CassettePublicWriteState), failedWriteState, "throwing success nullable exposes no partial write state");
-Equal("write-success-time-nullable-has-value-get-invocation:NullReferenceException:success-has-value", publicWriteStage, "throwing success nullable identifies its exact wrapper stage");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new EmptyInteropNullableWriteStateFixture()), out CassettePublicWriteState emptyNullableWriteState, out publicWriteStage), "IL2CPP empty nullable getter returns are normalized");
-Equal(new CassettePublicWriteState(true, true, null, null, null), emptyNullableWriteState, "all three empty IL2CPP write-state nullable values remain absent");
-Equal("success", publicWriteStage, "empty IL2CPP nullable write state reports success");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteState(new PublicWriteProcessorFixture(new UnrelatedThrowingInteropNullableWriteStateFixture()), out failedWriteState, out publicWriteStage), "unrelated NRE from an IL2CPP nullable getter fails closed");
-Equal(default(CassettePublicWriteState), failedWriteState, "unrelated nullable getter NRE exposes no partial write state");
-Equal("write-state-success-time-get-invocation:NullReferenceException:not-interop-empty", publicWriteStage, "unrelated nullable getter NRE retains its exact failure stage");
-var failedWriteEvent = new PlayerSaveWriteCompletedEvent(4, false, new(true, eSaveFileWriterFailureReason.VALIDATION_FAILED));
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(failedWriteEvent, out int writeEventSlot, out bool writeEventSucceeded, out string? writeEventFailure, out string writeEventStage), "adapter reads the public player-save write-completed event");
-Equal(4, writeEventSlot, "write-completed event preserves exact slot");
-Equal(false, writeEventSucceeded, "write-completed event preserves failed result");
-Equal(nameof(eSaveFileWriterFailureReason.VALIDATION_FAILED), writeEventFailure, "write-completed event preserves public failure reason");
-Equal("success", writeEventStage, "write-completed event read reports success");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new PlayerSaveWriteCompletedEvent(4, true, new(false, default)), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "successful write-completed event permits an empty failure reason");
-Equal(true, writeEventSucceeded, "successful event result remains true");
-Equal<string?>(null, writeEventFailure, "successful event has no invented failure reason");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new MissingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, true), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "missing optional failure reason cannot suppress a success wake");
-Equal(true, writeEventSucceeded, "mandatory success header survives missing optional reason");
-Equal<string?>(null, writeEventFailure, "missing optional reason remains unavailable");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new MissingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, false), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "missing optional failure reason cannot suppress terminal failure");
-Equal(false, writeEventSucceeded, "mandatory failure header survives missing optional reason");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new ThrowingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, false), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "throwing optional failure reason cannot suppress terminal failure");
-Equal(false, writeEventSucceeded, "mandatory failure header survives throwing optional reason");
-Equal<string?>(null, writeEventFailure, "throwing optional reason remains unavailable");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new ThrowingFailureReasonFixture.PlayerSaveWriteCompletedEvent(4, true), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "throwing optional failure reason cannot suppress a success wake");
-Equal(true, writeEventSucceeded, "mandatory success header survives throwing optional reason");
-Equal(true, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new PlayerSaveWriteCompletedEvent(4, false, new(false, default)), out writeEventSlot, out writeEventSucceeded, out writeEventFailure, out writeEventStage), "empty optional failure reason cannot suppress terminal failure");
-Equal(false, writeEventSucceeded, "empty-reason failed event preserves mandatory result");
-Equal(false, CassetteSaveTransactionAdapter.TryReadPlayerSaveWriteCompletedEvent(new object(), out _, out _, out _, out writeEventStage), "wrong event type fails closed");
-Equal("write-event-incompatible", writeEventStage, "wrong event type has an exact failure stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new ThrowingObtainPublicWriteProcessorFixture(), 0x700, Array.Empty<string>(), out CassettePublicWriteDiagnosticState failedWriteState, out publicDiagnosticStage), "throwing ObtainState fails closed");
+Equal(default(CassettePublicWriteDiagnosticState), failedWriteState, "throwing ObtainState exposes no partial write state");
+Equal("write-diagnostic-obtain-state-invoke-invocation:NullReferenceException:obtain-state", publicDiagnosticStage, "throwing ObtainState identifies its exact invocation stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new ThrowingHasChangesWriteStateFixture()), 0x700, Array.Empty<string>(), out failedWriteState, out publicDiagnosticStage), "throwing HasChanges fails closed");
+Equal(default(CassettePublicWriteDiagnosticState), failedWriteState, "throwing HasChanges exposes no partial write state");
+Equal("write-diagnostic-has-changes-get-invocation:NullReferenceException:has-changes", publicDiagnosticStage, "throwing HasChanges identifies its exact getter stage");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new ThrowingSuccessNullableWriteStateFixture()), 0x700, Array.Empty<string>(), out failedWriteState, out publicDiagnosticStage), "throwing success nullable fails closed");
+Equal(default(CassettePublicWriteDiagnosticState), failedWriteState, "throwing success nullable exposes no partial write state");
+Equal("write-diagnostic-success-time-nullable-has-value-get-invocation:NullReferenceException:success-has-value", publicDiagnosticStage, "throwing success nullable identifies its exact wrapper stage");
+Equal(true, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new EmptyInteropNullableWriteStateFixture()), 0x700, Array.Empty<string>(), out CassettePublicWriteDiagnosticState emptyNullableWriteState, out publicDiagnosticStage), "IL2CPP empty nullable getter returns are normalized");
+Equal(new CassettePublicWriteState(true, true, null, null, null), emptyNullableWriteState.WriteState, "all three empty IL2CPP write-state nullable values remain absent");
+Equal("success", publicDiagnosticStage, "empty IL2CPP nullable write state reports success");
+Equal(false, CassetteSaveTransactionAdapter.TryReadPublicWriteDiagnosticState(new PublicWriteProcessorFixture(new UnrelatedThrowingInteropNullableWriteStateFixture()), 0x700, Array.Empty<string>(), out failedWriteState, out publicDiagnosticStage), "unrelated NRE from an IL2CPP nullable getter fails closed");
+Equal(default(CassettePublicWriteDiagnosticState), failedWriteState, "unrelated nullable getter NRE exposes no partial write state");
+Equal("write-diagnostic-success-time-get-invocation:NullReferenceException:not-interop-empty", publicDiagnosticStage, "unrelated nullable getter NRE retains its exact failure stage");
 Equal(0, RequestSystem.SubmitCount, "write-state diagnostics never submit a persist request");
 
 string adapterSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteSaveTransactionAdapter.cs"));
@@ -3120,7 +2447,7 @@ Equal(true, targetCastAdapter.Contains("MakeGenericMethod", StringComparison.Ord
 foreach (string prohibitedRawConstructorPath in new[] { "GetConstructor", "ConstructorInfo", "Activator.CreateInstance" })
     Equal(false, targetCastAdapter.Contains(prohibitedRawConstructorPath, StringComparison.Ordinal), $"target diagnostic rewrap never uses raw IntPtr constructor path {prohibitedRawConstructorPath}");
 string factorySource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "CassetteNativeRequestFactory.cs"));
-string verifiedFactory = ExtractMethods(factorySource, "private static bool TryCreateVerified(").Single();
+string verifiedFactory = ExtractMethods(factorySource, "internal static bool TryCreateHaveInBagRequest(").Single();
 Equal(true, verifiedFactory.Contains("Type.EmptyTypes", StringComparison.Ordinal), "request factory resolves the exact public parameterless constructor");
 Equal(false, verifiedFactory.Contains("bundleSetter", StringComparison.Ordinal), "request factory never invokes the broken nullable Bundle setter");
 Equal(false, verifiedFactory.Contains("nullableConstructor", StringComparison.Ordinal), "request factory never constructs an IL2CPP nullable bundle");
@@ -3145,19 +2472,10 @@ Equal(true, pointerJoinAdapter.Contains("PublicInstance", StringComparison.Ordin
 Equal(false, pointerJoinAdapter.Contains("AllInstance", StringComparison.Ordinal) || pointerJoinAdapter.Contains("AllStatic", StringComparison.Ordinal), "regular-save pointer join cannot bind non-public members");
 Equal(false, adapterSource.Contains("TrySubmitDefaultUrgentPersist", StringComparison.Ordinal), "transaction adapter exposes no synthetic Persist submission path");
 Equal(false, factorySource.Contains("TryCreateDefaultUrgentPersistRequest", StringComparison.Ordinal), "request factory exposes no synthetic Persist construction path");
-string diagnosticAdapter = ExtractMethods(adapterSource, "private static bool TryReadPublicWriteDiagnosticStateCore(").Single();
+string diagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteDiagnosticState(").Single();
 Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
 Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
 Equal(true, diagnosticAdapter.Contains("GetCassetteStatusForSong", StringComparison.Ordinal), "disk diagnostic status map is derived from the same obtained public state");
-string lifecycleDiagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteLifecycleDiagnosticState(").Single();
-Equal(true, lifecycleDiagnosticAdapter.Contains("TryReadPublicWriteDiagnosticStateCore", StringComparison.Ordinal), "lifecycle diagnostic shares the public same-object snapshot reader");
-Equal(false, lifecycleDiagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || lifecycleDiagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "lifecycle diagnostics cannot bind non-public members");
-foreach (string routingReader in new[] { "TryReadRecordSongCassetteStatusRequest", "TryReadPersistSaveChangeBundleRequest", "TryReadPersistAllSaveChangeBundlesRequest", "TryReadPlayerSaveBundleRoutingState", "TryReadSaveDataBundleRoutingState" })
-{
-    string routingReaderSource = ExtractMethods(adapterSource, $"internal static bool {routingReader}(").Single();
-    Equal(true, routingReaderSource.Contains("PublicInstance", StringComparison.Ordinal) || routingReaderSource.Contains("TryRead", StringComparison.Ordinal), $"{routingReader} uses the public diagnostic boundary");
-    Equal(false, routingReaderSource.Contains("AllInstance", StringComparison.Ordinal) || routingReaderSource.Contains("AllStatic", StringComparison.Ordinal), $"{routingReader} cannot bind non-public members");
-}
 string pointerBoundPlanAdapter = ExtractMethods(adapterSource, "internal static bool TryPreparePointerBoundPersistenceInvocation(").Single();
 string pointerBoundInvokeAdapter = ExtractMethods(adapterSource, "internal static CassettePointerBoundPersistenceInvocationResult InvokePointerBoundPersistence(").Single();
 Equal(true, pointerBoundPlanAdapter.Contains("PublicInstance", StringComparison.Ordinal), "acceptance plan resolves only public instance methods");
@@ -3173,34 +2491,6 @@ Console.WriteLine("Cassette randomization catalog and source policy tests passed
 enum TestSong { INVALID, QUIERES_BAILAR }
 enum TestCassetteStatus { INVALID, HAVE_IN_BAG }
 enum TestBundle { INVALID, DEFAULT }
-
-sealed class AuthoritativeProcessor
-{
-    private readonly AuthoritativeSaveState _state;
-    public int ObtainStateCalls { get; private set; }
-
-    public AuthoritativeProcessor(AuthoritativeSaveState state) => _state = state;
-
-    private AuthoritativeSaveState ObtainState()
-    {
-        ObtainStateCalls++;
-        return _state;
-    }
-}
-
-sealed class AuthoritativeSaveState
-{
-    private readonly TestCassetteStatus _status;
-    public int StatusReads { get; private set; }
-
-    public AuthoritativeSaveState(TestCassetteStatus status) => _status = status;
-
-    public TestCassetteStatus GetCassetteStatusForSong(TestSong song)
-    {
-        StatusReads++;
-        return _status;
-    }
-}
 
 sealed class TestCassetteRequest
 {
@@ -3656,7 +2946,16 @@ sealed class ThrowingDiagnosticUnstagedWriteStateFixture
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(true, "IO_ERROR");
 }
 
-sealed class PrivateSuccessNullableWriteStateFixture
+abstract class WriteSnapshotFields
+{
+    public IntPtr Pointer => new(0x700);
+    public bool HasUnstagedChanges => true;
+    public int SaveFileRedundancyBundleIndex => 2;
+    public int SaveFileRedundancyBundleRevision => 7;
+    public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song) => eSongCassetteStatus.HAVE_IN_BAG;
+}
+
+sealed class PrivateSuccessNullableWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => false;
@@ -3665,7 +2964,7 @@ sealed class PrivateSuccessNullableWriteStateFixture
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
 }
 
-sealed class PrivateReasonNullableWriteStateFixture
+sealed class PrivateReasonNullableWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => false;
@@ -3674,7 +2973,7 @@ sealed class PrivateReasonNullableWriteStateFixture
     public object FailureReasonOfLastFailedAttemptToWriteToDisk => new PrivateNullable<string>("IO_ERROR");
 }
 
-sealed class ThrowingHasChangesWriteStateFixture
+sealed class ThrowingHasChangesWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => throw new NullReferenceException("has-changes");
     public bool RequiresWriteToDisk => false;
@@ -3683,7 +2982,7 @@ sealed class ThrowingHasChangesWriteStateFixture
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
 }
 
-sealed class ThrowingSuccessNullableWriteStateFixture
+sealed class ThrowingSuccessNullableWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => false;
@@ -3692,7 +2991,7 @@ sealed class ThrowingSuccessNullableWriteStateFixture
     public FakeIl2CppNullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => new(false, string.Empty);
 }
 
-sealed class EmptyInteropNullableWriteStateFixture
+sealed class EmptyInteropNullableWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => true;
@@ -3701,7 +3000,7 @@ sealed class EmptyInteropNullableWriteStateFixture
     public Il2CppSystem.Nullable<string> FailureReasonOfLastFailedAttemptToWriteToDisk => Il2CppSystem.Nullable<string>.EmptyFromInterop();
 }
 
-sealed class UnrelatedThrowingInteropNullableWriteStateFixture
+sealed class UnrelatedThrowingInteropNullableWriteStateFixture : WriteSnapshotFields
 {
     public bool HasChanges => true;
     public bool RequiresWriteToDisk => true;
@@ -3727,480 +3026,24 @@ sealed class PrivateNullable<T>
 }
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
-enum eSaveFileWriteType { URGENT, NON_URGENT }
-enum eSaveFileWriterFailureReason { VALIDATION_FAILED }
 enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS, HEAVY_METAL, KEEP_ON_HUSTLIN, ON_THE_WAY }
 enum eSongCassetteStatus { INVALID, HAVE_NOT_EARNED, HAVE_IN_BAG }
 
-sealed class PostLoadCassetteProcessor
+sealed class SelectedIdentityOnlyState
 {
-    private readonly object _state;
-    public PostLoadCassetteProcessor(object state) => _state = state;
-    public object ObtainState() => _state;
-}
-
-sealed class ThrowingPostLoadCassetteProcessor
-{
-    public object ObtainState() => throw new InvalidOperationException("post-load-processor-state");
-}
-
-sealed class PostLoadCassetteState
-{
-    private readonly IntPtr _pointer;
-    private readonly bool _hasUnstagedChanges;
-
-    public PostLoadCassetteState(
-        long pointer,
-        bool hasUnstagedChanges,
-        Dictionary<ePlayableSong, eSongCassetteStatus> effectiveStatuses,
-        Dictionary<ePlayableSong, eSongCassetteStatus> canonicalStatuses)
-    {
-        _pointer = new IntPtr(pointer);
-        _hasUnstagedChanges = hasUnstagedChanges;
-        EffectiveStatuses = effectiveStatuses;
-        CanonicalStatuses = canonicalStatuses;
-        GameProgression = new PostLoadGameProgression(canonicalStatuses);
-    }
-
-    public bool ThrowOnPointerRead { get; set; }
-    public bool ThrowOnHasUnstagedRead { get; set; }
-    public IntPtr Pointer => ThrowOnPointerRead
-        ? throw new InvalidOperationException("selected-pointer")
-        : _pointer;
-    public bool HasUnstagedChanges => ThrowOnHasUnstagedRead
-        ? throw new InvalidOperationException("selected-has-unstaged")
-        : _hasUnstagedChanges;
-    public Dictionary<ePlayableSong, eSongCassetteStatus> EffectiveStatuses { get; }
-    public Dictionary<ePlayableSong, eSongCassetteStatus> CanonicalStatuses { get; }
-    public PostLoadGameProgression GameProgression { get; }
-    public ePlayableSong? ThrowEffectiveSong { get; init; }
-
+    public IntPtr PointerValue { get; set; }
+    public bool ThrowOnPointer { get; set; }
+    public IntPtr Pointer => ThrowOnPointer ? throw new InvalidOperationException("pointer") : PointerValue;
+    public int CassetteReads { get; private set; }
     public eSongCassetteStatus GetCassetteStatusForSong(ePlayableSong song)
     {
-        if (ThrowEffectiveSong == song) throw new InvalidOperationException($"effective-{song}");
-        return EffectiveStatuses.TryGetValue(song, out eSongCassetteStatus status)
-            ? status
-            : eSongCassetteStatus.INVALID;
+        CassetteReads++;
+        throw new InvalidOperationException("cassette data unavailable");
     }
 }
 
-sealed class PostLoadGameProgression
-{
-    private readonly Dictionary<ePlayableSong, eSongCassetteStatus> _statuses;
-    public PostLoadGameProgression(Dictionary<ePlayableSong, eSongCassetteStatus> statuses) => _statuses = statuses;
-    public FakeIl2CppNullable<eSongCassetteStatus> GetSongCassetteStatus(ePlayableSong song) =>
-        _statuses.TryGetValue(song, out eSongCassetteStatus status)
-            ? new(true, status)
-            : new(false, eSongCassetteStatus.INVALID);
-}
-
-static class SongCassetteEnquiries
-{
-    public static Dictionary<ePlayableSong, eSongCassetteStatus> Statuses { get; set; } = new();
-    public static List<ePlayableSong> BagSongs { get; set; } = new();
-    public static ePlayableSong? ThrowStatusSong { get; set; }
-    public static bool ThrowOnCount { get; set; }
-
-    public static FakeIl2CppNullable<eSongCassetteStatus> GetSongCassetteStatus(ePlayableSong song)
-    {
-        if (ThrowStatusSong == song) throw new InvalidOperationException($"enquiry-{song}");
-        return Statuses.TryGetValue(song, out eSongCassetteStatus status)
-            ? new(true, status)
-            : new(false, eSongCassetteStatus.INVALID);
-    }
-
-    public static bool HasAnyCassettesInBag() => BagSongs.Count > 0;
-    public static int GetNumSongCassettesInBag() => ThrowOnCount
-        ? throw new InvalidOperationException("bag-count")
-        : BagSongs.Count;
-    public static void FetchAllSongCassettesInBag(List<ePlayableSong> songs) => songs.AddRange(BagSongs);
-
-    public static void ResetDiagnosticState()
-    {
-        Statuses = new();
-        BagSongs = new();
-        ThrowStatusSong = null;
-        ThrowOnCount = false;
-    }
-}
-
-sealed class PlayerSaveWriteCompletedEvent
-{
-    public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded, FakeIl2CppNullable<eSaveFileWriterFailureReason> failureReason)
-    { SlotNumber = slotNumber; Succeeded = succeeded; FailureReason = failureReason; }
-    public int SlotNumber { get; }
-    public bool Succeeded { get; }
-    public FakeIl2CppNullable<eSaveFileWriterFailureReason> FailureReason { get; }
-}
-
-sealed class PersistSaveChangeBundleRequest
-{
-    private readonly FakeIl2CppNullable<ePlayerSaveChangeBundleKey> _bundle = new(false, default);
-    private eSaveFileWriteType _writeType = eSaveFileWriteType.NON_URGENT;
-
-    public PersistSaveChangeBundleRequest() => ParameterlessConstructorUsed = true;
-
-    public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType)
-    {
-        SemanticConstructorCalls++;
-        throw new InvalidOperationException("persist-semantic-constructor-must-not-run");
-    }
-
-    public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle
-    {
-        get => _bundle;
-        set
-        {
-            BundleSetterCalls++;
-            throw new InvalidOperationException("persist-bundle-set-must-not-run");
-        }
-    }
-
-    public eSaveFileWriteType WriteTypeToRequest
-    {
-        get => _writeType;
-        set
-        {
-            WriteTypeSetterCalls++;
-            _writeType = value;
-        }
-    }
-
-    public bool ParameterlessConstructorUsed { get; }
-    public int BundleSetterCalls { get; private set; }
-    public int WriteTypeSetterCalls { get; private set; }
-    public static int SemanticConstructorCalls { get; private set; }
-
-    public static void ResetConstructionCounters() => SemanticConstructorCalls = 0;
-}
-
-namespace MissingPersistParameterlessConstructorFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType) { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace PrivatePersistParameterlessConstructorFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        private PersistSaveChangeBundleRequest() { }
-        public PersistSaveChangeBundleRequest(FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle, eSaveFileWriteType writeType) { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace ThrowingPersistParameterlessConstructorFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() => throw new InvalidOperationException("persist-parameterless-constructor");
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace MissingPersistBundleGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace PrivatePersistBundleGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { private get; set; } = new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace ThrowingPersistBundleGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => throw new InvalidOperationException("persist-bundle-get");
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace UnrelatedNullPersistBundleGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle => throw new NullReferenceException("unrelated-persist-null");
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace NullPersistBundleReadbackFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey>? Bundle => null;
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-sealed class MalformedPersistNullable<T>
-{
-    public bool HasValue => false;
-}
-
-namespace MalformedPersistBundleFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public MalformedPersistNullable<ePlayerSaveChangeBundleKey> Bundle => new();
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace PresentInvalidPersistBundleFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.INVALID);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace PresentDefaultPersistBundleFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.DEFAULT);
-        public eSaveFileWriteType WriteTypeToRequest { get; set; }
-    }
-}
-
-namespace MissingPersistWriteTypeSetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.NON_URGENT;
-    }
-}
-
-namespace PrivatePersistWriteTypeSetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { get; private set; } = eSaveFileWriteType.NON_URGENT;
-    }
-}
-
-namespace ThrowingPersistWriteTypeSetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest
-        {
-            get => eSaveFileWriteType.NON_URGENT;
-            set => throw new InvalidOperationException("persist-write-set");
-        }
-    }
-}
-
-namespace MissingPersistWriteTypeGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { set { } }
-    }
-}
-
-namespace PrivatePersistWriteTypeGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest { private get; set; }
-    }
-}
-
-namespace ThrowingPersistWriteTypeGetterFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest
-        {
-            get => throw new InvalidOperationException("persist-write-get");
-            set { }
-        }
-    }
-}
-
-namespace MismatchedPersistWriteTypeFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(false, default);
-        public eSaveFileWriteType WriteTypeToRequest
-        {
-            get => eSaveFileWriteType.NON_URGENT;
-            set { }
-        }
-    }
-}
-
-namespace EmptyInteropPersistConstructionFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest() { }
-        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
-            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
-        public eSaveFileWriteType WriteTypeToRequest { get; set; } = eSaveFileWriteType.NON_URGENT;
-    }
-}
-
-namespace RoutingFixture
-{
-    sealed class RecordSongCassetteStatusInSaveDataRequest
-    {
-        public RecordSongCassetteStatusInSaveDataRequest(
-            ePlayableSong song,
-            eSongCassetteStatus cassetteStatus,
-            FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle)
-        {
-            Song = song;
-            CassetteStatus = cassetteStatus;
-            Bundle = bundle;
-        }
-
-        public ePlayableSong Song { get; }
-        public eSongCassetteStatus CassetteStatus { get; }
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
-    }
-
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public PersistSaveChangeBundleRequest(
-            FakeIl2CppNullable<ePlayerSaveChangeBundleKey> bundle,
-            eSaveFileWriteType writeType)
-        {
-            Bundle = bundle;
-            WriteTypeToRequest = writeType;
-        }
-
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle { get; }
-        public eSaveFileWriteType WriteTypeToRequest { get; }
-    }
-
-}
-
-namespace ThrowingRoutingFixture
-{
-    sealed class RecordSongCassetteStatusInSaveDataRequest
-    {
-        public ePlayableSong Song => ePlayableSong.BADASS;
-        public eSongCassetteStatus CassetteStatus => throw new InvalidOperationException("record-status");
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle => new(true, ePlayerSaveChangeBundleKey.DEFAULT);
-    }
-
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
-            throw new InvalidOperationException("persist-bundle");
-        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.URGENT;
-    }
-
-    sealed class PersistAllSaveChangeBundlesRequest
-    {
-        public eSaveFileWriteType WriteTypeToRequest =>
-            throw new InvalidOperationException("persist-all-write-type");
-    }
-}
-
-namespace ThrowingWriteTypeRoutingFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
-            new(true, ePlayerSaveChangeBundleKey.DEFAULT);
-        public eSaveFileWriteType WriteTypeToRequest =>
-            throw new InvalidOperationException("persist-write-type");
-    }
-}
-
-namespace EmptyInteropRoutingFixture
-{
-    sealed class RecordSongCassetteStatusInSaveDataRequest
-    {
-        public ePlayableSong Song => ePlayableSong.BADASS;
-        public eSongCassetteStatus CassetteStatus => eSongCassetteStatus.HAVE_IN_BAG;
-        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
-            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
-    }
-
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey> Bundle =>
-            Il2CppSystem.Nullable<ePlayerSaveChangeBundleKey>.EmptyFromInterop();
-        public eSaveFileWriteType WriteTypeToRequest => eSaveFileWriteType.URGENT;
-    }
-}
-
-namespace EmptyRoutingFixture
-{
-    sealed class PersistSaveChangeBundleRequest
-    {
-        public FakeIl2CppNullable<ePlayerSaveChangeBundleKey> Bundle =>
-            new(true, ePlayerSaveChangeBundleKey.DEFAULT);
-        public string WriteTypeToRequest => string.Empty;
-    }
-
-    sealed class PersistAllSaveChangeBundlesRequest
-    {
-        public string WriteTypeToRequest => string.Empty;
-    }
-}
-
-sealed class PersistAllSaveChangeBundlesRequest
-{
-    public PersistAllSaveChangeBundlesRequest(eSaveFileWriteType writeTypeToRequest) =>
-        WriteTypeToRequest = writeTypeToRequest;
-    public eSaveFileWriteType WriteTypeToRequest { get; }
-}
-
-sealed class SaveDataBundleRoutingProcessorFixture
-{
-    private readonly object _state;
-    public SaveDataBundleRoutingProcessorFixture(object state) => _state = state;
-    public object ObtainState() => _state;
-}
-
-sealed record SaveDataBundleRoutingStateFixture(
-    FakeIl2CppNullable<int> SelectedPlayerSaveSlot,
-    Dictionary<int, PublicWriteStateFixture> RegularPlayerSaves);
+// The native registry is keyed by the generated request type.
+sealed class PersistSaveChangeBundleRequest { }
 
 sealed class MissingSelectedSlotSaveDataBundleRoutingStateFixture
 {
@@ -4426,11 +3269,9 @@ class BaseSaveFileState
     protected BaseSaveFileState(IntPtr pointer, List<string> calls) { Pointer = pointer; _calls = calls; }
     public IntPtr Pointer { get; }
     public bool ThrowUrgency { get; set; }
-    public Action? OnUrgentWrite { get; set; }
     public void RequestUrgentWriteToDisk()
     {
         _calls.Add("RequestUrgentWriteToDisk");
-        OnUrgentWrite?.Invoke();
         if (ThrowUrgency) throw new InvalidOperationException("urgent-write");
     }
 }
@@ -4495,27 +3336,10 @@ static class RequestSystem
 {
     public static object registeredProcessorsWrapped { get; private set; } = new DirectLookupRegistryFixture(new());
     public static int SubmitCount { get; private set; }
-    public static PersistSaveChangeBundleRequest? LastRequest { get; private set; }
-    public static ePlayerSaveChangeBundleKey EffectiveBundle { get; private set; }
-    public static eSaveFileWriteType EffectiveWriteType { get; private set; }
-    public static void SubmitRequest<T>(T request)
-    {
-        SubmitCount++;
-        LastRequest = request as PersistSaveChangeBundleRequest;
-        if (LastRequest != null)
-        {
-            EffectiveBundle = LastRequest.Bundle.HasValue
-                ? LastRequest.Bundle.Value
-                : ePlayerSaveChangeBundleKey.DEFAULT;
-            EffectiveWriteType = LastRequest.WriteTypeToRequest;
-        }
-    }
+    public static void SubmitRequest<T>(T request) => SubmitCount++;
     public static void Reset()
     {
         SubmitCount = 0;
-        LastRequest = null;
-        EffectiveBundle = ePlayerSaveChangeBundleKey.INVALID;
-        EffectiveWriteType = eSaveFileWriteType.NON_URGENT;
         registeredProcessorsWrapped = new DirectLookupRegistryFixture(new());
     }
     public static void SetRegisteredProcessors(object processors) =>
@@ -4690,28 +3514,5 @@ sealed class RecordSongCassetteStatusInSaveDataRequest
     {
         SemanticConstructorCalls++;
         throw new InvalidOperationException("semantic-constructor-must-not-run");
-    }
-}
-
-namespace MissingFailureReasonFixture
-{
-    sealed class PlayerSaveWriteCompletedEvent
-    {
-        public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded)
-        { SlotNumber = slotNumber; Succeeded = succeeded; }
-        public int SlotNumber { get; }
-        public bool Succeeded { get; }
-    }
-}
-
-namespace ThrowingFailureReasonFixture
-{
-    sealed class PlayerSaveWriteCompletedEvent
-    {
-        public PlayerSaveWriteCompletedEvent(int slotNumber, bool succeeded)
-        { SlotNumber = slotNumber; Succeeded = succeeded; }
-        public int SlotNumber { get; }
-        public bool Succeeded { get; }
-        public object FailureReason => throw new NullReferenceException("optional-reason-unavailable");
     }
 }

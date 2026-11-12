@@ -22,18 +22,16 @@ Equal(PreviewAbilityReconcileDecision.SubmitGrant,
     PreviewAbilityReconcilePolicy.Decide(1, compatible: true, saveAvailable: true, nativeFlag: false),
     "missing native ability");
 
-VerifyRuntime(new HypnoPanReconciler(new FakePreviewAbilityNativeAdapter()), "PIED_PIPER_ABILITY", "Hypno Pan");
-VerifyRuntime(new ViolanceReconciler(new FakePreviewAbilityNativeAdapter()), "VIOLIN_ABILITY", "Violance");
+VerifyRuntime(adapter => new HypnoPanReconciler(adapter), "PIED_PIPER_ABILITY", "Hypno Pan");
+VerifyRuntime(adapter => new ViolanceReconciler(adapter), "VIOLIN_ABILITY", "Violance");
 VerifyNetworkRequestsWaitForUnityDrain();
 
 string pluginSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "client", "Plugin.cs"));
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData)", StringComparison.Ordinal),
     "login configures preview compatibility");
 bool previewHandlerCalled = false;
-bool previewFallbackCalled = false;
 Equal(true, ReceivedItemDispatch.TryApply(
     "Hypno Pan",
-    applyReceivedProgression: false,
     areaAccessHandler: _ => false,
     garageCartridgeHandler: _ => false,
     weedKillerHandler: _ => false,
@@ -43,13 +41,11 @@ Equal(true, ReceivedItemDispatch.TryApply(
         previewHandlerCalled = itemName == "Hypno Pan";
         return true;
     },
-    rootsBucketHandler: _ => false,
+    rootsBucketHandler: _ => throw new Exception("Already handled by preview abilities"),
     cassetteHandler: _ => false,
-    musicLabPointHandler: _ => false,
-    experimentalFallback: _ => previewFallbackCalled = true),
-    "received item dispatch handles preview abilities without experimental progression");
+    musicLabPointHandler: _ => false),
+    "received item dispatch handles preview abilities");
 Equal(true, previewHandlerCalled, "received item dispatch invokes the preview reconciler");
-Equal(false, previewFallbackCalled, "handled preview ability bypasses experimental fallback");
 Equal(true, pluginSource.Contains("AddComponent<PreviewAbilityReconciliationKeeper>()", StringComparison.Ordinal),
     "Unity-thread lifecycle keeper is installed");
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance)", StringComparison.Ordinal),
@@ -81,12 +77,19 @@ static void VerifyNetworkRequestsWaitForUnityDrain()
     Equal(1, nativeCalls, "empty drain performs no reconciliation");
 }
 
-static void VerifyRuntime(IPreviewAbilityReconciler reconciler, string expectedFlag, string itemName)
+static void VerifyRuntime(Func<IPreviewAbilityNativeAdapter, PreviewAbilityReconcilerBase> create, string expectedFlag, string itemName)
 {
-    var adapter = (FakePreviewAbilityNativeAdapter)reconciler.NativeAdapterForTests;
+    var adapter = new FakePreviewAbilityNativeAdapter();
+    var reconciler = create(adapter);
     Equal(expectedFlag, reconciler.NativeFlag, $"{itemName} native mapping");
     reconciler.Configure(compatible: true);
+    reconciler.OnLifecyclePoint("empty inventory");
+    Equal(0, adapter.SaveProbes, $"{itemName} skips native save when unowned");
     reconciler.NoteReceivedCount(1);
+    reconciler.Configure(compatible: false);
+    reconciler.OnLifecyclePoint("incompatible slot");
+    Equal(0, adapter.SaveProbes, $"{itemName} skips native save for incompatible slots");
+    reconciler.Configure(compatible: true);
     reconciler.NoteReceivedCount(1);
     reconciler.OnLifecyclePoint("history synchronized");
     Equal("save-unavailable", reconciler.LastOutcome, $"{itemName} waits for selected save");
@@ -105,6 +108,8 @@ static void VerifyRuntime(IPreviewAbilityReconciler reconciler, string expectedF
 internal sealed class FakePreviewAbilityNativeAdapter : IPreviewAbilityNativeAdapter
 {
     public bool SaveAvailable { get; set; }
+    public int SaveProbes { get; private set; }
+    bool IPreviewAbilityNativeAdapter.SaveAvailable { get { SaveProbes++; return SaveAvailable; } }
     public bool NativeOwned { get; set; }
     public int ApplyCount { get; private set; }
 

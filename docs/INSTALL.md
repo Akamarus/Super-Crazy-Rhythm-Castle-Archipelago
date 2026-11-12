@@ -64,7 +64,6 @@ Enabled = true
 Server = HOST:PORT
 Slot = YOUR_PLAYER_NAME
 Password =
-ApplyReceivedProgression = true
 
 [QualityOfLife]
 DirectStartAtPhoneHub = true
@@ -108,11 +107,13 @@ second seed. Get the connection address and your assigned slot name from its hos
 | --- | --- |
 | No configuration file | Confirm BepInEx and the client DLLs are installed, launch once, then close the game. Check the log for client loading errors. |
 | Connection refused / keeps retrying | Check `Server`, including the port. A local server must be running; a hosted room must be online. Do not leave `localhost` when joining a remote room. |
-| Invalid slot or password | Copy the player name from the generated room and check whether the room requires a password. |
+| Invalid slot or password | Copy the player name from the generated room and check whether the room requires a password. In the cleanup candidate, automatic reconnect pauses on these refusals. Correct the config, then restart the game. |
+| The log says a quest journal could not be loaded (cleanup candidate) | Close the game. Find the named file under `BepInEx/config/RhythmCastleAP/quest-checks`. Check file access if the log reports a permissions problem. For damaged data, make a backup before repairing it or restoring a known-good copy for the same seed and slot. Then restart the game. |
 | Still cannot connect | Attach `BepInEx\LogOutput.log` from the game folder when asking for help. Readable log text is more useful than a screenshot of the console. |
 
-Successful client loading includes `[SCRC-AP] v0.77.0 loading.` in the log.
-**That confirms the mod loaded, not that it connected to your room.**
+Client 0.77.1 writes `[SCRC-AP] v0.77.1 loading.` at startup. Wait for a successful room connection before loading your save.
+
+The cleanup candidate retries temporary outages and occupied slots automatically. It starts with short waits and gradually spaces attempts up to one minute apart.
 
 ## Generating or hosting your own seed
 
@@ -135,11 +136,11 @@ Skip this section if a host has already generated your room.
 6. Host that generated ZIP on a compatible hosting service or start a local
    Archipelago server for it. Follow step 4 above to configure the game client.
 
-The published APWorld has **Normal 164 / Hard 222 / Expert 280 / Perfection 316**
-checks. AP difficulty determines which performance checks exist; it does not
-change the game's REG/PRO selection. Victory requires your configured AP Star
-goal followed by a successful Level 22 clear. An earlier clear must be replayed
-after reaching the goal. See [progression](PROGRESSION.md) for details.
+AP difficulty determines which performance checks exist. You can choose Regular
+or Pro charts in the game. For Victory, collect your configured number of AP
+Stars and then complete your selected ending. King Ferdinand I is the default.
+With Bunker progression enabled, you can also select True Ending. See the
+[progression rules](PROGRESSION.md).
 
 For **Universal Tracker**, install the appropriate APWorld on the tracker computer
 and keep your YAML in the folder required by your tracker setup. Follow
@@ -147,7 +148,7 @@ and keep your YAML in the folder required by your tracker setup. Follow
 
 ## Updating or uninstalling
 
-- v0.30.0 updates both the client and APWorld. Install Client 0.77.0 for new Bunker/schema21 seeds.
+- To update from v0.30.0 to v0.30.1, replace the client with 0.77.1. Both releases use the same APWorld 0.30.0 archive.
 - Close the game before replacing client DLLs. Restart Archipelago after replacing
   its APWorld. An APWorld update does not rewrite an already-generated seed.
 - To uninstall the integration, remove only `BepInEx\plugins\RhythmCastleAP` from
@@ -156,13 +157,14 @@ and keep your YAML in the folder required by your tracker setup. Follow
 
 ## Optional: build from source
 
-Only this route requires Git, PowerShell and the .NET 6 SDK. Use the matching
-release tag to build the published version:
+Building from source requires Git, PowerShell, a .NET SDK that supports .NET 6
+and Python 3.10 or newer for APWorld packaging. The following example checks out
+the source revision for v0.30.1.
 
 ```powershell
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
 cd .\Super-Crazy-Rhythm-Castle-Archipelago
-git checkout v0.30.0
+git checkout cc45a569ad2279747cd89070ff1c4c00ab8ab642
 .\client\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
 .\tools\build-apworld.ps1
 ```

@@ -3,6 +3,18 @@ using Newtonsoft.Json.Linq;
 namespace RhythmCastleAP;
 internal sealed class CassetteBundleContract
 {
+    private const long FirstBundleId = 187256164;
+    // Both bundle sizes use the same consecutive AP IDs. Trios use the first ten entries.
+    private static readonly string[] BundleNames = Enumerable.Range(1, 15)
+        .Select(number => FormattableString.Invariant($"Cassette Bundle {number:00}")).ToArray();
+
+    internal static bool IsBundleName(string? name) => Array.IndexOf(BundleNames, name) >= 0;
+
+    private static string? BundleNameFor(long id) =>
+        id >= FirstBundleId && id < FirstBundleId + BundleNames.Length
+            ? BundleNames[(int)(id - FirstBundleId)]
+            : null;
+
     internal bool Bundled { get; }
     private readonly Dictionary<string,string[]> _songs;
     private CassetteBundleContract(bool bundled, Dictionary<string,string[]> songs) { Bundled=bundled; _songs=songs; }
@@ -26,8 +38,8 @@ internal sealed class CassetteBundleContract
         if(bundles.Count!=count)throw new InvalidOperationException("Incomplete cassette_bundles");
         var songs=new Dictionary<string,string[]>(StringComparer.Ordinal);
         var seen=new HashSet<string>(StringComparer.Ordinal);
-        for(int n=1;n<=count;n++) {
-            string name=$"Cassette Bundle {n:00}";
+        for(int index=0;index<count;index++) {
+            string name=BundleNames[index];
             if(bundles[name] is not JArray members || members.Count!=(int)size)throw new InvalidOperationException("Invalid bundle members: "+name);
             var values=new List<string>();
             foreach(var member in members) {
@@ -39,10 +51,14 @@ internal sealed class CassetteBundleContract
         }
         return new(true,songs);
     }
-    internal IReadOnlyList<string> SongsFor(long id) => id>=187256164 && id<=187256178 && _songs.TryGetValue($"Cassette Bundle {id-187256163:00}",out var songs)?songs:Array.Empty<string>();
+    internal IReadOnlyList<string> SongsFor(long id) =>
+        BundleNameFor(id) is string name && _songs.TryGetValue(name, out var songs)
+            ? songs : Array.Empty<string>();
     internal IReadOnlyList<string> ReceiptSongsFor(long id) => CassetteCatalog.NativeSongByItemId.TryGetValue(id, out var song) ? new[]{song} : SongsFor(id);
-    internal string Display(long id, string fallback) => SongsFor(id).Count > 0 ? Display($"Cassette Bundle {id-187256163:00}") : fallback;
-    internal string Display(string name) => name != null && _songs.TryGetValue(name,out var songs)?name+": "+string.Join(", ",songs.Select(s=>CassetteCatalog.ByNativeSong[s].DisplaySong)):name!;
+    internal string Display(long id, string fallback) =>
+        BundleNameFor(id) is string name && _songs.TryGetValue(name, out var songs)
+            ? name + ": " + string.Join(", ", songs.Select(song => CassetteCatalog.ByNativeSong[song].DisplaySong))
+            : fallback;
 }
 internal sealed class CassetteBundleSessionHistory
 {
@@ -56,13 +72,12 @@ internal sealed class CassetteBundleSessionHistory
     private bool _ready,_ended,_managed;
     private string[]? _cachedSongs;
     internal CassetteBundleSessionHistory(long generation, Func<string,bool>? legacyReceipt=null) { _generation=generation; _legacyReceipt=legacyReceipt; lock(Sync) { if(_current==null || generation>_current._generation) { _managed=_current?._managed==true; _current=this; } } }
-    internal void Configure(Dictionary<string,object>? data) {
+    internal void Configure(CassetteBundleContract contract) {
         lock(Sync) {
-            if (_contract != null) { _ready=false; _items.Clear(); }
+            if (_contract != null || !contract.Bundled) { _ready=false; _items.Clear(); }
             _cachedSongs=null;
-            _contract=null;
-            try { _contract=CassetteBundleContract.Parse(data); _managed=_contract.Bundled; }
-            catch { _managed=true; _ready=false; _items.Clear(); _pendingNames.Clear(); throw; }
+            _contract=contract;
+            _managed=contract.Bundled;
             if (!_ended && ReferenceEquals(_current,this) && !_contract.Bundled)
                 foreach (string name in _pendingNames) _legacyReceipt?.Invoke(name);
             _pendingNames.Clear();
@@ -71,8 +86,7 @@ internal sealed class CassetteBundleSessionHistory
     internal bool TryApplyItem(string name)
     {
         bool individual = name != null && CassetteCatalog.ByItemName.ContainsKey(name);
-        bool bundle = Enumerable.Range(1,15).Any(n => name == $"Cassette Bundle {n:00}");
-        if (!individual && !bundle) return false;
+        if (!individual && !CassetteBundleContract.IsBundleName(name)) return false;
         lock (Sync)
         {
             if (_ended || !ReferenceEquals(_current,this)) return true;
@@ -84,14 +98,34 @@ internal sealed class CassetteBundleSessionHistory
     internal void HandlePacket(object packet) {
         if(packet is not ReceivedItemsPacket received)return;
         lock(Sync) {
-            if(_ended)return;
-            _cachedSongs=null;
-            if(received.Items==null || received.Index<0 || received.Index>_items.Count || received.Index>0&&!_ready) { _ready=false;return; }
-            if(received.Index==0) { _items.Clear();_ready=true; }
-            for(int n=0;n<received.Items.Length;n++) {
-                int index=received.Index+n;long id=received.Items[n].Item;
-                if(index<_items.Count) { if(_items[index]!=id) { _ready=false;return; } }
-                else _items.Add(id);
+            // Individual-cassette seeds use named receipts. Keep indexed history only
+            // until login selects that route or while a bundle contract needs it.
+            if (_ended || !ReferenceEquals(_current, this) || _contract?.Bundled == false) return;
+            if (received.Items == null || received.Index < 0 || received.Index > _items.Count ||
+                (received.Index > 0 && !_ready))
+            {
+                _ready = false;
+                return;
+            }
+            if (received.Index == 0)
+            {
+                _items.Clear();
+                _cachedSongs = null;
+                _ready = true;
+            }
+            for (int n = 0; n < received.Items.Length; n++)
+            {
+                int index = received.Index + n;
+                long id = received.Items[n].Item;
+                if (index < _items.Count)
+                {
+                    if (_items[index] != id) { _ready = false; return; }
+                    continue;
+                }
+                _items.Add(id);
+                if (_cachedSongs != null &&
+                    (CassetteCatalog.NativeSongByItemId.ContainsKey(id) || _contract!.SongsFor(id).Count > 0))
+                    _cachedSongs = null;
             }
         }
     }

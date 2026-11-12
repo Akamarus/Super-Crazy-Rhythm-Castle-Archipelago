@@ -17,8 +17,7 @@ internal readonly record struct PlantPipesSnapshot(
     bool SaveAvailable,
     bool ProcessorAvailable,
     bool NativeOwned,
-    bool AttemptOutstanding,
-    int RetryCount);
+    bool AttemptOutstanding);
 
 internal static class PlantPipesReconciler
 {
@@ -94,6 +93,8 @@ internal sealed class PlantPipesRuntime
 
     internal void OnLifecyclePoint(string reason)
     {
+        // Submission and ownership are separate. Only the game's readable flag
+        // can confirm the grant, including when an earlier attempt already succeeded.
         if (!_native.SaveAvailable || !_native.TryReadOwned(out bool nativeOwned))
         {
             LastOutcome = "save-unavailable";
@@ -107,8 +108,7 @@ internal sealed class PlantPipesRuntime
             SaveAvailable: true,
             _native.ProcessorAvailable,
             nativeOwned,
-            _attemptOutstanding,
-            _retryCount));
+            _attemptOutstanding));
 
         switch (decision)
         {

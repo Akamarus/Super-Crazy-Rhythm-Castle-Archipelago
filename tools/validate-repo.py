@@ -131,20 +131,15 @@ cassette_policy_text = CASSETTE_POLICY.read_text(encoding="utf-8")
 ids_text = IDS.read_text(encoding="utf-8")
 overview_text = OVERVIEW.read_text(encoding="utf-8")
 items_text = ITEMS.read_text(encoding="utf-8")
-points_text = POINTS.read_text(encoding="utf-8")
-
-
-def load_json(path: Path, label: str):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        fail(f"invalid {repo_path(path)} {label}: {exc}")
 
 
 # Syntax-only validation does not require Archipelago to be installed.
+contract_trees = {}
 for python_source in sorted(WORLD_DIR.glob("*.py")):
     try:
-        ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
+        tree = ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
+        if python_source in (POINTS, ITEMS, WORLD):
+            contract_trees[python_source] = tree
     except SyntaxError as exc:
         fail(f"APWorld Python syntax error in {repo_path(python_source)}: {exc}")
 
@@ -202,11 +197,6 @@ except (ValueError, TypeError):
 expected_entries = [(e.location_id, e.name, e.room, e.flag, e.level, e.variant) for e in expanded_entries]
 if client_entries != expected_entries:
     fail("expanded C# and Python native source catalogs differ")
-combo_requirements = ("Weed Killer", "Plant Pipes", "Hip Glasses", "Chicken Bucket", "Bucket Minion Trade Complete")
-for entry in expanded_entries:
-    combo = entry.name == "Roots - Combo Bucket Conversion"
-    if entry.progression_safe != combo or entry.required_items != (combo_requirements if combo else ()):
-        fail("expanded conservative progression requirements changed")
 if len([e for e in expanded_entries if e.variant]) != 6:
     fail("expanded special completion count changed")
 for marker in (
@@ -333,11 +323,14 @@ def validate_live_world_structure() -> dict[str, int]:
                     fail(f"character quest item classification changed: {item_name}")
             if len(item_names) != expected_count:
                 fail(f"live item pool capacity changed for {label}")
-            character_data = world.fill_slot_data()
-            if character_data.get("character_quest_item_schema") != 1 or character_data.get("randomize_character_quest_items") is not True:
+            # Check every feature against the same slot data a client would receive.
+            slot_data = world.fill_slot_data()
+            if slot_data.get("difficulty_filtering_active") is not True:
+                fail(f"difficulty filtering is inactive for {label}")
+            if slot_data.get("character_quest_item_schema") != 1 or slot_data.get("randomize_character_quest_items") is not True:
                 fail("character quest item slot contract is inactive or malformed")
             for field in ("quest_checks_schema", "quest_items", "quest_locations"):
-                if character_data.get(field) != EXPECTED[field]:
+                if slot_data.get(field) != EXPECTED[field]:
                     fail(f"quest slot contract changed: {field}")
             for name, item_id in EXPECTED["quest_items"].items():
                 item = world.create_item(name)
@@ -354,7 +347,7 @@ def validate_live_world_structure() -> dict[str, int]:
                         fail(f"quest modeled-source placement changed: {name}")
             if sum(name != "Stardust" for name in item_names) != 137:
                 fail("expanded batch changed the 137-instance non-filler pool")
-            if character_data.get("expanded_checks_schema") != 1 or character_data.get("expanded_check_locations") != expanded_locations:
+            if slot_data.get("expanded_checks_schema") != 1 or slot_data.get("expanded_check_locations") != expanded_locations:
                 fail("expanded live slot contract changed")
             if "Lobby - Bean Trumpet Award" in addressed_names:
                 fail("expanded batch activated reserved duplicate Bean source")
@@ -371,13 +364,12 @@ def validate_live_world_structure() -> dict[str, int]:
                 fail(f"expanded progression-eligible capacity changed for {label}")
             if item_names.count("Star") != 66:
                 fail("Star pool must contain exactly66 individual items")
-            star_data = world.fill_slot_data()
-            gates = star_data["generated_star_requirements"]
+            gates = slot_data["generated_star_requirements"]
             if len(gates) != 22 or gates.get("Level 1") != 0 or gates.get("Level 2") != 0:
                 fail("Star gates have an invalid campaign/opening map")
             if not all(0 <= gate < 50 and gate <= 25 for gate in gates.values()):
                 fail("Star gates exceed the configured goal or capacity ceiling")
-            if set(star_data["star_eater_requirements"]) != {"Roots", "Lobby", "Cell Tower", "Royal Corridor", "Secret Bunker"}:
+            if set(slot_data["star_eater_requirements"]) != {"Roots", "Lobby", "Cell Tower", "Royal Corridor", "Secret Bunker"}:
                 fail("Star Eater contract changed")
             totals[label] = actual_count
         return totals
@@ -407,8 +399,8 @@ def static_int(node: ast.AST) -> int:
 
 # Check the assignments before using the fixed base to evaluate ID expressions.
 # Otherwise a changed module base could silently pass every offset check below.
-for base_path, base_text in ((POINTS, points_text), (ITEMS, items_text), (WORLD, world_text)):
-    base_node = assignment_value(ast.parse(base_text), "BASE_ID")
+for base_path in (POINTS, ITEMS, WORLD):
+    base_node = assignment_value(contract_trees[base_path], "BASE_ID")
     if not (
         isinstance(base_node, ast.Constant)
         and type(base_node.value) is int
@@ -479,7 +471,7 @@ def exported_point_total(name: str, expected: int) -> int:
     return actual
 
 
-points_tree = ast.parse(points_text, filename=str(POINTS))
+points_tree = contract_trees[POINTS]
 point_items_node = assignment_value(points_tree, "MUSIC_LAB_POINT_ITEMS")
 if not isinstance(point_items_node, (ast.Tuple, ast.List)):
     fail("could not parse Music Lab Point item catalog")
@@ -621,11 +613,11 @@ for symbol, expected_id in (
         fail(f"{symbol} reserved location ID is missing or changed")
 
 # Validate permanent new quest IDs independently, even in static-only mode.
-for source_text, symbol, expected in (
-    (items_text, "QUEST_ITEM_NAME_TO_ID", EXPECTED["quest_items"]),
-    (world_text, "QUEST_LOCATION_NAME_TO_ID", EXPECTED["quest_locations"]),
+for source_path, symbol, expected in (
+    (ITEMS, "QUEST_ITEM_NAME_TO_ID", EXPECTED["quest_items"]),
+    (WORLD, "QUEST_LOCATION_NAME_TO_ID", EXPECTED["quest_locations"]),
 ):
-    node = assignment_value(ast.parse(source_text), symbol)
+    node = assignment_value(contract_trees[source_path], symbol)
     if not isinstance(node, ast.Dict):
         fail(f"quest ID contract is not a dictionary: {symbol}")
     actual = {ast.literal_eval(key): static_int(value) for key, value in zip(node.keys, node.values)}
@@ -643,7 +635,7 @@ for symbol, expected in (
         "Car Battery": "Music Lab - 20 Point Chest",
     }),
 ):
-    if ast.literal_eval(assignment_value(ast.parse(items_text), symbol)) != expected:
+    if ast.literal_eval(assignment_value(contract_trees[ITEMS], symbol)) != expected:
         fail(f"character quest item contract changed: {symbol}")
 
 money_cassette_location_match = re.search(
@@ -689,7 +681,6 @@ for required_marker in (
     '"client_star_gate_enforcement_active": True',
     '"special_variant_locations_active": False',
     '"special_variant_locations": []',
-    '"difficulty_filtering_active": True',
     '"cassette_schema": 1',
     '"full_cassette_randomization": True',
     '"cassette_count": len(CASSETTES)',

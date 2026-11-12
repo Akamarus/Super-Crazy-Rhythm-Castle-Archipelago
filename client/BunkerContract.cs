@@ -20,6 +20,10 @@ internal static class BunkerCatalog
         new("Secret Bunker - Demon Key Pickup",187256340,"BUNKER_HUB_DEMON_KEY"),
         new("True Ending - Completion",187256341,TrueEndingFlag),
     };
+    internal static readonly IReadOnlyDictionary<string, BunkerItemDefinition> ByBagFlag =
+        Items.ToDictionary(item => item.BagFlag, StringComparer.Ordinal);
+    internal static readonly IReadOnlyDictionary<string, BunkerCheckDefinition> ByCheckFlag =
+        Checks.ToDictionary(check => check.Flag, StringComparer.Ordinal);
 }
 internal static class BunkerContract
 {

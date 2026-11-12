@@ -70,6 +70,8 @@ def check_payload(payload, kind):
     elif kind == 'apworld':
         if not {'scrc/__init__.py', 'scrc/archipelago.json'} <= payload.keys():
             raise ValueError('Missing APWorld entry points')
+        # Older releases have fewer modules. Applying today's full inventory as
+        # a requirement would prevent repackaging their original bytes with notices.
         allowed = {'scrc/' + n for n in WORLD_FILES}
         if not payload.keys() <= allowed:
             raise ValueError('Unapproved APWorld contents: ' + ', '.join(sorted(payload.keys() - allowed)))

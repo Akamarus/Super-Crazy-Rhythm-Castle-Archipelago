@@ -10,19 +10,18 @@ internal static class CassetteChestRewardHooks
 {
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void InvokeReward(IntPtr instance, IntPtr methodInfo);
-    private static readonly List<Hook> Hooks = new();
+    private static readonly OwnedNativeHooks Hooks = new();
 
     private sealed class Hook
     {
         internal readonly InvokeReward Replacement;
         internal InvokeReward Original = null!;
-        internal INativeDetour Detour = null!;
         private readonly bool _popup;
         internal Hook(bool popup) { _popup = popup; Replacement = Invoke; }
 
         private void Invoke(IntPtr instance, IntPtr methodInfo)
         {
-            CassetteChestRewardAdmission.Run(CassetteReceiptRandomization.Enabled, _popup,
+            CassetteChestRewardAdmission.Run(Hooks.Active && CassetteReceiptRandomization.Enabled, _popup,
                 () => QuestCheckHooks.PathFor(new Component(instance)),
                 () =>
                 {
@@ -39,7 +38,7 @@ internal static class CassetteChestRewardHooks
 
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0) return Hooks.Count;
+        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
         CassetteChestHookInstallation.Run(TryInstall);
         return Hooks.Count;
     }
@@ -64,8 +63,7 @@ internal static class CassetteChestRewardHooks
                 IL2CPP.il2cpp_type_get_name_((IntPtr)metadata.ReturnType) != "System.Void" || metadata.MethodPointer == IntPtr.Zero)
                 throw new InvalidOperationException("Native cassette reward signature mismatch");
             var hook = new Hook(spec.Popup);
-            hook.Detour = INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original);
-            Hooks.Add(hook);
+            Hooks.Add(INativeDetour.CreateAndApply(metadata.MethodPointer, hook.Replacement, out hook.Original), hook.Replacement);
             Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Hooked native {spec.Owner}.{spec.Method} for cassette chest sources.");
             return true;
         }
@@ -75,4 +73,7 @@ internal static class CassetteChestRewardHooks
             return false;
         }
     }
+
+    internal static bool Shutdown() => Hooks.Shutdown(ex =>
+        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Cassette chest hook detach failed: {ex.GetBaseException().Message}"));
 }

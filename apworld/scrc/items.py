@@ -82,39 +82,15 @@ MUSIC_LAB_POINT_ITEM_CLASSIFICATIONS = {
 }
 
 
-def planned_star_names() -> tuple[str, ...]:
-    """Return the future 66-item Star inventory plan without activating it."""
-    return tuple(STAR_ITEM_NAME for _ in range(STAR_ITEM_COUNT))
-
-
-def validate_planned_item_capacity(
-    available_locations: int,
-    existing_required_items: int,
-) -> None:
-    """Reject a future pool plan that cannot fit all required items."""
-    values = (available_locations, existing_required_items)
-    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
-        raise ValueError(
-            "available_locations and existing_required_items must be non-negative integers"
-        )
-
-    required_items = existing_required_items + STAR_ITEM_COUNT
-    if available_locations < required_items:
-        raise ValueError(
-            f"planned pool has {required_items} required items but only "
-            f"{available_locations} locations"
-        )
-
 # v0.26: permanent IDs allocated after native source and hand-in mapping.
 QUEST_ITEM_NAME_TO_ID = {
     "Plunger": BASE_ID + 161,
     "Meoo": BASE_ID + 162,
     "Maniac": BASE_ID + 163,
 }
-# Characters remain useful; Plunger gates the modeled Lobby feeding action.
+# Plunger gates the modeled Lobby Star Eater action. The characters remain useful.
 QUEST_ITEM_CLASSIFICATIONS = {
-    name: ItemClassification.useful for name in QUEST_ITEM_NAME_TO_ID
+    "Plunger": ItemClassification.progression,
+    "Meoo": ItemClassification.useful,
+    "Maniac": ItemClassification.useful,
 }
-
-# Plunger now gates the proved Lobby Star Eater action.
-QUEST_ITEM_CLASSIFICATIONS["Plunger"] = ItemClassification.progression

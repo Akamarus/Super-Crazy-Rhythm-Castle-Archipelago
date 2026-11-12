@@ -45,8 +45,6 @@ internal static class ApStars
     private static string _blockedLevel = "", _blockedVariant = "", _blockedRoom = "", _blockedIdentity = "";
     private static GUIStyle? _blockedStyle;
     private static int _blockedFontSize;
-    private static readonly HashSet<string> EaterRooms = new(StringComparer.Ordinal)
-        { "GameRoom_Hub2", "GameRoom_Hub1A", "GameRoom_Hub5B", "GameRoom_Hub7", "GameRoom_Hub8" };
 
     internal static void Configure(Func<string, bool> sendGoal, string? journalDirectory = null)
     {
@@ -77,7 +75,7 @@ internal static class ApStars
     }
     internal static int ResolveTotal(int native)
     {
-        if (State.Active && EaterRooms.Contains(DeveloperHarness.CurrentRoomId) && !ApStarEaterThresholds.IsReadyForRoom(DeveloperHarness.CurrentRoomId)) return 0;
+        if (State.Active && !ApStarEaterThresholds.CanUseStarTotal(DeveloperHarness.CurrentRoomId)) return 0;
         return State.ResolveTotal(native);
     }
     internal static bool CanEnter(string level, string variant)

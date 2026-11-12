@@ -4,11 +4,7 @@ namespace RhythmCastleAP;
 
 internal enum CassetteSourceType { LevelEarnedReward, MusicLabPointChest }
 internal sealed record CassetteTrigger(string Level, string Variant);
-internal sealed record CassetteDefinition(string DisplaySong, string NativeSong, string ItemName, string SourceName, CassetteSourceType SourceType, bool ReusesExistingLocation, IReadOnlyList<CassetteTrigger> Triggers)
-{
-    internal string? Level => Triggers.Count == 0 ? null : Triggers[0].Level;
-    internal string? Variant => Triggers.Count == 0 ? null : Triggers[0].Variant;
-}
+internal sealed record CassetteDefinition(string DisplaySong, string NativeSong, string ItemName, string SourceName, CassetteSourceType SourceType, bool ReusesExistingLocation, IReadOnlyList<CassetteTrigger> Triggers);
 
 internal static class CassetteCatalog
 {

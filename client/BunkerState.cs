@@ -11,8 +11,8 @@ internal sealed class BunkerState
     private HashSet<long> _owned = new(), _consumed = new(), _completed = new();
     internal bool Enabled { get { lock (_sync) return _enabled; } }
     internal bool Ready { get { lock (_sync) return _enabled && _ready; } }
-    internal string? Identity { get { lock (_sync) return _identity; } }
-    internal IReadOnlySet<long> Completed { get { lock (_sync) return new HashSet<long>(_completed); } }
+    internal bool IsCompleted(long check) { lock (_sync) return _completed.Contains(check); }
+    internal bool IsConsumed(long item) { lock (_sync) return _consumed.Contains(item); }
     internal void Configure(long generation, string identity, bool enabled, Func<string, BunkerRecord> load)
     {
         lock (_sync) {
@@ -47,13 +47,13 @@ internal sealed class BunkerState
     }
     internal void WithBound(int slot, Func<string, bool?> read, Action<string, BunkerRecord> save, Action action)
     { lock (_sync) if (Bind(slot, read, save)) action(); }
-    internal bool ShouldGrant(long item, bool? held)
-    { lock (_sync) return _enabled && _ready && _slot.HasValue && held == false && _owned.Contains(item) && !_consumed.Contains(item); }
+    internal bool HasUnconsumedReceipt(long item)
+    { lock (_sync) return _enabled && _ready && _slot.HasValue && _owned.Contains(item) && !_consumed.Contains(item); }
     internal void Consume(string flag, Action<string, BunkerRecord> save)
     {
         lock (_sync) {
-            var item = BunkerCatalog.Items.FirstOrDefault(i => i.BagFlag == flag);
-            if (!_enabled || !_slot.HasValue || _identity == null || item == null || _consumed.Contains(item.Id)) return;
+            if (!_enabled || !_slot.HasValue || _identity == null ||
+                !BunkerCatalog.ByBagFlag.TryGetValue(flag, out var item) || _consumed.Contains(item.Id)) return;
             var next = _consumed.Append(item.Id).ToHashSet(); save(_identity, new(_slot, next.ToArray(), _completed.ToArray())); _consumed = next;
         }
     }
@@ -69,8 +69,8 @@ internal sealed class BunkerState
     {
         lock (_sync) {
             if (flag == "BUNKER_HUB_DEMON_KEY" && !nativeAward) return;
-            var check = BunkerCatalog.Checks.FirstOrDefault(c => c.Flag == flag);
-            if (!_enabled || !_slot.HasValue || _identity == null || check == null || _completed.Contains(check.Id)) return;
+            if (!_enabled || !_slot.HasValue || _identity == null ||
+                !BunkerCatalog.ByCheckFlag.TryGetValue(flag, out var check) || _completed.Contains(check.Id)) return;
             var next = _completed.Append(check.Id).ToHashSet(); save(_identity, new(_slot, _consumed.ToArray(), next.ToArray())); _completed = next;
         }
     }

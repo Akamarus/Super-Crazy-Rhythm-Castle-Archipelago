@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
+    <Compile Include="..\..\MusicLabChestMap.cs" Link="MusicLabChestMap.cs" />
     <Compile Include="..\..\MusicLabPointPolicy.cs" Link="MusicLabPointPolicy.cs" />
     <Compile Include="..\..\MusicLabPointRandomization.cs" Link="MusicLabPointRandomization.cs" />
     <Compile Include="..\..\MusicLabPointSessionHistory.cs" Link="MusicLabPointSessionHistory.cs" />
@@ -18,7 +19,7 @@
   <Target Name="ExtractProductionScorePostfix" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <ScoreSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</ScoreSource>
-      <ScorePostfix>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', '(?s)internal static class MusicLabPointOverride.*?(?=internal static class MusicLabPointDiagnostic)').Value)</ScorePostfix>
+      <ScorePostfix>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', '(?ms)^internal static class MusicLabPointOverridePatches\b.*?^}').Value)</ScorePostfix>
       <ConnectionStatus>$([System.Text.RegularExpressions.Regex]::Match('$(ScoreSource)', 'public bool Connected =&gt;[^%3B]+%3B').Value)</ConnectionStatus>
     </PropertyGroup>
     <WriteLinesToFile File="$(IntermediateOutputPath)ProductionScorePostfix.cs" Lines="using System.Reflection%3B namespace RhythmCastleAP%3B $(ScorePostfix)" Overwrite="true" />

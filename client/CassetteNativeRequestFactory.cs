@@ -9,29 +9,6 @@ internal static class CassetteNativeRequestFactory
     internal const string HaveInBag = "HAVE_IN_BAG";
     internal const string DefaultBundle = "DEFAULT";
 
-    internal static object Create(
-        Type requestType,
-        Type songType,
-        Type statusType,
-        Type bundleType,
-        string nativeSong,
-        string nativeStatus,
-        object nativeBundle)
-    {
-        if (!TryCreateVerified(
-                requestType,
-                songType,
-                statusType,
-                bundleType,
-                nativeSong,
-                nativeStatus,
-                nativeBundle,
-                out object? request,
-                out string detail))
-            throw new InvalidOperationException(detail);
-        return request!;
-    }
-
     internal static bool TryCreateHaveInBagRequest(
         Type requestType,
         Type songType,
@@ -63,50 +40,8 @@ internal static class CassetteNativeRequestFactory
             detail = $"cassette request semantic-value-parse-invocation:{Summarize(ex)}";
             return false;
         }
-        return TryCreateVerified(
-            requestType,
-            songType,
-            statusType,
-            bundleType,
-            nativeSong,
-            HaveInBag,
-            bundle,
-            out request,
-            out detail);
-    }
-
-    private static bool TryCreateVerified(
-        Type requestType,
-        Type songType,
-        Type statusType,
-        Type bundleType,
-        string nativeSong,
-        string nativeStatus,
-        object nativeBundle,
-        out object? request,
-        out string detail)
-    {
-        request = null;
-        detail = string.Empty;
-        if (!songType.IsEnum || !statusType.IsEnum || !bundleType.IsEnum)
-        { detail = "cassette request semantic types are not enums"; return false; }
-        if (!bundleType.IsInstanceOfType(nativeBundle))
-        { detail = "native bundle does not match cassette request bundle type"; return false; }
-
-        object song;
-        object status;
-        try
-        {
-            song = Enum.Parse(songType, nativeSong, ignoreCase: false);
-            status = Enum.Parse(statusType, nativeStatus, ignoreCase: false);
-        }
-        catch (Exception ex)
-        {
-            detail = $"cassette request semantic-value-parse-invocation:{Summarize(ex)}";
-            return false;
-        }
-        if (!string.Equals(nativeBundle.ToString(), DefaultBundle, StringComparison.Ordinal) ||
-            Convert.ToInt32(nativeBundle) != 1)
+        if (!string.Equals(bundle.ToString(), DefaultBundle, StringComparison.Ordinal) ||
+            Convert.ToInt32(bundle) != 1)
         { detail = "cassette request DEFAULT enum did not match name/value DEFAULT/1"; return false; }
 
         ConstructorInfo? constructor = requestType.GetConstructor(

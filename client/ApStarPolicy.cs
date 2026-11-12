@@ -103,12 +103,12 @@ internal sealed class ApStarState
             _mode=settings.Mode==ApStarMode.Awaiting && _synced ? ApStarMode.Disconnected : settings.Mode;
         }
     }
-    internal void Publish(long generation,IEnumerable<long> history)
+    internal void Publish(long generation,int stars)
     {
         lock(_sync)
         {
             if(generation!=_generation||_settings.Mode!=ApStarMode.Awaiting)return;
-            _total=Math.Min(66,history.Count(id=>id==ApStarContract.StarId));_synced=true;_mode=ApStarMode.Ready;
+            _total=Math.Min(66,stars);_synced=true;_mode=ApStarMode.Ready;
         }
     }
     internal void Disconnect(long generation){lock(_sync)if(generation==_generation&&_settings.Mode==ApStarMode.Awaiting)_mode=_synced?ApStarMode.Disconnected:ApStarMode.Awaiting;}
@@ -125,7 +125,6 @@ internal sealed class ApStarState
     }
     internal void Reset(){lock(_sync){_generation=0;_identity="";_total=0;_synced=_goalPending=_goalSent=false;_settings=new(ApStarMode.Native);_mode=ApStarMode.Native;_consumedAttempt=_attempt;}}
     internal int ResolveTotal(int native){lock(_sync)return _mode==ApStarMode.Native?native:(_synced?_total:0);}
-    internal int ResolveHud(string room,int native)=>room=="GameRoom_Hub6"?native:ResolveTotal(native);
     internal int? Requirement(string level,string variant)
     {
         lock(_sync)

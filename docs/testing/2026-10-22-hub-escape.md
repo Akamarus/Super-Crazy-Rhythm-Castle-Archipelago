@@ -1,4 +1,4 @@
-# Cell Tower escape acceptance — 2026-10-22
+# Cell Tower escape acceptance â€” 2026-10-22
 
 Final status: both reported routes passed user testing; released in v0.29.2 / Client 0.76.2. Earlier failures below are historical investigation steps.
 

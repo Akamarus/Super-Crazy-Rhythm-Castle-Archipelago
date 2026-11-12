@@ -6,7 +6,8 @@ public sealed class RecordCharacterUnlockedValueInSaveDataRequest {
 }
 public static class CurrentPlayerSaveEnquiries {
  public static readonly HashSet<ePlayableCharacter> Unlocked = new();
- public static bool IsCharacterUnlocked(ePlayableCharacter character) => Unlocked.Contains(character);
+ public static int CharacterReads;
+ public static bool IsCharacterUnlocked(ePlayableCharacter character) { CharacterReads++; return Unlocked.Contains(character); }
 }
 public sealed class NativeProcessor {
  public int Grants;
@@ -27,7 +28,8 @@ namespace RhythmCastleAP {
   internal static Assembly GameAssembly=>typeof(CurrentPlayerSaveEnquiries).Assembly;
   internal static IEnumerable<Type> SafeGetTypes(Assembly assembly)=>assembly.GetTypes();
   internal static object? ReadMember(object obj,string name)=>obj.GetType().GetProperty(name)?.GetValue(obj);
-  internal static bool? ReadBool(object obj,string name)=>ReadMember(obj,name) as bool?;
+  internal static int BoolReads;
+  internal static bool? ReadBool(object obj,string name) { BoolReads++; return ReadMember(obj,name) as bool?; }
  }
  internal static class CassetteReceiptRandomization {
   internal static bool Stable=true;
@@ -39,7 +41,8 @@ namespace RhythmCastleAP {
  }
  internal static class RootsBucketRandomization {
   internal static readonly Dictionary<string,bool> Flags=new();
-  internal static bool TryReadProgressionFlag(string name,out bool value)=>Flags.TryGetValue(name,out value);
+  internal static readonly List<string> Reads=new();
+  internal static bool TryReadProgressionFlag(string name,out bool value) { Reads.Add(name); return Flags.TryGetValue(name,out value); }
  }
  internal sealed class Request {public bool Value {get;init;}}
  internal sealed class Changed {public bool FlagWasSet {get;init;} public bool FlagIsSet {get;init;}}

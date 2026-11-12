@@ -1,3 +1,4 @@
+global using ConnectionRefusedError = Archipelago.MultiClient.Net.Enums.ConnectionRefusedError;
 using System.Reflection;
 
 namespace RhythmCastleAP;
@@ -9,7 +10,8 @@ internal static partial class ConnectionTests
 {
     internal static void Run(Func<Dictionary<string, object>> contract)
     {
-        var protectedClient = new ArchipelagoClient("test", "slot", "", false);
+        VerifyLoginRecovery(contract);
+        var protectedClient = new ArchipelagoClient("test", "slot", "");
         var protectedSession = Login(contract());
         bool loginReached = false;
         protectedSession.BeforeLoginReturns = () => loginReached = true;
@@ -25,7 +27,7 @@ internal static partial class ConnectionTests
         protectedClient.Shutdown();
         // Previous item ownership must stop before a replacement authenticates,
         // including a replacement rejected for an incompatible item contract.
-        var questClient = new ArchipelagoClient("test", "slot", "", false);
+        var questClient = new ArchipelagoClient("test", "slot", "");
         Connect(questClient, Login(contract()), true);
         CharacterQuestItems.State.Configure(1, true);
         CharacterQuestItems.State.Publish(1, new long[] { 187256159 });
@@ -45,7 +47,7 @@ internal static partial class ConnectionTests
         foreach (string replacement in new[] { "same", "seed", "team", "slot" })
         {
             CampaignLevelRandomization.Shutdown();
-            var client = new ArchipelagoClient("test", "slot", "", false);
+            var client = new ArchipelagoClient("test", "slot", "");
             var first = Login(contract());
             Connect(client, first, true);
             Check(false, client.QueueExpandedLocation("Level 1 - Completion", Plugin.GameName + "|old-seed|0|1"),
@@ -81,7 +83,7 @@ internal static partial class ConnectionTests
         }
 
         CampaignLevelRandomization.Shutdown();
-        var rejectedClient = new ArchipelagoClient("test", "slot", "", false);
+        var rejectedClient = new ArchipelagoClient("test", "slot", "");
         var malformed = contract();
         malformed["campaign_level_mapping_schema"] = 99L;
         Plugin.LoggerInstance.Errors.Clear();
@@ -98,7 +100,7 @@ internal static partial class ConnectionTests
 
     private static void UnauthenticatedTransportCannotFlush(Func<Dictionary<string, object>> contract)
     {
-        var client = new ArchipelagoClient("test", "slot", "", false);
+        var client = new ArchipelagoClient("test", "slot", "");
         var first = Login(contract());
         Connect(client, first, true);
         var queue = (System.Collections.Concurrent.ConcurrentQueue<string>)typeof(ArchipelagoClient)
@@ -141,6 +143,74 @@ internal static partial class ConnectionTests
         Check(0, sent, "a flush admitted before disconnect must not deliver to the unauthenticated replacement transport");
     }
 
+    private static void VerifyLoginRecovery(Func<Dictionary<string, object>> contract)
+    {
+        foreach (var (codes, needsCorrection) in new (ConnectionRefusedError[], bool)[]
+        {
+            ([ConnectionRefusedError.InvalidSlot], true), ([ConnectionRefusedError.InvalidPassword], true),
+            ([ConnectionRefusedError.InvalidGame], true), ([ConnectionRefusedError.IncompatibleVersion], true),
+            ([ConnectionRefusedError.SlotAlreadyTaken, ConnectionRefusedError.InvalidItemsHandling], true),
+            ([ConnectionRefusedError.SlotAlreadyTaken], false), ([], false)
+        })
+        {
+            var client = new ArchipelagoClient("test", "slot", "");
+            var session = Login(contract());
+            session.Result = new LoginFailure { ErrorCodes = codes };
+            session.BeforeLoginReturns = session.Socket.Close;
+            ArchipelagoSessionFactory.Next = session;
+            client.Connect();
+            var retry = RetryPolicyOf(client);
+            Check(!needsCorrection, retry.ReconnectRequested, "retry follows the typed login result after a racing socket close");
+            Check(!needsCorrection, retry.OnUnexpectedDisconnect(), "late callbacks respect the refusal");
+            client.Shutdown();
+        }
+
+        const string seed = "damaged-journal";
+        string identity = string.Join("|", Plugin.GameName, seed, 0, 1);
+        QuestChecks.Journal.Save(identity, new(null, [], []));
+        string fileName = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity))) + ".json";
+        string file = Path.Combine(QuestChecks.JournalDirectory, fileName);
+        string backup = File.ReadAllText(file);
+        var journalClient = new ArchipelagoClient("test", "slot", "");
+        try
+        {
+            var originalRoom = Login(contract(), seed: "working-seed");
+            Connect(journalClient, originalRoom, true);
+            originalRoom.Socket.Close();
+            journalClient.QueueCampaignResult("Level_05", "LevelVariant_Default", 1);
+            File.WriteAllText(file, "{");
+            var damagedRoom = Login(StarContract(contract), seed: seed);
+            damagedRoom.BeforeLoginReturns = () => damagedRoom.Socket.Receive(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket
+            {
+                Index = 0, Items = [new Archipelago.MultiClient.Net.Models.NetworkItem { Item = 187256159 }]
+            });
+            ArchipelagoSessionFactory.Next = damagedRoom;
+            journalClient.Connect();
+            Check(false, journalClient.Connected, "damaged journal prevents session from becoming ready");
+            Check(false, CharacterQuestItems.State.Snapshot.Ready, "failed journal validation cannot publish pre-login grants");
+            Check(false, RetryPolicyOf(journalClient).OnUnexpectedDisconnect(), "damaged journal pauses automatic retries");
+            Check(true, Plugin.LoggerInstance.Errors.Any(x => x.Contains(fileName) && x.Contains("reconnect paused")),
+                "player gets the filename and retry status");
+            Check("{", File.ReadAllText(file), "failed login preserves damaged file for recovery");
+            var recoveredRoom = Login(contract(), seed: "working-seed");
+            Connect(journalClient, recoveredRoom, true);
+            Check(2, recoveredRoom.Locations.SentCount, "returning to the working seed delivers its two pending checks");
+            Check(0, damagedRoom.Locations.SentCount, "the rejected room received no checks");
+            File.WriteAllText(file, backup);
+            ArchipelagoSessionFactory.Next = Login(StarContract(contract), seed: seed);
+            journalClient.Connect();
+            Check(true, journalClient.Connected, "explicit connect succeeds with restored journal");
+        }
+        finally
+        {
+            journalClient.Shutdown();
+            File.Delete(file);
+        }
+    }
+
+    private static ReconnectPolicy RetryPolicyOf(ArchipelagoClient client) =>
+        (ReconnectPolicy)typeof(ArchipelagoClient).GetField("_reconnectPolicy", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+
     private static ArchipelagoSession Login(Dictionary<string, object> data, bool success = true,
         string seed = "seed", int team = 0, int slot = 1) => new()
         {
@@ -181,7 +251,11 @@ internal sealed class LoginSuccessful : LoginResult
     internal int Team;
     internal int Slot;
 }
-internal sealed class LoginFailure : LoginResult { internal string[] Errors = ["controlled authentication failure"]; }
+internal sealed class LoginFailure : LoginResult
+{
+    internal string[] Errors = ["controlled authentication failure"];
+    internal ConnectionRefusedError[] ErrorCodes = [];
+}
 internal static class ArchipelagoSessionFactory
 {
     internal static ArchipelagoSession Next = new();
@@ -263,14 +337,12 @@ internal sealed class MusicLabPointSessionHistory
     internal void HandlePacket(object packet) { }
     internal MusicLabPointSnapshot ApplySlotData(Dictionary<string, object> data, string game, string seed, string slot) => MusicLabPointRandomization.Snapshot;
 }
-internal static class ReceivedItemDispatch { internal static void TryApply(string name, bool apply, params Func<string, bool>[] handlers) { } }
 internal class NativeSubsystem
 {
     internal static bool Enabled => false;
     internal static void ApplySlotData(Dictionary<string, object> data) { }
     internal static void ApplySlotDataStarter(Dictionary<string, object> data) { }
     internal static bool TryApplyItem(string name) => false;
-    internal static bool ApplyArchipelagoItem(string name) => false;
     internal static void EndServerSync(long generation) { }
     internal static bool BeginServerSync(ArchipelagoSession session, long generation) => true;
     internal static void RequestUnityReconciliation(string reason) { }
@@ -280,19 +352,27 @@ internal sealed class AreaAccessPrototype : NativeSubsystem
     internal static void EndAuthenticatedSession() { }
 }
 internal sealed class IntroHubSkip : NativeSubsystem { }
-internal sealed class RootsStartupBootstrap : NativeSubsystem { }
 internal sealed class GarageCartridgeAccess : NativeSubsystem { }
 internal sealed class WeedKillerRandomization : NativeSubsystem
 {
     internal static readonly WeedKillerReceiptState History = new();
 }
 internal sealed class PlantPipesRandomization : NativeSubsystem { }
-internal sealed class CassetteReceiptRandomization : NativeSubsystem { }
-internal sealed class CassetteSourceRandomization : NativeSubsystem { }
+internal sealed record CassetteSlotCompatibilityResult(bool Compatible, string Detail);
+internal static class CassetteSlotDataCompatibility
+{
+    internal static CassetteSlotCompatibilityResult Validate(Dictionary<string, object>? data) => new(true, "fixture");
+}
+internal sealed class CassetteReceiptRandomization : NativeSubsystem
+{
+    internal static void ApplySlotData(CassetteSlotCompatibilityResult compatibility, bool bundled) { }
+}
+internal sealed class CassetteSourceRandomization : NativeSubsystem
+{
+    internal static void ApplySlotData(CassetteSlotCompatibilityResult compatibility) { }
+}
 internal sealed class PreviewAbilityRandomization : NativeSubsystem { }
-internal sealed class BottomHudDiagnostic : NativeSubsystem { }
 internal sealed class RootsBucketRandomization : NativeSubsystem { }
-internal sealed class NativeProgression : NativeSubsystem { }
 internal static class CharacterQuestItems
 {
     internal static readonly CharacterQuestItemState State = new();
@@ -308,7 +388,7 @@ internal sealed class TestNotificationFeed { internal void Reset() { } }
 internal sealed class TestNotificationSession
 {
     internal void HandlePacket(object packet) { }
-    internal void Configure(string seed, int team, int slot, Dictionary<string,object>? slotData = null) { }
+    internal void Configure(string seed, int team, int slot, CassetteBundleContract cassettes) { }
 }
 
 internal static class NetworkReceiveGuard

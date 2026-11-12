@@ -74,12 +74,6 @@ def validate_music_lab_point_catalog(
 
 validate_music_lab_point_catalog()
 
-MUSIC_LAB_POINT_ITEMS_BY_NAME = {
-    entry.name: entry for entry in MUSIC_LAB_POINT_ITEMS
-}
-MUSIC_LAB_POINT_ITEMS_BY_ID = {
-    entry.item_id: entry for entry in MUSIC_LAB_POINT_ITEMS
-}
 MUSIC_LAB_POINT_POOL = tuple(
     entry.name
     for entry in MUSIC_LAB_POINT_ITEMS

@@ -33,6 +33,20 @@ static class Program {
  }
  static void Main() {
   try {
+   Start();
+   int before = ReflectionUtil.BoolReads;
+   Check(QuestChecks.BeforeProgressionRequest(new Request { Value = true }, "UNRELATED_FLAG"), "unrelated native requests retain admission");
+   Check(ReflectionUtil.BoolReads == before, "unrelated requests skip native value reads");
+   QuestChecks.Tick(Beat);
+   QuestChecks.State.Publish(generation,new[] { QuestChecksPolicy.Meoo },
+    new[] { QuestChecksPolicy.PlungerPickup, QuestChecksPolicy.RootsStarEater });
+   RootsBucketRandomization.Reads.Clear();
+   CurrentPlayerSaveEnquiries.CharacterReads=0;
+   QuestChecks.Tick(Beat);
+   Check(RootsBucketRandomization.Reads.Count==0,"confirmed sources skip native flag polling on the bound save");
+   Check(CurrentPlayerSaveEnquiries.CharacterReads==2,"new character receipt is checked before and after its grant");
+   QuestChecks.Tick(Beat);
+   Check(CurrentPlayerSaveEnquiries.CharacterReads==3,"an unlocked character needs one live read per poll");
    foreach (string freshnessFlag in new[] {"OUTSIDE_HUB_PLUNGER_COLLECTED", "ROOTS_HUB_STAR_EATER_FED"}) {
     Start(QuestChecksPolicy.Meoo);
     RootsBucketRandomization.Flags.Remove(freshnessFlag);
@@ -109,20 +123,22 @@ static class Program {
    Check(QuestChecks.State.Snapshot.NativeSlot==4,"source inventory grant binds before collected marker");
 
    Start();Tick();DeveloperHarness.CurrentRoomId="GameRoom_Hub1A";
-   string journalTemp=Path.Combine(BepInEx.Paths.ConfigPath,"RhythmCastleAP","quest-checks",
-    Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))+".json.tmp");
-   Directory.CreateDirectory(journalTemp);
+   string journalPath=Path.Combine(BepInEx.Paths.ConfigPath,"RhythmCastleAP","quest-checks",
+    Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))+".json");
+   void BlockPublication() { File.Move(journalPath,journalPath+".bak"); Directory.CreateDirectory(journalPath); }
+   void RestorePublication() { Directory.Delete(journalPath); File.Move(journalPath+".bak",journalPath); }
+   BlockPublication();
    bool sequenceExecuted=false;
    if(QuestChecks.AdmitHandIn(QuestChecksPolicy.BatteryHandIn)) { sequenceExecuted=true;HandIn("GameRoom_Hub1A",Battery); }
    Check(!sequenceExecuted&&RootsBucketRandomization.Flags[Battery],"failed journal admission prevents entire sequence and retains battery");
    Check(!QuestChecks.State.Snapshot.Pending.Any(),"failed admission creates no consumable pending record");
-   Directory.Delete(journalTemp);
+   RestorePublication();
    Check(QuestChecks.AdmitHandIn(QuestChecksPolicy.BatteryHandIn),"handin admitted after storage recovery");
    Tick();Check(QuestChecks.State.Snapshot.Pending.Contains(QuestChecksPolicy.BatteryHandIn),"admission survives native sequence waiting before consumption");
-   Directory.CreateDirectory(journalTemp);
+   BlockPublication();
    HandIn("GameRoom_Hub1A",Battery);Tick();
    Check(!RootsBucketRandomization.Flags[Battery]&&QuestChecks.State.Snapshot.Pending.Contains(QuestChecksPolicy.BatteryHandIn),"completion write failure remains recoverable without refill");
-   Directory.Delete(journalTemp);Tick();
+   RestorePublication();Tick();
    Check(QuestChecks.State.Snapshot.Checked.Contains(QuestChecksPolicy.BatteryHandIn),"completion persists when storage recovers");
    Console.WriteLine($"QuestRuntime passed {passed} assertions.");
   } finally {if(Directory.Exists(BepInEx.Paths.ConfigPath)) {

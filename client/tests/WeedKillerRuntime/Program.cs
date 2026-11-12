@@ -3,9 +3,9 @@ using RhythmCastleAP;
 int failed=0;long generation=0;
 void Check(bool value,string name){Console.WriteLine($"{(value?"PASS":"FAIL")}: {name}");if(!value)failed++;}
 void Tick(double seconds=2) => typeof(WeedKillerRandomization).GetMethod("TickUnity",BindingFlags.Static|BindingFlags.NonPublic)?.Invoke(null,new object[]{TimeSpan.FromSeconds(seconds)});
-void Start(){WeedKillerRandomization.Configure();var h=new WeedKillerSessionHistory(++generation);h.Configure();h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket{Index=0,Items=new[]{new Archipelago.MultiClient.Net.Packets.NetworkItem{Item=187256116}}});Native.Flags.Clear();Native.Reads=Native.Writes=0;Native.Drop=false;CassetteReceiptRandomization.Ready=false;Native.Flags["WEED_KILLER_BAG_ITEM"]=false;Native.Flags["ROOTS_HUB_LEVEL_07_DOOR_REVEALED"]=false;WeedKillerRandomization.ApplySlotData(new(){["implementation_version"]="area-routing-plant-pipes-0.15",["randomize_weed_killer"]=true});WeedKillerRandomization.CapturePlayerSaveRequestProcessor(new PlayerSaveRequestProcessor());}
-Start();WeedKillerRandomization.TryApplyItem("Weed Killer");WeedKillerRandomization.TryFlushPendingNativeGrant();Tick();
-Check(Native.Writes==0&&Native.Reads==0,"receipt and request hooks defer all native access until stable Unity tick");
+void Start(){WeedKillerRandomization.Configure();var h=new WeedKillerSessionHistory(++generation);h.Configure();h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket{Index=0,Items=new[]{new Archipelago.MultiClient.Net.Packets.NetworkItem{Item=187256116}}});Native.Flags.Clear();Native.Reads=Native.Writes=0;Native.Drop=false;CassetteReceiptRandomization.Ready=false;Native.Flags["WEED_KILLER_BAG_ITEM"]=false;Native.Flags["ROOTS_HUB_LEVEL_07_DOOR_REVEALED"]=false;WeedKillerRandomization.ApplySlotData(new(){["implementation_version"]="area-routing-plant-pipes-0.15",["randomize_weed_killer"]=true});}
+Start();WeedKillerRandomization.TryApplyItem("Weed Killer");Tick();
+Check(Native.Writes==0&&Native.Reads==0,"receipt defers native access until the save is ready on a Unity tick");
 CassetteReceiptRandomization.Ready=true;Native.Drop=true;Tick();int attempts=Native.Writes;Native.Drop=false;Tick();
 Check(Native.Writes==attempts+1&&Native.Flags["WEED_KILLER_BAG_ITEM"],"silently dropped submission retries without restart");
 int delivered=Native.Writes;Tick();Check(Native.Writes==delivered,"held item not duplicated");
@@ -41,6 +41,27 @@ Check(!WeedKillerRandomization.History.Owned,"stale prior seed callback cannot g
 next.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket {Index=0,Items=Array.Empty<Archipelago.MultiClient.Net.Packets.NetworkItem>()});
 WeedKillerRandomization.TryApplyItem("Weed Killer");
 Check(!WeedKillerRandomization.History.Owned,"receipt notification alone cannot bypass authoritative history");
+bool weedGuard = false;
+bool pipesGuard = false;
+bool pipesCallbackObserved = false;
+var pipesProcessor = new CallbackProcessor(request =>
+{
+    pipesCallbackObserved = pipesGuard && !weedGuard &&
+        request.Flag == eGameProgressionFlag.WEED_KILLER_ABILITY && request.Value;
+});
+Check(NativeProgressionFlagRequest.TrySubmit(pipesProcessor, "WEED_KILLER_ABILITY", true, ref pipesGuard, out _) &&
+      pipesCallbackObserved && !pipesGuard, "Plant Pipes guards only its own synchronous grant");
+
+bool weedCallbackObserved = false;
+var throwingProcessor = new CallbackProcessor(request =>
+{
+    weedCallbackObserved = weedGuard && !pipesGuard &&
+        request.Flag == eGameProgressionFlag.WEED_KILLER_BAG_ITEM && !request.Value;
+    throw new InvalidOperationException("fixture write failure");
+});
+Check(!NativeProgressionFlagRequest.TrySubmit(throwingProcessor, "WEED_KILLER_BAG_ITEM", false, ref weedGuard, out string error) &&
+      weedCallbackObserved && !weedGuard && error.Contains("fixture write failure"),
+    "a failed write reports the error and releases the caller's guard");
 Environment.ExitCode=failed==0?0:1;
 namespace RhythmCastleAP {
 internal static class Native {internal static Dictionary<string,bool> Flags=new();internal static int Writes,Reads;internal static bool Drop;}
@@ -52,7 +73,11 @@ internal sealed class Ap {public void QueueLocation(string s){}}
 internal static class DeveloperHarness {internal static string CurrentRoomId="GameRoom_Hub2";}
 internal static class ReflectionUtil {internal static Assembly GameAssembly=>typeof(RecordGameProgressionInSaveDataRequest).Assembly;internal static bool? ReadBool(object o,string n)=>(bool?)o.GetType().GetProperty(n)?.GetValue(o);}
 }
-public enum eGameProgressionFlag {WEED_KILLER_BAG_ITEM,ROOTS_HUB_LEVEL_07_DOOR_REVEALED}
+public enum eGameProgressionFlag {WEED_KILLER_BAG_ITEM,ROOTS_HUB_LEVEL_07_DOOR_REVEALED,WEED_KILLER_ABILITY}
+internal sealed class CallbackProcessor(Action<RecordGameProgressionInSaveDataRequest> callback)
+{
+    public void ProcessRequest(RecordGameProgressionInSaveDataRequest request) => callback(request);
+}
 public sealed class RecordGameProgressionInSaveDataRequest {public eGameProgressionFlag Flag{get;set;}public bool Value{get;set;}public RecordGameProgressionInSaveDataRequest(eGameProgressionFlag flag,bool value){Flag=flag;Value=value;}}
 public sealed class PlayerSaveRequestProcessor {public void ProcessRequest(RecordGameProgressionInSaveDataRequest request){Native.Writes++;if(!Native.Drop)Native.Flags[request.Flag.ToString()]=request.Value;}}
 

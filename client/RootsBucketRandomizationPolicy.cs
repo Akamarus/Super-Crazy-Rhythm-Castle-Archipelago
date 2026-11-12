@@ -1,11 +1,5 @@
 namespace RhythmCastleAP;
 
-internal enum RootsBucketItemKind
-{
-    HipGlasses,
-    ChickenBucket,
-}
-
 internal enum RootsBucketGrantDecision
 {
     Ignore,

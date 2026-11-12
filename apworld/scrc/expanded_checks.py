@@ -1,9 +1,4 @@
-"""Supplemental passive source checks; native rewards are preserved.
-
-The original schema18 flags below are retained as catalog history. Schema19
-installs candidate native-route rules from native_logic; unsupported special
-completion and legacy Bunker paths remain Stardust-only; schema21 promotes supported Bunker paths.
-"""
+"""Supplemental native source mappings. Access and placement are set by the world."""
 from dataclasses import dataclass
 
 @dataclass(frozen=True)
@@ -15,11 +10,9 @@ class ExpandedCheck:
     flag: str = ""
     level: str = ""
     variant: str = ""
-    required_items: tuple[str, ...] = ()
-    progression_safe: bool = False
 
 EXPANDED_CHECKS = (
-    ExpandedCheck('Roots - Combo Bucket Conversion', 187256298, 'Roots', room='GameRoom_09', flag='LEVEL_09_COMBO_ABILITY_EARNED', required_items=('Weed Killer', 'Plant Pipes', 'Hip Glasses', 'Chicken Bucket', 'Bucket Minion Trade Complete'), progression_safe=True),
+    ExpandedCheck('Roots - Combo Bucket Conversion', 187256298, 'Roots', room='GameRoom_09', flag='LEVEL_09_COMBO_ABILITY_EARNED'),
     ExpandedCheck('Lobby - Important Letters Delivery', 187256299, 'Lobby', room='GameRoom_Hub1A', flag='LOBBY_HUB_MENIAL_TASK_ITEM_DEPOSITED'),
     ExpandedCheck('Lobby - Plunger Hand-In', 187256300, 'Lobby', room='GameRoom_Hub1A', flag='LOBBY_HUB_MEAT_DOOR_BLOCKER_PLUNGERED'),
     ExpandedCheck('Lobby - Star Eater Fed', 187256301, 'Lobby', room='GameRoom_Hub1A', flag='LOBBY_HUB_STAR_EATER_FED'),

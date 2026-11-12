@@ -24,17 +24,12 @@ internal readonly record struct ReconnectAttempt(long IntentGeneration, TimeSpan
 
 internal sealed class ReconnectPolicy
 {
-    private static readonly TimeSpan[] Delays =
-    {
-        TimeSpan.FromSeconds(1),
-        TimeSpan.FromSeconds(2),
-        TimeSpan.FromSeconds(5),
-    };
+    private enum RetryState { Idle, Requested, ActionRequired, Shutdown }
+    private static readonly int[] DelaySeconds = { 1, 2, 5, 10, 20, 40, 60 };
 
     private readonly object _sync = new();
     private int _attempt;
-    private bool _reconnectRequested;
-    private bool _shutdown;
+    private RetryState _state;
     private long _intentGeneration;
 
     internal bool ReconnectRequested
@@ -42,59 +37,43 @@ internal sealed class ReconnectPolicy
         get
         {
             lock (_sync)
-                return _reconnectRequested && !_shutdown;
+                return _state == RetryState.Requested;
         }
     }
 
-    internal void OnUnexpectedDisconnect()
+    internal bool OnUnexpectedDisconnect()
     {
         lock (_sync)
         {
-            if (_shutdown || _reconnectRequested)
-                return;
-            _reconnectRequested = true;
-            _attempt = 0;
-            _intentGeneration++;
+            if (_state == RetryState.Idle)
+                SetState(RetryState.Requested);
+            return _state == RetryState.Requested;
         }
     }
 
-    internal void OnDeliberateShutdown()
-    {
-        lock (_sync)
-        {
-            _shutdown = true;
-            _reconnectRequested = false;
-            _attempt = 0;
-            _intentGeneration++;
-        }
-    }
+    internal void OnDeliberateShutdown() { lock (_sync) SetState(RetryState.Shutdown); }
+    internal void OnActionRequired() { lock (_sync) SetState(RetryState.ActionRequired); }
+    internal void ResetRetries() { lock (_sync) SetState(RetryState.Idle); }
 
-    internal void OnConnected()
+    private void SetState(RetryState next)
     {
-        lock (_sync)
-        {
-            if (_shutdown)
-                return;
-            _reconnectRequested = false;
-            _attempt = 0;
-            _intentGeneration++;
-        }
-    }
-
-    internal TimeSpan? NextDelay()
-    {
-        return NextAttempt()?.Delay;
+        if (_state == RetryState.Shutdown) return;
+        _state = next;
+        _attempt = 0;
+        _intentGeneration++;
     }
 
     internal ReconnectAttempt? NextAttempt()
     {
         lock (_sync)
         {
-            if (_shutdown || !_reconnectRequested)
+            if (_state != RetryState.Requested)
                 return null;
-            int index = Math.Min(_attempt, Delays.Length - 1);
-            _attempt++;
-            return new ReconnectAttempt(_intentGeneration, Delays[index]);
+            int seconds = DelaySeconds[_attempt];
+            _attempt = Math.Min(_attempt + 1, DelaySeconds.Length - 1);
+            // Spread clients out when a shared room/server is unavailable for a while.
+            int milliseconds = seconds < 5 ? seconds * 1000 : Random.Shared.Next(seconds * 800, seconds * 1000 + 1);
+            return new ReconnectAttempt(_intentGeneration, TimeSpan.FromMilliseconds(milliseconds));
         }
     }
 
@@ -102,8 +81,7 @@ internal sealed class ReconnectPolicy
     {
         lock (_sync)
         {
-            return !_shutdown &&
-                   _reconnectRequested &&
+            return _state == RetryState.Requested &&
                    attempt.IntentGeneration == _intentGeneration;
         }
     }

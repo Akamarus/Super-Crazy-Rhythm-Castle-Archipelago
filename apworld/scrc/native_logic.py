@@ -1,12 +1,12 @@
-"""Conservative achievable native routes for schema19.
+"""Model the inventory and native routes needed to perform each checked action.
 
-Evidence: docs/HISTORICAL_GAMEPLAY_EVIDENCE.md (Lobby branching, Meat,
-Cell and Tower sections), work/batch-native-audit.md and the accepted grouped
-native-source run. This is a conservative candidate graph; a fresh full
-playthrough must still verify hidden native story conditions. Predicates mean the player can perform the named action;
-they never synthesize a native story flag. Vanilla consumables are not AP items.
+Seed capabilities select the applicable Cell Tower, Lobby and Bunker paths.
+The original route evidence is in docs/archive/checkpoints/docs-HISTORICAL_GAMEPLAY_EVIDENCE.md.
 """
 from .campaign_levels import CAMPAIGN_LEVELS
+from .star_requirements import LEVEL_NAMES
+
+AREA_ACCESS_BY_LEVEL = tuple(f"{level.area} Access" for level in CAMPAIGN_LEVELS)
 
 # Ordered successful native actions required before each level.
 # Lobby Access permits direct entry; its native route does not require Lift Quest.
@@ -30,30 +30,54 @@ LEVEL_ITEMS = {
 }
 
 
+STAR_EATER_LEVELS = {
+    "Roots": "Level 3", "Lobby": "Level 7", "Cell Tower": "Level 16",
+    "Royal Corridor": "Level 21", "Secret Bunker": "Level 22",
+}
+
+
+def star_eater_threshold(requirements, area, bunker_progression=False):
+    if area == "Secret Bunker":
+        # Legacy Bunker uses 66 Stars. Schema 21 keeps its source below Level 22.
+        if not bunker_progression:
+            return 66
+        return max(0, requirements[STAR_EATER_LEVELS[area]] - 1)
+    gate = requirements[STAR_EATER_LEVELS[area]]
+    return min(3, gate) if area == "Roots" else gate
+
+
 def star_eater_requirements(requirements, bunker_progression=False):
-    # Feeding does not consume stars. Optional Bunker retains its native66;
-    # no progression item is placed behind its unmodeled demon route.
-    return {'Roots': min(3, requirements['Level 3']),
-            'Lobby': requirements['Level 7'],
-            'Cell Tower': requirements['Level 16'],
-            'Royal Corridor': requirements['Level 21'],
-            'Secret Bunker': max(0,requirements['Level 22']-1) if bunker_progression else 66}
+    return {area: star_eater_threshold(requirements, area, bunker_progression)
+            for area in STAR_EATER_LEVELS}
 
 
-def can_complete(world, state, number):
-    player=world.player
-    level=CAMPAIGN_LEVELS[number-1]
-    if not state.has(f'{level.area} Access',player): return False
-    if state.count('Star',player)<world.generated_star_requirements[f'Level {number}']: return False
+def can_complete(world, state, number, stars=None):
+    player = world.player
+    if not state.has(AREA_ACCESS_BY_LEVEL[number - 1], player):
+        return False
+    # Predecessors use the same inventory in this evaluation. Read it anew for
+    # the next rule call, since fill and Tracker can change it in either direction.
+    if stars is None:
+        stars = state.count("Star", player)
+    if stars < world.generated_star_requirements[LEVEL_NAMES[number - 1]]:
+        return False
     # Reviewed Lobby return enters directly in front of Lift Quest, bypassing
     # the forward Roots blockers while retaining area ownership and its Star gate.
-    if number == 5 and state.has('Lobby Access', player): return True
-    if not all(state.has(item,player) for item in LEVEL_ITEMS.get(number,())): return False
+    if number == 5 and state.has("Lobby Access", player):
+        return True
+    for item in LEVEL_ITEMS.get(number, ()):
+        if not state.has(item, player):
+            return False
     # New clients open Old Tom's physical route without completing nectar.
     # Existing seeds retain the original predecessor graph during Tracker replay.
-    predecessors = () if number == 16 and getattr(world, "cell_tower_open_route", False) else LEVEL_PREDECESSORS[number]
-    if number in (7, 9) and getattr(world, "lobby_open_doors", False): predecessors = ()
-    return all(can_complete(world,state,prior) for prior in predecessors)
+    if number == 16 and getattr(world, "cell_tower_open_route", False):
+        return True
+    if number in (7, 9) and getattr(world, "lobby_open_doors", False):
+        return True
+    for prior in LEVEL_PREDECESSORS[number]:
+        if not can_complete(world, state, prior, stars):
+            return False
+    return True
 
 
 # These actions have source mapping plus historically supported native quest paths. Every value
@@ -101,22 +125,26 @@ def source_rule(world, name, state):
                 and (state.has('Cell Tower Access', world.player)
                      or all(can_complete(world, state, n) for n in (8,9,10))))
     if name in SOURCE_PATHS:
-        levels,items=SOURCE_PATHS[name]
-        return all(can_complete(world,state,n) for n in levels) and all(
-            state.has(item,world.player) for item in items)
-    requirements=star_eater_requirements(world.generated_star_requirements)
+        levels, items = SOURCE_PATHS[name]
+        for level in levels:
+            if not can_complete(world, state, level):
+                return False
+        for item in items:
+            if not state.has(item, world.player):
+                return False
+        return True
     if name=='Roots - Star Eater Fed':
-        return state.count('Star',world.player)>=requirements['Roots']
+        return state.count('Star', world.player) >= star_eater_threshold(world.generated_star_requirements, 'Roots')
     if name=='Lobby - Star Eater Fed':
-        return source_rule(world,'Lobby - Plunger Hand-In',state) and state.count('Star',world.player)>=requirements['Lobby']
+        return (source_rule(world,'Lobby - Plunger Hand-In',state)
+                and state.count('Star', world.player) >= star_eater_threshold(world.generated_star_requirements, 'Lobby'))
     if name=='Cell Tower - Star Eater Fed':
-        # Native activation requires VIOLIN (Violance), regardless of its randomized source.
-        return (can_complete(world,state,16) and state.has('Violance',world.player)
-                and state.count('Star',world.player)>=requirements['Cell Tower'])
+        # Level 16 already checks this eater's Star threshold.
+        return can_complete(world, state, 16) and state.has('Violance', world.player)
     if name=='Royal Corridor - Star Eater Fed':
         # User-reviewed direct hub interaction; no Locker Room clear required.
         return (state.has('Royal Corridor Access', world.player)
-                and state.count('Star',world.player)>=requirements['Royal Corridor'])
+                and state.count('Star', world.player) >= star_eater_threshold(world.generated_star_requirements, 'Royal Corridor'))
     raise ValueError(f'No modeled native route for {name}')
 
 SAFE_SOURCES=frozenset(SOURCE_PATHS)|frozenset(f'{area} - Star Eater Fed' for area in ('Roots','Lobby','Cell Tower','Royal Corridor'))

@@ -10,16 +10,15 @@ internal sealed record GarageDoorConsumptionSnapshot(
 
 internal static class GarageNativeDoorPatches
 {
-    // Keep both the detour and delegates alive for the entire game process.
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void OpenDoor(IntPtr instance, IntPtr methodInfo);
-    private static INativeDetour? _detour;
+    private static readonly OwnedNativeHooks Hooks = new();
     private static OpenDoor? _original;
     private static readonly OpenDoor Replacement = Invoke;
 
     internal static unsafe int Install()
     {
-        if (_detour != null) return 1;
+        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
         try
         {
             // These native classes have unloadable generated generic base wrappers.
@@ -39,7 +38,7 @@ internal static class GarageNativeDoorPatches
                 metadata.ParametersCount != 0 || returns != "System.Void" ||
                 (((int)metadata.Flags & 0x10) != 0) || metadata.MethodPointer == IntPtr.Zero)
                 throw new InvalidOperationException("Native Garage consumption signature mismatch");
-            _detour = INativeDetour.CreateAndApply(metadata.MethodPointer, Replacement, out _original);
+            Hooks.Add(INativeDetour.CreateAndApply(metadata.MethodPointer, Replacement, out _original), Replacement);
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] Hooked native Room27LevelEntranceDoor.OpenDoor() for consumption readback.");
             return 1;
         }
@@ -50,12 +49,17 @@ internal static class GarageNativeDoorPatches
         }
     }
 
-    private static void Invoke(IntPtr instance, IntPtr methodInfo) =>
+    internal static bool Shutdown() => Hooks.Shutdown(ex =>
+        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Garage door hook detach failed: {ex.GetBaseException().Message}"));
+
+    private static void Invoke(IntPtr instance, IntPtr methodInfo)
+    {
+        if (!Hooks.Active) { _original!(instance, methodInfo); return; }
         NativeDoorInvocation.Run(
             () => GarageCartridgeNativePolicy.RandomizedCartridges
                 .Select(GarageCartridgeAccess.CaptureNativeDoorRemoval).Where(s => s != null).ToArray(),
             () => _original!(instance, methodInfo),
             snapshots => { if (snapshots != null) foreach (var snapshot in snapshots) GarageCartridgeAccess.CompleteNativeDoorRemoval(snapshot); },
             ex => Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] GAME GARAGE door observation failed: {ex.GetBaseException().Message}"));
-
+    }
 }

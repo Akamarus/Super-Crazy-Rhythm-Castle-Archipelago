@@ -28,12 +28,10 @@ class RepositoryContractTests(unittest.TestCase):
         source = (REPO_ROOT / "client/Plugin.cs").read_text(encoding="utf-8")
         self.assertNotIn("DumpAllSimpleMembers", source)
         self.assertNotIn("Level5Discovery", source)
-        self.assertNotIn("QuestActionDiscovery.RecordProgressionRequest(req, flag)", source)
-        self.assertNotIn("QuestActionDiscovery.RecordProgressionFlagUpdated(evt, flag)", source)
+        self.assertNotIn("QuestActionDiscovery", source)
+        self.assertNotIn("SpecialModeDiscovery", source)
         for call in ("MusicLabDiscovery.RecordProgressionRequest(req, flag)",
                      "MusicLabDiscovery.RecordProgressionFlagUpdated(evt, flag)",
-                     "QuestActionDiscovery.SnapshotKnownFlags()",
-                     "SpecialModeDiscovery.ScanCurrentScene()",
                      "GarageCartridgeAccess.RecordVanillaSourceCollected(req, flag)",
                      "WeedKillerRandomization.RecordGeckoSourceCollected(req, flag)",
                      "PlantPipesRandomization.RecordFrogHippoSourceCollected(req, flag)",
@@ -50,11 +48,15 @@ class RepositoryContractTests(unittest.TestCase):
             self.assertNotIn(f'"Level {number} Access"', source)
             self.assertNotIn(f"GrantLevel{number}Locally", source)
             self.assertNotIn(f"DeveloperResetLevel{number}Access", source)
-        for call in ("AreaAccessPrototype.TryApplyItem(itemName)",
-                     "CassetteReceiptRandomization.TryApplyItem(itemName)",
-                     "NativeProgression.CapturePlayerSaveRequestProcessor(__instance)",
-                     "RootsBucketRandomization.ShouldSuppressVanillaGrant(req, flag)",
-                     "QuestActionDiscovery.SnapshotKnownFlags()"):
+        dispatch = re.search(r"ReceivedItemDispatch\.TryApply\(([^;]+)\);", source)
+        self.assertIsNotNone(dispatch, "received items must reach the item dispatcher")
+        arguments = [arg.strip() for arg in dispatch.group(1).split(",")]
+        self.assertEqual(arguments[:2], ["item.ItemName", "AreaAccessPrototype.TryApplyItem"])
+        self.assertIn("cassetteBundleHistory.TryApplyItem", arguments)
+        self.assertNotRegex(source, r"\bNativeProgression\b")
+        for call in ("new CassetteBundleSessionHistory(generation, CassetteReceiptRandomization.TryApplyItem)",
+                     "GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance)",
+                     "RootsBucketRandomization.ShouldSuppressVanillaGrant(req, flag)"):
             self.assertIn(call, source)
 
     def test_retired_automatic_diagnostics_preserve_gameplay_and_acceptance_hooks(self):
@@ -67,7 +69,6 @@ class RepositoryContractTests(unittest.TestCase):
                          "PollGarageCurrentSong", "BottomHudInputDiagnostic"):
             self.assertNotIn(obsolete, source)
         for required in ("_getCurrentSongMethod.Invoke(null, null)",
-                         "QuestActionDiscovery.SnapshotKnownFlags()",
                          "MusicLabDiscovery.RecordProgressionRequest(",
                          "MusicLabDiscovery.RecordProgressionFlagUpdated("):
             self.assertIn(required, source)
@@ -221,8 +222,9 @@ class RepositoryContractTests(unittest.TestCase):
         root = self.make_fixture()
         path = root / "apworld/scrc/__init__.py"
         original = path.read_text(encoding="utf-8")
-        self.assertIn("if not entry.progression_safe:", original)
-        path.write_text(original.replace("if not entry.progression_safe:", "if False:"), encoding="utf-8")
+        condition = "if not (self.bunker_progression and source.name in BUNKER_PROGRESSION_SOURCES):"
+        self.assertIn(condition, original)
+        path.write_text(original.replace(condition, "if False:"), encoding="utf-8")
         result = self.run_validator(root, validate_live=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expanded", result.stderr.lower())

@@ -19,24 +19,42 @@ internal static class ApStarEaterThresholds
         Il2CppSystem.Object Value, int Required);
     private static Replacement? _replacement;
     private static string _room = "";
+    private static Target? _roomTarget;
     private static string _lastFailure = "";
     private static int _retryFrame;
     internal static bool CurrentRoomReady { get; private set; }
-    internal static bool IsReadyForRoom(string room) =>
-        CurrentRoomReady && string.Equals(_room, room, StringComparison.Ordinal) &&
-        (!Targets.Any(t => t.Room == room) || (_replacement != null && _replacement.Component != null));
+    internal static bool CanUseStarTotal(string room)
+    {
+        // The game can ask for stars before the first update in a new room.
+        if (!string.Equals(room, _room, StringComparison.Ordinal))
+            return FindRoomTarget(room) == null;
+        return _roomTarget == null || (CurrentRoomReady && _replacement?.Component != null);
+    }
+
+    private static Target? FindRoomTarget(string room)
+    {
+        foreach (Target target in Targets)
+            if (target.Room == room) return target;
+        return null;
+    }
 
     // null means restore legacy state; callers must pass only a fully validated new-contract map.
     internal static unsafe void Tick(string room, IReadOnlyDictionary<string, int>? requirements)
     {
-        if (requirements == null || !string.Equals(room, _room, StringComparison.Ordinal))
+        bool roomChanged = !string.Equals(room, _room, StringComparison.Ordinal);
+        if (requirements == null || roomChanged)
         {
-            Restore();
-            _room = room;
+            if (!Restore()) return;
+            if (roomChanged)
+            {
+                // Only the descriptor follows the room name. The live component and threshold are checked below.
+                _room = room;
+                _roomTarget = FindRoomTarget(room);
+            }
             _retryFrame = 0;
         }
         if (requirements == null) return;
-        Target? target = Targets.FirstOrDefault(t => t.Room == room);
+        Target? target = _roomTarget;
         if (target == null) { CurrentRoomReady = true; return; }
         if (!requirements.TryGetValue(target.Area, out int required) || required < 0 || required > 66)
         { CurrentRoomReady = false; return; }
@@ -46,8 +64,7 @@ internal static class ApStarEaterThresholds
         _retryFrame = Time.frameCount + 60;
         try
         {
-            Restore();
-            if (_replacement != null) return; // A failed restoration must retain ownership and roots.
+            if (!Restore()) return;
             GameObject? go = GameObject.Find(target.Path);
             if (go == null) { CurrentRoomReady = false; return; }
             Component? component = go.GetComponents<Component>().FirstOrDefault(c => c != null &&
@@ -103,11 +120,11 @@ internal static class ApStarEaterThresholds
         }
     }
 
-    internal static void Restore()
+    internal static bool Restore()
     {
         CurrentRoomReady = false;
         Replacement? replacement = _replacement;
-        if (replacement == null) return;
+        if (replacement == null) return true;
         try
         {
             if (replacement.Component != null)
@@ -118,14 +135,18 @@ internal static class ApStarEaterThresholds
                 {
                     IntPtr original = replacement.Original.Pointer;
                     IL2CPP.il2cpp_field_set_value_object(replacement.Component.Pointer, replacement.Field, original);
+                    if (IL2CPP.il2cpp_field_get_value_object(replacement.Field, replacement.Component.Pointer) == replacement.Value.Pointer)
+                        throw new InvalidOperationException("Native field still holds the AP threshold");
                 }
             }
             _replacement = null;
+            return true;
         }
         catch (Exception ex)
         {
             // Keep roots on restoration failure so a still-live native reference is not abandoned.
             Plugin.LoggerInstance?.LogError($"[SCRC-AP] AP STAR EATER restore failed: {ex.GetBaseException().Message}");
+            return false;
         }
     }
 

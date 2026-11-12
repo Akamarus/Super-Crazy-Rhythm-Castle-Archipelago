@@ -10,6 +10,7 @@ From the repository root, with the .NET SDK and Python installed:
 ./client/build.ps1 -GameDir "D:/SteamLibrary/steamapps/common/Titus" -SkipInstall
 python tools/validate-repo.py
 python -m unittest discover -s tools/tests
+python -m unittest discover -s apworld/tests
 ./tools/build-apworld.ps1
 ```
 

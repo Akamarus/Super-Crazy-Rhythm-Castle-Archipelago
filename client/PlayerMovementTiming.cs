@@ -16,9 +16,7 @@ internal static class PlayerMovementTiming
     private static readonly PlayerMovementTimingPolicy Policy = new();
     private static Func<bool>? _running;
     private static string _room = "";
-    private static long _admitted, _deferred;
     private static bool _enabled, _failed;
-    internal static string Summary => $"playerMovementTiming={_enabled && !_failed} admitted={_admitted} deferred={_deferred}";
 
     internal static unsafe bool Install()
     {
@@ -74,19 +72,19 @@ internal static class PlayerMovementTiming
                 if (room != _room) { Policy.Reset(); _room = room; }
                 admit = Policy.Admit(instance.ToInt64(), Time.frameCount, supplied,
                     room.StartsWith("GameRoom_", StringComparison.Ordinal) && Time.timeScale > 0 && _running!(), out elapsed);
-                if (admit) _admitted++; else _deferred++;
             }
         }
         catch (Exception ex) { Fail(ex); admit = true; elapsed = supplied; }
         // Never catch/retry the native update; arguments other than elapsed remain unchanged.
         if (admit) _original(instance, elapsed, player, methodInfo);
     }
-    internal static void Reset() { Policy.Reset(); _room = ""; _admitted = _deferred = 0; }
-    internal static void Shutdown()
+    internal static void Reset() { Policy.Reset(); _room = ""; }
+    internal static bool Shutdown()
     {
         _enabled = false; Reset();
         try { _detour?.Dispose(); _detour = null; }
         catch (Exception ex) { Fail(ex); }
+        return _detour == null;
     }
     private static void Fail(Exception ex)
     {

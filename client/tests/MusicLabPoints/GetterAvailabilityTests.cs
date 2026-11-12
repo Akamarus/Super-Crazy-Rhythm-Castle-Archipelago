@@ -12,7 +12,7 @@ internal static class GetterAvailabilityTests
         if (!MusicLabPointRandomization.Snapshot.Detail.Contains("getter unavailable", StringComparison.Ordinal))
             throw new InvalidOperationException("getter incompatibility must explain the unavailable getter");
         MusicLabPointRandomization.SynchronizeHistory(200, new[] { new MusicLabPointReceipt(0, 187256155) });
-        Check(0, MusicLabPointRandomization.ResolveEffectiveScore(99, 140), "missing getter cannot accept AP receipts or native fallback");
+        Check(0, MusicLabPointRandomization.ResolveEffectiveScore(99), "missing getter cannot accept AP receipts or native fallback");
         MusicLabPointRandomization.ReportGetterAvailability(true);
         Apply(200);
         Check(MusicLabPointRuntimeMode.Incompatible, MusicLabPointRandomization.Snapshot.Mode, "availability cannot revive the rejected generation");
@@ -25,7 +25,7 @@ internal static class GetterAvailabilityTests
         MusicLabPointRandomization.ReportGetterAvailability(false);
         Check(MusicLabPointRuntimeMode.Incompatible, MusicLabPointRandomization.Snapshot.Mode, "getter failure after configuration revokes compatibility");
         Check(false, new ConnectionStatusProbe(true).Connected, "getter failure withdraws usable connection status");
-        Check(0, MusicLabPointRandomization.ResolveEffectiveScore(99, 140), "getter failure clears the synchronized score");
+        Check(0, MusicLabPointRandomization.ResolveEffectiveScore(99), "getter failure clears the synchronized score");
         MusicLabPointRandomization.ReportGetterAvailability(true);
         MusicLabPointRandomization.SynchronizeHistory(201, new[] { new MusicLabPointReceipt(0, 187256155) });
         Check(0, MusicLabPointRandomization.Snapshot.Total, "late availability and receipt callbacks cannot revive the failed generation");
@@ -33,9 +33,9 @@ internal static class GetterAvailabilityTests
         Check(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, MusicLabPointRandomization.Snapshot.Mode, "new identity may validate recovered getter");
         MusicLabPointRandomization.ReportGetterAvailability(false);
         MusicLabPointRandomization.ApplySlotData(null, "game", "legacy", "slot", 202);
-        Check(99, MusicLabPointRandomization.ResolveEffectiveScore(99, null), "legacy sessions preserve native score without getter availability");
+        Check(99, MusicLabPointRandomization.ResolveEffectiveScore(99), "legacy sessions preserve native score without getter availability");
         MusicLabPointRandomization.Reset();
-        Check(99, MusicLabPointRandomization.ResolveEffectiveScore(99, null), "non-AP preserves native score without getter availability");
+        Check(99, MusicLabPointRandomization.ResolveEffectiveScore(99), "non-AP preserves native score without getter availability");
         MusicLabPointRandomization.ReportGetterAvailability(true);
         Console.WriteLine("PASS: getter_availability_enforces_compatibility_and_safe_recovery");
 

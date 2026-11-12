@@ -80,19 +80,6 @@ internal sealed class GenerationLeaseGate
         }
     }
 
-    internal bool TryAcquire(long generation, out LifecycleLease? lease)
-    {
-        _gate.EnterReadLock();
-        if (_activeGeneration != generation)
-        {
-            _gate.ExitReadLock();
-            lease = null;
-            return false;
-        }
-        lease = new LifecycleLease(_gate.ExitReadLock);
-        return true;
-    }
-
     internal bool TryAcquireCurrent(out long generation, out LifecycleLease? lease)
     {
         _gate.EnterReadLock();
@@ -187,6 +174,9 @@ internal sealed class SessionGenerationLeaseGate<TSession>
         long generation,
         out LifecycleLease? lease)
     {
+        // A reconnect to the same room still creates a different connection.
+        // Keep the read lock until the callback finishes so a disconnect cannot
+        // replace its session mid-delivery. Dispose on the acquiring thread.
         _gate.EnterReadLock();
         if (!ReferenceEquals(_session, session) || _generation != generation)
         {

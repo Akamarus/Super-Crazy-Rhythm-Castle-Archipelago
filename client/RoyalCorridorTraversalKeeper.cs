@@ -54,6 +54,7 @@ internal sealed class RoyalCorridorTraversalKeeper : MonoBehaviour
         }
     }
 
+    private void OnDisable() => Restore();
     private void OnDestroy() => Restore();
 
     private void Restore()

@@ -25,13 +25,14 @@ $candidateMethods = @(
     'GameProgressionSaveDataState.SetSongCassetteStatus'
 )
 
-$expectedDisplaySongs = @(
-    'The Little Things', 'No Plan B', 'Jolt City', 'Quieres Bailar', 'Quicksand', 'Gold',
-    'I Got Money', 'Hippo and Frog', 'On the Way', 'Badass', 'Heavy Metal', 'AOK',
-    'Rainbow Melodies', 'Sneaking', 'The Heist', 'Money', 'Lets Go', 'Bounce', 'Epical',
-    'Hollywood Trailer', 'False Data', 'Gotta Get Up', 'Fumblin Around', 'Party Non Stop',
-    'Keep On Hustlin', 'Another Day In Paradise', 'Flamenco', 'Ten-Four Good Buddy', 'Zen', 'Wiggle'
-)
+# Check the same display names used by the client and APWorld catalog tests
+# against the native identifiers in this installation.
+$contractPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'contracts/cassette-contract-v1.json'
+$contract = Get-Content -LiteralPath $contractPath -Encoding UTF8 -Raw | ConvertFrom-Json
+$expectedDisplaySongs = @($contract.entries.display_song)
+if ($contract.schema -ne 1 -or $expectedDisplaySongs.Count -ne 30) {
+    throw 'Expected the version 1 contract with all 30 display songs.'
+}
 
 # These names are not normalized aliases: the existing Music Lab variant
 # mapping and retained gameplay evidence name their native enum counterparts.
@@ -171,15 +172,10 @@ try {
         }
     ) | Sort-Object fullName
 
+    $resolvedDisplaySongs = @(foreach ($candidate in $levelCandidates) { $candidate.displaySong })
     $unresolved = @(@(
         foreach ($displaySong in $expectedDisplaySongs) {
-            $nativeName = if ($displaySongAliases.ContainsKey($displaySong)) {
-                $displaySongAliases[$displaySong]
-            }
-            else {
-                $displaySong
-            }
-            if (-not $songByNormalizedName.ContainsKey((Get-NormalizedIdentifier -Value $nativeName))) {
+            if ($displaySong -notin $resolvedDisplaySongs) {
                 [pscustomobject][ordered]@{
                     kind = 'display-song'
                     value = $displaySong

@@ -43,13 +43,18 @@ malformed = Contract(); malformed["character_quest_items"] = new Dictionary<stri
 Check(CharacterQuestItemPolicy.Validate(malformed) == CharacterQuestItemMode.Invalid, "collection cannot replace inventory");
 foreach (bool owned in new[] {false,true}) foreach (bool? held in new bool?[] { null,false,true }) foreach (bool? spent in new bool?[] {null,false,true})
  Check(CharacterQuestItemPolicy.ShouldGrant(owned,held,spent) == (owned && held == false && spent == false), "grant/unknown/consumed matrix");
+DeveloperHarness.CurrentRoomId = "GameRoom_Hub6";
+var award = new Request { Value = true };
+var removal = new Request { Value = false };
+CharacterQuestItems.State.Configure(1, false);
+foreach (var item in CharacterQuestItemPolicy.All)
+ Check(!CharacterQuestItems.ShouldSuppress(award, item.BagFlag), "legacy grant preserved");
+CharacterQuestItems.State.Configure(2, true);
 foreach (var item in CharacterQuestItemPolicy.All) {
- Check(CharacterQuestItemPolicy.ShouldSuppress(true,"GameRoom_Hub6",item.BagFlag,true), "source grant");
- Check(!CharacterQuestItemPolicy.ShouldSuppress(true,"GameRoom_Hub1A",item.BagFlag,false), "consumption preserved");
- Check(!CharacterQuestItemPolicy.ShouldSuppress(false,"GameRoom_Hub6",item.BagFlag,true), "legacy grant preserved");
- Check(!CharacterQuestItemPolicy.ShouldSuppress(true,"GameRoom_27",item.BagFlag,true), "wrong room");
+ Check(CharacterQuestItems.ShouldSuppress(award, item.BagFlag), "source grant");
+ Check(!CharacterQuestItems.ShouldSuppress(removal, item.BagFlag), "consumption preserved");
 }
-Check(!CharacterQuestItemPolicy.ShouldSuppress(true,"GameRoom_Hub6","CLEAN_HUB_MEMORY_CARD_TAKEN",true), "chest check preserved");
+Check(!CharacterQuestItems.ShouldSuppress(award, "CLEAN_HUB_MEMORY_CARD_TAKEN"), "chest check preserved");
 static ReceivedItemsPacket Packet(int index, params long[] ids) => new() { Index=index, Items=ids.Select(id => new NetworkItem { Item=id }).ToArray() };
 var state = new CharacterQuestItemState();
 var session = new CharacterQuestItemSessionHistory(1,state);

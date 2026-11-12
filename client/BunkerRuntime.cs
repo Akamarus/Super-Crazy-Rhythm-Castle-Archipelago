@@ -8,8 +8,12 @@ internal static class BunkerRuntime
     [ThreadStatic] private static bool _applying;
     private static TimeSpan _remaining;
     private static string? _lastError;
-    internal static bool Handles(string name) => BunkerCatalog.Items.Any(i => i.Name == name);
-    private static bool IsBag(string flag) => BunkerCatalog.Items.Any(i => i.BagFlag == flag);
+    internal static bool Handles(string name)
+    {
+        foreach (var item in BunkerCatalog.Items)
+            if (item.Name == name) return true;
+        return false;
+    }
     private static bool? Read(string flag) => RootsBucketRandomization.TryReadProgressionFlag(flag, out bool value) ? value : null;
 
     // Every randomized award is intercepted at the native progression request boundary.
@@ -17,9 +21,9 @@ internal static class BunkerRuntime
     internal static bool BeforeProgressionRequest(object request, string flag)
     {
         if (_applying || !State.Enabled) return true;
+        bool bag = BunkerCatalog.ByBagFlag.ContainsKey(flag);
+        if (!bag && !BunkerCatalog.ByCheckFlag.ContainsKey(flag)) return true;
         bool? value = ReflectionUtil.ReadBool(request, "Value");
-        bool bag = IsBag(flag);
-        if (!bag && !BunkerCatalog.Checks.Any(c => c.Flag == flag)) return true;
         bool allowed = !bag || value != true;
         bool prepared = false;
         WithSave((_, _) => {
@@ -34,10 +38,13 @@ internal static class BunkerRuntime
     internal static void Observe(object evt, string flag)
     {
         if (_applying || !State.Enabled) return;
+        bool bag = BunkerCatalog.ByBagFlag.ContainsKey(flag);
+        bool source = flag != "BUNKER_HUB_DEMON_KEY" && BunkerCatalog.ByCheckFlag.ContainsKey(flag);
+        if (!source && !bag) return;
         var value = ReflectionUtil.ReadBool(evt, "FlagIsSet");
-        if (value == true && flag != "BUNKER_HUB_DEMON_KEY" && BunkerCatalog.Checks.Any(c => c.Flag == flag))
+        if (source && value == true)
             WithSave((_, _) => State.Complete(flag, false, Journal.Save));
-        if (value == false && ReflectionUtil.ReadBool(evt, "FlagWasSet") == true && IsBag(flag))
+        if (bag && value == false && ReflectionUtil.ReadBool(evt, "FlagWasSet") == true)
             WithSave((_, _) => State.Consume(flag, Journal.Save));
     }
     internal static void Tick(TimeSpan elapsed)
@@ -49,8 +56,10 @@ internal static class BunkerRuntime
         WithSave((processor, _) => {
             // Recover durable source flags, never interpreting Demon ownership as pickup.
             foreach (var check in BunkerCatalog.Checks)
-                if (check.Flag != "BUNKER_HUB_DEMON_KEY" && Read(check.Flag) == true) State.Complete(check.Flag, false, Journal.Save);
+                if (check.Flag != "BUNKER_HUB_DEMON_KEY" && !State.IsCompleted(check.Id) && Read(check.Flag) == true)
+                    State.Complete(check.Flag, false, Journal.Save);
             foreach (var item in BunkerCatalog.Items) {
+                if (State.IsConsumed(item.Id)) continue;
                 string? consumedFlag = item.BagFlag switch {
                     "LIFT_KEY_BAG_ITEM" => "LOBBY_HUB_LIFT_KEY_USED",
                     "KING_VIRUS_DATA_STICK_BAG_ITEM" or "KING_VIRUS_CHEAT_CODES_BAG_ITEM" => "OVERALL_PROGRESS_CREATED_GAME_ENDER",
@@ -62,7 +71,7 @@ internal static class BunkerRuntime
                     if (consumed == null) continue;
                     if (consumed == true) State.Consume(item.BagFlag, Journal.Save);
                 }
-                if (!State.ShouldGrant(item.Id, Read(item.BagFlag))) continue;
+                if (!State.HasUnconsumedReceipt(item.Id) || Read(item.BagFlag) != false) continue;
                 _applying = true;
                 try { WeedKillerRandomization.TrySubmitProgressionFlag(processor, item.BagFlag, true, out _); }
                 finally { _applying = false; }

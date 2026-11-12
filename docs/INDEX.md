@@ -13,6 +13,7 @@
 - [Project overview](PROJECT_OVERVIEW.md)
 - [Progression](PROGRESSION.md) and [permanent network IDs](IDS.md)
 - [Testing and acceptance](TESTING.md)
+- [Project cleanup review](cleanup-audit.md)
 - [Workflow and builds](WORKFLOW.md)
 - [Packaging and licenses](PACKAGING.md)
 - [Roadmap](ROADMAP.md)

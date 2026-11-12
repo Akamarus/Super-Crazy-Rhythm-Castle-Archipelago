@@ -1,5 +1,3 @@
-using System.Reflection;
-
 namespace RhythmCastleAP;
 
 internal static class RootsBucketRandomization
@@ -15,7 +13,6 @@ internal static class RootsBucketRandomization
     internal const string ChickenConsumedFlag = "LEVEL_09_COMBO_ABILITY_EARNED";
 
     private static readonly object Sync = new();
-    private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
     private static bool _compatible;
     private static int _hipGlassesReceived;
@@ -24,8 +21,6 @@ internal static class RootsBucketRandomization
     private static string? _selectedSaveIdentity;
     private static readonly Dictionary<string, string> ConsumedInSave = new(StringComparer.Ordinal);
     private static TimeSpan _pollRemaining;
-    private static MethodInfo? _flagGetter;
-    private static readonly Dictionary<string, object> FlagArguments = new(StringComparer.Ordinal);
 
     [ThreadStatic]
     private static int _applyingArchipelagoGrant;
@@ -34,7 +29,6 @@ internal static class RootsBucketRandomization
     {
         lock (Sync)
         {
-            _playerSaveRequestProcessor = null;
             _slotDataSynchronized = false;
             _compatible = false;
             _hipGlassesReceived = 0;
@@ -96,16 +90,6 @@ internal static class RootsBucketRandomization
         return true;
     }
 
-    internal static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null ||
-            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
-    }
-
     internal static void RecordConsumption(object evt, string flag)
     {
         if (_applyingArchipelagoGrant != 0 ||
@@ -126,41 +110,34 @@ internal static class RootsBucketRandomization
         _pollRemaining -= elapsed;
         if (_pollRemaining > TimeSpan.Zero) return;
         _pollRemaining = TimeSpan.FromSeconds(1);
-        CassetteReceiptRandomization.WithStableQuestItemSave((processor, identity) =>
-        {
-            lock (Sync)
-            {
-                if (_selectedSaveIdentity != identity)
-                {
-                    _selectedSaveIdentity = identity;
-                    _nativeProbePendingLogged = false;
-                }
-                _playerSaveRequestProcessor = processor;
-            }
-            TryFlushPendingNativeGrants();
-        });
+        lock (Sync)
+            if (!_compatible || (_hipGlassesReceived <= 0 && _chickenBucketReceived <= 0)) return;
+        CassetteReceiptRandomization.WithStableQuestItemSave(Reconcile);
     }
 
-    internal static void TryFlushPendingNativeGrants()
+    private static void Reconcile(object processor, string identity)
     {
         if (_applyingArchipelagoGrant != 0)
             return;
 
-        object? processor;
         bool synchronized;
         bool compatible;
         int hipReceived;
         int chickenReceived;
         lock (Sync)
         {
-            processor = _playerSaveRequestProcessor;
+            if (_selectedSaveIdentity != identity)
+            {
+                _selectedSaveIdentity = identity;
+                _nativeProbePendingLogged = false;
+            }
             synchronized = _slotDataSynchronized;
             compatible = _compatible;
             hipReceived = _hipGlassesReceived;
             chickenReceived = _chickenBucketReceived;
         }
 
-        if (!synchronized || !compatible || processor == null || (hipReceived <= 0 && chickenReceived <= 0))
+        if (!synchronized || !compatible || (hipReceived <= 0 && chickenReceived <= 0))
             return;
 
         if (!TryReadProgressionFlag(HipGlassesNativeFlag, out bool hipHeld) ||
@@ -207,10 +184,6 @@ internal static class RootsBucketRandomization
         string flagName,
         RootsBucketGrantDecision decision)
     {
-        if (decision == RootsBucketGrantDecision.Consumed)
-        {
-            return;
-        }
         if (decision != RootsBucketGrantDecision.Apply)
             return;
 
@@ -289,30 +262,9 @@ internal static class RootsBucketRandomization
 
     internal static bool TryReadProgressionFlag(string flagName, out bool value)
     {
-        value = false;
-        lock (Sync)
-        {
-            try
-            {
-                Assembly? assembly = ReflectionUtil.GameAssembly;
-                if (assembly == null) return false;
-                Type? flagType = assembly.GetType("eGameProgressionFlag");
-                if (flagType?.IsEnum != true) return false;
-                _flagGetter ??= assembly.GetType("CurrentPlayerSaveEnquiries")?.GetMethod(
-                    "GetProgressionFlagValue", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { flagType }, null);
-                if (_flagGetter?.ReturnType != typeof(bool)) return false;
-                if (!FlagArguments.TryGetValue(flagName, out object? argument))
-                {
-                    if (!Enum.TryParse(flagType, flagName, false, out argument) || argument == null) return false;
-                    FlagArguments.Add(flagName, argument);
-                }
-                if (_flagGetter.Invoke(null, new[] { argument }) is not bool result) return false;
-                value = result;
-                return true;
-            }
-            catch { return false; }
-        }
+        bool? result = NativeProgressionFlags.Read(flagName);
+        value = result.GetValueOrDefault();
+        return result.HasValue;
     }
 
     private static string ReadSlotString(Dictionary<string, object>? slotData, string key) =>

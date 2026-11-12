@@ -4,7 +4,6 @@ internal static class ReceivedItemDispatch
 {
     internal static bool TryApply(
         string itemName,
-        bool applyReceivedProgression,
         Func<string, bool> areaAccessHandler,
         Func<string, bool> garageCartridgeHandler,
         Func<string, bool> weedKillerHandler,
@@ -12,10 +11,11 @@ internal static class ReceivedItemDispatch
         Func<string, bool> previewAbilityHandler,
         Func<string, bool> rootsBucketHandler,
         Func<string, bool> cassetteHandler,
-        Func<string, bool> musicLabPointHandler,
-        Action<string> experimentalFallback)
+        Func<string, bool> musicLabPointHandler)
     {
-        bool handled =
+        // The first matching handler owns this delivery. It may queue work
+        // until a save is available. A handled receipt can still be pending in-game.
+        return
             areaAccessHandler(itemName) ||
             garageCartridgeHandler(itemName) ||
             weedKillerHandler(itemName) ||
@@ -24,14 +24,5 @@ internal static class ReceivedItemDispatch
             rootsBucketHandler(itemName) ||
             cassetteHandler(itemName) ||
             musicLabPointHandler(itemName);
-
-        if (handled)
-            return true;
-
-        if (!applyReceivedProgression)
-            return false;
-
-        experimentalFallback(itemName);
-        return true;
     }
 }

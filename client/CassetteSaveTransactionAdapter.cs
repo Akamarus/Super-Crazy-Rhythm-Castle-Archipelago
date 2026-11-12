@@ -10,22 +10,6 @@ internal readonly record struct CassetteRegularSavePointerEntry(
     long Pointer,
     long LastPlayDateTimeUtcTicks);
 
-internal readonly record struct CassetteRecordSongRoutingPayload(
-    string Song,
-    string Status,
-    bool BundlePresent,
-    string? Bundle);
-
-internal readonly record struct CassettePersistBundleRoutingPayload(
-    bool BundlePresent,
-    string? Bundle,
-    string WriteType);
-
-internal readonly record struct CassetteBundleRoutingState(
-    long StatePointer,
-    bool HasUnstagedChanges,
-    IReadOnlyDictionary<string, string> Statuses);
-
 internal readonly record struct CassetteDiskCommitTargetSideState(
     long StatePointer,
     bool HasUnstagedChanges,
@@ -64,45 +48,7 @@ internal readonly record struct CassetteDiskCommitTargetDiagnosticState(
     bool HasPlayer = false,
     bool HasSelected = false);
 
-internal readonly record struct CassetteSaveSynchronizationObservationState(
-    int EnquirySlot,
-    long EnquiryStatePointer,
-    bool IsAValidExistingSaveSelected,
-    long RegisteredPersistProcessorPointer,
-    long RetainedSaveDataProcessorPointer,
-    bool ProcessorPointersMatch,
-    int RegisteredSelectedSlot,
-    string EnquiryStage,
-    string RegisteredStateStage,
-    bool HasEnquirySlot = false,
-    bool HasEnquiryStatePointer = false,
-    bool HasValidExistingSaveSelected = false,
-    bool HasRegisteredPersistProcessorPointer = false,
-    bool HasRetainedSaveDataProcessorPointer = false,
-    bool HasProcessorPointersMatch = false,
-    bool HasRegisteredSelectedSlot = false);
-
-internal readonly record struct CassetteDiagnosticValue<T>(
-    bool Readable,
-    T Value,
-    string Stage);
-
-internal readonly record struct CassettePostLoadSongDiagnostic(
-    string Song,
-    CassetteDiagnosticValue<string?> EffectiveStatus,
-    CassetteDiagnosticValue<string?> CanonicalStatus,
-    CassetteDiagnosticValue<string?> EnquiryStatus,
-    CassetteDiagnosticValue<bool> InUiBag);
-
-internal readonly record struct CassettePostLoadDiagnosticState(
-    CassetteDiagnosticValue<bool> SelectionValid,
-    CassetteDiagnosticValue<long> SelectedStatePointer,
-    CassetteDiagnosticValue<long> ProcessorStatePointer,
-    CassetteDiagnosticValue<bool> HasUnstagedChanges,
-    CassetteDiagnosticValue<int> BagCount,
-    CassetteDiagnosticValue<bool> HasAnyBagCassettes,
-    CassetteDiagnosticValue<IReadOnlyList<string>?> BagSongs,
-    IReadOnlyList<CassettePostLoadSongDiagnostic> Songs);
+internal readonly record struct CassetteSelectedSaveIdentity(bool Valid, long? Pointer);
 
 internal readonly record struct CassettePointerBoundPersistenceInvocationPlan(
     object State,
@@ -127,191 +73,39 @@ internal static class CassetteSaveTransactionAdapter
     private const BindingFlags PublicInstance = BindingFlags.Public | BindingFlags.Instance;
     private static readonly Dictionary<string, Type?> TypeCache = new(StringComparer.Ordinal);
 
-    internal static CassettePostLoadDiagnosticState ReadCassettePostLoadDiagnostic(
-        object? processor,
-        IReadOnlyList<string> nativeSongs)
+    internal static CassetteSelectedSaveIdentity ReadSelectedSaveIdentity(object? processor)
     {
-        CassetteDiagnosticValue<bool> selectionValid = ReadSelectedSaveValidityDiagnostic();
-        object? selectedState = null;
-        string selectedStateStage = "selected-state-start";
+        // Selection validity and identity are independent enquiries. Either can fail during a slot switch.
+        bool valid;
+        try
+        {
+            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
+            MethodInfo? method = enquiries?.GetMethod(
+                "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            valid = method?.Invoke(null, null) is true;
+        }
+        catch
+        {
+            valid = false;
+        }
+
         try
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries", processor?.GetType().Assembly);
-            MethodInfo? selectedStateMethod = enquiries?.GetMethod(
+            MethodInfo? method = enquiries?.GetMethod(
                 "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (selectedStateMethod == null)
-            {
-                selectedStateStage = "selected-state-method-missing";
-            }
-            else
-            {
-                selectedStateStage = "selected-state-get";
-                object? rawState = ReadPublicNullableMethod(selectedStateMethod, null!, Array.Empty<object?>());
-                if (!TryUnwrapPublicDiagnosticNullable(
-                        rawState, "selected-state", out bool present, out selectedState, out selectedStateStage))
-                {
-                    selectedState = null;
-                }
-                else if (!present || selectedState == null)
-                {
-                    selectedState = null;
-                    selectedStateStage = "selected-state-empty";
-                }
-                else
-                {
-                    selectedStateStage = "success";
-                }
-            }
+            if (method != null &&
+                TryUnwrapPublicDiagnosticNullable(
+                    ReadPublicNullableMethod(method, null!, Array.Empty<object?>()), "selected-state",
+                    out bool present, out object? selected, out _) &&
+                present && selected != null && TryReadPublicPointer(selected, "selected-state", out long pointer, out _))
+                return new(valid, pointer);
         }
-        catch (Exception ex)
+        catch
         {
-            selectedState = null;
-            selectedStateStage = $"{selectedStateStage}-invocation:{SummarizeException(ex)}";
+            // A replaced or unreadable native wrapper cannot identify the selected save.
         }
-
-        CassetteDiagnosticValue<long> selectedPointer = ReadPointerDiagnostic(
-            selectedState, "selected-state", selectedStateStage);
-        CassetteDiagnosticValue<bool> hasUnstaged = ReadBooleanDiagnostic(
-            selectedState, "HasUnstagedChanges", "selected-has-unstaged", selectedStateStage);
-        CassetteDiagnosticValue<long> processorPointer = ReadProcessorPointerDiagnostic(processor);
-
-        Assembly? preferredAssembly = selectedState?.GetType().Assembly ?? processor?.GetType().Assembly;
-        Type? songType = FindType("ePlayableSong", preferredAssembly);
-        MethodInfo? effectiveMethod = songType?.IsEnum == true && selectedState != null
-            ? selectedState.GetType().GetMethod(
-                "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null)
-            : null;
-
-        object? progression = null;
-        MethodInfo? canonicalMethod = null;
-        string canonicalContractStage = selectedState == null
-            ? $"canonical-selected-state-unavailable:{selectedStateStage}"
-            : "canonical-start";
-        if (selectedState != null && songType?.IsEnum == true)
-        {
-            try
-            {
-                PropertyInfo? progressionProperty = selectedState.GetType().GetProperty("GameProgression", PublicInstance);
-                if (progressionProperty == null)
-                {
-                    canonicalContractStage = "canonical-game-progression-missing";
-                }
-                else if (progressionProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
-                {
-                    canonicalContractStage = "canonical-game-progression-getter-non-public";
-                }
-                else
-                {
-                    canonicalContractStage = "canonical-game-progression-get";
-                    progression = progressionProperty.GetValue(selectedState);
-                    if (progression == null)
-                    {
-                        canonicalContractStage = "canonical-game-progression-null";
-                    }
-                    else
-                    {
-                        canonicalMethod = progression.GetType().GetMethod(
-                            "GetSongCassetteStatus", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
-                        canonicalContractStage = canonicalMethod == null
-                            ? "canonical-status-method-missing"
-                            : "success";
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                progression = null;
-                canonicalMethod = null;
-                canonicalContractStage = $"{canonicalContractStage}-invocation:{SummarizeException(ex)}";
-            }
-        }
-        else if (songType?.IsEnum != true)
-        {
-            canonicalContractStage = "canonical-song-type-missing";
-        }
-
-        Type? staticEnquiries = FindType("SongCassetteEnquiries", preferredAssembly);
-        MethodInfo? enquiryMethod = songType?.IsEnum == true
-            ? staticEnquiries?.GetMethod(
-                "GetSongCassetteStatus", PublicStatic, binder: null, types: new[] { songType }, modifiers: null)
-            : null;
-        string enquiryContractStage = songType?.IsEnum != true
-            ? "enquiry-song-type-missing"
-            : staticEnquiries == null
-                ? "enquiry-owner-missing"
-                : enquiryMethod == null
-                    ? "enquiry-status-method-missing"
-                    : "success";
-
-        CassetteDiagnosticValue<int> bagCount = ReadStaticIntDiagnostic(
-            staticEnquiries, "GetNumSongCassettesInBag", "ui-bag-count");
-        CassetteDiagnosticValue<bool> hasAnyBagCassettes = ReadStaticBoolDiagnostic(
-            staticEnquiries, "HasAnyCassettesInBag", "ui-bag-any");
-        CassetteDiagnosticValue<IReadOnlyList<string>?> bagSongs = ReadUiBagSongsDiagnostic(
-            staticEnquiries, songType);
-        HashSet<string>? bagMembership = bagSongs.Readable && bagSongs.Value != null
-            ? new HashSet<string>(bagSongs.Value, StringComparer.Ordinal)
-            : null;
-
-        var songs = new List<CassettePostLoadSongDiagnostic>();
-        foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal))
-        {
-            object? song = null;
-            string parseStage = "success";
-            try
-            {
-                if (songType?.IsEnum != true) parseStage = "song-type-missing";
-                else song = Enum.Parse(songType, nativeSong, ignoreCase: false);
-            }
-            catch (Exception ex)
-            {
-                parseStage = $"song-parse-invocation:{SummarizeException(ex)}";
-            }
-
-            CassetteDiagnosticValue<string?> effective = ReadStatusDiagnostic(
-                selectedState, effectiveMethod, song, nativeSong, "effective",
-                selectedState == null ? $"selected-state-unavailable:{selectedStateStage}" : parseStage);
-            CassetteDiagnosticValue<string?> canonical = canonicalMethod == null
-                ? UnavailableString(canonicalContractStage)
-                : ReadNullableStatusDiagnostic(progression, canonicalMethod, song, nativeSong, "canonical", parseStage);
-            CassetteDiagnosticValue<string?> enquiry = enquiryMethod == null
-                ? UnavailableString(enquiryContractStage)
-                : ReadNullableStatusDiagnostic(null, enquiryMethod, song, nativeSong, "enquiry", parseStage);
-            CassetteDiagnosticValue<bool> inUiBag = bagMembership == null
-                ? new(false, false, $"ui-bag-membership-unavailable:{bagSongs.Stage}")
-                : new(true, bagMembership.Contains(nativeSong), "success");
-            songs.Add(new(nativeSong, effective, canonical, enquiry, inUiBag));
-        }
-
-        return new(
-            selectionValid,
-            selectedPointer,
-            processorPointer,
-            hasUnstaged,
-            bagCount,
-            hasAnyBagCassettes,
-            bagSongs,
-            songs);
-    }
-
-    internal static string FormatCassettePostLoadDiagnostic(CassettePostLoadDiagnosticState state)
-    {
-        static string Text<T>(CassetteDiagnosticValue<T> value, Func<T, string> format) =>
-            value.Readable ? $"{format(value.Value)}@{value.Stage}" : $"<unavailable>@{value.Stage}";
-        string songText = string.Join(",", state.Songs.Select(song =>
-            $"{song.Song}{{effective={Text(song.EffectiveStatus, value => value ?? "<null>")} " +
-            $"canonical={Text(song.CanonicalStatus, value => value ?? "<null>")} " +
-            $"enquiry={Text(song.EnquiryStatus, value => value ?? "<null>")} " +
-            $"uiBag={Text(song.InUiBag, value => value.ToString())}}}"));
-        return
-            $"valid={Text(state.SelectionValid, value => value.ToString())} " +
-            $"selectedPointer={Text(state.SelectedStatePointer, value => $"0x{value:X}")} " +
-            $"processorPointer={Text(state.ProcessorStatePointer, value => $"0x{value:X}")} " +
-            $"hasUnstaged={Text(state.HasUnstagedChanges, value => value.ToString())} " +
-            $"uiBagCount={Text(state.BagCount, value => value.ToString())} " +
-            $"uiBagAny={Text(state.HasAnyBagCassettes, value => value.ToString())} " +
-            $"uiBagSongs={Text(state.BagSongs, value => $"[{string.Join(",", value ?? Array.Empty<string>())}]")} " +
-            $"songs=[{songText}]";
+        return new(valid, null);
     }
 
     internal static bool TryPreparePointerBoundPersistenceInvocation(
@@ -429,231 +223,6 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
-    private static CassetteDiagnosticValue<bool> ReadSelectedSaveValidityDiagnostic()
-    {
-        string stage = "selection-validity-start";
-        try
-        {
-            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
-            MethodInfo? method = enquiries?.GetMethod(
-                "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (method == null) return new(false, false, "selection-validity-method-missing");
-            stage = "selection-validity-get";
-            object? raw = method.Invoke(null, null);
-            return raw is bool value
-                ? new(true, value, "success")
-                : new(false, false, "selection-validity-result-invalid");
-        }
-        catch (Exception ex)
-        {
-            return new(false, false, $"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<long> ReadPointerDiagnostic(
-        object? state,
-        string label,
-        string unavailableStage)
-    {
-        if (state == null) return new(false, 0, $"{label}-unavailable:{unavailableStage}");
-        try
-        {
-            return TryReadPublicPointer(state, label, out long pointer, out string stage)
-                ? new(true, pointer, "success")
-                : new(false, 0, stage);
-        }
-        catch (Exception ex)
-        {
-            return new(false, 0, $"{label}-pointer-get-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<long> ReadProcessorPointerDiagnostic(object? processor)
-    {
-        try
-        {
-            if (!TryObtainPublicState(processor, "post-load-processor", out object? state, out string stage))
-                return new(false, 0, stage);
-            return ReadPointerDiagnostic(state, "post-load-processor-state", stage);
-        }
-        catch (Exception ex)
-        {
-            return new(false, 0, $"post-load-processor-state-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<bool> ReadBooleanDiagnostic(
-        object? state,
-        string property,
-        string label,
-        string unavailableStage)
-    {
-        if (state == null) return new(false, false, $"{label}-unavailable:{unavailableStage}");
-        try
-        {
-            return TryReadPublicBoolean(state, property, label, out bool value, out string stage)
-                ? new(true, value, "success")
-                : new(false, false, stage);
-        }
-        catch (Exception ex)
-        {
-            return new(false, false, $"{label}-get-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<int> ReadStaticIntDiagnostic(
-        Type? owner,
-        string methodName,
-        string label)
-    {
-        string stage = $"{label}-start";
-        try
-        {
-            MethodInfo? method = owner?.GetMethod(
-                methodName, PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (method == null) return new(false, 0, $"{label}-method-missing");
-            stage = $"{label}-get";
-            object? raw = method.Invoke(null, null);
-            return raw is int value
-                ? new(true, value, "success")
-                : new(false, 0, $"{label}-result-invalid");
-        }
-        catch (Exception ex)
-        {
-            return new(false, 0, $"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<bool> ReadStaticBoolDiagnostic(
-        Type? owner,
-        string methodName,
-        string label)
-    {
-        string stage = $"{label}-start";
-        try
-        {
-            MethodInfo? method = owner?.GetMethod(
-                methodName, PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (method == null) return new(false, false, $"{label}-method-missing");
-            stage = $"{label}-get";
-            object? raw = method.Invoke(null, null);
-            return raw is bool value
-                ? new(true, value, "success")
-                : new(false, false, $"{label}-result-invalid");
-        }
-        catch (Exception ex)
-        {
-            return new(false, false, $"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<IReadOnlyList<string>?> ReadUiBagSongsDiagnostic(
-        Type? owner,
-        Type? songType)
-    {
-        string stage = "ui-bag-list-start";
-        try
-        {
-            if (owner == null) return new(false, null, "ui-bag-list-owner-missing");
-            if (songType?.IsEnum != true) return new(false, null, "ui-bag-list-song-type-missing");
-            MethodInfo[] fetchMethods = owner.GetMethods(PublicStatic)
-                .Where(method => method.Name == "FetchAllSongCassettesInBag" && method.GetParameters().Length == 1)
-                .ToArray();
-            if (fetchMethods.Length != 1) return new(false, null,
-                fetchMethods.Length == 0 ? "ui-bag-list-method-missing" : "ui-bag-list-method-ambiguous");
-            Type listType = fetchMethods[0].GetParameters()[0].ParameterType;
-            ConstructorInfo? constructor = listType.GetConstructor(
-                PublicInstance, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (constructor == null) return new(false, null, "ui-bag-list-constructor-missing");
-            stage = "ui-bag-list-constructor";
-            object? list = constructor.Invoke(Array.Empty<object>());
-            if (list == null) return new(false, null, "ui-bag-list-constructor-null");
-            stage = "ui-bag-list-fetch";
-            fetchMethods[0].Invoke(null, new[] { list });
-            PropertyInfo? countProperty = listType.GetProperty("Count", PublicInstance);
-            PropertyInfo? itemProperty = listType.GetProperty("Item", PublicInstance);
-            if (countProperty?.GetGetMethod(nonPublic: false)?.IsPublic != true ||
-                itemProperty?.GetGetMethod(nonPublic: false)?.IsPublic != true)
-                return new(false, null, "ui-bag-list-read-contract-missing");
-            stage = "ui-bag-list-count";
-            object? rawCount = countProperty.GetValue(list);
-            if (rawCount is not int count || count < 0) return new(false, null, "ui-bag-list-count-invalid");
-            if (count > 128) return new(false, null, $"ui-bag-list-count-limit:{count}");
-            var songs = new List<string>(count);
-            for (int index = 0; index < count; index++)
-            {
-                stage = $"ui-bag-list-item-{index}";
-                object? song = itemProperty.GetValue(list, new object[] { index });
-                string? name = song?.ToString();
-                if (string.IsNullOrWhiteSpace(name))
-                    return new(false, null, $"ui-bag-list-item-{index}-empty");
-                songs.Add(name);
-            }
-            return new(true, songs, "success");
-        }
-        catch (Exception ex)
-        {
-            return new(false, null, $"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<string?> ReadStatusDiagnostic(
-        object? target,
-        MethodInfo? method,
-        object? song,
-        string nativeSong,
-        string label,
-        string prerequisiteStage)
-    {
-        if (!string.Equals(prerequisiteStage, "success", StringComparison.Ordinal))
-            return UnavailableString($"{label}-{nativeSong}-unavailable:{prerequisiteStage}");
-        if (target == null) return UnavailableString($"{label}-{nativeSong}-target-null");
-        if (method == null) return UnavailableString($"{label}-{nativeSong}-method-missing");
-        string stage = $"{label}-{nativeSong}-get";
-        try
-        {
-            string? value = method.Invoke(target, new[] { song })?.ToString();
-            return string.IsNullOrWhiteSpace(value)
-                ? UnavailableString($"{label}-{nativeSong}-empty")
-                : new(true, value, "success");
-        }
-        catch (Exception ex)
-        {
-            return UnavailableString($"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<string?> ReadNullableStatusDiagnostic(
-        object? target,
-        MethodInfo method,
-        object? song,
-        string nativeSong,
-        string label,
-        string prerequisiteStage)
-    {
-        if (!string.Equals(prerequisiteStage, "success", StringComparison.Ordinal))
-            return UnavailableString($"{label}-{nativeSong}-unavailable:{prerequisiteStage}");
-        string stage = $"{label}-{nativeSong}-get";
-        try
-        {
-            object? raw = ReadPublicNullableMethod(method, target!, new[] { song });
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    raw, $"{label}-{nativeSong}", out bool present, out object? value, out stage))
-                return UnavailableString(stage);
-            string? text = present ? value?.ToString() : null;
-            return present && !string.IsNullOrWhiteSpace(text)
-                ? new(true, text, "success")
-                : UnavailableString($"{label}-{nativeSong}-empty");
-        }
-        catch (Exception ex)
-        {
-            return UnavailableString($"{stage}-invocation:{SummarizeException(ex)}");
-        }
-    }
-
-    private static CassetteDiagnosticValue<string?> UnavailableString(string stage) =>
-        new(false, null, stage);
-
     internal static bool TryGetLoadedSave(out int slot)
     {
         slot = default;
@@ -673,49 +242,6 @@ internal static class CassetteSaveTransactionAdapter
         catch
         {
             slot = default;
-            return false;
-        }
-    }
-
-    internal static bool TryGetLoadedSaveIdentity(out int slot, out long selectedStatePointer)
-        => TryGetLoadedSaveIdentity(out slot, out selectedStatePointer, out _);
-
-    internal static bool TryGetLoadedSaveIdentity(out int slot, out long selectedStatePointer, out string stage)
-    {
-        slot = default;
-        selectedStatePointer = 0;
-        stage = "start";
-        try
-        {
-            Type? enquiries = FindType("PlayerSaveManagementEnquiries");
-            if (enquiries == null) { stage = "owner-missing"; return false; }
-            MethodInfo? getSlot = enquiries?.GetMethod(
-                "GetSelectedSaveFileSlotNumber", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            MethodInfo? getState = enquiries?.GetMethod(
-                "TryGetSelectedSlotSaveFileState", AllStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-            if (getSlot == null) { stage = "slot-method-missing"; return false; }
-            if (getState == null) { stage = "state-method-missing"; return false; }
-            object? rawSlot = UnwrapNullable(getSlot?.Invoke(null, null));
-            object? currentState = UnwrapNullable(getState?.Invoke(null, null));
-            if (rawSlot == null) { stage = "slot-empty"; return false; }
-            try { slot = Convert.ToInt32(rawSlot); }
-            catch (Exception ex) { stage = $"slot-convert:{SummarizeException(ex)}"; return false; }
-            if (currentState == null) { stage = "state-null"; return false; }
-            PropertyInfo? pointerProperty = currentState.GetType().GetProperty(
-                "Pointer", BindingFlags.Public | BindingFlags.Instance);
-            if (pointerProperty == null) { stage = "pointer-missing"; return false; }
-            object? rawPointer = pointerProperty.GetValue(currentState);
-            if (rawPointer is not IntPtr pointer) { stage = $"pointer-wrong-type:{rawPointer?.GetType().Name ?? "null"}"; return false; }
-            if (pointer == IntPtr.Zero) { stage = "pointer-zero"; return false; }
-            selectedStatePointer = pointer.ToInt64();
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            slot = default;
-            selectedStatePointer = 0;
-            stage = $"invocation:{SummarizeException(ex)}";
             return false;
         }
     }
@@ -754,263 +280,10 @@ internal static class CassetteSaveTransactionAdapter
         }
     }
 
-    internal static bool TryReadPublicWriteState(object? processor, out CassettePublicWriteState state, out string stage)
-    {
-        state = default; stage = "write-state-start";
-        try
-        {
-            stage = "write-state-obtain";
-            if (!TryObtainPublicState(processor, "write-state", out object? nativeState, out stage)) return false;
-            Type type = nativeState!.GetType();
-            PropertyInfo? hasChangesProperty = type.GetProperty("HasChanges", PublicInstance);
-            PropertyInfo? requiresProperty = type.GetProperty("RequiresWriteToDisk", PublicInstance);
-            PropertyInfo? successProperty = type.GetProperty("GameTimeOfLastWriteToDisk", PublicInstance);
-            PropertyInfo? failureProperty = type.GetProperty("GameTimeOfLastFailedAttemptToWriteToDisk", PublicInstance);
-            PropertyInfo? reasonProperty = type.GetProperty("FailureReasonOfLastFailedAttemptToWriteToDisk", PublicInstance);
-            if (hasChangesProperty == null || requiresProperty == null || successProperty == null || failureProperty == null || reasonProperty == null)
-            { stage = "write-state-contract-missing"; return false; }
-            stage = "write-state-has-changes-get";
-            bool hasChanges = Convert.ToBoolean(hasChangesProperty.GetValue(nativeState));
-            stage = "write-state-requires-write-get";
-            bool requires = Convert.ToBoolean(requiresProperty.GetValue(nativeState));
-            stage = "write-state-success-time-get";
-            object? successValue = ReadPublicNullableProperty(successProperty, nativeState);
-            if (!TryReadPublicGameTime(successValue, "success-time", out double? success, out stage)) return false;
-            stage = "write-state-failure-time-get";
-            object? failureValue = ReadPublicNullableProperty(failureProperty, nativeState);
-            if (!TryReadPublicGameTime(failureValue, "failure-time", out double? failure, out stage)) return false;
-            stage = "write-state-failure-reason-get";
-            object? reasonValue = ReadPublicNullableProperty(reasonProperty, nativeState);
-            if (!TryUnwrapPublicWriteNullable(reasonValue, "failure-reason", out object? reason, out stage)) return false;
-            stage = "write-state-failure-reason-format";
-            string? failureReason = reason?.ToString();
-            state = new(hasChanges, requires, success, failure, failureReason);
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex) { stage = $"{stage}-invocation:{SummarizeException(ex)}"; return false; }
-    }
-
-    internal static bool TryReadPublicWriteDiagnosticState(
-        object? processor,
-        long expectedPointer,
-        IReadOnlyList<string> nativeSongs,
-        out CassettePublicWriteDiagnosticState state,
-        out string stage) =>
-        TryReadPublicWriteDiagnosticStateCore(
-            processor, expectedPointer, nativeSongs, out state, out stage);
-
-    internal static bool TryReadPublicWriteLifecycleDiagnosticState(
-        object? processor,
-        IReadOnlyList<string> nativeSongs,
-        out CassettePublicWriteDiagnosticState state,
-        out string stage) =>
-        TryReadPublicWriteDiagnosticStateCore(
-            processor, expectedPointer: null, nativeSongs, out state, out stage);
-
-    internal static bool TryReadRecordSongCassetteStatusRequest(
-        object? request,
-        out CassetteRecordSongRoutingPayload payload,
-        out string stage)
-    {
-        payload = default;
-        stage = "routing-record-start";
-        try
-        {
-            if (request == null || !string.Equals(
-                    request.GetType().Name,
-                    "RecordSongCassetteStatusInSaveDataRequest",
-                    StringComparison.Ordinal))
-            { stage = "routing-record-incompatible"; return false; }
-            Type requestType = request.GetType();
-            PropertyInfo? songProperty = requestType.GetProperty("Song", PublicInstance);
-            if (songProperty == null) { stage = "routing-record-song-missing"; return false; }
-            stage = "routing-record-song-get";
-            string? song = songProperty.GetValue(request)?.ToString();
-            if (string.IsNullOrWhiteSpace(song)) { stage = "routing-record-song-empty"; return false; }
-            PropertyInfo? statusProperty = requestType.GetProperty("CassetteStatus", PublicInstance);
-            if (statusProperty == null) { stage = "routing-record-status-missing"; return false; }
-            stage = "routing-record-status-get";
-            string? status = statusProperty.GetValue(request)?.ToString();
-            if (string.IsNullOrWhiteSpace(status)) { stage = "routing-record-status-empty"; return false; }
-            PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
-            if (bundleProperty == null) { stage = "routing-record-bundle-missing"; return false; }
-            stage = "routing-record-bundle-get";
-            object? rawBundle = ReadPublicNullableProperty(bundleProperty, request);
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    rawBundle,
-                    "routing-record-bundle",
-                    out bool bundlePresent,
-                    out object? bundle,
-                    out stage))
-                return false;
-            payload = new(song, status, bundlePresent, bundle?.ToString());
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            payload = default;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryReadPersistSaveChangeBundleRequest(
-        object? request,
-        out CassettePersistBundleRoutingPayload payload,
-        out string stage)
-    {
-        payload = default;
-        stage = "routing-persist-start";
-        try
-        {
-            if (request == null || !string.Equals(
-                    request.GetType().Name,
-                    "PersistSaveChangeBundleRequest",
-                    StringComparison.Ordinal))
-            { stage = "routing-persist-incompatible"; return false; }
-            Type requestType = request.GetType();
-            PropertyInfo? bundleProperty = requestType.GetProperty("Bundle", PublicInstance);
-            if (bundleProperty == null) { stage = "routing-persist-bundle-missing"; return false; }
-            stage = "routing-persist-bundle-get";
-            object? rawBundle = ReadPublicNullableProperty(bundleProperty, request);
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    rawBundle,
-                    "routing-persist-bundle",
-                    out bool bundlePresent,
-                    out object? bundle,
-                    out stage))
-                return false;
-            PropertyInfo? writeTypeProperty = requestType.GetProperty("WriteTypeToRequest", PublicInstance);
-            if (writeTypeProperty == null) { stage = "routing-persist-write-type-missing"; return false; }
-            stage = "routing-persist-write-type-get";
-            string? writeType = writeTypeProperty.GetValue(request)?.ToString();
-            if (string.IsNullOrWhiteSpace(writeType)) { stage = "routing-persist-write-type-empty"; return false; }
-            payload = new(bundlePresent, bundle?.ToString(), writeType);
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            payload = default;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryReadPersistAllSaveChangeBundlesRequest(
-        object? request,
-        out string? writeType,
-        out string stage)
-    {
-        writeType = null;
-        stage = "routing-persist-all-start";
-        try
-        {
-            if (request == null || !string.Equals(
-                    request.GetType().Name,
-                    "PersistAllSaveChangeBundlesRequest",
-                    StringComparison.Ordinal))
-            { stage = "routing-persist-all-incompatible"; return false; }
-            PropertyInfo? writeTypeProperty = request.GetType().GetProperty("WriteTypeToRequest", PublicInstance);
-            if (writeTypeProperty == null) { stage = "routing-persist-all-write-type-missing"; return false; }
-            stage = "routing-persist-all-write-type-get";
-            writeType = writeTypeProperty.GetValue(request)?.ToString();
-            if (string.IsNullOrWhiteSpace(writeType)) { stage = "routing-persist-all-write-type-empty"; return false; }
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            writeType = null;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryReadPlayerSaveBundleRoutingState(
-        object? playerSaveProcessor,
-        long expectedPointer,
-        IReadOnlyList<string> nativeSongs,
-        out CassetteBundleRoutingState state,
-        out string stage)
-    {
-        state = default;
-        stage = "routing-player-start";
-        try
-        {
-            if (!TryObtainPublicState(playerSaveProcessor, "routing-player", out object? nativeState, out stage))
-                return false;
-            return TryReadBundleRoutingStateCore(
-                nativeState!, playerSaveProcessor!.GetType().Assembly, expectedPointer, nativeSongs, "routing-player", out state, out stage);
-        }
-        catch (Exception ex)
-        {
-            state = default;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryReadSaveDataBundleRoutingState(
-        object? saveDataProcessor,
-        long expectedPointer,
-        IReadOnlyList<string> nativeSongs,
-        out int selectedSlot,
-        out CassetteBundleRoutingState state,
-        out string stage)
-    {
-        selectedSlot = default;
-        state = default;
-        stage = "routing-save-data-start";
-        try
-        {
-            if (!TryObtainPublicState(saveDataProcessor, "routing-save-data", out object? saveDataState, out stage))
-                return false;
-            Type saveDataStateType = saveDataState!.GetType();
-            PropertyInfo? selectedSlotProperty = saveDataStateType.GetProperty("SelectedPlayerSaveSlot", PublicInstance);
-            if (selectedSlotProperty == null) { stage = "routing-save-data-selected-slot-missing"; return false; }
-            stage = "routing-save-data-selected-slot-get";
-            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    rawSelectedSlot,
-                    "routing-save-data-selected-slot",
-                    out bool slotPresent,
-                    out object? slotValue,
-                    out stage))
-                return false;
-            if (!slotPresent || slotValue == null) { stage = "routing-save-data-selected-slot-empty"; return false; }
-            stage = "routing-save-data-selected-slot-convert";
-            selectedSlot = Convert.ToInt32(slotValue);
-            PropertyInfo? savesProperty = saveDataStateType.GetProperty("RegularPlayerSaves", PublicInstance);
-            if (savesProperty == null) { stage = "routing-save-data-regular-saves-missing"; return false; }
-            stage = "routing-save-data-regular-saves-get";
-            object? saves = savesProperty.GetValue(saveDataState);
-            if (saves == null) { stage = "routing-save-data-regular-saves-null"; return false; }
-            PropertyInfo? itemProperty = saves.GetType().GetProperty("Item", PublicInstance);
-            if (itemProperty == null || itemProperty.GetIndexParameters().Length != 1)
-            { stage = "routing-save-data-selected-state-indexer-missing"; return false; }
-            stage = "routing-save-data-selected-state-get";
-            object? selectedState = itemProperty.GetValue(saves, new object[] { selectedSlot });
-            if (selectedState == null) { stage = "routing-save-data-selected-state-null"; return false; }
-            return TryReadBundleRoutingStateCore(
-                selectedState, saveDataProcessor!.GetType().Assembly, expectedPointer, nativeSongs, "routing-save-data", out state, out stage);
-        }
-        catch (Exception ex)
-        {
-            selectedSlot = default;
-            state = default;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
     internal static bool TryReadDiskCommitTargetDiagnostic(
         object? playerSaveProcessor,
         object? retainedSaveDataProcessor,
         int expectedSlot,
-        long expectedPointer,
         IReadOnlyList<string> nativeSongs,
         out CassetteDiskCommitTargetDiagnosticState state,
         out int registryCount,
@@ -1111,7 +384,6 @@ internal static class CassetteSaveTransactionAdapter
 
             state = state with { Selected = selected, HasSelected = true };
             stage = "success";
-            _ = expectedPointer; // The expected identity is emitted by the caller; diagnostics never reject a mismatch.
             return true;
         }
         catch (Exception ex)
@@ -1263,245 +535,6 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
         }
-    }
-
-    internal static bool TryReadSaveSynchronizationObservationDiagnostic(
-        object? retainedSaveDataProcessor,
-        out CassetteSaveSynchronizationObservationState state,
-        out string stage)
-    {
-        state = default;
-        Assembly? preferredAssembly = retainedSaveDataProcessor?.GetType().Assembly;
-        bool registeredReadable = TryReadRegisteredSynchronizationObservation(
-            retainedSaveDataProcessor, preferredAssembly, ref state, out string registeredStage);
-        bool enquiryReadable = TryReadLoadedSaveEnquiryObservation(
-            preferredAssembly, ref state, out string enquiryStage);
-        state = state with
-        {
-            EnquiryStage = enquiryStage,
-            RegisteredStateStage = registeredStage,
-        };
-        stage = registeredReadable && enquiryReadable
-            ? "success"
-            : $"registered='{registeredStage}' enquiry='{enquiryStage}'";
-        return registeredReadable && enquiryReadable;
-    }
-
-    private static bool TryReadRegisteredSynchronizationObservation(
-        object? retainedSaveDataProcessor,
-        Assembly? preferredAssembly,
-        ref CassetteSaveSynchronizationObservationState state,
-        out string stage)
-    {
-        stage = "readiness-observation-start";
-        try
-        {
-            if (preferredAssembly == null)
-            {
-                stage = "readiness-retained-save-data-processor-null";
-                return false;
-            }
-            bool registeredReadable = TryReadRegisteredPersistProcessorPointer(
-                preferredAssembly,
-                out object? registeredPersistProcessor,
-                out long registeredPointer,
-                out _,
-                out string registeredStage);
-            if (registeredReadable)
-            {
-                state = state with
-                {
-                    RegisteredPersistProcessorPointer = registeredPointer,
-                    HasRegisteredPersistProcessorPointer = true,
-                };
-            }
-            bool retainedReadable = TryReadPublicObjectPointer(
-                retainedSaveDataProcessor,
-                "readiness-retained-save-data-processor",
-                out long retainedPointer,
-                out string retainedStage);
-            if (retainedReadable)
-            {
-                state = state with
-                {
-                    RetainedSaveDataProcessorPointer = retainedPointer,
-                    HasRetainedSaveDataProcessorPointer = true,
-                };
-            }
-            if (!registeredReadable) { stage = registeredStage; return false; }
-            if (!retainedReadable) { stage = retainedStage; return false; }
-            bool pointersMatch = registeredPointer == retainedPointer;
-            state = state with
-            {
-                ProcessorPointersMatch = pointersMatch,
-                HasProcessorPointersMatch = true,
-            };
-            if (!pointersMatch)
-            {
-                stage = $"readiness-save-data-processor-pointer-mismatch:expected=0x{retainedPointer:X}:actual=0x{registeredPointer:X}";
-                return false;
-            }
-            if (!TryObtainPublicState(
-                    registeredPersistProcessor,
-                    "readiness-save-data",
-                    out object? saveDataState,
-                    out stage))
-                return false;
-            if (!TryGetPublicReadableProperty(
-                    saveDataState!.GetType(),
-                    "SelectedPlayerSaveSlot",
-                    PublicInstance,
-                    "readiness-selected-slot",
-                    out PropertyInfo selectedSlotProperty,
-                    out stage))
-                return false;
-            stage = "readiness-selected-slot-get";
-            object? rawSelectedSlot = ReadPublicNullableProperty(selectedSlotProperty, saveDataState);
-            if (!TryUnwrapPublicDiagnosticNullable(
-                    rawSelectedSlot,
-                    "readiness-selected-slot",
-                    out bool slotPresent,
-                    out object? slotValue,
-                    out stage))
-                return false;
-            if (!slotPresent || slotValue == null)
-            {
-                stage = "readiness-selected-slot-empty";
-                return false;
-            }
-            stage = "readiness-selected-slot-convert";
-            int selectedSlot = Convert.ToInt32(slotValue);
-            state = state with
-            {
-                RegisteredSelectedSlot = selectedSlot,
-                HasRegisteredSelectedSlot = true,
-            };
-            stage = "readiness-selected-slot-observed";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    private static bool TryReadLoadedSaveEnquiryObservation(
-        Assembly? preferredAssembly,
-        ref CassetteSaveSynchronizationObservationState state,
-        out string stage)
-    {
-        string firstFailureStage = "success";
-        bool readable = true;
-        void RecordFailure(string failureStage)
-        {
-            if (readable) firstFailureStage = failureStage;
-            readable = false;
-        }
-
-        Type? enquiries = FindType("PlayerSaveManagementEnquiries", preferredAssembly);
-        if (enquiries == null)
-        {
-            stage = "enquiry-owner-missing";
-            return false;
-        }
-
-        MethodInfo? slotMethod = enquiries.GetMethod(
-            "GetSelectedSaveFileSlotNumber", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-        if (slotMethod == null)
-        {
-            RecordFailure("enquiry-slot-method-missing");
-        }
-        else
-        {
-            string slotStage = "enquiry-slot-get";
-            try
-            {
-                object? rawSlot = ReadPublicNullableMethod(slotMethod, null!, Array.Empty<object?>());
-                if (!TryUnwrapPublicDiagnosticNullable(
-                        rawSlot, "enquiry-slot", out bool slotPresent, out object? slotValue, out slotStage))
-                    RecordFailure(slotStage);
-                else if (!slotPresent || slotValue == null)
-                    RecordFailure("enquiry-slot-empty");
-                else
-                {
-                    int selectedSlot = Convert.ToInt32(slotValue);
-                    state = state with { EnquirySlot = selectedSlot, HasEnquirySlot = true };
-                }
-            }
-            catch (Exception ex)
-            {
-                RecordFailure($"{slotStage}-invocation:{SummarizeException(ex)}");
-            }
-        }
-
-        MethodInfo? stateMethod = enquiries.GetMethod(
-            "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-        if (stateMethod == null)
-        {
-            RecordFailure("enquiry-state-method-missing");
-        }
-        else
-        {
-            string stateStage = "enquiry-state-get";
-            try
-            {
-                object? rawSelectedState = ReadPublicNullableMethod(stateMethod, null!, Array.Empty<object?>());
-                object? selectedState = rawSelectedState;
-                if (rawSelectedState != null && rawSelectedState.GetType().GetProperty("HasValue", PublicInstance) != null)
-                {
-                    if (!TryUnwrapPublicDiagnosticNullable(
-                            rawSelectedState,
-                            "enquiry-state",
-                            out bool statePresent,
-                            out selectedState,
-                            out stateStage))
-                        RecordFailure(stateStage);
-                    else if (!statePresent)
-                        selectedState = null;
-                }
-                if (selectedState == null)
-                    RecordFailure("enquiry-state-empty");
-                else if (!TryReadPublicPointer(
-                             selectedState, "enquiry-state", out long selectedPointer, out stateStage))
-                    RecordFailure(stateStage);
-                else
-                    state = state with
-                    {
-                        EnquiryStatePointer = selectedPointer,
-                        HasEnquiryStatePointer = true,
-                    };
-            }
-            catch (Exception ex)
-            {
-                RecordFailure($"{stateStage}-invocation:{SummarizeException(ex)}");
-            }
-        }
-
-        MethodInfo? validityMethod = enquiries.GetMethod(
-            "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
-        if (validityMethod != null)
-        {
-            const string validityStage = "enquiry-validity-get";
-            try
-            {
-                object? rawValidity = validityMethod.Invoke(null, null);
-                if (rawValidity is bool valid)
-                    state = state with
-                    {
-                        IsAValidExistingSaveSelected = valid,
-                        HasValidExistingSaveSelected = true,
-                    };
-                else
-                    RecordFailure($"enquiry-validity-result-invalid:{rawValidity?.GetType().Name ?? "null"}");
-            }
-            catch (Exception ex)
-            {
-                RecordFailure($"{validityStage}-invocation:{SummarizeException(ex)}");
-            }
-        }
-        stage = firstFailureStage;
-        return readable;
     }
 
     private static bool TryReadRegisteredPersistProcessorPointer(
@@ -1899,9 +932,9 @@ internal static class CassetteSaveTransactionAdapter
         return true;
     }
 
-    private static bool TryReadPublicWriteDiagnosticStateCore(
+    internal static bool TryReadPublicWriteDiagnosticState(
         object? processor,
-        long? expectedPointer,
+        long expectedPointer,
         IReadOnlyList<string> nativeSongs,
         out CassettePublicWriteDiagnosticState state,
         out string stage)
@@ -1920,9 +953,9 @@ internal static class CassetteSaveTransactionAdapter
             if (rawPointer is not IntPtr pointer) { stage = "write-diagnostic-pointer-invalid"; return false; }
             if (pointer == IntPtr.Zero) { stage = "write-diagnostic-pointer-zero"; return false; }
             long statePointer = pointer.ToInt64();
-            if (expectedPointer.HasValue && statePointer != expectedPointer.Value)
+            if (statePointer != expectedPointer)
             {
-                stage = $"write-diagnostic-pointer-mismatch:expected=0x{expectedPointer.Value:X}:actual=0x{statePointer:X}";
+                stage = $"write-diagnostic-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
                 return false;
             }
             PropertyInfo? hasChangesProperty = stateType.GetProperty("HasChanges", PublicInstance);
@@ -2016,86 +1049,6 @@ internal static class CassetteSaveTransactionAdapter
             state = default;
             stage = $"{stage}-invocation:{SummarizeException(ex)}";
             return false;
-        }
-    }
-
-    internal static bool TryReadPlayerSaveWriteCompletedEvent(
-        object? nativeEvent,
-        out int slot,
-        out bool succeeded,
-        out string? failureReason,
-        out string stage)
-    {
-        failureReason = null;
-        if (!TryReadPlayerSaveWriteCompletedEventHeader(nativeEvent, out slot, out succeeded, out stage))
-            return false;
-        TryReadPlayerSaveWriteCompletedEventFailureReason(nativeEvent, out failureReason);
-        return true;
-    }
-
-    internal static bool TryReadPlayerSaveWriteCompletedEventHeader(
-        object? nativeEvent,
-        out int slot,
-        out bool succeeded,
-        out string stage)
-    {
-        slot = default;
-        succeeded = false;
-        stage = "write-event-start";
-        try
-        {
-            if (nativeEvent == null ||
-                !string.Equals(nativeEvent.GetType().Name, "PlayerSaveWriteCompletedEvent", StringComparison.Ordinal))
-            {
-                stage = "write-event-incompatible";
-                return false;
-            }
-            Type type = nativeEvent.GetType();
-            PropertyInfo? slotProperty = type.GetProperty("SlotNumber", PublicInstance);
-            PropertyInfo? succeededProperty = type.GetProperty("Succeeded", PublicInstance);
-            if (slotProperty == null || succeededProperty == null)
-            {
-                stage = "write-event-contract-missing";
-                return false;
-            }
-            stage = "write-event-slot-get";
-            slot = Convert.ToInt32(slotProperty.GetValue(nativeEvent));
-            stage = "write-event-succeeded-get";
-            succeeded = Convert.ToBoolean(succeededProperty.GetValue(nativeEvent));
-            stage = "success";
-            return true;
-        }
-        catch (Exception ex)
-        {
-            slot = default;
-            succeeded = false;
-            stage = $"{stage}-invocation:{SummarizeException(ex)}";
-            return false;
-        }
-    }
-
-    internal static bool TryReadPlayerSaveWriteCompletedEventFailureReason(
-        object? nativeEvent,
-        out string? failureReason)
-    {
-        failureReason = null;
-        try
-        {
-            if (nativeEvent == null ||
-                !string.Equals(nativeEvent.GetType().Name, "PlayerSaveWriteCompletedEvent", StringComparison.Ordinal))
-                return false;
-            PropertyInfo? failureProperty = nativeEvent.GetType().GetProperty("FailureReason", PublicInstance);
-            if (failureProperty == null) return true;
-            object? failureValue = ReadPublicNullableProperty(failureProperty, nativeEvent);
-            if (TryUnwrapPublicWriteNullable(
-                    failureValue, "event-failure-reason", out object? reason, out _))
-                failureReason = reason?.ToString();
-            return true;
-        }
-        catch
-        {
-            failureReason = null;
-            return true;
         }
     }
 
@@ -2245,58 +1198,6 @@ internal static class CassetteSaveTransactionAdapter
             stage = $"join-invocation:{SummarizeException(ex)}";
             return false;
         }
-    }
-
-    private static bool TryReadBundleRoutingStateCore(
-        object nativeState,
-        Assembly preferredAssembly,
-        long expectedPointer,
-        IReadOnlyList<string> nativeSongs,
-        string label,
-        out CassetteBundleRoutingState state,
-        out string stage)
-    {
-        state = default;
-        stage = $"{label}-state-start";
-        Type stateType = nativeState.GetType();
-        PropertyInfo? pointerProperty = stateType.GetProperty("Pointer", PublicInstance);
-        if (pointerProperty == null) { stage = $"{label}-pointer-missing"; return false; }
-        stage = $"{label}-pointer-get";
-        object? rawPointer = pointerProperty.GetValue(nativeState);
-        if (rawPointer is not IntPtr pointer) { stage = $"{label}-pointer-invalid"; return false; }
-        if (pointer == IntPtr.Zero) { stage = $"{label}-pointer-zero"; return false; }
-        long statePointer = pointer.ToInt64();
-        if (statePointer != expectedPointer)
-        {
-            stage = $"{label}-pointer-mismatch:expected=0x{expectedPointer:X}:actual=0x{statePointer:X}";
-            return false;
-        }
-        PropertyInfo? unstagedProperty = stateType.GetProperty("HasUnstagedChanges", PublicInstance);
-        if (unstagedProperty == null) { stage = $"{label}-has-unstaged-missing"; return false; }
-        stage = $"{label}-has-unstaged-get";
-        bool hasUnstagedChanges = Convert.ToBoolean(unstagedProperty.GetValue(nativeState));
-        Type? songType = FindType("ePlayableSong", preferredAssembly);
-        if (songType?.IsEnum != true) { stage = $"{label}-song-type-missing"; return false; }
-        MethodInfo? readStatus = stateType.GetMethod(
-            "GetCassetteStatusForSong",
-            PublicInstance,
-            binder: null,
-            types: new[] { songType },
-            modifiers: null);
-        if (readStatus == null) { stage = $"{label}-status-method-missing"; return false; }
-        var statuses = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal))
-        {
-            stage = $"{label}-status-{nativeSong}-song-parse";
-            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
-            stage = $"{label}-status-{nativeSong}-invoke";
-            string? status = readStatus.Invoke(nativeState, new[] { song })?.ToString();
-            if (string.IsNullOrWhiteSpace(status)) { stage = $"{label}-status-{nativeSong}-empty"; return false; }
-            statuses[nativeSong] = status;
-        }
-        state = new(statePointer, hasUnstagedChanges, statuses);
-        stage = "success";
-        return true;
     }
 
     private static bool TryUnwrapPublicDiagnosticNullable(

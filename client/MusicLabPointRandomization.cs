@@ -57,21 +57,6 @@ internal static class MusicLabPointRandomization
 
     internal static MusicLabPointSnapshot SynchronizeHistory(
         long generation,
-        Func<IEnumerable<MusicLabPointReceipt>> readReceipts)
-    {
-        lock (Sync)
-        {
-            if (_activeGeneration != generation || !_identity.HasValue)
-                return Runtime.Snapshot;
-            // AllItemsReceived is a replaceable cached collection. Acquire it
-            // under the publication lock so a paused older read cannot follow
-            // a newer callback's publication within the same generation.
-            return SynchronizeHistory(generation, readReceipts());
-        }
-    }
-
-    internal static MusicLabPointSnapshot SynchronizeHistory(
-        long generation,
         IEnumerable<MusicLabPointReceipt> receipts)
     {
         lock (Sync)
@@ -80,12 +65,14 @@ internal static class MusicLabPointRandomization
                 return Runtime.Snapshot;
             // Enumerate under the same lock as configuration and other rebuilds;
             // no deferred history enumeration escapes into the runtime.
-            MusicLabPointReceipt[] history = receipts.ToArray();
             MusicLabPointSnapshot previous = Runtime.Snapshot;
-            Runtime.Synchronize(_identity.Value, history);
+            var anomalies = Runtime.Synchronize(_identity.Value, receipts);
             if (Runtime.Snapshot.Mode == MusicLabPointRuntimeMode.Synchronized)
             {
-                LogHistoryAnomalies(history);
+                if (anomalies.UnknownItem)
+                    LogOnce("unknown-item", "unknown received item ID ignored for Music Lab Points");
+                if (anomalies.OverCap)
+                    LogOnce("cap-anomaly", "cap anomaly: received point value exceeds 180; effective total capped at 180");
                 if (previous.Mode == MusicLabPointRuntimeMode.RetainedDisconnected)
                     LogOnce("reconnect-rebuild", $"reconnect rebuild previous={previous.Total} total={Runtime.Snapshot.Total} corrected={previous.Total != Runtime.Snapshot.Total}");
             }
@@ -128,10 +115,10 @@ internal static class MusicLabPointRandomization
         get { lock (Sync) return Runtime.Snapshot; }
     }
 
-    internal static int ResolveEffectiveScore(int nativeScore, int? developerOverride)
+    internal static int ResolveEffectiveScore(int nativeScore)
     {
         lock (Sync)
-            return Runtime.ResolveEffectiveScore(nativeScore, developerOverride);
+            return Runtime.ResolveEffectiveScore(nativeScore);
     }
 
     private static void LogChange(MusicLabPointSnapshot previous)
@@ -164,30 +151,6 @@ internal static class MusicLabPointRandomization
         _getterAvailable
             ? "managed getter ready; effective-score replacement scoped to GameRoom_Hub6 for AP point sessions"
             : "getter unavailable; AP Music Lab Point economy cannot be active; release blocked");
-
-    private static void LogHistoryAnomalies(MusicLabPointReceipt[] history)
-    {
-        HashSet<int> seen = new();
-        long weightedTotal = 0;
-        foreach (MusicLabPointReceipt receipt in history)
-        {
-            if (!seen.Add(receipt.Index))
-                continue;
-            // The permanent SCRC item registry spans +101 through +155.
-            // Other registered items are normal receipts, not point anomalies.
-            if (receipt.ItemId < 187256101 || receipt.ItemId > 187256155)
-                LogOnce("unknown-item", "unknown received item ID ignored for Music Lab Points");
-            weightedTotal += receipt.ItemId switch
-            {
-                187256153 => 1,
-                187256154 => 10,
-                187256155 => 20,
-                _ => 0,
-            };
-        }
-        if (weightedTotal > 180)
-            LogOnce("cap-anomaly", "cap anomaly: received point value exceeds 180; effective total capped at 180");
-    }
 
     private static void LogOnce(string key, string message)
     {

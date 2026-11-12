@@ -12,9 +12,14 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     private Vector2 _historyScroll;
     private Vector2 _popupScroll;
     private ItemNotification? _scrollingEntry;
-    private readonly float[] _historyTextHeights = new float[100], _historyDetailHeights = new float[100];
-    private ItemNotification[] _visible = Array.Empty<ItemNotification>();
-    private ItemNotification[] _history = Array.Empty<ItemNotification>();
+    private const string HistoryHelp = "Latest 100 items • newest first • gameplay continues while this panel is open";
+    private const string EmptyHistory = "No item notifications yet. Connect to your seed to load received-item history.";
+    private readonly float[] _historyTextHeights = new float[ItemNotificationFeed.HistoryLimit],
+        _historyDetailHeights = new float[ItemNotificationFeed.HistoryLimit];
+    private IReadOnlyList<ItemNotification>? _measuredHistory;
+    private float _measuredWidth, _historyContentHeight, _historyHelpHeight;
+    private IReadOnlyList<ItemNotification> _visible = Array.Empty<ItemNotification>();
+    private IReadOnlyList<ItemNotification> _history = Array.Empty<ItemNotification>();
     internal static bool PopupsEnabled = true;
     public ItemNotificationOverlay(IntPtr pointer) : base(pointer) { }
     private void Update()
@@ -40,11 +45,12 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     }
     private void Draw()
     {
-        if (!_historyOpen && (!PopupsEnabled || _visible.Length == 0)) return;
+        if (!_historyOpen && (!PopupsEnabled || _visible.Count == 0)) return;
         float scale = Math.Clamp(Screen.height / 1080f, 0.6f, 1.6f);
-        if (_text == null || Math.Abs(_styleScale - scale) > 0.01f)
+        if (_text == null || _styleScale != scale)
         {
             _styleScale = scale;
+            _measuredHistory = null;
             _text = new GUIStyle(GUI.skin.label) { fontSize = (int)(20 * scale), wordWrap = true, richText = false };
             _detail = new GUIStyle(_text) { fontSize = (int)(15 * scale) };
             _heading = new GUIStyle(_text) { fontSize = (int)(23 * scale), fontStyle = FontStyle.Bold };
@@ -63,29 +69,19 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
                 GUI.Box(new Rect(x, y, width, Screen.height - 70 * scale), string.Empty);
                 GUI.Label(new Rect(x + 18 * scale, y + 12 * scale, width - 130 * scale, 40 * scale), "Archipelago item history", _heading);
                 if (GUI.Button(new Rect(x + width - 95 * scale, y + 12 * scale, 78 * scale, 32 * scale), "Close / F6")) _historyOpen = false;
-                const string historyHelp = "Latest 100 items • newest first • gameplay continues while this panel is open";
-                float helpHeight = _detail!.CalcHeight(new GUIContent(historyHelp), width - 36 * scale);
-                GUI.Label(new Rect(x + 18 * scale, y + 49 * scale, width - 36 * scale, helpHeight), historyHelp, _detail);
-                float listTop = y + 61 * scale + helpHeight;
-                float listHeight = Math.Max(1, Screen.height - 70 * scale - listTop);
                 // Reserve scrollbar space when measuring, so wrapping stays stable.
                 float rowWidth = Math.Max(1, width - 60 * scale);
-                float contentHeight = 0;
-                for (int i = 0; i < _history.Length; i++)
-                {
-                    _historyTextHeights[i] = _text!.CalcHeight(new GUIContent(_history[i].Text), rowWidth);
-                    _historyDetailHeights[i] = _detail.CalcHeight(new GUIContent(_history[i].Location), rowWidth);
-                    contentHeight += _historyTextHeights[i] + _historyDetailHeights[i] + 16 * scale;
-                }
-                const string emptyHistory = "No item notifications yet. Connect to your seed to load received-item history.";
-                if (_history.Length == 0) contentHeight = _text!.CalcHeight(new GUIContent(emptyHistory), rowWidth);
+                MeasureHistory(width, rowWidth, scale);
+                GUI.Label(new Rect(x + 18 * scale, y + 49 * scale, width - 36 * scale, _historyHelpHeight), HistoryHelp, _detail);
+                float listTop = y + 61 * scale + _historyHelpHeight;
+                float listHeight = Math.Max(1, Screen.height - 70 * scale - listTop);
                 _historyScroll = GUI.BeginScrollView(new Rect(x + 14 * scale, listTop, width - 28 * scale, listHeight),
-                    _historyScroll, new Rect(0, 0, rowWidth, Math.Max(listHeight, contentHeight)));
+                    _historyScroll, new Rect(0, 0, rowWidth, Math.Max(listHeight, _historyContentHeight)));
                 try
                 {
                     float rowY = 0;
-                    if (_history.Length == 0) GUI.Label(new Rect(0, 0, rowWidth, contentHeight), emptyHistory, _text);
-                    for (int i = 0; i < _history.Length; i++)
+                    if (_history.Count == 0) GUI.Label(new Rect(0, 0, rowWidth, _historyContentHeight), EmptyHistory, _text);
+                    for (int i = 0; i < _history.Count; i++)
                     {
                         DrawEntry(_history[i], 0, rowY, rowWidth, scale, _historyTextHeights[i], _historyDetailHeights[i]);
                         rowY += _historyTextHeights[i] + _historyDetailHeights[i] + 16 * scale;
@@ -103,7 +99,7 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
                 float footerHeight = 30 * scale;
                 int drawn = 0;
                 bool scrolling = false;
-                for (int i = 0; i < _visible.Length; i++)
+                for (int i = 0; i < _visible.Count; i++)
                 {
                     float innerWidth = width - 24 * scale;
                     float textHeight = _text!.CalcHeight(new GUIContent(_visible[i].Text), innerWidth);
@@ -144,13 +140,27 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
                 }
                 if (Event.current.type == EventType.Repaint && Application.isFocused) _drawnCount = drawn;
                 int queued = Math.Max(0, ItemNotifications.Feed.OutstandingCount - drawn);
-                if (_visible.Length > 0)
+                if (_visible.Count > 0)
                     GUI.Label(new Rect(x, y, width, footerHeight),
                         scrolling ? "Scroll reward • F6: full history" :
                         queued > 0 ? $"{queued} more queued • F6: recent items" : "F6: recent items", _detail);
             }
         }
         finally { GUI.color = oldColor; GUI.depth = oldDepth; }
+    }
+    private void MeasureHistory(float width, float rowWidth, float scale)
+    {
+        if (ReferenceEquals(_history, _measuredHistory) && width == _measuredWidth) return;
+        _historyHelpHeight = _detail!.CalcHeight(new GUIContent(HistoryHelp), width - 36 * scale);
+        _historyContentHeight = _history.Count == 0 ? _text!.CalcHeight(new GUIContent(EmptyHistory), rowWidth) : 0;
+        for (int i = 0; i < _history.Count; i++)
+        {
+            _historyTextHeights[i] = _text!.CalcHeight(new GUIContent(_history[i].Text), rowWidth);
+            _historyDetailHeights[i] = _detail.CalcHeight(new GUIContent(_history[i].Location), rowWidth);
+            _historyContentHeight += _historyTextHeights[i] + _historyDetailHeights[i] + 16 * scale;
+        }
+        _measuredHistory = _history;
+        _measuredWidth = width;
     }
     private void DrawEntry(ItemNotification entry, float x, float y, float width, float scale, float textHeight, float detailHeight)
     {

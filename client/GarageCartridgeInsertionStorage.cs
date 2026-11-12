@@ -22,10 +22,6 @@ internal readonly record struct GarageInsertionReadResult(
         new(GarageInsertionReadStatus.KnownFalse, string.Empty);
     internal static readonly GarageInsertionReadResult KnownTrue =
         new(GarageInsertionReadStatus.KnownTrue, string.Empty);
-    internal static readonly GarageInsertionReadResult Malformed =
-        new(GarageInsertionReadStatus.Malformed, "valueType='unknown'");
-    internal static readonly GarageInsertionReadResult Failed =
-        new(GarageInsertionReadStatus.Failed, "failureType='unknown'");
 
     internal static GarageInsertionReadResult MalformedValue(string key, JTokenType valueType) =>
         new(

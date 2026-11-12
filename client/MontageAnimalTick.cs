@@ -19,9 +19,6 @@ internal static class MontageAnimalTick
     private static string _room = "";
     private static bool _failed;
     private static bool _enabled;
-    private static long _seen, _executed, _deferred;
-    private static double _suppliedSeconds, _executedSeconds;
-    internal static string Summary => $"montageAnimalTick={_enabled && !_failed} actors={Policy.ActorCount} seen={_seen} executed={_executed} deferred={_deferred} suppliedSeconds={_suppliedSeconds:F4} executedSeconds={_executedSeconds:F4}";
 
     internal static unsafe bool Install()
     {
@@ -75,10 +72,6 @@ internal static class MontageAnimalTick
                 {
                     bool active = Time.timeScale > 0 && _roomRunning!();
                     admitted = Policy.Admit(instance.ToInt64(), Time.fixedTimeAsDouble, Time.frameCount, elapsed, active, out applied);
-                    _seen++;
-                    if (float.IsFinite(elapsed)) _suppliedSeconds += elapsed;
-                    if (admitted) { _executed++; if (float.IsFinite(applied)) _executedSeconds += applied; }
-                    else _deferred++;
                 }
             }
         }
@@ -86,21 +79,17 @@ internal static class MontageAnimalTick
         if (admitted) _original(instance, applied, methodInfo);
     }
 
-    internal static void Shutdown()
+    internal static bool Shutdown()
     {
         // Stop admission before detachment; keep both delegates rooted even if disposal fails.
         _enabled = false;
         Reset();
         try { _detour?.Dispose(); _detour = null; }
         catch (Exception ex) { Fail(ex); }
+        return _detour == null;
     }
 
-    internal static void Reset()
-    {
-        Policy.Reset();
-        _seen = _executed = _deferred = 0;
-        _suppliedSeconds = _executedSeconds = 0;
-    }
+    internal static void Reset() => Policy.Reset();
     private static void Fail(Exception ex)
     {
         _failed = true;

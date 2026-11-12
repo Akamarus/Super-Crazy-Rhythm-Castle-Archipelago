@@ -1,6 +1,6 @@
 # Known issues and coverage limits
 
-Current release: **v0.30.0 / Client 0.77.0 / APWorld 0.30.0**.
+This page covers **v0.30.1 / Client 0.77.1 / APWorld 0.30.0**.
 
 ## Open reports and modeling limits
 
@@ -12,6 +12,7 @@ Current release: **v0.30.0 / Client 0.77.0 / APWorld 0.30.0**.
 | School Trip / cassette aliases | School Trip Plant Pipes requirements and Gold/On the Way alternatives remain under review. |
 | Late King Ferdinand ratings | Depend on late-game Gecko content not fully modeled; these checks remain filler-only and are not guaranteed reachable. |
 | Bunker scope | Keycard, Demon Key, Virus, Cheat Codes and Game Ender are randomized; Data Stick and Note Pad remain native. Full randomized flow acceptance is pending. |
+| Connections | The v0.30.1 network guard passed automated transport tests. In-game login, reconnect, delivery and live large-room acceptance remain pending. [Validation record](testing/2026-11-08-network-security.md) |
 | Hypno Pan crafting | Crafting can be unavailable when already owned; native alternative recipes are not comprehensively modeled. Ability use passed targeted testing. |
 | Old-save cassette leaks | Previously leaked vanilla ownership is not automatically removed from existing saves. |
 | Display startup | A fullscreen/fallback warning loop was reported historically. The mod does not force fullscreen or alter display preferences; a general native/driver fix is not established. |
