@@ -17,6 +17,10 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
     private readonly float[] _historyTextHeights = new float[ItemNotificationFeed.HistoryLimit],
         _historyDetailHeights = new float[ItemNotificationFeed.HistoryLimit];
     private IReadOnlyList<ItemNotification>? _measuredHistory;
+    private IReadOnlyList<ItemNotification>? _measuredPopups;
+    private readonly (float Text, float Detail)[] _popupHeights = new (float, float)[ItemNotificationFeed.VisibleLimit];
+    private (float Text, float Detail)? _overflowHeight;
+    private float _popupWidth;
     private float _measuredWidth, _historyContentHeight, _historyHelpHeight;
     private IReadOnlyList<ItemNotification> _visible = Array.Empty<ItemNotification>();
     private IReadOnlyList<ItemNotification> _history = Array.Empty<ItemNotification>();
@@ -51,6 +55,7 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
         {
             _styleScale = scale;
             _measuredHistory = null;
+            _measuredPopups = null;
             _text = new GUIStyle(GUI.skin.label) { fontSize = (int)(20 * scale), wordWrap = true, richText = false };
             _detail = new GUIStyle(_text) { fontSize = (int)(15 * scale) };
             _heading = new GUIStyle(_text) { fontSize = (int)(23 * scale), fontStyle = FontStyle.Bold };
@@ -97,13 +102,20 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
                 float x = Screen.width - width - 20 * scale;
                 float y = 92 * scale;
                 float footerHeight = 30 * scale;
+                if (!ReferenceEquals(_visible, _measuredPopups) || width != _popupWidth)
+                {
+                    for (int i = 0; i < _visible.Count; i++)
+                        _popupHeights[i] = MeasurePopup(_visible[i], width - 24 * scale);
+                    _measuredPopups = _visible;
+                    _popupWidth = width;
+                    _overflowHeight = null;
+                }
                 int drawn = 0;
                 bool scrolling = false;
                 for (int i = 0; i < _visible.Count; i++)
                 {
                     float innerWidth = width - 24 * scale;
-                    float textHeight = _text!.CalcHeight(new GUIContent(_visible[i].Text), innerWidth);
-                    float detailHeight = _detail!.CalcHeight(new GUIContent(_visible[i].Location), innerWidth);
+                    var (textHeight, detailHeight) = _popupHeights[i];
                     float height = textHeight + detailHeight + 24 * scale;
                     float availableHeight = Screen.height - 16 * scale - footerHeight - y;
                     if (height > availableHeight)
@@ -117,8 +129,8 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
                             _popupScroll = Vector2.zero;
                         }
                         innerWidth = Math.Max(1, width - 52 * scale);
-                        textHeight = _text.CalcHeight(new GUIContent(_visible[i].Text), innerWidth);
-                        detailHeight = _detail.CalcHeight(new GUIContent(_visible[i].Location), innerWidth);
+                        _overflowHeight ??= MeasurePopup(_visible[i], innerWidth);
+                        (textHeight, detailHeight) = _overflowHeight.Value;
                         GUI.Box(new Rect(x, y, width, availableHeight), string.Empty);
                         _popupScroll = GUI.BeginScrollView(
                             new Rect(x + 12 * scale, y + 8 * scale, width - 24 * scale, availableHeight - 16 * scale),
@@ -148,6 +160,9 @@ internal sealed class ItemNotificationOverlay : MonoBehaviour
         }
         finally { GUI.color = oldColor; GUI.depth = oldDepth; }
     }
+    private (float Text, float Detail) MeasurePopup(ItemNotification entry, float width) =>
+        (_text!.CalcHeight(new GUIContent(entry.Text), width), _detail!.CalcHeight(new GUIContent(entry.Location), width));
+
     private void MeasureHistory(float width, float rowWidth, float scale)
     {
         if (ReferenceEquals(_history, _measuredHistory) && width == _measuredWidth) return;

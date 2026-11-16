@@ -54,20 +54,25 @@ internal static class QuestChecks
     {
         CassetteReceiptRandomization.WithStableSelectedQuestSave((processor, identity, slot) => {
             try {
-                if (State.NativeSlot == null) {
-                    bool? plungerCollected = ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED");
-                    bool? rootsFed = ReadFlag("ROOTS_HUB_STAR_EATER_FED");
-                    if (plungerCollected == true || rootsFed == true) {
-                        Log("binding", "New quest seed needs a fresh native save; refusing existing completed source flags."); return;
-                    }
-                    if (plungerCollected != false || rootsFed != false) {
-                        Log("binding", "Quest save binding deferred until source freshness flags are readable."); return;
-                    }
-                }
-                if (!State.BindSlot(slot, Journal.Save)) { Log("binding", "Selected save differs from this quest seed's bound slot."); return; }
+                if (!TryBindSlot(slot)) return;
                 action(processor, identity);
             } catch (Exception ex) { Log("binding", "Quest save binding deferred: " + ex.GetBaseException().Message); }
         });
+    }
+    internal static bool TryBindSlot(int slot)
+    {
+        if (State.NativeSlot == null) {
+            bool? plungerCollected = ReadFlag("OUTSIDE_HUB_PLUNGER_COLLECTED");
+            bool? rootsFed = ReadFlag("ROOTS_HUB_STAR_EATER_FED");
+            if (plungerCollected == true || rootsFed == true) {
+                Log("binding", "New quest seed needs a fresh native save; refusing existing completed source flags."); return false;
+            }
+            if (plungerCollected != false || rootsFed != false) {
+                Log("binding", "Quest save binding deferred until source freshness flags are readable."); return false;
+            }
+        }
+        if (!State.BindSlot(slot, Journal.Save)) { Log("binding", "Selected save differs from this quest seed's bound slot."); return false; }
+        return true;
     }
     internal static bool BeforeProgressionRequest(object request, string flag)
     {
@@ -79,16 +84,20 @@ internal static class QuestChecks
         }
         long? source = QuestChecksPolicy.SourceForEvent(DeveloperHarness.CurrentRoomId, flag, true, false);
         if (!source.HasValue || ReflectionUtil.ReadBool(request, "Value") != false || ReadFlag(flag) != true) return true;
-        bool prepared = false;
-        WithBoundSave((_, _) => prepared = State.PrepareHandIn(source.Value, Journal.Save));
+        bool prepared = true;
+        WithBoundSave((_, _) => {
+            prepared = false;
+            prepared = State.PrepareHandIn(source.Value, Journal.Save);
+        });
         return prepared;
     }
     internal static bool AdmitHandIn(long source)
     {
         if (!Enabled) return true;
-        bool admitted = false;
+        bool admitted = true;
         string flag = source == QuestChecksPolicy.BatteryHandIn ? "CLEAN_HUB_GHOST_CAT_BATTERY_BAG_ITEM" : "LEVEL_27_MEMORY_CARD_SCGMD_BAG_ITEM";
         WithBoundSave((_, identity) => {
+            admitted = false;
             if (ReadFlag(flag) != true) return;
             admitted = State.PrepareHandIn(source, Journal.Save);
             if (admitted) Admitted[source] = identity;
@@ -97,17 +106,25 @@ internal static class QuestChecks
     }
     private static void Complete(long source)
     {
-        try { if (!State.RecordSource(source, Journal.Save)) return; }
+        string? recordedRoom = null;
+        try
+        {
+            if (!State.RecordSource(source, (identity, record) =>
+            {
+                Journal.Save(identity, record);
+                recordedRoom = identity;
+            })) return;
+        }
         catch (Exception ex) { Plugin.LoggerInstance?.LogError("[SCRC-AP] Cannot persist quest source: " + ex.Message); return; }
         string location = QuestChecksPolicy.Locations.Single(entry => entry.Value == source).Key;
         Admitted.Remove(source);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEST SOURCE '{location}'.");
-        Plugin.AP?.QueueLocation(location);
+        Plugin.AP?.QueueExpandedLocation(location, recordedRoom!);
     }
-    internal static void ReplayJournal(IEnumerable<long> sources)
+    internal static void ReplayJournal(string identity, IEnumerable<long> sources)
     {
         foreach (long id in sources)
-            Plugin.AP?.QueueLocation(QuestChecksPolicy.Locations.Single(entry => entry.Value == id).Key);
+            Plugin.AP?.QueueExpandedLocation(QuestChecksPolicy.Locations.Single(entry => entry.Value == id).Key, identity);
     }
     internal static void Tick(TimeSpan elapsed)
     {

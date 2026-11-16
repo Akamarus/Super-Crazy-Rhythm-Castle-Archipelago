@@ -26,8 +26,7 @@ internal static class RootsBucketRandomizationPolicy
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17";
 
     internal static bool IsCompatible(string? implementationVersion, bool featureFlag) =>
-        featureFlag &&
-        implementationVersion?.StartsWith(CompatibleVersionPrefix, StringComparison.Ordinal) == true;
+        featureFlag && AreaRoutingVersion.Supports(implementationVersion, CompatibleVersionPrefix);
 
     internal static bool ShouldSuppressVanillaGrant(
         bool synchronized,

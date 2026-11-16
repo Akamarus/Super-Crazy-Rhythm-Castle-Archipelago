@@ -33,7 +33,7 @@ The [progression rules](docs/PROGRESSION.md) document how access works. The [bui
 
 ## Setup
 
-Current release: **v0.30.1 / Client 0.77.1 / APWorld 0.30.0**. This update fixes network handling; existing seeds and saves remain compatible. See the [release notes](docs/releases/v0.30.1.md).
+The current release is **v0.30.2 / Client 0.77.2 / APWorld 0.30.1**. It corrects School Trip tracking and improves item delivery on existing saves. [Release notes](docs/releases/v0.30.2.md).
 
 You'll need a Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. I've kept the setup steps in the [installation guide](docs/INSTALL.md), with separate instructions for [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
 

@@ -13,14 +13,21 @@ internal sealed class BunkerState
     internal bool Ready { get { lock (_sync) return _enabled && _ready; } }
     internal bool IsCompleted(long check) { lock (_sync) return _completed.Contains(check); }
     internal bool IsConsumed(long item) { lock (_sync) return _consumed.Contains(item); }
-    internal void Configure(long generation, string identity, bool enabled, Func<string, BunkerRecord> load)
+    internal void Configure(long generation, string identity, BunkerRecord? record)
     {
         lock (_sync) {
             if (generation < _generation) return;
-            _generation = generation; _enabled = _ready = false; _owned.Clear(); _sent.Clear();
-            var record = enabled ? load(identity) : new(null, Array.Empty<long>(), Array.Empty<long>());
-            BunkerJournal.Validate(record);
-            _identity = identity; _slot = record.Slot; _consumed = record.Consumed.ToHashSet(); _completed = record.Completed.ToHashSet(); _enabled = enabled;
+            bool enabled = record != null;
+            // The selected save can record progress after login reads the journal.
+            // For the same room, that live progress is the newer copy.
+            if (_identity != identity || _enabled != enabled)
+            {
+                _slot = record?.Slot;
+                _consumed = record?.Consumed.ToHashSet() ?? new();
+                _completed = record?.Completed.ToHashSet() ?? new();
+            }
+            _identity = identity; _generation = generation; _enabled = enabled;
+            _ready = false; _owned.Clear(); _sent.Clear();
         }
     }
     internal void Publish(long generation, IEnumerable<long> history)
@@ -45,8 +52,14 @@ internal sealed class BunkerState
             save(_identity, new(slot, _consumed.ToArray(), _completed.ToArray())); _slot = slot; return true;
         }
     }
-    internal void WithBound(int slot, Func<string, bool?> read, Action<string, BunkerRecord> save, Action action)
-    { lock (_sync) if (Bind(slot, read, save)) action(); }
+    internal bool WithBound(int slot, Func<string, bool?> read, Action<string, BunkerRecord> save, Action action)
+    {
+        lock (_sync) {
+            if (!Bind(slot, read, save)) return false;
+            action();
+            return true;
+        }
+    }
     internal bool HasUnconsumedReceipt(long item)
     { lock (_sync) return _enabled && _ready && _slot.HasValue && _owned.Contains(item) && !_consumed.Contains(item); }
     internal void Consume(string flag, Action<string, BunkerRecord> save)

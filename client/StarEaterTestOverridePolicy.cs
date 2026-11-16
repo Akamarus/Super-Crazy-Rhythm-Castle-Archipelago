@@ -1,20 +1,15 @@
 namespace RhythmCastleAP;
 
-internal sealed record StarEaterTestTarget(string Room, string RootPath, int Required);
-
 internal static class StarEaterTestOverridePolicy
 {
-    internal static StarEaterTestTarget? Select(string? room, int royal, int bunker)
+    internal static IReadOnlyDictionary<string, int>? Create(bool enabled, int royal, int bunker)
     {
+        if (!enabled) return null;
+        var overrides = new Dictionary<string, int>();
         royal = Math.Clamp(royal, 0, 40);
         bunker = Math.Clamp(bunker, 0, 66);
-        return room switch
-        {
-            "GameRoom_Hub7" when royal != 40 => new(room,
-                "Root/GameRoom_Hub7_Logic/Objects/StarEaterAndGap/StarEater", royal),
-            "GameRoom_Hub8" when bunker != 66 => new(room,
-                "Root/GameRoom_Hub8_Logic/Objects/NPCs/StarEater", bunker),
-            _ => null,
-        };
+        if (royal != 40) overrides["Royal Corridor"] = royal;
+        if (bunker != 66) overrides["Secret Bunker"] = bunker;
+        return overrides.Count == 0 ? null : overrides;
     }
 }

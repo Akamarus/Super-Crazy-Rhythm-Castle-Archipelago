@@ -15,4 +15,20 @@ Equal(false, RepairCompatibilityPolicy.IsCompatible(RepairVersion, false), "feat
 Equal(false, RepairCompatibilityPolicy.IsCompatible("next-release-repair-0.18", true), "missing preserved prefix");
 Equal(false, RepairCompatibilityPolicy.IsCompatible(null, true), "missing version");
 
+foreach (var cell in new[] { "", "-cell-tower-path-1" })
+foreach (var lobby in new[] { "", "-lobby-doors-1" })
+foreach (var bunker in new[] { "", "-bunker-1" })
+{
+    var marked = RepairVersion.Replace("-generation-foundation", cell + lobby + bunker + "-generation-foundation");
+    Equal(true, RepairCompatibilityPolicy.IsCompatible(marked, true), "Plant Pipes in " + marked);
+    Equal(true, RootsBucketRandomizationPolicy.IsCompatible(marked, true), "bucket in " + marked);
+    Equal(false, RootsBucketRandomizationPolicy.IsCompatible(marked, false), "bucket disabled");
+}
+foreach (var invalid in new[] { "-unknown", "-bunker-1-lobby-doors-1", "-cell-tower-path-1-cell-tower-path-1" })
+{
+    var marked = RepairVersion.Replace("-generation-foundation", invalid + "-generation-foundation");
+    Equal(false, RepairCompatibilityPolicy.IsCompatible(marked, true), "unexpected marker sequence");
+    Equal(false, RootsBucketRandomizationPolicy.IsCompatible(marked, true), "unexpected bucket marker sequence");
+}
+
 Console.WriteLine("Repair compatibility policy tests passed.");

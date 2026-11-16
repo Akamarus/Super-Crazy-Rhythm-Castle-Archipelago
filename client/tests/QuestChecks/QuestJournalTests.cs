@@ -31,6 +31,7 @@ internal static class QuestJournalTests
             journal.Save(identity, record);
             check(File.Exists(path + ".tmp") && File.ReadAllText(path + ".tmp") == "another writer",
                 "publishing must leave another writer's temporary file intact");
+            check(File.Exists(path + ".bak") && File.ReadAllText(path + ".bak").Contains("\"Slot\":4"), "previous journal retained for manual recovery");
             var versioned = JObject.Parse(File.ReadAllText(path));
             check((int?)versioned["Schema"] == 1 && (string?)versioned["Identity"] == identity, "saved journal identifies its schema and seed");
             var current = journal.Load(identity);
@@ -76,7 +77,7 @@ internal static class QuestJournalTests
                     try { journal.Save(identity, new(2, Array.Empty<long>(), Array.Empty<long>())); }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
                 }
-                check(File.ReadAllText(path) == previous && Directory.GetFiles(directory).Length == 2,
+                check(File.ReadAllText(path) == previous && Directory.GetFiles(directory).Length == 3,
                     "failed publication preserves prior progress and cleans up its staging file");
             }
             File.WriteAllText(path, """{"Slot":null,"Completed":[],"Pending":[]}""");

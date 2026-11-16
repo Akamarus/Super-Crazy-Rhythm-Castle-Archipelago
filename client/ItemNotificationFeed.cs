@@ -7,6 +7,7 @@ internal sealed record ItemNotification(string Text, string Location, bool Sent)
 internal sealed class ItemNotificationFeed
 {
     internal const int HistoryLimit = 100;
+    internal const int VisibleLimit = 3;
     private readonly object _sync = new();
     private readonly List<ItemNotification> _history = new();
     private readonly Queue<ItemNotification> _pending = new();
@@ -109,7 +110,7 @@ internal sealed class ItemNotificationFeed
                 }
                 else _visible[i] = (v.Entry, remaining);
             }
-            while (_visible.Count < 3 && _pending.Count > 0)
+            while (_visible.Count < VisibleLimit && _pending.Count > 0)
             {
                 _visible.Add((_pending.Dequeue(), 6));
                 _visibleSnapshot = null;

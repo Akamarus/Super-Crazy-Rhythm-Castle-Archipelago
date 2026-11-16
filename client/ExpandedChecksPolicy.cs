@@ -38,6 +38,8 @@ internal sealed class ExpandedChecksState
 {
     private readonly object _sync = new();
     private long _generation = -1;
+    private long _latestAttempt = -1;
+    private long _endedThrough = -1;
     private string? _identity;
     private int? _slot;
     private bool _enabled;
@@ -50,24 +52,44 @@ internal sealed class ExpandedChecksState
     internal bool Enabled { get { lock (_sync) return _enabled; } }
     internal void Configure(long generation, string identity, bool enabled, IEnumerable<long> serverChecked,
         Func<string, ExpandedJournalRecord> load, bool includeStarChecks = false)
+        => Prepare(generation, identity, enabled, serverChecked, load, includeStarChecks)();
+
+    internal Action Prepare(long generation, string identity, bool enabled, IEnumerable<long> serverChecked,
+        Func<string, ExpandedJournalRecord> load, bool includeStarChecks = false)
     {
         lock (_sync) {
-            if (generation < _generation) return;
-            _generation = generation;
+            if (generation <= _endedThrough || generation < _latestAttempt) return () => { };
+            _latestAttempt = generation;
             if (string.IsNullOrWhiteSpace(identity)) throw new ArgumentException("AP identity is required.");
-            if (_identity != identity) {
-                _entries = includeStarChecks ? ExpandedCheckCatalog.StarEntries : ExpandedCheckCatalog.Entries;
-                _enabled = false; _identity = null; _slot = null;
-                _completed.Clear(); _pendingCharacters.Clear(); _server.Clear(); _sent.Clear(); _pendingResults.Clear(); _pendingCharacterWrites.Clear();
-                _bindingReason = null; _reportedBindingReasons.Clear();
-                var record = enabled ? load(identity) : new ExpandedJournalRecord(null, Array.Empty<long>());
+            var entries = includeStarChecks ? ExpandedCheckCatalog.StarEntries : ExpandedCheckCatalog.Entries;
+            ExpandedJournalRecord? record = null;
+            if (_identity != identity)
+            {
+                record = enabled ? load(identity) : new ExpandedJournalRecord(null, Array.Empty<long>());
                 ExpandedChecksJournal.Validate(record);
-                if (record.Completed.Concat(record.PendingCharacters ?? Array.Empty<long>()).Any(id => !_entries.Any(e => e.Id == id))) throw new InvalidDataException("Journal contains sources outside the active contract.");
-                _slot = record.Slot; _completed.UnionWith(record.Completed); _pendingCharacters.UnionWith(record.PendingCharacters ?? Array.Empty<long>());
+                if (record.Completed.Concat(record.PendingCharacters ?? Array.Empty<long>()).Any(id => !entries.Any(e => e.Id == id)))
+                    throw new InvalidDataException("Journal contains sources outside the active contract.");
             }
-            _identity = identity; _generation = generation; _enabled = enabled;
-            _server.UnionWith(serverChecked.Where(ExpandedChecksPolicy.ById.ContainsKey));
-            _sent.Clear();
+            var checkedIds = serverChecked.Where(ExpandedChecksPolicy.ById.ContainsKey).ToArray();
+            // Preparing a candidate must not erase another room's unsent native results.
+            return () =>
+            {
+                lock (_sync)
+                {
+                    if (generation <= _endedThrough || generation != _latestAttempt) return;
+                    if (record != null)
+                    {
+                        _entries = entries;
+                        _completed.Clear(); _pendingCharacters.Clear(); _server.Clear();
+                        _pendingResults.Clear(); _pendingCharacterWrites.Clear();
+                        _bindingReason = null; _reportedBindingReasons.Clear();
+                        _slot = record.Slot; _completed.UnionWith(record.Completed);
+                        _pendingCharacters.UnionWith(record.PendingCharacters ?? Array.Empty<long>());
+                    }
+                    _identity = identity; _enabled = enabled; _generation = generation;
+                    _server.Clear(); _server.UnionWith(checkedIds); _sent.Clear();
+                }
+            };
         }
     }
     internal bool Visit(int slot, Func<string, bool?> read, Action<string, ExpandedJournalRecord> persist, Action<string> queue, Func<string, string, bool?>? readResult = null, Func<string, bool?>? readCharacter = null)
@@ -193,8 +215,8 @@ internal sealed class ExpandedChecksState
     internal void Reset()
     {
         lock (_sync) {
-            // Keep the generation fence so obsolete transports cannot revive state.
-            _generation++; _identity = null; _slot = null; _enabled = false;
+            // Retire prepared work without consuming the next connection's generation.
+            _endedThrough = _latestAttempt; _identity = null; _slot = null; _enabled = false;
             _completed.Clear(); _pendingCharacters.Clear(); _server.Clear(); _sent.Clear(); _pendingResults.Clear(); _pendingCharacterWrites.Clear();
                 _bindingReason = null; _reportedBindingReasons.Clear();
         }

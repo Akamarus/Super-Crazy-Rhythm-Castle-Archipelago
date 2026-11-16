@@ -5,8 +5,10 @@ upgrades require a fresh license/provenance review before changing this file.
 """
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path, PurePosixPath
+import re
 import tempfile
 import zipfile
 
@@ -25,16 +27,28 @@ DEPENDENCIES = {
         'source': 'https://github.com/ArchipelagoMW/Archipelago.MultiClient.Net/tree/0c57591db30f2497b0b4fef87164aa2bbe2e51b2/Newtonsoft.Json',
     },
 }
-WORLD_FILES = set('''__init__.py archipelago.json campaign_levels.py cassette_bundles.py
-cassettes.py difficulty.py expanded_checks.py items.py music_lab_points.py native_logic.py
-bunker.py optional_routes.py options.py placement.py pool_capacity.py star_requirements.py
-starting_areas.py universal_tracker.py'''.split()) | {
-    'docs/ap-stars-logic.md', 'docs/en_Super Crazy Rhythm Castle.md', 'docs/setup_en.md'
-}
+# Released APWorld inventories grew cumulatively. Use the version in archipelago.json
+# because a client-only release can ship an older, unchanged world.
+WORLD_LAYOUT_ADDITIONS = (
+    (('0.15',), ('__init__.py', 'archipelago.json', 'docs/en_Super Crazy Rhythm Castle.md',
+                 'docs/setup_en.md')),
+    (('0.16', '0.17', '0.18'), ('difficulty.py', 'items.py', 'options.py',
+                                 'star_requirements.py', 'starting_areas.py')),
+    (('0.19', '0.19.0', '0.20.0', '0.21.0'), ('placement.py',)),
+    (('0.22.0',), ('cassettes.py',)),
+    (('0.23.0',), ('music_lab_points.py',)),
+    (('0.24.0', '0.25.0', '0.26.0'), ('campaign_levels.py',)),
+    (('0.27.0',), ('expanded_checks.py',)),
+    (('0.28.0',), ('native_logic.py', 'docs/ap-stars-logic.md')),
+    (('0.28.1', '0.28.2'), ('universal_tracker.py',)),
+    (('0.29.0',), ('cassette_bundles.py', 'optional_routes.py', 'pool_capacity.py')),
+    (('0.30.0', '0.30.1'), ('bunker.py',)),
+)
 NOTICE_FILES = ('LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses/Archipelago.MultiClient.Net-MIT.txt',
                 'licenses/Newtonsoft.Json-MIT.txt', 'licenses/BepInEx-LGPL-2.1.txt',
                 'licenses/Il2CppInterop-LGPL-3.0-and-GPL-3.0.txt')
 MANIFEST = 'DISTRIBUTION.json'
+MAX_ARCHIVE_BYTES = 50_000_000
 
 
 def digest(data):
@@ -47,15 +61,39 @@ def read_zip(path):
         names = [e.filename for e in entries]
         if len(names) != len(set(n.casefold() for n in names)):
             raise ValueError('Duplicate or case-colliding archive paths')
-        if sum(e.file_size for e in entries) > 50_000_000:
+        if sum(e.file_size for e in entries) > MAX_ARCHIVE_BYTES:
             raise ValueError('Unexpected archive size')
         result = {}
+        remaining = MAX_ARCHIVE_BYTES
         for entry in entries:
             name = entry.filename
             if '\\' in name or ':' in name or PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts:
                 raise ValueError('Unsafe archive path: ' + name)
-            if not entry.is_dir(): result[name] = archive.read(entry)
+            if entry.is_dir():
+                continue
+            with archive.open(entry) as member, io.BytesIO() as data:
+                while block := member.read(min(65536, remaining + 1)):
+                    if len(block) > remaining:
+                        raise ValueError('Unexpected archive size')
+                    remaining -= len(block)
+                    data.write(block)
+                result[name] = data.getvalue()
         return result
+
+
+def world_inventory(metadata):
+    metadata = json.loads(metadata)
+    version = metadata.get('world_version') if isinstance(metadata, dict) else None
+    required = set()
+    for versions, additions in WORLD_LAYOUT_ADDITIONS:
+        required.update('scrc/' + name for name in additions)
+        if version in versions:
+            return required
+    # Archipelago expects major.minor.patch. Only the original historical
+    # archives above used shorter identifiers that we still repackage.
+    if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+        raise ValueError('APWorld world_version must be a reviewed historical version or major.minor.patch')
+    return required
 
 
 def check_payload(payload, kind):
@@ -70,11 +108,11 @@ def check_payload(payload, kind):
     elif kind == 'apworld':
         if not {'scrc/__init__.py', 'scrc/archipelago.json'} <= payload.keys():
             raise ValueError('Missing APWorld entry points')
-        # Older releases have fewer modules. Applying today's full inventory as
-        # a requirement would prevent repackaging their original bytes with notices.
-        allowed = {'scrc/' + n for n in WORLD_FILES}
-        if not payload.keys() <= allowed:
-            raise ValueError('Unapproved APWorld contents: ' + ', '.join(sorted(payload.keys() - allowed)))
+        required = world_inventory(payload['scrc/archipelago.json'])
+        if missing := required - payload.keys():
+            raise ValueError('Missing APWorld contents: ' + ', '.join(sorted(missing)))
+        if extra := payload.keys() - required:
+            raise ValueError('Unapproved APWorld contents: ' + ', '.join(sorted(extra)))
     else:
         raise ValueError('Unknown package kind')
 

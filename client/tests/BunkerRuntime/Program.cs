@@ -8,7 +8,7 @@ var state = new BunkerState();
 var history = new BunkerSessionHistory(1, state);
 var full = new ReceivedItemsPacket { Index = 0, Items = new[] { new NetworkItem { Item = 187256179 } } };
 history.HandlePacket(full); Check(!state.Ready, "Unauthenticated packets cannot grant");
-history.Configure("seedA", true, journal.Load);
+history.Configure("seedA", journal.Load("seedA"));
 Check(state.Ready, "prelogin full history publishes after auth");
 Check(state.Bind(2, _ => false, journal.Save), "fresh save binds");
 Check(state.HasUnconsumedReceipt(187256179), "authenticated keycard grant");
@@ -16,10 +16,21 @@ history.HandlePacket(new ReceivedItemsPacket { Index = 3, Items = Array.Empty<Ne
 Check(!state.Ready && !state.HasUnconsumedReceipt(187256179), "gap revokes ready ownership");
 history.HandlePacket(full); state.Consume("LIFT_KEY_BAG_ITEM", journal.Save);
 Check(!state.HasUnconsumedReceipt(187256179), "consumed keycard not regranted");
-var restored = new BunkerState(); restored.Configure(2, "seedA", true, journal.Load); restored.Publish(2, new long[] {187256179});
+var reconnectState = new BunkerState();
+var preflightRecord = journal.Load("reconnect");
+reconnectState.Configure(8, "reconnect", preflightRecord);
+reconnectState.Suspend(9);
+reconnectState.Bind(2, _ => false, journal.Save);
+reconnectState.Complete("BUNKER_HUB_DEMON_KEY", true, journal.Save);
+reconnectState.Consume("LIFT_KEY_BAG_ITEM", journal.Save);
+reconnectState.Configure(9, "reconnect", preflightRecord);
+Check(reconnectState.IsCompleted(187256340) && reconnectState.IsConsumed(187256179) &&
+    !reconnectState.Bind(3, _ => false, journal.Save),
+    "same-room login preserves a binding, check and consumption recorded after the journal read");
+var restored = new BunkerState(); restored.Configure(2, "seedA", journal.Load("seedA")); restored.Publish(2, new long[] {187256179});
 Check(!restored.HasUnconsumedReceipt(187256179), "consumption survives restart");
 Check(!restored.Bind(3, _ => false, journal.Save), "wrong slot rejected");
-var other = new BunkerState(); other.Configure(3, "seedB", true, journal.Load); other.Publish(3, new long[] {187256179});
+var other = new BunkerState(); other.Configure(3, "seedB", journal.Load("seedB")); other.Publish(3, new long[] {187256179});
 Check(other.Bind(2, _ => false, journal.Save) && other.HasUnconsumedReceipt(187256179), "seed isolation");
 Check(!other.Bind(5, _ => false, journal.Save), "invalid slot rejected");
 other.Complete("BUNKER_HUB_DEMON_KEY", false, journal.Save);
@@ -27,7 +38,7 @@ Check(!BunkerCatalog.Checks.Any(check => other.IsCompleted(check.Id)), "bag poll
 other.Complete("BUNKER_HUB_DEMON_KEY", true, journal.Save);
 Check(other.IsCompleted(187256340), "native award records Demon source");
 other.Suspend(4); other.Publish(3, new long[] {187256183}); Check(!other.Ready, "stale session cannot grant");
-var fresh = new BunkerState(); fresh.Configure(1, "seedC", true, journal.Load);
+var fresh = new BunkerState(); fresh.Configure(1, "seedC", journal.Load("seedC"));
 Check(!fresh.Bind(1, _ => true, journal.Save), "old sources cannot bind new seed");
 Check(!fresh.Bind(1, _ => null, journal.Save), "unreadable sources fail closed");
 Directory.Delete(dir, true); Console.WriteLine("Bunker runtime tests passed");
@@ -36,7 +47,7 @@ foreach (var i in BunkerCatalog.Items) RootsBucketRandomization.Flags[i.BagFlag]
 foreach (var c in BunkerCatalog.Checks) RootsBucketRandomization.Flags[c.Flag] = false;
 RootsBucketRandomization.Flags["LOBBY_HUB_LIFT_KEY_USED"] = false;
 var runtime = BunkerRuntime.State;
-runtime.Configure(10, "runtime", true, BunkerRuntime.Journal.Load);
+runtime.Configure(10, "runtime", BunkerRuntime.Journal.Load("runtime"));
 Check(BunkerRuntime.BeforeProgressionRequest(new Request {Value=true}, "BUNKER_HUB_DATA_STICK"), "Gecko Data Stick preserved");
 Check(BunkerRuntime.BeforeProgressionRequest(new Request {Value=true}, "BUNKER_HUB_NOTE_PAD"), "Gecko Note Pad preserved");
 BunkerRuntime.Observe(new { FlagIsSet = false, FlagWasSet = true }, "BUNKER_HUB_NOTE_PAD");
@@ -52,35 +63,35 @@ foreach (var i in BunkerCatalog.Items) {
 BunkerRuntime.Tick(TimeSpan.FromSeconds(1)); Check(WeedKillerRandomization.Grants == 5, "no consumed item respawns");
 Check(Plugin.AP.Queued.Contains("Secret Bunker - Demon Key Pickup"), "suppressed source queued");
 Console.WriteLine("Bunker native runtime tests passed");
-runtime.Configure(11, "unreadable-consumption", true, BunkerRuntime.Journal.Load);
+runtime.Configure(11, "unreadable-consumption", BunkerRuntime.Journal.Load("unreadable-consumption"));
 foreach (var c in BunkerCatalog.Checks) RootsBucketRandomization.Flags[c.Flag] = false;
 foreach (var i in BunkerCatalog.Items) RootsBucketRandomization.Flags[i.BagFlag] = false;
 RootsBucketRandomization.Flags.Remove("LOBBY_HUB_LIFT_KEY_USED");
 runtime.Publish(11, new long[]{187256179});
 BunkerRuntime.Tick(TimeSpan.FromSeconds(1));
 Check(WeedKillerRandomization.Grants == 5, "unreadable consumption marker defers grant");
-var failureState = new BunkerState(); failureState.Configure(1, "failure", true, journal.Load);
+var failureState = new BunkerState(); failureState.Configure(1, "failure", journal.Load("failure"));
 failureState.Bind(1, _ => false, journal.Save); failureState.Publish(1, new long[]{187256183});
 try { failureState.Consume("KING_VIRUS_GAME_ENDER_BAG_ITEM", (_, _) => throw new IOException("disk full")); throw new Exception("write failure lost"); } catch (IOException) { }
 Check(failureState.HasUnconsumedReceipt(187256183), "failed journal write cannot commit consumption");
 foreach (var c in BunkerCatalog.Checks) RootsBucketRandomization.Flags[c.Flag] = false;
 foreach (var i in BunkerCatalog.Items) RootsBucketRandomization.Flags[i.BagFlag] = false;
-runtime.Configure(12, "demon-receipt-only", true, BunkerRuntime.Journal.Load);
+runtime.Configure(12, "demon-receipt-only", BunkerRuntime.Journal.Load("demon-receipt-only"));
 runtime.Publish(12, new long[]{187256180}); BunkerRuntime.Tick(TimeSpan.FromSeconds(1));
 Check(!runtime.IsCompleted(187256340), "AP Demon receipt does not report source");
 BunkerRuntime.Tick(TimeSpan.FromSeconds(1)); Check(!runtime.IsCompleted(187256340), "held Demon polling does not report source");
 Console.WriteLine("All Bunker regressions passed");
 Check(!BunkerRuntime.Ready, "hook readiness starts false");
 BunkerRuntime.ReportHookAvailability(true); Check(BunkerRuntime.Ready, "hook readiness published");
-var replay = new BunkerState(); replay.Configure(1, "six-checks", true, journal.Load);
+var replay = new BunkerState(); replay.Configure(1, "six-checks", journal.Load("six-checks"));
 Check(replay.Bind(1, _=>false, journal.Save), "six-check seed fresh binding");
 foreach (var c in BunkerCatalog.Checks) replay.Complete(c.Flag, true, journal.Save);
 var sent = new List<string>(); replay.Replay((name, _) => { sent.Add(name); return true; });
 Check(sent.Count == 6 && sent.Distinct().Count() == 6, "six source checks replay");
 replay.Replay((name, _) => { sent.Add(name); return true; }); Check(sent.Count == 6, "replay deduplicated");
-replay.Reset(); replay.Configure(2, "six-checks", true, journal.Load);
+replay.Reset(); replay.Configure(2, "six-checks", journal.Load("six-checks"));
 replay.Replay((name, _) => { sent.Add(name); return true; }); Check(sent.Count == 12, "reset replays durable checks");
-var bagSave = new BunkerState(); bagSave.Configure(1, "old-bag", true, journal.Load);
+var bagSave = new BunkerState(); bagSave.Configure(1, "old-bag", journal.Load("old-bag"));
 Check(!bagSave.Bind(1, flag => flag == "LIFT_KEY_BAG_ITEM", journal.Save), "old bag ownership refuses new seed binding");
 Console.WriteLine("Hook readiness and six-check replay passed");
 DeveloperHarness.CurrentRoomId = "GameRoom_Hub6";
@@ -93,7 +104,7 @@ Check(runtime.IsCompleted(187256340), "Bunker source reports independently from 
 Console.WriteLine("Demon source room regressions passed");
 
 // Polling still recovers a consumption marker that predates the AP receipt.
-runtime.Configure(13, "consume-before-receipt", true, BunkerRuntime.Journal.Load);
+runtime.Configure(13, "consume-before-receipt", BunkerRuntime.Journal.Load("consume-before-receipt"));
 foreach (var check in BunkerCatalog.Checks) RootsBucketRandomization.Flags[check.Flag] = false;
 foreach (var item in BunkerCatalog.Items) RootsBucketRandomization.Flags[item.BagFlag] = false;
 RootsBucketRandomization.Flags["LOBBY_HUB_LIFT_KEY_USED"] = true;
@@ -113,3 +124,22 @@ foreach (var item in BunkerCatalog.Items) runtime.Consume(item.BagFlag, BunkerRu
 RootsBucketRandomization.Reads.Clear();
 BunkerRuntime.Tick(TimeSpan.FromSeconds(1));
 Check(RootsBucketRandomization.Reads.Count == 0, "a fully journaled Bunker poll performs no native flag reads");
+CassetteReceiptRandomization.Slot = 4;
+Check(BunkerRuntime.BeforeProgressionRequest(new Request { Value = true }, BunkerCatalog.TrueEndingFlag), "other saves keep native True Ending writes");
+Check(BunkerRuntime.BeforeProgressionRequest(new Request { Value = true }, "BUNKER_HUB_DEMON_KEY"), "other saves keep native inventory awards");
+CassetteReceiptRandomization.Stable = false;
+Check(BunkerRuntime.BeforeProgressionRequest(new Request { Value = false }, "LIFT_KEY_BAG_ITEM"), "unstable selection retains native consumption");
+journal.Save("seedA", new(2, Array.Empty<long>(), Array.Empty<long>()));
+journal.Save("seedA", new(2, Array.Empty<long>(), new long[] {187256340}));
+var seedAPath = Directory.GetFiles(dir).Single(path => Path.GetFileName(path) == Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("seedA"))) + ".json");
+journal.Save("other-target", new(2, Array.Empty<long>(), Array.Empty<long>()));
+var target = Path.Combine(dir, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("other-target"))) + ".json");
+File.Copy(seedAPath, target, true);
+try { journal.Load("other-target"); throw new Exception("wrong identity accepted"); } catch (InvalidDataException) { }
+Check(File.Exists(seedAPath + ".bak"), "Bunker journal retains last published copy");
+File.WriteAllText(target, """{"Slot":2,"Consumed":[],"Completed":[187256340]}""");
+Check(journal.Load("other-target").Completed.Single() == 187256340, "legacy Bunker records survive upgrade");
+foreach (string invalid in new[] { """{"Slot":1,"Slot":2,"Consumed":[],"Completed":[]}""", """{"Slot":2,"Consumed":[],"Completed":[187256340,187256340]}""" }) {
+    File.WriteAllText(target, invalid);
+    try { journal.Load("other-target"); throw new Exception("malformed Bunker journal accepted"); } catch (InvalidDataException) { }
+}

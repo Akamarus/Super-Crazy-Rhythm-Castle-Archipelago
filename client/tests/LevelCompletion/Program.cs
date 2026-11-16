@@ -274,7 +274,6 @@ SequenceEqual(Array.Empty<string>(),
     "malformed v0.24 claim exposes no new campaign locations");
 
 CampaignLevelRandomization.ApplySlotData(CompatibleSlotData());
-CampaignLevelRandomization.OnDisconnected();
 Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLevelRandomization.Snapshot.Mode,
     "temporary disconnect retains the compatible campaign state");
 SequenceEqual(
@@ -282,12 +281,15 @@ SequenceEqual(
     CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 1),
     "offline persisted results use the retained active set");
 
-CampaignLevelRandomization.OnIdentityReplaced();
-Equal(0, CampaignLevelRandomization.Snapshot.ActiveLocations.Count,
-    "AP identity replacement clears the active campaign set");
+var reducedCampaign = CompatibleSlotData();
+reducedCampaign["active_campaign_locations"] = new[] { "Level 2 - Completion" };
+CampaignLevelRandomization.ApplySlotData(reducedCampaign);
 SequenceEqual(Array.Empty<string>(),
     CampaignLevelRandomization.EvaluatePersistedResult("Level_05", "LevelVariant_Default", 3),
-    "replacement cannot leak prior-identity campaign locations");
+    "replacement cannot leak the previous contract's locations");
+SequenceEqual(new[] { "Level 2 - Completion" },
+    CampaignLevelRandomization.EvaluatePersistedResult("Level_06", "LevelVariant_Default", 3),
+    "replacement installs the new contract");
 
 CampaignLevelRandomization.ApplySlotData(CompatibleSlotData());
 IReadOnlyList<string> firstResult = CampaignLevelRandomization.EvaluatePersistedResult(

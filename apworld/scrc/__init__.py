@@ -105,38 +105,7 @@ RANDOMIZED_GARAGE_CARTRIDGE_ITEMS = {
     if song != VANILLA_GARAGE_CARTRIDGE_SONG
 }
 
-CASSETTE_SONGS = (
-    "The Little Things",
-    "No Plan B",
-    "Jolt City",
-    "Quieres Bailar",
-    "Quicksand",
-    "Gold",
-    "I Got Money",
-    "Hippo and Frog",
-    "On the Way",
-    "Badass",
-    "Heavy Metal",
-    "AOK",
-    "Rainbow Melodies",
-    "Sneaking",
-    "The Heist",
-    "Money",
-    "Lets Go",
-    "Bounce",
-    "Epical",
-    "Hollywood Trailer",
-    "False Data",
-    "Gotta Get Up",
-    "Fumblin Around",
-    "Party Non Stop",
-    "Keep On Hustlin",
-    "Another Day In Paradise",
-    "Flamenco",
-    "Ten-Four Good Buddy",
-    "Zen",
-    "Wiggle",
-)
+CASSETTE_SONGS = tuple(entry.display_song for entry in CASSETTES)
 
 CASSETTE_MEDAL_TIERS = (
     "Bronze",
@@ -260,7 +229,7 @@ validate_cassette_catalog(CASSETTE_SONGS, LOCATION_NAME_TO_ID)
 
 LOBBY_LETTERS_PICKUP = "Lobby - Important Letters Pickup"
 LOBBY_BEAN_TRUMPET_AWARD = "Lobby - Bean Trumpet Award"
-LOCATION_NAME_TO_ID[LOBBY_LETTERS_PICKUP] = BASE_ID + 292
+LOCATION_NAME_TO_ID[LOBBY_LETTERS_PICKUP] = EXPANDED_CHECK_LOCATION_NAME_TO_ID[LOBBY_LETTERS_PICKUP]
 LOCATION_NAME_TO_ID[LOBBY_BEAN_TRUMPET_AWARD] = BASE_ID + 293
 
 # These four physical sources keep the IDs assigned before AP Stars were added.
@@ -403,6 +372,11 @@ class SCRCWorld(World):
     def interpret_slot_data(slot_data: dict) -> dict:
         return tracker_slot_data(slot_data)
 
+    def reconnect_found_entrances(self, key: str, value: object) -> None:
+        # Universal Tracker calls this on initial retrieval and on subsequent
+        # updates to this world's single subscribed team/slot key.
+        self.school_trip_mail_confirmed = value is True
+
     def generate_early(self) -> None:
         passthrough = getattr(self.multiworld, "re_gen_passthrough", {}) or {}
         tracker = tracker_slot_data(passthrough[self.game]) if self.game in passthrough else None
@@ -412,6 +386,11 @@ class SCRCWorld(World):
             raise OptionError("True Ending requires Bunker Progression enabled")
         self.cell_tower_open_route = tracker["cell_tower_open_route"] if tracker is not None else True
         self.lobby_open_doors = tracker["lobby_open_doors"] if tracker is not None else True
+        self.school_trip_mail_confirmed = None
+        if (tracker is not None and self.lobby_open_doors
+                and getattr(self.multiworld, "enforce_deferred_connections", None) in ("default", "on")):
+            self.found_entrances_datastorage_key = "SCRC_{team}_{player}_school_trip_mail"
+            self.school_trip_mail_confirmed = False
         if tracker is not None:
             self.options.required_stars.value = tracker["required_stars"]
             self.options.difficulty.value = tracker["difficulty"]["value"]
@@ -873,6 +852,7 @@ class SCRCWorld(World):
             }
         active_metadata = location_metadata(instantiated_addressed_names, difficulty_value)
         return {
+            # Released feature lineage and optional route markers are independent of the package version.
             "implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28".replace("-generation-foundation", ("-cell-tower-path-1" if getattr(self, "cell_tower_open_route", False) else "") + ("-lobby-doors-1" if getattr(self, "lobby_open_doors", False) else "") + ("-bunker-1" if getattr(self, "bunker_progression", False) else "") + "-generation-foundation"),
             "lobby_open_doors": getattr(self, "lobby_open_doors", False),
             "cell_tower_open_route": getattr(self, "cell_tower_open_route", False),
@@ -1024,22 +1004,9 @@ class SCRCWorld(World):
             "music_lab_cassette_songs": list(CASSETTE_SONGS),
             "music_lab_cassette_medal_tiers": list(CASSETTE_MEDAL_TIERS),
             "music_lab_cassette_location_format": "Music Lab Cassette - {song} - {tier}",
-            "music_lab_reward_chests": {
-                "5": MUSIC_LAB_5_POINT_CHEST,
-                "10": MUSIC_LAB_10_POINT_CHEST,
-                "20": MUSIC_LAB_20_POINT_CHEST,
-                "32": MUSIC_LAB_32_POINT_CHEST,
-                "46": MUSIC_LAB_46_POINT_CHEST,
-                "64": MUSIC_LAB_64_POINT_CHEST,
-                "89": MUSIC_LAB_89_POINT_CHEST,
-                "111": MUSIC_LAB_111_POINT_CHEST,
-                "140": MUSIC_LAB_140_POINT_CHEST,
-            },
-            "internal_level_map": {
-                "Level 1 - Completion": "Level_05",
-                "Level 2 - Completion": "Level_06",
-                "Level 3 - Completion": "Level_07",
-            },
+            # Preserve the legacy wire keys using the current catalogs.
+            "music_lab_reward_chests": {str(points): name for points, name in MUSIC_LAB_POINT_THRESHOLDS.items()},
+            "internal_level_map": {level.location_name("Completion"): level.internal_id for level in CAMPAIGN_LEVELS[:3]},
             "routing_logic_complete": False,
             "routing_logic_note": (
                 "Roots-first area routing, difficulty filtering, AP Stars and "

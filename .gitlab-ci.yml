@@ -8,3 +8,9 @@ validate-source:
     - python tools/validate-repo.py
     - python -m unittest discover -s tools/tests
     - python -m py_compile apworld/scrc/__init__.py
+
+audit-client-packages:
+  stage: validate
+  image: mcr.microsoft.com/dotnet/sdk:8.0
+  script:
+    - dotnet restore client/RhythmCastleAP.csproj --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all -warnaserror:NU1900,NU1901,NU1902,NU1903,NU1904

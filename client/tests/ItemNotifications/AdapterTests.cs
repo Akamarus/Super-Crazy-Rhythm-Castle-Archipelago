@@ -82,7 +82,44 @@ internal static class AdapterTests
         Check(presented[existing + 398].Sent == false && presented[existing + 399].Sent &&
             !presented[existing + 400].Sent && !presented[existing + 401].Sent,
             "pre-login receipt batches and confirmed sends must preserve arrival order");
+        CheckCorrectedReceiptHistory(location => Send(1, 2, location));
         Console.WriteLine("PASS: real MultiClient.Net sends, hint/self/unrelated filtering, buffered login and send replay");
+    }
+
+    private static void CheckCorrectedReceiptHistory(Func<long, ItemSendLogMessage> send)
+    {
+        foreach (int corrected in new[] { 0, 1 })
+        foreach (bool acceptBeforeAppend in new[] { true, false })
+        {
+            var session = ArchipelagoSessionFactory.CreateSession("localhost", 1);
+            var feed = new ItemNotificationFeed();
+            var adapter = new ItemNotificationSession(session, 1, feed, action => action());
+            var sdkReceive = session.Items.GetType().GetMethod("Socket_PacketReceived", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            void Deliver(int index, int count)
+            {
+                var packet = new ReceivedItemsPacket { Index = index, Items = Enumerable.Repeat(
+                    new NetworkItem { Item = 123, Location = -1, Player = 0 }, count).ToArray() };
+                sdkReceive.Invoke(session.Items, new object[] { packet });
+                adapter.HandlePacket(packet);
+            }
+            void Accept() => adapter.Configure("corrected", 0, 1, CassetteBundleContract.Parse(null));
+
+            Deliver(0, 4);
+            adapter.HandleMessage(send(20));
+            Deliver(0, corrected);
+            adapter.HandleMessage(send(21));
+            if (acceptBeforeAppend) Accept();
+            Deliver(corrected, 2);
+            adapter.HandleMessage(send(22));
+            if (!acceptBeforeAppend) Accept();
+
+            bool[] expectedOrder = Enumerable.Repeat(false, corrected).Concat(new[] { true, true, false, false, true }).ToArray();
+            Check(feed.History.Reverse().Select(entry => entry.Sent).SequenceEqual(expectedOrder),
+                $"corrected history of length {corrected} must omit withdrawn receipts and preserve send order (accept before append={acceptBeforeAppend})");
+            Check(feed.History.Reverse().Where(entry => entry.Sent).Select(entry => entry.Location)
+                .SequenceEqual(new[] { "Location 20", "Location 21", "Location 22" }), "confirmed sends retain their original order");
+            Check(feed.OutstandingCount == 5, "only the three sends and two live receipts should have popups");
+        }
     }
     private static void Check(bool condition, string message)
     {
@@ -114,7 +151,7 @@ internal static class AdapterTests
     private sealed class TestItemNames : IItemInfoResolver
     {
         public string GetItemName(long id, string game) => "Weed Killer";
-        public string GetLocationName(long id, string game) => "Gecko";
+        public string GetLocationName(long id, string game) => id == 10 ? "Gecko" : $"Location {id}";
         public long GetLocationId(string name, string game) => 10;
     }
     private sealed class TestPlayers : IPlayerHelper

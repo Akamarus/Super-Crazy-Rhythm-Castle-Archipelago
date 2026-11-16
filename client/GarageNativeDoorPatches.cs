@@ -18,7 +18,8 @@ internal static class GarageNativeDoorPatches
 
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
+        if (Hooks.Active) return Hooks.Count;
+        if (Hooks.Count != 0 && !Shutdown()) return 0;
         try
         {
             // These native classes have unloadable generated generic base wrappers.

@@ -1,7 +1,7 @@
 namespace BepInEx { internal static class Paths { internal static string ConfigPath = Path.Combine(AppContext.BaseDirectory, "runtime-fixture-" + Guid.NewGuid()); } }
 namespace RhythmCastleAP {
 internal static class Plugin { internal static TestLog LoggerInstance = new(); internal static TestAP AP = new(); }
-internal sealed class TestLog { internal void LogError(string message) { throw new Exception(message); } }
+internal sealed class TestLog { internal void LogWarning(string message) { } }
 internal sealed class TestAP { internal HashSet<string> Queued = new(); internal bool QueueExpandedLocation(string name, string identity) { Queued.Add(name); return true; } }
 internal static class ReflectionUtil {
  internal static int Reads;

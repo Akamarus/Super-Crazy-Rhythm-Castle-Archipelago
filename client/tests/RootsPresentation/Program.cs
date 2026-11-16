@@ -428,4 +428,31 @@ Equal(true,
 Equal(true, mouseKeeperSource.Contains("if (!_runtime.ShouldEvaluateFrame())", StringComparison.Ordinal),
     "escort recovery retains its bounded frame gate");
 PostLevelOneTests.Run();
+foreach (string starter in new[] { "AP", "Roots" })
+{
+    AreaAccessPrototype.Configure(true, starter);
+    AreaAccessPrototype.ApplySlotDataStarter(new() {
+        ["implementation_version"] = "area-routing", ["starting_area_item"] = "Roots Access"
+    });
+    AreaAccessPrototype.TryApplyItem("Lobby Access");
+    AreaAccessPrototype.EndAuthenticatedSession();
+    Equal(true, AreaAccessPrototype.HasArea("Lobby"), "offline ownership survives a disconnect");
+    AreaAccessPrototype.ResetRoomOwnership();
+    AreaAccessPrototype.ApplySlotDataStarter(new() {
+        ["implementation_version"] = "area-routing", ["starting_area_item"] = "Cell Tower Access"
+    });
+    Equal(false, AreaAccessPrototype.HasArea("Lobby"), "another seed cannot inherit a received permission");
+    Equal(starter == "Roots", AreaAccessPrototype.HasArea("Roots"), "fixed starting area survives seed replacement");
+    Equal(starter == "AP", AreaAccessPrototype.HasArea("Cell Tower"), "replacement seed supplies its AP starting area");
+}
 Console.WriteLine("Roots presentation policy tests passed.");
+
+namespace RhythmCastleAP
+{
+    internal static class Plugin { internal static AreaTestLogger? LoggerInstance => null; }
+    internal sealed class AreaTestLogger
+    {
+        public void LogWarning(string message) { }
+        public void LogError(string message) { }
+    }
+}

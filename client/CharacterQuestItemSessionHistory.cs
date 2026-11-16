@@ -21,9 +21,14 @@ internal sealed class CharacterQuestItemSessionHistory
         if (packet is not ReceivedItemsPacket received) return;
         lock (_sync)
         {
-            if (received.Items == null || received.Index < 0) { _ready = false; return; }
+            if (received.Items == null || received.Index < 0 || received.Items.Length > int.MaxValue - received.Index ||
+                (received.Index != 0 && (!_ready || received.Index != _history.Count)))
+            {
+                _ready = false;
+                if (_configured) _state.Suspend(_generation);
+                return;
+            }
             if (received.Index == 0) { _history.Clear(); _ready = true; }
-            else if (!_ready || received.Index != _history.Count) { _ready = false; return; }
             _history.AddRange(received.Items.Select(item => item.Item));
             Publish();
         }

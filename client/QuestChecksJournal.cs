@@ -9,7 +9,7 @@ internal sealed record QuestJournalRecord(int? Slot, long[] Completed, long[] Pe
 internal sealed class QuestJournalLoadException : IOException
 {
     internal QuestJournalLoadException(string path, string advice, Exception cause)
-        : base($"Quest journal quest-checks/{Path.GetFileName(path)} could not be loaded. {advice}", cause) { }
+        : base($"Journal {Path.GetFileName(Path.GetDirectoryName(path))}/{Path.GetFileName(path)} could not be loaded. {advice}", cause) { }
 }
 
 internal sealed class QuestChecksJournal
@@ -45,11 +45,11 @@ internal sealed class QuestChecksJournal
         catch (DirectoryNotFoundException) when (!File.Exists(_directory)) { return new(null, Array.Empty<long>(), Array.Empty<long>()); }
         catch (Exception ex) when (ex is InvalidDataException or JsonException or InvalidOperationException)
         {
-            throw new QuestJournalLoadException(path, "Back up the file, then repair it or restore a valid backup for this seed and slot before reconnecting.", ex);
+            throw new QuestJournalLoadException(path, "Back up the file, then repair it or restore a matching .bak backup for this seed and slot before reconnecting.", ex);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new QuestJournalLoadException(path, "Check access to the quest-checks folder and file, then reconnect.", ex);
+            throw new QuestJournalLoadException(path, "Check access to the journal folder and file, then reconnect.", ex);
         }
     }
 
@@ -68,23 +68,6 @@ internal sealed class QuestChecksJournal
     internal void Save(string identity, QuestJournalRecord value)
     {
         Validate(value);
-        Directory.CreateDirectory(_directory);
-        string path = FileFor(identity);
-        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        var staging = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        try
-        {
-            using (staging)
-            {
-                JsonSerializer.Serialize(staging, new { Schema = 1, Identity = identity, value.Slot, value.Completed, value.Pending });
-                staging.Flush(true);
-            }
-            File.Move(temporary, path, true);
-        }
-        catch
-        {
-            File.Delete(temporary);
-            throw;
-        }
+        JournalPublication.Write(FileFor(identity), new { Schema = 1, Identity = identity, value.Slot, value.Completed, value.Pending });
     }
 }

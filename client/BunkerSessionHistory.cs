@@ -8,11 +8,11 @@ internal sealed class BunkerSessionHistory(long generation, BunkerState state)
     private readonly List<long> _history = new();
     private bool _configured, _ready;
 
-    internal void Configure(string identity, bool enabled, Func<string, BunkerRecord> load)
+    internal void Configure(string identity, BunkerRecord? record)
     {
         lock (_sync)
         {
-            state.Configure(generation, identity, enabled, load);
+            state.Configure(generation, identity, record);
             _configured = true;
             Publish();
         }

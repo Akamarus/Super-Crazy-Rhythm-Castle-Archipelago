@@ -22,7 +22,8 @@ internal static class MontageAnimalTick
 
     internal static unsafe bool Install()
     {
-        if (_detour != null) return _enabled && !_failed;
+        if (_detour != null && _enabled) return !_failed;
+        if (_detour != null && !Shutdown()) return false;
         try
         {
             if (!OperatingSystem.IsWindows() || IntPtr.Size != 8)

@@ -15,9 +15,32 @@ internal static class PacketHistoryTests
         first.Login();
         Check(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, MusicLabPointRandomization.Snapshot.Mode,
             "Connected login with delayed history must remain awaiting, not publish the new empty cache");
+        var invalid = new Dictionary<string, object>(contract()) { ["music_lab_point_total_value"] = -1 };
+        using (var rejectedWhileAwaiting = new SessionFixture(149, () => invalid, "rejected"))
+        {
+            var awaiting = MusicLabPointRandomization.Snapshot;
+            rejectedWhileAwaiting.Deliver(0, 187256154);
+            rejectedWhileAwaiting.Prepare();
+            Check(awaiting, MusicLabPointRandomization.Snapshot, "a failed point contract preserves an accepted room awaiting its first history");
+        }
         first.Deliver(0, 187256155);
         Check(20, MusicLabPointRandomization.Snapshot.Total, "first complete history publishes 20");
         first.Disconnect();
+
+        var retained = MusicLabPointRandomization.Snapshot;
+        using (var rejected = new SessionFixture(150, () => invalid, "rejected"))
+        {
+            rejected.Deliver(0, 187256154);
+            Check(MusicLabPointCompatibilityMode.IncompatibleClaim, rejected.Prepare().Mode, "invalid point claim rejected");
+            Check(retained, MusicLabPointRandomization.Snapshot, "a rejected point contract preserves the previous offline score");
+        }
+        using (var rejectedLater = new SessionFixture(151, contract, "garage-or-journal-rejected"))
+        {
+            Check(MusicLabPointCompatibilityMode.Compatible, rejectedLater.Prepare().Mode, "candidate passes its point check");
+            rejectedLater.Deliver(0, 187256154);
+            rejectedLater.Disconnect();
+            Check(retained, MusicLabPointRandomization.Snapshot, "another subsystem can reject a prepared room without publishing its points");
+        }
 
         using var reconnect = new SessionFixture(101, contract);
         reconnect.Login();
@@ -50,8 +73,10 @@ internal static class PacketHistoryTests
 
         using var early = new SessionFixture(102, contract);
         early.Deliver(0, 187256155);
+        Check(MusicLabPointCompatibilityMode.Compatible, early.Prepare().Mode, "candidate with early history validates");
         early.Deliver(1, 187256154);
-        early.Login();
+        Check(0, MusicLabPointRandomization.Snapshot.Total, "both early packets wait for room acceptance");
+        early.Accept();
         Check(30, MusicLabPointRandomization.Snapshot.Total, "history and live packet before login publish complete buffered history");
         early.Disconnect();
 
@@ -126,6 +151,22 @@ internal static class PacketHistoryTests
             replacement!.Deliver(0, 187256153);
             Check(1, MusicLabPointRandomization.Snapshot.Total, "replacement publishes only its own complete history");
         }
+        using (var grouped = new SessionFixture(107, contract, "packet-groups"))
+        {
+            grouped.Login();
+            var random = new Random(709);
+            long[] itemTypes = { 187256153, 187256154, 187256155, 187256118 };
+            long[] ids = Enumerable.Range(0, 1000).Select(_ => itemTypes[random.Next(itemTypes.Length)]).ToArray();
+            for (int start = 0; start < ids.Length;)
+            {
+                int count = Math.Min(random.Next(1, 19), ids.Length - start);
+                grouped.Deliver(start, ids[start..(start + count)]);
+                start += count;
+            }
+            var incremental = MusicLabPointRandomization.Snapshot;
+            grouped.Deliver(0, ids);
+            Check(incremental, MusicLabPointRandomization.Snapshot, "random packet boundaries agree with full replay");
+        }
         MusicLabPointRandomization.Reset();
         Console.WriteLine("PASS: real_library_packet_history_readiness_empty_replay_reconnect_and_generation_races");
     }
@@ -171,15 +212,25 @@ internal static class PacketHistoryTests
             Session.Socket.ErrorReceived += (error, message) => throw new InvalidOperationException(message, error);
         }
 
-        internal void Login()
+        internal MusicLabPointCompatibilityResult Prepare()
         {
-            if (!_gate.TryAcquire(Session, _generation, out LifecycleLease? lease)) return;
+            if (!_gate.TryAcquire(Session, _generation, out LifecycleLease? lease))
+                throw new InvalidOperationException("Attempted to prepare an inactive test session");
             using (lease)
             {
                 var json = JsonConvert.SerializeObject(new { cmd = "Connected", team = 0, slot = 1, slot_data = _contract() });
                 var packet = (ConnectedPacket)JsonConvert.DeserializeObject<ArchipelagoPacketBase>(json, new ArchipelagoPacketConverter())!;
-                _history.ApplySlotData(new LoginSuccessful(packet).SlotData, "game", _seed, "slot");
+                return _history.PrepareSlotData(new LoginSuccessful(packet).SlotData, "game", _seed, "slot");
             }
+        }
+        internal void Login()
+        {
+            if (Prepare().Mode != MusicLabPointCompatibilityMode.IncompatibleClaim) Accept();
+        }
+        internal void Accept()
+        {
+            if (!_gate.TryAcquire(Session, _generation, out LifecycleLease? lease)) return;
+            using (lease) _history.Accept();
         }
 
         internal void Deliver(int index, params long[] items)

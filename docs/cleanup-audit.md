@@ -1,5 +1,7 @@
 # Project cleanup review
 
+The [November 12 follow-up](testing/2026-11-12-source-review.md) records the two external reviews, the fixes and the current acceptance checklist.
+
 November 11, 2026. The comparison baseline is release v0.30.1 at `cc45a56`, with client 0.77.1 and APWorld 0.30.0. This review covers the tracked client, APWorld, contracts, tests, packaging, CI, documentation and archive. It records a local candidate build.
 
 ## What was removed
@@ -28,6 +30,16 @@ November 11, 2026. The comparison baseline is release v0.30.1 at `cc45a56`, with
 - **Quest progress.** Login reads and validates the quest journal before publishing grants or replacing the previous seed's queued checks. Old journals keep their existing filename and load in place. New writes include the schema and identity and use a separate temporary file for each write. If the file needs attention, the log identifies it and automatic reconnect pauses. The connection regression test restores a journal from backup and verifies that two offline checks still reach their original seed.
 - **Item notifications.** Before login, the client records positions in the library's item history and keeps up to 512 distinct outgoing notifications. Beyond that limit it logs once and omits further outgoing notices for that login. The library still handles gameplay deliveries. F6 remeasures visible history when its contents, width or scale change.
 - **Native teardown.** Unload disables and removes the 13 Unity components the plugin created, leaving their shared BepInEx host available to other plugins. It releases the quest, Cell Tower, cassette chest, Garage and movement hooks and keeps failed handles available for another attempt. The legacy Star Eater patch and AP threshold field restore changes they still own. The separate network receive guard stays active for the lifetime of the process to protect pending reads. In-game unload and relaunch remain acceptance checks.
+
+## Room acceptance and cassette persistence review
+
+The connection regression tests reproduced two failures. An item from a rejected room could unlock an area, and returning to the original room could deliver zero of its two pending campaign checks. A third test reproduced a cassette losing its scheduled save after a temporarily unreadable ownership check.
+
+The client now waits for room validation before applying named receipts. The tests also exercise Music Lab points, expanded check journals, pending Garage writes, and notifications when the server corrects an initial item history. Cassette tests distinguish an in-bag grant that needs a save from an already-deposited song and cover reconnecting while verification is pending. [Connection tests](../client/tests/LevelCompletion/ConnectionFixture.cs) and [cassette tests](../client/tests/CassetteRandomization/CassetteVerificationTests.cs).
+
+The same-process reload test reproduced a failure on the first Garage login. The client now issues connection numbers across plugin instances and ties pending Garage writes to their room. The regression covers a reload back into the same room and a reload into a different room.
+
+The packager previously accepted APWorld 0.30.0 without `bunker.py`, even when validating the finished archive. Both entry points now check the file list for the embedded world version. The complete package loaded in Archipelago 0.6.8 and generated a True Ending seed. [Packaging rules](PACKAGING.md)
 
 ## Where to start a human code review
 

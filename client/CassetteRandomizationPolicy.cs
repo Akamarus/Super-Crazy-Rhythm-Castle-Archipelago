@@ -365,12 +365,14 @@ internal sealed class CassetteRegularSavePointerJoinProbe
     internal CassetteRegularSavePointerJoinSnapshot Capture() =>
         new(_generation, Pending, _saveDataProcessor, _playerSaveProcessor);
 
+    internal bool IsCurrent(CassetteRegularSavePointerJoinSnapshot snapshot) =>
+        snapshot.Ready && Pending && snapshot.Generation == _generation &&
+        ReferenceEquals(snapshot.SaveDataProcessor, _saveDataProcessor) &&
+        ReferenceEquals(snapshot.PlayerSaveProcessor, _playerSaveProcessor);
+
     internal bool TryConsume(CassetteRegularSavePointerJoinSnapshot snapshot)
     {
-        if (!snapshot.Ready || !Pending || snapshot.Generation != _generation ||
-            !ReferenceEquals(snapshot.SaveDataProcessor, _saveDataProcessor) ||
-            !ReferenceEquals(snapshot.PlayerSaveProcessor, _playerSaveProcessor))
-            return false;
+        if (!IsCurrent(snapshot)) return false;
         Pending = false;
         _saveDataProcessor = null;
         _playerSaveProcessor = null;
@@ -440,13 +442,15 @@ internal sealed class CassetteSaveEpochRuntime
     private readonly HashSet<string> _owned = new(StringComparer.Ordinal);
     private readonly HashSet<string> _satisfiedThisEpoch = new(StringComparer.Ordinal);
     private readonly HashSet<string> _newlyVerifiedGrantDiagnosticWave = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _attemptedThisEpoch = new(StringComparer.Ordinal);
+    private const int MaximumSubmissions = 3;
+    private readonly Dictionary<string, int> _attempts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TimeSpan> _submittedAt = new(StringComparer.Ordinal);
     private TimeSpan _verificationClock;
 
     internal long Epoch { get; private set; }
     internal int? ActiveSlot { get; private set; }
     internal bool HasActiveSave => ActiveSlot.HasValue;
+    internal bool HasUnverifiedSubmission => _submittedAt.Keys.Any(_owned.Contains);
 
     internal void ActivateSave(int slot)
     {
@@ -454,7 +458,7 @@ internal sealed class CassetteSaveEpochRuntime
         ActiveSlot = slot;
         _satisfiedThisEpoch.Clear();
         _newlyVerifiedGrantDiagnosticWave.Clear();
-        _attemptedThisEpoch.Clear();
+        _attempts.Clear();
         _submittedAt.Clear();
     }
 
@@ -463,7 +467,7 @@ internal sealed class CassetteSaveEpochRuntime
         ActiveSlot = null;
         _satisfiedThisEpoch.Clear();
         _newlyVerifiedGrantDiagnosticWave.Clear();
-        _attemptedThisEpoch.Clear();
+        _attempts.Clear();
         _submittedAt.Clear();
     }
 
@@ -473,8 +477,15 @@ internal sealed class CassetteSaveEpochRuntime
         _owned.UnionWith(songs);
         _satisfiedThisEpoch.IntersectWith(_owned);
         _newlyVerifiedGrantDiagnosticWave.IntersectWith(_owned);
-        _attemptedThisEpoch.IntersectWith(_owned);
-        foreach (string song in _submittedAt.Keys.Where(song => !_owned.Contains(song)).ToArray()) _submittedAt.Remove(song);
+        // A same-room history replacement can temporarily revoke ownership while a
+        // submitted native write awaits verification. Only owned songs are polled.
+    }
+
+    internal void ClearRoomOwnership()
+    {
+        ReplaceOwnedSongs(Array.Empty<string>());
+        _submittedAt.Clear();
+        _attempts.Clear();
     }
 
     internal void Receive(string nativeSong)
@@ -511,26 +522,24 @@ internal sealed class CassetteSaveEpochRuntime
         return true;
     }
 
+    internal bool AttemptsExhausted(string nativeSong) => _attempts.GetValueOrDefault(nativeSong) >= MaximumSubmissions;
+
     internal bool CanSubmit(string nativeSong, string? nativeStatus, bool processorAvailable) =>
         IsPending(nativeSong) &&
         processorAvailable &&
         CassetteRandomizationPolicy.IsUnearned(nativeStatus) &&
-        !_attemptedThisEpoch.Contains(nativeSong);
+        !_submittedAt.ContainsKey(nativeSong) && !AttemptsExhausted(nativeSong);
 
     internal void RecordSubmission(string nativeSong)
     {
         if (!IsPending(nativeSong)) return;
-        _attemptedThisEpoch.Add(nativeSong);
+        _attempts[nativeSong] = _attempts.GetValueOrDefault(nativeSong) + 1;
         if (_submittedAt.Count == 0) _verificationClock = TimeSpan.Zero;
         _submittedAt[nativeSong] = _verificationClock;
     }
 
-    internal void RecordSubmissionFailure(string nativeSong)
-    {
-        if (!IsPending(nativeSong)) return;
-        _attemptedThisEpoch.Add(nativeSong);
-        _submittedAt.Remove(nativeSong);
-    }
+    // An exception can follow a partially applied request. Read back before retrying.
+    internal void RecordSubmissionFailure(string nativeSong) => RecordSubmission(nativeSong);
 
     internal IReadOnlyList<string> Tick(TimeSpan elapsed)
     {
@@ -540,7 +549,7 @@ internal sealed class CassetteSaveEpochRuntime
         _verificationClock += elapsed;
         List<string>? ready = null;
         foreach (var timer in _submittedAt)
-            if (_verificationClock - timer.Value >= VerificationDelay)
+            if (_owned.Contains(timer.Key) && _verificationClock - timer.Value >= VerificationDelay)
                 (ready ??= new List<string>()).Add(timer.Key);
         return ready is null ? Array.Empty<string>() : ready;
     }
@@ -558,15 +567,21 @@ internal sealed class CassetteSaveEpochRuntime
 
     internal bool RecordVerification(string nativeSong, string? nativeStatus)
     {
-        if (!IsPending(nativeSong)) return false;
-        bool delayedVerificationWasDue = _submittedAt.Remove(nativeSong, out TimeSpan submittedAt) &&
-            _verificationClock - submittedAt >= VerificationDelay;
+        if (!IsPending(nativeSong) || !_submittedAt.TryGetValue(nativeSong, out TimeSpan submittedAt) ||
+            _verificationClock - submittedAt < VerificationDelay)
+            return false;
+
+        if (!CassetteRandomizationPolicy.IsOwned(nativeStatus) && !CassetteRandomizationPolicy.IsUnearned(nativeStatus))
+        {
+            // Keep the submitted grant pending and pace the next authoritative read.
+            _submittedAt[nativeSong] = _verificationClock;
+            return false;
+        }
+
+        _submittedAt.Remove(nativeSong);
         Observe(nativeSong, nativeStatus);
-        bool newlyVerifiedGrant = string.Equals(
-            nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase);
-        if (newlyVerifiedGrant && delayedVerificationWasDue)
+        return string.Equals(nativeStatus, CassetteRandomizationPolicy.HaveInBag, StringComparison.OrdinalIgnoreCase) &&
             _newlyVerifiedGrantDiagnosticWave.Add(nativeSong);
-        return newlyVerifiedGrant;
     }
 
 
@@ -620,8 +635,10 @@ internal sealed class CassettePersistenceWaveQueue
     private readonly Queue<CassettePersistenceQueuedWave> _waves = new();
     private CassettePersistenceAcceptanceIdentity _identity;
     private bool _hasEpoch;
-    private bool _epochTombstoned;
     private long _waveCounter;
+
+    internal bool HasQueuedWaves => _waves.Count > 0;
+    internal void ClearQueuedWaves() => _waves.Clear();
 
     internal void BeginEpoch(CassettePersistenceAcceptanceIdentity identity)
     {
@@ -629,14 +646,13 @@ internal sealed class CassettePersistenceWaveQueue
         _waves.Clear();
         _identity = identity;
         _hasEpoch = identity.Pointer != 0;
-        _epochTombstoned = false;
     }
 
     internal bool TryEnqueue(
         CassettePersistenceAcceptanceIdentity identity,
         IEnumerable<string> songs)
     {
-        if (!_hasEpoch || _epochTombstoned || identity != _identity || identity.Pointer == 0)
+        if (!_hasEpoch || identity != _identity || identity.Pointer == 0)
             return false;
         string[] normalized = songs
             .Where(song => !string.IsNullOrWhiteSpace(song))
@@ -653,7 +669,7 @@ internal sealed class CassettePersistenceWaveQueue
         out CassettePersistenceQueuedWave wave)
     {
         wave = default;
-        if (!_hasEpoch || _epochTombstoned || identity != _identity || _waves.Count == 0)
+        if (!_hasEpoch || identity != _identity || _waves.Count == 0)
             return false;
         wave = _waves.Peek();
         return true;
@@ -667,13 +683,6 @@ internal sealed class CassettePersistenceWaveQueue
             current.WaveId != wave.WaveId)
             return;
         _waves.Dequeue();
-    }
-
-    internal void TombstoneEpoch(CassettePersistenceAcceptanceIdentity identity)
-    {
-        if (!_hasEpoch || identity != _identity) return;
-        _waves.Clear();
-        _epochTombstoned = true;
     }
 
     internal void CancelEpoch(CassettePersistenceAcceptanceIdentity identity)
@@ -772,7 +781,6 @@ internal sealed class CassettePointerBoundPersistenceRuntime
     private static readonly TimeSpan MaximumUpdateElapsed = TimeSpan.FromSeconds(1);
     private CassettePersistenceAcceptanceIdentity _epochIdentity;
     private bool _hasEpoch;
-    private bool _epochTombstoned;
     private bool _active;
     private bool _invoked;
     private long _attemptCounter;
@@ -793,7 +801,6 @@ internal sealed class CassettePointerBoundPersistenceRuntime
         if (_active) Finish(CassettePersistenceAcceptanceOutcome.Cancelled, "new-save-epoch");
         _epochIdentity = identity;
         _hasEpoch = true;
-        _epochTombstoned = false;
         _active = false;
         _invoked = false;
         _attempt = default;
@@ -810,7 +817,7 @@ internal sealed class CassettePointerBoundPersistenceRuntime
     {
         attempt = default;
         if (!_hasEpoch || identity != _epochIdentity || identity.Pointer == 0 ||
-            baseline.Songs.Count == 0 || _active || _epochTombstoned)
+            baseline.Songs.Count == 0 || _active)
             return false;
         _attempt = new(++_attemptCounter, identity.Generation, identity.Epoch, identity.Slot, identity.Pointer);
         _baseline = baseline with
@@ -839,7 +846,6 @@ internal sealed class CassettePointerBoundPersistenceRuntime
         string stage)
     {
         if (!_active || attempt != _attempt) return CassettePersistenceAcceptanceOutcome.None;
-        _epochTombstoned = true;
         return Finish(CassettePersistenceAcceptanceOutcome.Failed, $"indeterminate:{stage}");
     }
 
@@ -855,11 +861,11 @@ internal sealed class CassettePointerBoundPersistenceRuntime
             return CassettePersistenceAcceptanceOutcome.None;
         if (currentIdentity != _epochIdentity || currentIdentity != attempt.Identity ||
             stateReadable && state.StatePointer != attempt.Pointer)
-            return FinishTombstoned("identity-or-pointer-changed");
+            return FinishFailedWave("identity-or-pointer-changed");
         if (!statusesRetained)
-            return FinishTombstoned("cassette-status-regression");
+            return FinishFailedWave("cassette-status-regression");
         if (!stateReadable)
-            return FinishTombstoned("public-state-unreadable");
+            return FinishFailedWave("public-state-unreadable");
 
         CassettePublicWriteState baselineWrite = _baseline.WriteState;
         CassettePublicWriteState currentWrite = state.WriteState;
@@ -867,10 +873,10 @@ internal sealed class CassettePointerBoundPersistenceRuntime
             (!baselineWrite.LastFailureTime.HasValue ||
              currentWrite.LastFailureTime.Value > baselineWrite.LastFailureTime.Value);
         if (failureAdvanced)
-            return FinishTombstoned("failure-time-advanced");
+            return FinishFailedWave("failure-time-advanced");
         if (!string.IsNullOrWhiteSpace(currentWrite.FailureReason) &&
             !string.Equals(currentWrite.FailureReason, baselineWrite.FailureReason, StringComparison.Ordinal))
-            return FinishTombstoned("failure-reason-changed");
+            return FinishFailedWave("failure-reason-changed");
 
         // A completion event alone cannot identify which save operation finished.
         // Require an advance since this batch started and cleared native write flags.
@@ -890,10 +896,7 @@ internal sealed class CassettePointerBoundPersistenceRuntime
             : elapsed > MaximumUpdateElapsed ? MaximumUpdateElapsed : elapsed;
         _elapsed += boundedElapsed;
         if (_elapsed >= HardTimeout)
-        {
-            _epochTombstoned = true;
             return Finish(CassettePersistenceAcceptanceOutcome.Timeout, "hard-timeout-130s");
-        }
         return CassettePersistenceAcceptanceOutcome.Pending;
     }
 
@@ -903,9 +906,8 @@ internal sealed class CassettePointerBoundPersistenceRuntime
         return Finish(CassettePersistenceAcceptanceOutcome.Cancelled, reason);
     }
 
-    private CassettePersistenceAcceptanceOutcome FinishTombstoned(string failure)
+    private CassettePersistenceAcceptanceOutcome FinishFailedWave(string failure)
     {
-        _epochTombstoned = true;
         return Finish(CassettePersistenceAcceptanceOutcome.Failed, failure);
     }
 
@@ -1085,9 +1087,23 @@ internal sealed class CassetteProductionPersistenceCoordinator
         lock (_sync) return _waves.TryPeek(identity, out wave);
     }
 
+    internal bool HasPendingWrite { get { lock (_sync) return _runtime.Active || _waves.HasQueuedWaves; } }
+
     internal bool CanSubmitNativeCassetteGrant(bool semanticEligible)
     {
         lock (_sync) return !_runtime.Active && semanticEligible;
+    }
+
+    internal void DiscardRoomWaves()
+    {
+        // The selected save can outlive the AP room. Keep polling any write already
+        // invoked against that save, with its original baseline and grant exclusion.
+        lock (_sync) _waves.ClearQueuedWaves();
+    }
+
+    internal void FinishCleanWave(CassettePersistenceQueuedWave wave)
+    {
+        lock (_sync) if (!_runtime.Active) _waves.Complete(wave);
     }
 
     internal bool ShouldLogDeferred(long waveId)
@@ -1123,7 +1139,7 @@ internal sealed class CassetteProductionPersistenceCoordinator
             if (!_markers.TryBeginAttempt(attempt, preDetail))
             {
                 _runtime.MarkIndeterminate(attempt, "marker-pre-admission");
-                _waves.TombstoneEpoch(identity);
+                _waves.Complete(wave);
                 _activeWave = default;
                 _hasActiveWave = false;
                 return CassetteProductionPersistenceStartOutcome.Indeterminate;
@@ -1151,7 +1167,7 @@ internal sealed class CassetteProductionPersistenceCoordinator
             if (!result.Invoked)
             {
                 _runtime.MarkIndeterminate(attempt, result.Stage);
-                _waves.TombstoneEpoch(identity);
+                _waves.Complete(_activeWave);
                 _markers.TryAppend(
                     attempt,
                     "FAILED",
@@ -1209,7 +1225,7 @@ internal sealed class CassetteProductionPersistenceCoordinator
             else if (outcome is CassettePersistenceAcceptanceOutcome.Failed or
                      CassettePersistenceAcceptanceOutcome.Timeout)
             {
-                _waves.TombstoneEpoch(attempt.Identity);
+                if (_hasActiveWave) _waves.Complete(_activeWave);
                 string marker = outcome == CassettePersistenceAcceptanceOutcome.Timeout
                     ? "TIMEOUT"
                     : "FAILED";

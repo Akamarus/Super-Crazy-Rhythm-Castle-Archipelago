@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Models;
@@ -62,20 +65,26 @@ internal sealed record GarageInsertionEntryState(
     bool WriteInFlight,
     bool DurableLogged);
 
+internal sealed record GaragePendingInsertions(int Schema, string Identity, string[] Songs);
+
 internal sealed class GarageCartridgeInsertionCoordinator
 {
     private readonly object _gate = new();
+    private readonly string? _journalDirectory;
+    private bool _journalDirty;
     private readonly IReadOnlyDictionary<string, string> _keys;
     private readonly Dictionary<string, GarageInsertionEntryState> _entries;
     private readonly HashSet<string> _initialReadAttempts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _initialReadFailures = new(StringComparer.Ordinal);
     private long _generation = long.MinValue;
+    private string? _roomIdentity;
     private IGarageInsertionDataStore? _store;
     private CancellationTokenSource? _connectionCancellation;
     private bool _initialSyncDiagnosticEmitted;
 
-    internal GarageCartridgeInsertionCoordinator(IEnumerable<KeyValuePair<string, string>> keys)
+    internal GarageCartridgeInsertionCoordinator(IEnumerable<KeyValuePair<string, string>> keys, string? journalDirectory = null)
     {
+        _journalDirectory = journalDirectory;
         var copiedKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var pair in keys)
         {
@@ -107,7 +116,7 @@ internal sealed class GarageCartridgeInsertionCoordinator
         }
     }
 
-    internal void BeginConnection(long generation, IGarageInsertionDataStore store)
+    internal void BeginConnection(long generation, IGarageInsertionDataStore store, string roomIdentity)
     {
         ArgumentNullException.ThrowIfNull(store);
 
@@ -118,7 +127,11 @@ internal sealed class GarageCartridgeInsertionCoordinator
             if (generation <= _generation)
                 throw new ArgumentOutOfRangeException(nameof(generation), "Connection generations must increase.");
 
+            var restored = ReadPending(roomIdentity);
             previousCancellation = _connectionCancellation;
+            // Pending writes survive an offline interval or reload only for the same AP room and slot.
+            bool replaceRoom = _roomIdentity != roomIdentity;
+            _roomIdentity = roomIdentity;
             _generation = generation;
             _store = store;
             _connectionCancellation = new CancellationTokenSource();
@@ -130,7 +143,9 @@ internal sealed class GarageCartridgeInsertionCoordinator
             foreach (var song in _keys.Keys)
             {
                 var entry = _entries[song];
-                _entries[song] = entry with
+                _entries[song] = replaceRoom
+                    ? new GarageInsertionEntryState(GarageInsertionServerValue.Unknown, false, false, false, false)
+                    : entry with
                 {
                     ServerValue = entry.ServerValue == GarageInsertionServerValue.Inserted
                         ? GarageInsertionServerValue.Inserted
@@ -138,7 +153,13 @@ internal sealed class GarageCartridgeInsertionCoordinator
                     InitialReadComplete = false,
                     WriteInFlight = false,
                 };
+                if (restored.Contains(song)) _entries[song] = _entries[song] with
+                {
+                    ServerValue = GarageInsertionServerValue.Inserted,
+                    WritePending = true,
+                };
             }
+            if (replaceRoom) _journalDirty = false;
         }
 
         CancelAndDispose(previousCancellation);
@@ -193,9 +214,36 @@ internal sealed class GarageCartridgeInsertionCoordinator
                 ServerValue = GarageInsertionServerValue.Inserted,
                 WritePending = true,
             };
+            _journalDirty = true;
+            SavePending();
         }
 
         StartWriteIfRequired(song);
+    }
+
+    internal void RetryFailedOperations()
+    {
+        long generation;
+        IGarageInsertionDataStore store;
+        CancellationToken token;
+        string[] songs;
+        lock (_gate)
+        {
+            if (_store == null || _connectionCancellation == null) return;
+            SavePending();
+            generation = _generation;
+            store = _store;
+            token = _connectionCancellation.Token;
+            songs = _initialReadFailures.Keys.ToArray();
+            // A retry owns these entries until its result arrives.
+            foreach (var song in songs) {
+                _initialReadFailures.Remove(song);
+                _initialReadAttempts.Remove(song);
+            }
+        }
+        foreach (var song in songs)
+            _ = ReadInitialValueAsync(generation, store, song, _keys[song], token);
+        RetryPendingWrites();
     }
 
     internal void RetryPendingWrites()
@@ -273,6 +321,11 @@ internal sealed class GarageCartridgeInsertionCoordinator
                 },
             };
 
+            if (result.Status == GarageInsertionReadStatus.KnownTrue && entry.WritePending)
+            {
+                _journalDirty = true;
+                SavePending();
+            }
             _initialReadAttempts.Add(song);
             if (result.IsKnown)
             {
@@ -288,6 +341,9 @@ internal sealed class GarageCartridgeInsertionCoordinator
                 _initialReadFailures[song] = detail;
             }
 
+            if (_initialSyncDiagnosticEmitted && result.IsKnown && !entry.InitialReadComplete &&
+                _entries.Values.All(value => value.InitialReadComplete))
+                diagnostic = GarageCartridgeDiagnostics.SyncReady(generation);
             if (!_initialSyncDiagnosticEmitted && _initialReadAttempts.Count == _keys.Count)
             {
                 _initialSyncDiagnosticEmitted = true;
@@ -369,6 +425,8 @@ internal sealed class GarageCartridgeInsertionCoordinator
                     WriteInFlight = false,
                     DurableLogged = true,
                 };
+                _journalDirty |= entry.WritePending;
+                SavePending();
             }
             else
             {
@@ -378,6 +436,54 @@ internal sealed class GarageCartridgeInsertionCoordinator
 
         if (raiseDurableTransition)
             DurableInsertionConfirmed?.Invoke(song);
+    }
+
+    private string JournalPath(string identity) => Path.Combine(_journalDirectory!,
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))) + ".json");
+
+    private HashSet<string> ReadPending(string identity)
+    {
+        if (_journalDirectory == null) return new();
+        string path = JournalPath(identity);
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var doc = JsonDocument.Parse(file);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 3 ||
+                !root.TryGetProperty("Schema", out _) || !root.TryGetProperty("Identity", out _) || !root.TryGetProperty("Songs", out _))
+                throw new InvalidDataException("Unexpected Garage journal fields.");
+            var record = root.Deserialize<GaragePendingInsertions>();
+            if (record?.Schema != 1 || record.Identity != identity || record.Songs == null ||
+                record.Songs.Any(song => song == null || !_keys.ContainsKey(song)) ||
+                record.Songs.Distinct(StringComparer.Ordinal).Count() != record.Songs.Length)
+                throw new InvalidDataException("Invalid Garage insertion data.");
+            return record.Songs.ToHashSet(StringComparer.Ordinal);
+        }
+        catch (FileNotFoundException) { return new(); }
+        catch (DirectoryNotFoundException) when (!File.Exists(_journalDirectory)) { return new(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException)
+        {
+            throw new InvalidDataException($"Cannot load garage-insertions/{Path.GetFileName(path)}. Check access or restore its matching .bak.", ex);
+        }
+    }
+
+    // Called under the coordinator gate. A disk failure leaves memory and the
+    // server write intact; the periodic retry also republishes the local journal.
+    private void SavePending()
+    {
+        if (!_journalDirty || _journalDirectory == null || _roomIdentity == null) return;
+        try
+        {
+            string[] songs = _entries.Where(pair => pair.Value.WritePending).Select(pair => pair.Key).ToArray();
+            JournalPublication.Write(JournalPath(_roomIdentity), new GaragePendingInsertions(1, _roomIdentity, songs));
+            _journalDirty = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticEmitted?.Invoke(new GarageCartridgeDiagnostic(GarageCartridgeDiagnosticLevel.Warning,
+                "[SCRC-AP] Garage insertion journal could not be saved. Retrying local and server storage."));
+        }
     }
 
     private bool IsCurrentConnection(long generation, IGarageInsertionDataStore store) =>

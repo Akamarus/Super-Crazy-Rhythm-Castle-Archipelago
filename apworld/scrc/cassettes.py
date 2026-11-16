@@ -236,7 +236,6 @@ CASSETTES: tuple[CassetteDefinition, ...] = (
 )
 
 CASSETTE_BY_ITEM = {entry.item_name: entry for entry in CASSETTES}
-CASSETTE_BY_NATIVE_SONG = {entry.native_song: entry for entry in CASSETTES}
 NEW_CASSETTE_SOURCE_IDS = {
     entry.source_name: entry.source_id
     for entry in CASSETTES

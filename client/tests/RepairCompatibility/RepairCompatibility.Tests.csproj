@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../AreaRoutingVersion.cs" />
+    <Compile Include="../../RootsBucketRandomizationPolicy.cs" />
     <Compile Include="..\..\RepairCompatibilityPolicy.cs" Link="RepairCompatibilityPolicy.cs" />
   </ItemGroup>
 </Project>

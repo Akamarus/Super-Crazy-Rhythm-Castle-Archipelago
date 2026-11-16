@@ -23,12 +23,14 @@ internal static class ApStarEaterThresholds
     private static string _lastFailure = "";
     private static int _retryFrame;
     internal static bool CurrentRoomReady { get; private set; }
-    internal static bool CanUseStarTotal(string room)
+    internal static bool CanUseStarTotal(string room, IReadOnlyDictionary<string, int>? requirements)
     {
         // The game can ask for stars before the first update in a new room.
         if (!string.Equals(room, _room, StringComparison.Ordinal))
             return FindRoomTarget(room) == null;
-        return _roomTarget == null || (CurrentRoomReady && _replacement?.Component != null);
+        return _roomTarget == null || (CurrentRoomReady && _replacement?.Component != null &&
+            requirements != null && requirements.TryGetValue(_roomTarget.Area, out int required) &&
+            required == _replacement.Required);
     }
 
     private static Target? FindRoomTarget(string room)
@@ -38,7 +40,7 @@ internal static class ApStarEaterThresholds
         return null;
     }
 
-    // null means restore legacy state; callers must pass only a fully validated new-contract map.
+    // A null map restores vanilla. New rooms use seed values, legacy rooms can opt into local overrides.
     internal static unsafe void Tick(string room, IReadOnlyDictionary<string, int>? requirements)
     {
         bool roomChanged = !string.Equals(room, _room, StringComparison.Ordinal);
@@ -57,9 +59,13 @@ internal static class ApStarEaterThresholds
         Target? target = _roomTarget;
         if (target == null) { CurrentRoomReady = true; return; }
         if (!requirements.TryGetValue(target.Area, out int required) || required < 0 || required > 66)
-        { CurrentRoomReady = false; return; }
+        {
+            Restore();
+            return;
+        }
         if (_replacement != null && _replacement.Required == required && _replacement.Component != null)
         { CurrentRoomReady = true; return; }
+        CurrentRoomReady = false;
         if (Time.frameCount < _retryFrame) return;
         _retryFrame = Time.frameCount + 60;
         try
@@ -72,10 +78,14 @@ internal static class ApStarEaterThresholds
             if (component == null) throw new MissingMemberException("Exact StarEaterInteraction component");
             IntPtr klass = IL2CPP.il2cpp_object_get_class(component.Pointer);
             IntPtr fullField = FindField(klass, "fullFlag");
+            if (IL2CPP.il2cpp_type_get_name_(IL2CPP.il2cpp_field_get_type(fullField)) != "eGameProgressionFlag")
+                throw new InvalidOperationException("Unexpected Star Eater fullFlag type");
             IntPtr fullBox = IL2CPP.il2cpp_field_get_value_object(fullField, component.Pointer);
             if (fullBox == IntPtr.Zero || Marshal.ReadInt32(IL2CPP.il2cpp_object_unbox(fullBox)) != target.FullFlag)
                 throw new InvalidOperationException("Star Eater source flag mismatch");
             IntPtr field = FindField(klass, "feedingThreshold");
+            if (IL2CPP.il2cpp_type_get_name_(IL2CPP.il2cpp_field_get_type(field)) != "DefinedInt")
+                throw new InvalidOperationException("Unexpected Star Eater feedingThreshold type");
             IntPtr originalPointer = IL2CPP.il2cpp_field_get_value_object(field, component.Pointer);
             if (originalPointer == IntPtr.Zero) throw new InvalidOperationException("Missing native threshold reference");
             var original = new Il2CppSystem.Object(originalPointer);
@@ -83,7 +93,8 @@ internal static class ApStarEaterThresholds
             if (Marshal.PtrToStringAnsi(IL2CPP.il2cpp_class_get_name(valueClass)) != "DefinedInt")
                 throw new InvalidOperationException("Unexpected native threshold class");
             IntPtr constructor = IL2CPP.il2cpp_class_get_method_from_name(valueClass, ".ctor", 1);
-            if (constructor == IntPtr.Zero) throw new MissingMethodException("DefinedInt", ".ctor(Int32)");
+            if (constructor == IntPtr.Zero || IL2CPP.il2cpp_type_get_name_(IL2CPP.il2cpp_method_get_param(constructor, 0)) != "System.Int32")
+                throw new MissingMethodException("DefinedInt", ".ctor(Int32)");
             IntPtr newPointer = IL2CPP.il2cpp_object_new(valueClass);
             if (newPointer == IntPtr.Zero) throw new InvalidOperationException("DefinedInt allocation failed");
             var value = new Il2CppSystem.Object(newPointer); // Roots the newly allocated native object.

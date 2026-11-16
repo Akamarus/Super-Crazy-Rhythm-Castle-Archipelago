@@ -90,6 +90,9 @@ state.Publish(2, new[] { QuestChecksPolicy.Plunger }, new[] { QuestChecksPolicy.
 Check(!state.Snapshot.Ready, "stale callback rejected");
 state.Publish(3, Array.Empty<long>(), new[] { QuestChecksPolicy.MemoryHandIn });
 Check(state.Snapshot.Checked.Contains(QuestChecksPolicy.MemoryHandIn), "server completion restores consumed marker after restart");
+state.Configure(4, "seedB/team0/slot1", true);
+state.Publish(4, Array.Empty<long>(), Array.Empty<long>());
+Check(!state.IsCompleted(QuestChecksPolicy.MemoryHandIn), "same-room login replaces the previous server-only checked set");
 state.Reset(); Check(!state.Snapshot.Enabled, "reset");
 string meooPath = "Root/GameRoom_Hub1_Logic/Hub1A_Logic_TopLeft/UnlockMeooCharacter/Conditions/";
 var none = new HashSet<long>();
@@ -104,6 +107,9 @@ QuestJournalTests.Run(Path.Combine(temp, "journal"), Check);
 state.Configure(5, "offline-seed", true);
 state.BindSlot(4, journal.Save);
 Check(state.RecordSource(QuestChecksPolicy.MemoryHandIn, journal.Save), "offline handin journaled");
+state.Configure(6, "offline-seed", true, new QuestJournalRecord(null, [], []));
+Check(state.NativeSlot == 4 && state.IsCompleted(QuestChecksPolicy.MemoryHandIn),
+    "same-room acceptance preserves the slot and hand-in recorded after preflight");
 var restarted = new QuestChecksState();
 restarted.Configure(1, "offline-seed", true, journal.Load("offline-seed"));
 Check(restarted.Snapshot.Checked.Contains(QuestChecksPolicy.MemoryHandIn), "offline handin restored before item grants");

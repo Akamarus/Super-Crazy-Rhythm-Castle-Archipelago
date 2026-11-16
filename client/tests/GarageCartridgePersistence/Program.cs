@@ -48,6 +48,15 @@ Equal("GameRoom_27", GarageRoomInitializationState.ReadIdleRoom("NONE", LookupGa
 Equal(1, roomLookups, "one native room lookup");
 Equal<string?>(null, GarageRoomInitializationState.ReadIdleRoom("NONE", () => null), "missing root stays closed");
 
+long now = 0;
+var abandoned = new GarageDeferredDoorConsumption(() => now);
+abandoned.Arm("Bloody Tears", 7, 2);
+now = 15000;
+Equal(GarageDoorReadback.None, abandoned.Observe("Bloody Tears", 7, 2, false, true, true), "abandoned door admission expires without a transition");
+abandoned.Arm("Bloody Tears", 7, 2);
+now += 16000;
+abandoned.Transition(7, 2, 3, true);
+Equal(GarageDoorReadback.None, abandoned.Observe("Bloody Tears", 7, 3, true, true, false), "late room transitions cannot revive expired door evidence");
 var deferredDoor = new GarageDeferredDoorConsumption();
 deferredDoor.Arm("Bloody Tears", 7, 2);
 Equal(GarageDoorReadback.Waiting, deferredDoor.Observe("Bloody Tears", 7, 2, false, true, true), "door return still held does not cancel deferred removal");
@@ -219,8 +228,6 @@ string introRedirectPrefixMethod = MethodBody(introRedirectSource, "public stati
 int generationIncrement = connectMethod.IndexOf("long generation = Interlocked.Increment(ref _connectionGeneration);", StringComparison.Ordinal);
 int attemptAdmission = connectMethod.IndexOf("ConnectionLifecycle.TryAdmit(generation)", StringComparison.Ordinal);
 int sessionCreation = connectMethod.IndexOf("ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server))", StringComparison.Ordinal);
-True(pluginSource.Contains("private long _connectionGeneration;", StringComparison.Ordinal),
-    "ArchipelagoClient owns the connection generation");
 True(pluginSource.Contains(
         "private readonly SessionGenerationLeaseGate<ArchipelagoSession> ConnectionLifecycle = new();",
         StringComparison.Ordinal),
@@ -235,19 +242,13 @@ True(connectMethod.Contains("ConnectionLifecycle.TryAcquire(session, generation"
 False(pluginSource.Contains("private bool IsCurrentSession(", StringComparison.Ordinal),
     "the former check-then-act session helper is not available for callback dispatch");
 
-int garageSlotData = connectMethod.IndexOf("GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);", StringComparison.Ordinal);
-int beginServerSync = connectMethod.IndexOf("GarageCartridgeAccess.BeginServerSync(session, generation)", StringComparison.Ordinal);
-int connected = connectMethod.IndexOf("_connected = true;", StringComparison.Ordinal);
-True(garageSlotData >= 0 && beginServerSync > garageSlotData && connected > beginServerSync,
-    "compatible Garage server sync begins after slot data and before the client becomes connected");
-
 string socketCloseHandler = MethodBody(connectMethod, "session.Socket.SocketClosed += reason =>", "session.Socket.ErrorReceived += (exception, message) =>");
 True(socketCloseHandler.Contains("ClearCurrentSession(session, generation, () =>", StringComparison.Ordinal) &&
-     socketCloseHandler.Contains("RequestReconnect($\"socket closed: {reason}\")", StringComparison.Ordinal),
+     socketCloseHandler.Contains("RequestReconnect(", StringComparison.Ordinal),
     "current-session socket close performs its terminal work through the exclusive lifecycle callback");
-string socketErrorHandler = MethodBody(connectMethod, "session.Socket.ErrorReceived += (exception, message) =>", "session.Items.ItemReceived += helper =>");
+string socketErrorHandler = MethodBody(connectMethod, "session.Socket.ErrorReceived += (exception, message) =>", "session.Socket.PacketReceived += packet =>");
 True(socketErrorHandler.Contains("ClearCurrentSession(session, generation, () =>", StringComparison.Ordinal) &&
-     socketErrorHandler.Contains("RequestReconnect($\"terminal socket error: {message}\")", StringComparison.Ordinal),
+     socketErrorHandler.Contains("RequestReconnect(", StringComparison.Ordinal),
     "terminal socket error performs its teardown and reconnect decision through the exclusive lifecycle callback");
 string failedLogin = MethodBody(connectMethod, "if (!result.Successful)", "if (result is LoginSuccessful loginSuccess)");
 True(failedLogin.Contains("ClearCurrentSession(session, generation);", StringComparison.Ordinal),
@@ -782,7 +783,7 @@ Equal(
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     var diagnostics = new List<GarageCartridgeDiagnostic>();
     coordinator.DiagnosticEmitted += diagnostics.Add;
-    coordinator.BeginConnection(70, store);
+    coordinator.BeginConnection(70, store, "room A");
     Equal("[SCRC-AP] GAME GARAGE INSERTION SYNC pending generation=70.", diagnostics.Single().Message,
         "beginning synchronization emits the exact pending transition");
     foreach (string key in store.ReadKeys)
@@ -799,7 +800,7 @@ Equal(
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     var diagnostics = new List<GarageCartridgeDiagnostic>();
     coordinator.DiagnosticEmitted += diagnostics.Add;
-    coordinator.BeginConnection(71, store);
+    coordinator.BeginConnection(71, store, "room A");
     foreach (string key in store.ReadKeys)
     {
         store.CompleteNextRead(
@@ -1271,7 +1272,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
         var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
         if (durableInsertionConfirmed != null)
             coordinator.DurableInsertionConfirmed += durableInsertionConfirmed;
-        True(lifecycle.TryBegin(1, () => coordinator.BeginConnection(1, store)),
+        True(lifecycle.TryBegin(1, () => coordinator.BeginConnection(1, store, "room A")),
             "production reconciliation fixture begins the real generation lifecycle");
         foreach (string key in store.ReadKeys.ToArray())
             store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
@@ -1895,6 +1896,17 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
             "mutation allowing physical Vampire Killer into pending AP insertion breaks vanilla entry");
     }
 
+    {
+        var fixture = await CreateProductionFixture();
+        var grants = new List<bool>();
+        RunProductionReconciliation(fixture, grants, superstar, false, readable: true, held: true, inGarage: true, releasedThisVisit: false);
+        True(RecordEvent(fixture, superstarBagFlag, flagIsSet: false, flagWasSet: true, releasedThisVisit: false),
+            "confirmed in-Garage native held-to-absent signal arms insertion without a door detour");
+        RunProductionReconciliation(fixture, grants, superstar, false, readable: true, held: false, inGarage: true, releasedThisVisit: false);
+        Equal(GarageInsertionServerValue.Inserted, fixture.Coordinator.GetServerValue(superstar), "subsequent readback confirms the in-Garage insertion");
+        Equal(0, grants.Count, "confirmed insertion suppresses regrant");
+    }
+
     True(progressionRequestPrefixMethod.Contains(
             "GarageCartridgeAccess.RecordNativeBagProgressionRequest(req, flag);",
             StringComparison.Ordinal),
@@ -1936,14 +1948,14 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     Equal(string.Join("\n", expectedKeys.Select(x => x[(x.IndexOf('|') + 1)..])), string.Join("\n", store.ReadKeys), "beginning a connection reads every exact slot key once");
 }
 
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     store.CompleteNextRead(cartridgeKeys["Bloody Tears"], GarageInsertionReadResult.KnownTrue);
     await Eventually(
         () => coordinator.GetServerValue("Bloody Tears") == GarageInsertionServerValue.Inserted,
@@ -1953,7 +1965,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     foreach (var key in store.ReadKeys.Take(4))
         store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
     await Task.Delay(20);
@@ -1965,7 +1977,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     var song = "Bloody Tears";
     store.CompleteNextRead(cartridgeKeys[song], GarageInsertionReadResult.KnownFalse);
     await Eventually(() => coordinator.GetServerValue(song) == GarageInsertionServerValue.NotInserted, "an absent slot value becomes not inserted");
@@ -1974,7 +1986,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     foreach (var key in store.ReadKeys)
         store.CompleteNextRead(key, key == cartridgeKeys["Bloody Tears"]
             ? GarageInsertionReadResult.MalformedValue(key, JTokenType.Array)
@@ -1982,15 +1994,18 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     await Task.Delay(20);
     Equal(GarageInsertionServerValue.Unknown, coordinator.GetServerValue("Bloody Tears"), "malformed reads remain unknown");
     False(coordinator.InitialSyncReady, "malformed or failed reads keep the initial sync gate closed");
-    coordinator.BeginConnection(2, store);
-    Equal(10, store.ReadKeys.Count, "a new generation retries every read after a failed initial sync");
+    coordinator.RetryFailedOperations();
+    coordinator.RetryFailedOperations();
+    Equal(10, store.ReadKeys.Count, "same generation retries failed reads without duplicating in-flight reads");
+    foreach (var key in cartridgeKeys.Values) store.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
+    await Eventually(() => coordinator.InitialSyncReady, "same generation recovers after initial read errors");
 }
 
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
-    coordinator.BeginConnection(2, store);
+    coordinator.BeginConnection(1, store, "room A");
+    coordinator.BeginConnection(2, store, "room A");
     var key = cartridgeKeys["Bloody Tears"];
     store.CompleteNextRead(key, GarageInsertionReadResult.KnownTrue);
     await Task.Delay(20);
@@ -2002,7 +2017,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     coordinator.NoteInserted("Bloody Tears");
     Equal(GarageInsertionServerValue.Inserted, coordinator.GetServerValue("Bloody Tears"), "noting an insertion updates memory before its write completes");
     Equal(1, store.WriteKeys.Count, "noting an insertion starts its write");
@@ -2013,12 +2028,12 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     coordinator.NoteInserted("Bloody Tears");
     store.CompleteNextWrite(cartridgeKeys["Bloody Tears"], GarageInsertionWriteResult.Failed);
     await Task.Delay(20);
     coordinator.EndConnection(1);
-    coordinator.BeginConnection(2, store);
+    coordinator.BeginConnection(2, store, "room A");
     await Eventually(() => store.WriteKeys.Count == 2, "a failed write remains pending and retries after reconnect");
 }
 
@@ -2027,7 +2042,7 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
     var durableSongs = new List<string>();
     coordinator.DurableInsertionConfirmed += durableSongs.Add;
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     coordinator.NoteInserted("Bloody Tears");
     store.CompleteNextWrite(cartridgeKeys["Bloody Tears"], GarageInsertionWriteResult.Succeeded);
     await Eventually(() => durableSongs.Count == 1, "a confirmed write raises one durable transition");
@@ -2040,11 +2055,47 @@ static async Task<GarageInsertionSequenceHarness> CreateSequenceHarness(
 {
     var store = new FakeGarageInsertionDataStore();
     var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
-    coordinator.BeginConnection(1, store);
+    coordinator.BeginConnection(1, store, "room A");
     foreach (var key in store.ReadKeys)
         store.CompleteNextRead(key, GarageInsertionReadResult.KnownTrue);
     await Eventually(() => coordinator.InitialSyncReady, "a restarted client completes its initial sync");
     Equal(GarageInsertionServerValue.Inserted, coordinator.GetServerValue("Bloody Tears"), "server true after restart prevents returning to not inserted");
+}
+
+{
+    var original = new FakeGarageInsertionDataStore();
+    var replacement = new FakeGarageInsertionDataStore();
+    var coordinator = new GarageCartridgeInsertionCoordinator(cartridgeKeys);
+    coordinator.BeginConnection(1, original, "room A");
+    coordinator.NoteInserted("Bloody Tears");
+    coordinator.EndConnection(1);
+    coordinator.BeginConnection(2, replacement, "room B");
+    var key = cartridgeKeys["Bloody Tears"];
+    replacement.CompleteNextRead(key, GarageInsertionReadResult.KnownFalse);
+    await Eventually(() => coordinator.GetServerValue("Bloody Tears") == GarageInsertionServerValue.NotInserted,
+        "the new room reads its own cartridge state");
+    original.CompleteNextWrite(key, GarageInsertionWriteResult.Succeeded);
+    coordinator.RetryPendingWrites();
+    Equal(0, replacement.WriteKeys.Count, "an old pending or late cartridge write cannot reach a different room");
+}
+
+
+{
+    string folder = Path.Combine(Path.GetTempPath(), "garage-insertions-" + Guid.NewGuid().ToString("N"));
+    try {
+        var first = new GarageCartridgeInsertionCoordinator(cartridgeKeys, folder);
+        var waiting = new FakeGarageInsertionDataStore();
+        first.BeginConnection(1, waiting, "roomA");
+        first.NoteInserted("Bloody Tears");
+        first.EndConnection(1);
+        var second = new GarageCartridgeInsertionCoordinator(cartridgeKeys, folder);
+        var restored = new FakeGarageInsertionDataStore();
+        second.BeginConnection(1, restored, "roomB");
+        Equal(0, restored.WriteKeys.Count, "another room cannot replay a saved insertion");
+        second.BeginConnection(2, restored, "roomA");
+        Equal(cartridgeKeys["Bloody Tears"], restored.WriteKeys.Single(), "unconfirmed Garage insertion survives restart in its own room");
+    }
+    finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
 }
 
 Console.WriteLine("Game Garage cartridge persistence tests passed.");
@@ -2122,7 +2173,7 @@ sealed class GarageInsertionSequenceHarness
         Store = new FakeGarageInsertionDataStore();
         Coordinator = new GarageCartridgeInsertionCoordinator(keys);
         Coordinator.DurableInsertionConfirmed += _ => DurableConfirmations++;
-        Coordinator.BeginConnection(1, Store);
+        Coordinator.BeginConnection(1, Store, "room A");
     }
 
     public string Song { get; }

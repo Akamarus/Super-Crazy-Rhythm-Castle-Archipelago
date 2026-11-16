@@ -29,8 +29,8 @@ IDS = ROOT / "docs" / "IDS.md"
 OVERVIEW = ROOT / "docs" / "PROJECT_OVERVIEW.md"
 TEST_SUPPORT = ROOT / "apworld" / "tests" / "support.py"
 EXPECTED = {
-    "client_version": "0.77.1",
-    "world_version": "0.30.0",
+    "client_version": "0.77.2",
+    "world_version": "0.30.1",
     "implementation_version": (
         "area-routing-plant-pipes-0.15-generation-foundation-0.16-"
         "hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-"
@@ -138,8 +138,7 @@ contract_trees = {}
 for python_source in sorted(WORLD_DIR.glob("*.py")):
     try:
         tree = ast.parse(python_source.read_text(encoding="utf-8"), filename=str(python_source))
-        if python_source in (POINTS, ITEMS, WORLD):
-            contract_trees[python_source] = tree
+        contract_trees[python_source] = tree
     except SyntaxError as exc:
         fail(f"APWorld Python syntax error in {repo_path(python_source)}: {exc}")
 
@@ -210,7 +209,8 @@ for marker in (
 for marker in (
     "ExpandedChecksPolicy.Validate(loginSuccess.SlotData)",
     "expandedMode == ExpandedChecksMode.Invalid",
-    "ExpandedChecks.Configure(generation,",
+    "ExpandedChecks.Prepare(generation,",
+    "acceptExpanded();",
     "ExpandedChecks.Reset();",
     "ExpandedChecks.CaptureResultContext()",
     "ExpandedChecks.ObservePersistedResult(level, variant, result?.ExpandedContext);",
@@ -264,6 +264,9 @@ def validate_live_world_structure() -> dict[str, int]:
     )
     world_module, cleanup = support.load_scrc_world()
     try:
+        for name, expected_id in (("Lobby - Important Letters Pickup", 187256292), ("Lobby - Bean Trumpet Award", 187256293)):
+            if world_module.SCRCWorld.location_name_to_id.get(name) != expected_id:
+                fail(f"{name} reserved location ID is missing or changed")
         totals: dict[str, int] = {}
         for difficulty, (label, expected_count) in enumerate(
             EXPECTED["active_location_totals"].items()
@@ -399,7 +402,7 @@ def static_int(node: ast.AST) -> int:
 
 # Check the assignments before using the fixed base to evaluate ID expressions.
 # Otherwise a changed module base could silently pass every offset check below.
-for base_path in (POINTS, ITEMS, WORLD):
+for base_path in (POINTS, ITEMS, WORLD, CAMPAIGN, WORLD_DIR / "cassettes.py"):
     base_node = assignment_value(contract_trees[base_path], "BASE_ID")
     if not (
         isinstance(base_node, ast.Constant)
@@ -456,6 +459,8 @@ def exported_point_total(name: str, expected: int) -> int:
         and node.args[0].id == "MUSIC_LAB_POINT_POOL"
     ):
         actual = sum(count for _, _, _, count in point_items)
+    elif name == "MUSIC_LAB_POINT_MAX_EFFECTIVE" and isinstance(node, ast.Name) and node.id == "MUSIC_LAB_POINT_TOTAL_VALUE":
+        actual = exported_point_total(node.id, EXPECTED["music_lab_point_total_value"])
     elif is_catalog_value_sum(node):
         actual = sum(value * count for _, _, value, count in point_items)
     elif is_sum_generator(node):
@@ -603,14 +608,6 @@ for label, expected_id in (
     match = re.search(rf'"{label}"\s*:\s*BASE_ID\s*\+\s*(\d+)', items_text)
     if not match or 187256000 + int(match.group(1)) != expected_id:
         fail(f"{label} reserved item ID is missing or changed")
-
-for symbol, expected_id in (
-    ("LOBBY_LETTERS_PICKUP", 187256292),
-    ("LOBBY_BEAN_TRUMPET_AWARD", 187256293),
-):
-    match = re.search(rf'LOCATION_NAME_TO_ID\[{symbol}\]\s*=\s*BASE_ID\s*\+\s*(\d+)', world_text)
-    if not match or 187256000 + int(match.group(1)) != expected_id:
-        fail(f"{symbol} reserved location ID is missing or changed")
 
 # Validate permanent new quest IDs independently, even in static-only mode.
 for source_path, symbol, expected in (

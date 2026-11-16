@@ -15,6 +15,7 @@ static class Program {
   CassetteReceiptRandomization.Identity="native-"+Guid.NewGuid().ToString("N");CassetteReceiptRandomization.Processor=new();
   DeveloperHarness.CurrentRoomId="GameRoom_Hub6";WeedKillerRandomization.Grants=0;
   QuestChecks.State.Configure(generation,identity,true);QuestChecks.State.Publish(generation,owned,Array.Empty<long>());
+  NativeGrantSaveBinding.Prepare(identity, true)();
   CharacterQuestItems.State.Configure(generation,true);CharacterQuestItems.State.Publish(generation,Items);
  }
  static void Tick(){QuestChecks.Tick(Beat);CharacterQuestItems.TickUnity(Beat);}
@@ -23,6 +24,7 @@ static class Program {
   QuestChecks.State.Reset();CharacterQuestItems.State.Reset();generation++;
   CassetteReceiptRandomization.Identity="reload-"+Guid.NewGuid().ToString("N");
   QuestChecks.State.Configure(generation,identity,true,restored);QuestChecks.State.Publish(generation,owned,Array.Empty<long>());
+  NativeGrantSaveBinding.Prepare(identity, true)();
   CharacterQuestItems.State.Configure(generation,true);CharacterQuestItems.State.Publish(generation,Items);
  }
  static void HandIn(string room,string flag,bool emitEvent=true) {
@@ -125,8 +127,8 @@ static class Program {
    Start();Tick();DeveloperHarness.CurrentRoomId="GameRoom_Hub1A";
    string journalPath=Path.Combine(BepInEx.Paths.ConfigPath,"RhythmCastleAP","quest-checks",
     Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))+".json");
-   void BlockPublication() { File.Move(journalPath,journalPath+".bak"); Directory.CreateDirectory(journalPath); }
-   void RestorePublication() { Directory.Delete(journalPath); File.Move(journalPath+".bak",journalPath); }
+   void BlockPublication() { File.Move(journalPath,journalPath+".blocked"); Directory.CreateDirectory(journalPath); }
+   void RestorePublication() { Directory.Delete(journalPath); File.Move(journalPath+".blocked",journalPath); }
    BlockPublication();
    bool sequenceExecuted=false;
    if(QuestChecks.AdmitHandIn(QuestChecksPolicy.BatteryHandIn)) { sequenceExecuted=true;HandIn("GameRoom_Hub1A",Battery); }
@@ -140,6 +142,28 @@ static class Program {
    Check(!RootsBucketRandomization.Flags[Battery]&&QuestChecks.State.Snapshot.Pending.Contains(QuestChecksPolicy.BatteryHandIn),"completion write failure remains recoverable without refill");
    RestorePublication();Tick();
    Check(QuestChecks.State.Snapshot.Checked.Contains(QuestChecksPolicy.BatteryHandIn),"completion persists when storage recovers");
+   Start();
+   NativeGrantSaveBinding.Prepare("historical room", false)();
+   int admittedCount=0;
+   void CheckAdmission() => NativeGrantSaveBinding.WithBoundSave((_,_)=>admittedCount++);
+   CheckAdmission();
+   CassetteReceiptRandomization.Slot=3;
+   CheckAdmission();
+   NativeGrantSaveBinding.Disconnect();
+   CassetteReceiptRandomization.Slot=4;
+   CheckAdmission();
+   NativeGrantSaveBinding.Prepare("historical room", false)();
+   CassetteReceiptRandomization.Slot=3;
+   CheckAdmission();
+   CassetteReceiptRandomization.Slot=4;
+   CheckAdmission();
+   var checkedRooms = new List<string>();
+   NativeGrantSaveBinding.Disconnect();
+   NativeGrantSaveBinding.WithCheckSave(checkedRooms.Add);
+   CassetteReceiptRandomization.Slot=3;
+   NativeGrantSaveBinding.WithCheckSave(checkedRooms.Add);
+   Check(checkedRooms.SequenceEqual(new[]{"historical room"}),"offline checks retain only the verified room and slot");
+   Check(admittedCount==2,"historical item grants only run on the durable bound slot in an accepted session");
    Console.WriteLine($"QuestRuntime passed {passed} assertions.");
   } finally {if(Directory.Exists(BepInEx.Paths.ConfigPath)) {
     string path=Path.GetFullPath(BepInEx.Paths.ConfigPath), tempRoot=Path.GetFullPath(Path.GetTempPath());

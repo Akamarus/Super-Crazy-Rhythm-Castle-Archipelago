@@ -1,6 +1,6 @@
 # Progression reference
 
-**APWorld 0.30.0**, included in releases v0.30.0 and v0.30.1.
+**APWorld 0.30.1**, included in release v0.30.2.
 
 ## Stars, results and Victory
 
@@ -36,9 +36,11 @@ New seeds explicitly enable the accepted pre-nectar Old Tom route. Thief Prince 
 
 ## Lobby door access in v0.30.0
 
-Demolition Training and School Trip entrance barriers are removed for authenticated Lobby Access owners. Boring Room, Important Letters delivery, the story cutscene and Demolition Training completion are no longer door prerequisites. Generated Star requirements, completion rewards, certificate award and Gecko quest objectives remain unchanged. The patch targets only the two exact native doors and their covers; it does not write story flags.
+For authenticated Lobby Access owners on a marked seed, the client clears the story condition on the Demolition Training door and the Training-completion condition on the School Trip door. These changes apply to the doors and their covers. The upper path to School Trip still has a separate mail blocker.
 
-New seeds advertise `lobby_open_doors` and require the corresponding client hooks. Universal Tracker preserves the original prerequisites for older seeds. Native door interaction and School Trip's Gecko variant still require acceptance.
+On seeds with `lobby_open_doors`, generation requires a route through Boring Room and the Important Letters delivery for School Trip. Lobby Access and School Trip's own Star gate still apply. Demolition Training is independent. The player tested the ordinary entrance on slot 2 after delivering the mail. The door denied entry at four Stars and opened at five while Demolition Training was unfinished.
+
+With the updated game client and APWorld, Universal Tracker waits for the server to confirm both Level 6 completion and Important Letters delivery. The client publishes that team's and slot's progress on login and when checks arrive. With deferred entrances turned off, Tracker shows when the mail route is possible from inventory. Older seeds retain their original door rules.
 
 ## Bunker and True Ending
 

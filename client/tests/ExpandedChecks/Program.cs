@@ -28,6 +28,12 @@ var restored = saved.Last(); var restart = new ExpandedChecksState();
 restart.Configure(1,"a",true,Array.Empty<long>(),_=>restored);
 restart.Visit(1,flag=>flag==entry.Flag,Persist,queued.Add,(_,_)=>false);
 Check(queued.Count==3,"restart replays durable checks");
+restart.Configure(2,"a",true,new[]{entry.Id},_=>restored);
+restart.Visit(1,_=>false,Persist,queued.Add,(_,_)=>false);
+Check(queued.Count==3,"server-confirmed check is not resent");
+restart.Configure(3,"a",true,Array.Empty<long>(),_=>restored);
+restart.Visit(1,_=>false,Persist,queued.Add,(_,_)=>false);
+Check(queued.Count==4,"room restored to an older checked set recovers the local source");
 checks.Configure(3,"b",true,Array.Empty<long>(),_=>new(null,Array.Empty<long>()));
 Check(!checks.Visit(1,_=>true,Persist,queued.Add,(_,_)=>false),"new identity rejects old native sources");
 checks.Configure(2,"a",true,Array.Empty<long>(),_=>restored);
@@ -45,9 +51,13 @@ foreach(var bad in new[]{new ExpandedJournalRecord(0,Array.Empty<long>()),new Ex
 Console.WriteLine("Expanded checks regression suite passed.");
 var broken = new ExpandedChecksState();
 broken.Configure(1,"a",true,Array.Empty<long>(),_=>new(null,Array.Empty<long>()));
+Check(broken.Visit(1,_=>false,Persist,queued.Add,(_,_)=>false), "room A binds before candidate validation");
+var roomAContext = broken.CaptureResultContext(1, "native-A");
 try {broken.Configure(3,"b",true,Array.Empty<long>(),_=>throw new InvalidDataException());} catch(InvalidDataException) {}
-broken.Configure(2,"a",true,Array.Empty<long>(),_=>new(1,Array.Empty<long>()));
-Check(!broken.Enabled,"failed newer configuration fences older sessions");
+broken.Configure(2,"stale",true,Array.Empty<long>(),_=>throw new Exception("stale candidate read journal"));
+Check(broken.Enabled && broken.Identity == "a" && roomAContext != null &&
+    broken.CaptureResultContext(1, "native-A") == roomAContext,
+    "a rejected journal fences older attempts and preserves the original native result context");
 var directory = Path.Combine(Path.GetTempPath(),"expanded-check-tests-" + Guid.NewGuid().ToString("N"));
 try {
  var journal = new ExpandedChecksJournal(directory);

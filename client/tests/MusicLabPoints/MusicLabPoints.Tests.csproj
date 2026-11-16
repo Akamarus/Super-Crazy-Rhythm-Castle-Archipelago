@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../AreaRoutingVersion.cs" />
+    <Compile Include="../../RepairCompatibilityPolicy.cs" />
+    <Compile Include="../../RootsBucketRandomizationPolicy.cs" />
     <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
     <Compile Include="..\..\MusicLabChestMap.cs" Link="MusicLabChestMap.cs" />
     <Compile Include="..\..\MusicLabPointPolicy.cs" Link="MusicLabPointPolicy.cs" />

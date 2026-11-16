@@ -9,15 +9,15 @@ static class Program {
  var data=new Dictionary<string,object>{["implementation_version"]=RootsBucketRandomizationPolicy.CompatibleVersionPrefix,["randomize_hip_glasses_chicken_bucket"]=true,
  ["hip_glasses_item"]="Hip Glasses",["chicken_bucket_item"]="Chicken Bucket",["hip_glasses_source_location"]="Roots - Level 4 - Hip Glasses",["bucket_minion_trade_location"]="Roots - Bucket Minion Trade",["hip_glasses_source_flag"]="LEVEL_08_GLASSES_COLLECTED",["hip_glasses_native_flag"]="HIP_GLASSES_BAG_ITEM",["bucket_trade_flag"]="ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES",["chicken_bucket_native_flag"]="CHICKEN_BUCKET_BAG_ITEM",["combo_bucket_conversion_flag"]="LEVEL_09_COMBO_ABILITY_EARNED"};
  RootsBucketRandomization.ApplySlotData(data);
- Tick();Check(CassetteReceiptRandomization.Probes==0,"no selected-save probe before a matching receipt");
+ Tick();Check(NativeGrantSaveBinding.Probes==0,"no selected-save probe before a matching receipt");
  RootsBucketRandomization.TryApplyItem("Hip Glasses");RootsBucketRandomization.TryApplyItem("Chicken Bucket");
  Tick();Check(WeedKillerRandomization.Grants==0,"defer until selected save ready");
- CassetteReceiptRandomization.Ready=true;Tick();
+ NativeGrantSaveBinding.Ready=true;Tick();
  Check(WeedKillerRandomization.Grants==2,"deliver starting items without progression request");
  Tick();Check(WeedKillerRandomization.Grants==2,"held items not duplicated");
- CurrentPlayerSaveEnquiries.Flags.Clear();CassetteReceiptRandomization.Identity="save-b";Tick();
+ CurrentPlayerSaveEnquiries.Flags.Clear();NativeGrantSaveBinding.Identity="save-b";Tick();
  Check(WeedKillerRandomization.Grants==4,"new save gets owned items despite prior grant");
- CurrentPlayerSaveEnquiries.Flags.Clear();CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;CassetteReceiptRandomization.Identity="save-c";Tick();
+ CurrentPlayerSaveEnquiries.Flags.Clear();CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;NativeGrantSaveBinding.Identity="save-c";Tick();
  Check(WeedKillerRandomization.Grants==4,"consumed items not restored after save switch");
  RootsBucketRandomization.Configure();RootsBucketRandomization.ApplySlotData(data);
  CurrentPlayerSaveEnquiries.Flags.Clear();WeedKillerRandomization.Grants=0;WeedKillerRandomization.Drop=true;CurrentPlayerSaveEnquiries.Reads=0;
@@ -28,9 +28,9 @@ static class Program {
  Check(WeedKillerRandomization.Grants==4&&CurrentPlayerSaveEnquiries.Flags.GetValueOrDefault(eGameProgressionFlag.HIP_GLASSES_BAG_ITEM)&&CurrentPlayerSaveEnquiries.Flags.GetValueOrDefault(eGameProgressionFlag.CHICKEN_BUCKET_BAG_ITEM),"silently dropped grants retry without restart");
  CurrentPlayerSaveEnquiries.Flags.Clear();Tick();
  Check(WeedKillerRandomization.Grants==6,"native scene overwrite reconciles without stale process latch");
- CurrentPlayerSaveEnquiries.Flags.Clear();CassetteReceiptRandomization.Ready=false;Tick();
+ CurrentPlayerSaveEnquiries.Flags.Clear();NativeGrantSaveBinding.Ready=false;Tick();
  Check(WeedKillerRandomization.Grants==6,"previous ready save cannot bypass current selected-save gate");
- CassetteReceiptRandomization.Ready=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;Tick();
+ NativeGrantSaveBinding.Ready=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;Tick();
  Check(WeedKillerRandomization.Grants==6,"consumed markers override missing inventory after successful grants");
  RootsBucketRandomization.Configure();RootsBucketRandomization.ApplySlotData(data);CurrentPlayerSaveEnquiries.Flags.Clear();WeedKillerRandomization.Grants=0;
  RootsBucketRandomization.TryApplyItem("Hip Glasses");RootsBucketRandomization.TryApplyItem("Chicken Bucket");Tick();
@@ -39,14 +39,14 @@ static class Program {
  Tick();Check(WeedKillerRandomization.Grants==2,"observed bag consumption blocks refill before delayed trade/conversion markers");
  CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.ROOTS_HUB_BUCKET_MINION_SWAPPED_FOR_GLASSES]=true;CurrentPlayerSaveEnquiries.Flags[eGameProgressionFlag.LEVEL_09_COMBO_ABILITY_EARNED]=true;Tick();
  Check(WeedKillerRandomization.Grants==2,"later trade/conversion markers preserve consumption");
- CassetteReceiptRandomization.Identity="new-save-after-consumption";CurrentPlayerSaveEnquiries.Flags.Clear();Tick();
+ NativeGrantSaveBinding.Identity="new-save-after-consumption";CurrentPlayerSaveEnquiries.Flags.Clear();Tick();
  Check(WeedKillerRandomization.Grants==4,"consumption observations are scoped to selected-save epoch");
  RootsBucketRandomization.Configure();
  RootsBucketRandomization.TryApplyItem("Hip Glasses");
- int probes=CassetteReceiptRandomization.Probes;
- Tick();Check(CassetteReceiptRandomization.Probes==probes,"a receipt cannot probe a save before slot data");
+ int probes=NativeGrantSaveBinding.Probes;
+ Tick();Check(NativeGrantSaveBinding.Probes==probes,"a receipt cannot probe a save before slot data");
  RootsBucketRandomization.ApplySlotData(new());
- Tick();Check(CassetteReceiptRandomization.Probes==probes,"incompatible slot data cannot probe a save");
+ Tick();Check(NativeGrantSaveBinding.Probes==probes,"incompatible slot data cannot probe a save");
  Console.WriteLine($"{passed} runtime scenarios passed");
  }
 }
@@ -54,17 +54,20 @@ public enum eGameProgressionFlag {HIP_GLASSES_BAG_ITEM,ROOTS_HUB_BUCKET_MINION_S
 public static class CurrentPlayerSaveEnquiries { public static Dictionary<eGameProgressionFlag,bool> Flags=new(); public static int Reads; public static bool GetProgressionFlagValue(eGameProgressionFlag flag){Reads++;return Flags.GetValueOrDefault(flag);} }
 public class PlayerSaveRequestProcessor {}
 namespace RhythmCastleAP {
- static class CassetteReceiptRandomization {
+ static class NativeGrantSaveBinding {
+  internal static void ObserveBoundSave(Action<object,string> action) => WithBoundSave(action);
+  internal static bool IsCurrentSaveBound() { bool ok=false; WithBoundSave((_,_) => ok=true); return ok; }
+
   internal static bool Ready;internal static int Probes;internal static string Identity="save-a";
   internal static PlayerSaveRequestProcessor? SelectedProcessor;
-  internal static void WithStableQuestItemSave(Action<object,string> action){
+  internal static void WithBoundSave(Action<object,string> action){
    Probes++;
    if(!Ready)return;
    SelectedProcessor=new PlayerSaveRequestProcessor();
    try{action(SelectedProcessor,Identity);}finally{SelectedProcessor=null;}
   }
  }
- static class WeedKillerRandomization {internal static int Grants;internal static bool Drop;internal static bool TrySubmitProgressionFlag(object p,string flag,bool value,out string detail){if(p!=CassetteReceiptRandomization.SelectedProcessor)throw new Exception("Grant used a processor outside the selected save");Grants++;if(!Drop)CurrentPlayerSaveEnquiries.Flags[Enum.Parse<eGameProgressionFlag>(flag)]=value;detail="test";return true;} }
+ static class WeedKillerRandomization {internal static int Grants;internal static bool Drop;internal static bool TrySubmitProgressionFlag(object p,string flag,bool value,out string detail){if(p!=NativeGrantSaveBinding.SelectedProcessor)throw new Exception("Grant used a processor outside the selected save");Grants++;if(!Drop)CurrentPlayerSaveEnquiries.Flags[Enum.Parse<eGameProgressionFlag>(flag)]=value;detail="test";return true;} }
  static class ReflectionUtil {internal static Assembly GameAssembly=>Assembly.GetExecutingAssembly();internal static Type[] SafeGetTypes(Assembly a)=>a.GetTypes();internal static bool? ReadBool(object o,string n)=>(bool?)o.GetType().GetProperty(n)?.GetValue(o);internal static object? ReadMember(object o,string n)=>null;}
  static class DeveloperHarness {internal static string CurrentRoomId="GameRoom_Hub2";}
  static class Plugin {internal static Logger? LoggerInstance=new();internal static Api? AP=new();}

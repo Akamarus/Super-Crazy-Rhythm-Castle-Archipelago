@@ -11,14 +11,13 @@ internal sealed class ApStarSessionHistory
     private int _receivedCount, _stars;
     private bool _configured, _historyReady, _historyInvalid;
     internal ApStarSessionHistory(long generation, ApStarState state) { _generation=generation; _state=state; }
-    internal ApStarSettings ApplySlotData(Dictionary<string,object>? data, string identity, bool cellTowerPathReady, bool lobbyDoorsReady = true, bool bunkerReady = true)
+    internal void Configure(string identity, ApStarSettings settings)
     {
         lock (_sync)
         {
-            var settings=ApStarContract.Validate(data, cellTowerPathReady, lobbyDoorsReady, bunkerReady);
             _state.Configure(_generation,identity,settings);_configured=true;
             if (_historyInvalid) _state.SuspendHistory(_generation);
-            Publish();return settings;
+            Publish();
         }
     }
     internal void HandlePacket(ArchipelagoPacketBase packet)

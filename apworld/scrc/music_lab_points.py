@@ -83,9 +83,7 @@ MUSIC_LAB_POINT_TOTAL_INSTANCES = len(MUSIC_LAB_POINT_POOL)
 MUSIC_LAB_POINT_TOTAL_VALUE = sum(
     entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS
 )
-MUSIC_LAB_POINT_MAX_EFFECTIVE = sum(
-    entry.value * entry.count for entry in MUSIC_LAB_POINT_ITEMS
-)
+MUSIC_LAB_POINT_MAX_EFFECTIVE = MUSIC_LAB_POINT_TOTAL_VALUE
 
 
 def weighted_music_lab_points(state, player: int) -> int:

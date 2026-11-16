@@ -22,7 +22,7 @@ namespace BepInEx {
 namespace RhythmCastleAP {
  internal static class Plugin { internal static TestLog LoggerInstance=new(); internal static TestAP AP=new(); }
  internal sealed class TestLog { internal void LogInfo(string text){} internal void LogError(string text){} }
- internal sealed class TestAP { internal readonly List<string> Queued=new(); internal void QueueLocation(string name)=>Queued.Add(name); }
+ internal sealed class TestAP { internal readonly List<string> Queued=new(); internal void QueueLocation(string name)=>Queued.Add(name); internal bool QueueExpandedLocation(string name, string identity) { Queued.Add(name); return true; } }
  internal static class DeveloperHarness { internal static string CurrentRoomId="GameRoom_Hub6"; }
  internal static class ReflectionUtil {
   internal static Assembly GameAssembly=>typeof(CurrentPlayerSaveEnquiries).Assembly;

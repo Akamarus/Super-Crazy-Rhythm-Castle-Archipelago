@@ -19,6 +19,9 @@ Setup("variant");Start();Complete();Persist("LevelVariant_DevilMode");Tick();Che
 Setup("boundary");Start();Complete();ApStars.OnNativeBoundary();Persist();Tick();Check(sends==2,"explicit lifecycle boundary drops attempt");
 Setup("apply-mismatch");Start();Complete();ApStars.BeforeApplyResult(new {LevelIdentifier="Level_14",LevelVariantIdentifier="LevelVariant_Default"});Persist();Tick();Check(sends==2,"unrelated apply cannot bind candidate");
 Setup("unready");CassetteReceiptRandomization.Ready=false;Start();Complete();Persist();Tick();Check(sends==2,"unstable native save cannot qualify");
+Setup("wrong-bound-save");NativeGrantSaveBinding.WrongSlot=true;Start();Complete();Persist();Tick();
+Check(sends==2,"a stable save from a different native slot cannot earn Victory for the room");
+NativeGrantSaveBinding.WrongSlot=false;
 Directory.CreateDirectory(dir);string bad=Path.Combine(dir,"not-a-directory");File.WriteAllText(bad,"block");Setup("diskfail",25,bad);Start();Complete();Persist();Tick();Check(sends==2,"journal failure prevents goal delivery");
 Setup("getter");DeveloperHarness.CurrentRoomId="GameRoom_Hub2";ApStarEaterThresholds.CurrentRoomReady=false;Check(ApStars.ResolveTotal(66)==0,"unapplied eater threshold fails closed");ApStarEaterThresholds.CurrentRoomReady=true;Check(ApStars.ResolveTotal(66)==25,"ready eater uses AP currency");Check(!ApStars.CanEnter("",""),"active unknown identity denied");
 foreach (string room in new[] { "GameRoom_Hub5B", "GameRoom_Hub8" })
@@ -77,7 +80,15 @@ namespace RhythmCastleAP {
  internal static class Plugin {internal static Log? LoggerInstance;}internal class Log{public void LogInfo(string s){}public void LogError(string s){}}
  internal static class DeveloperHarness{internal static string CurrentRoomId="GameRoom_Hub7";}
  internal static class CassetteReceiptRandomization{internal static bool Ready=true;internal static string Save="epoch:a";internal static void WithStableQuestItemSave(Action<object,string>a){if(Ready)a(new object(),Save);}}
- internal static class ApStarEaterThresholds{internal static bool CurrentRoomReady=true;internal static bool CanUseStarTotal(string room)=>CurrentRoomReady;internal static void Tick(string r,IReadOnlyDictionary<string,int>? m){}}
+ internal static class NativeGrantSaveBinding
+ {
+     internal static bool WrongSlot;
+     internal static void WithCheckSave(Action<string,string> action)
+     {
+         if (!WrongSlot) CassetteReceiptRandomization.WithStableQuestItemSave((_, save) => action(ApStars.State.Identity, save));
+     }
+ }
+ internal static class ApStarEaterThresholds{internal static bool CurrentRoomReady=true;internal static bool CanUseStarTotal(string room,IReadOnlyDictionary<string,int>? settings)=>CurrentRoomReady;internal static void Tick(string r,IReadOnlyDictionary<string,int>? m){}}
 }
 namespace BepInEx{public static class Paths{public static string ConfigPath=>Path.GetTempPath();}}
 namespace UnityEngine{public static class Time{public static float unscaledTime;}public static class Screen{public static int height=>1080;public static int width=>1920;}public struct Rect{public Rect(int a,int b,int c,int d){}}public enum TextAnchor{MiddleCenter}public class GUIStyle{public GUIStyle(object o){}public int fontSize;public bool wordWrap,richText;public TextAnchor alignment;}public class GUISkin{public object box=new();}public static class GUI{public static int depth;public static GUISkin skin=new();public static string Last="";public static void Box(Rect r,string s){Last=s;}public static void Box(Rect r,string s,GUIStyle style){Last=s;}}}

@@ -2,7 +2,9 @@
 
 Unofficial Windows Archipelago integration for Super Crazy Rhythm Castle, combining a C# BepInEx/IL2CPP client with a Python APWorld.
 
-Release **v0.30.1 / Client 0.77.1 / APWorld 0.30.0** supports schema 21 Bunker seeds and older seeds using schemas 19 and 20.
+The [November source review](testing/2026-11-12-source-review.md) covers the released client's progression, save, connection and performance changes. It identifies the remaining in-game acceptance checks.
+
+Release **v0.30.2 / Client 0.77.2 / APWorld 0.30.1** supports schema 21 Bunker seeds and older seeds using schemas 19 and 20.
 
 ## Implemented systems
 
@@ -21,6 +23,8 @@ A Hard/40-Star run completed with server-confirmed Victory without assistance. R
 
 Schemas 19 and 20 retain their original rules and placements.
 
+The unreleased client supports reconnecting after a plugin reload in the same game process. The [testing notes](TESTING.md#unreleased-client-audit-fixes) cover the automated connection test and the remaining in-game check.
+
 [Progression](PROGRESSION.md) · [IDs](IDS.md) · [Workflow](WORKFLOW.md) · [Historical overview](archive/checkpoints/docs-PROJECT_OVERVIEW.md)
 
 ## Cell Tower escape repair
@@ -29,7 +33,7 @@ Client 0.76.2 keeps the Central Mainframe return gate usable for Cell Tower Acce
 
 ## Lobby door access
 
-Lobby Access opens the Demolition Training and School Trip entrances in new seeds. Generated Star requirements still apply. See the [Lobby door rules](PROGRESSION.md#lobby-door-access-in-v0300) and [test record](testing/2026-10-28-lobby-doors.md).
+Lobby Access opens the Demolition Training door. Reaching School Trip requires finishing Boring Room and delivering the Important Letters. Both levels keep their own Star gates, and School Trip can be played before Demolition Training. See the [Lobby door rules](PROGRESSION.md#lobby-door-access-in-v0300).
 
 ## Bunker and True Ending
 

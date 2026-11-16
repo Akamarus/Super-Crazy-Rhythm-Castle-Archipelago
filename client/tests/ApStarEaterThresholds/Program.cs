@@ -5,11 +5,11 @@ using UnityEngine;
 int checks=0;
 void Check(bool ok,string name){if(!ok)throw new Exception(name);checks++;}
 var map=new Dictionary<string,int>{{"Roots",1}};
-Check(ApStarEaterThresholds.CanUseStarTotal("song"), "ordinary room can read stars before its first update");
-Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2"), "new eater room waits for its own threshold");
+Check(ApStarEaterThresholds.CanUseStarTotal("song",map), "ordinary room can read stars before its first update");
+Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2",map), "new eater room waits for its own threshold");
 ApStarEaterThresholds.Tick("GameRoom_Hub2",map);
-Check(ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2"),"threshold successfully applied");
-Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub5B"), "a second eater room cannot use the previous threshold");
+Check(ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2",map),"threshold successfully applied");
+Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub5B",map), "a second eater room cannot use the previous threshold");
 Check(IL2CPP.Current==IL2CPP.NewObject && IL2CPP.Value==1,"exact constructed object pointer assigned");
 Check(IL2CPP.Writes==1,"single write");
 ApStarEaterThresholds.Tick("GameRoom_Hub2",map);
@@ -19,7 +19,7 @@ Check(IL2CPP.Current==IL2CPP.Original,"room change restores original object");
 ApStarEaterThresholds.Tick("GameRoom_Hub2",map);
 ApStarEaterThresholds.Tick("GameRoom_Hub2",null);
 Check(IL2CPP.Current==IL2CPP.Original && !ApStarEaterThresholds.CurrentRoomReady,"contract removal restores original");
-Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2"), "restored vanilla threshold blocks AP star reads in this room");
+Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2",map), "restored vanilla threshold blocks AP star reads in this room");
 ApStarEaterThresholds.Tick("GameRoom_Hub2",map);
 IL2CPP.Current=(IntPtr)999;
 ApStarEaterThresholds.Restore();
@@ -38,6 +38,19 @@ Check(IL2CPP.Current == IL2CPP.NewObject && !ApStarEaterThresholds.CurrentRoomRe
     "a rejected release leaves the owned field live");
 Check(ApStarEaterThresholds.Restore(), "unload succeeds after the setter releases the field");
 Check(IL2CPP.Current == IL2CPP.Original, "a later release retries the owned field");
+Time.frameCount += 100;
+ApStarEaterThresholds.Tick("GameRoom_Hub2", map);
+var changed = new Dictionary<string, int> { ["Roots"] = 2 };
+Check(!ApStarEaterThresholds.CanUseStarTotal("GameRoom_Hub2",changed), "a new room contract cannot use the old threshold before a tick");
+ApStarEaterThresholds.Tick("GameRoom_Hub2", changed);
+Check(!ApStarEaterThresholds.CurrentRoomReady, "a throttled change stays pending");
+ApStarEaterThresholds.Tick("GameRoom_Hub2", new Dictionary<string,int> { ["Royal Corridor"] = 25 });
+Check(IL2CPP.Current == IL2CPP.Original, "a partial legacy map restores the prior room threshold");
+Time.frameCount += 100;
+int writes = IL2CPP.Writes;
+IL2CPP.WrongConstructor = true;
+ApStarEaterThresholds.Tick("GameRoom_Hub2", map);
+Check(!ApStarEaterThresholds.CurrentRoomReady && IL2CPP.Writes == writes, "a mismatched native constructor cannot replace a threshold");
 Console.WriteLine($"{checks} Star Eater reference lifecycle checks passed");
 namespace Il2CppSystem {public class Object {public IntPtr Pointer; public Object(IntPtr p){Pointer=p;}}}
 namespace UnityEngine {
@@ -58,6 +71,11 @@ namespace Il2CppInterop.Runtime {
   public static IntPtr il2cpp_field_get_value_object(IntPtr f,IntPtr o){if(f==(IntPtr)31){Marshal.WriteInt32(Box,302);return Box;}return Current;}
   public static IntPtr il2cpp_object_unbox(IntPtr p)=>p;
   public static IntPtr il2cpp_class_get_method_from_name(IntPtr p,string n,int c)=>(IntPtr)41;
+  public static bool WrongConstructor;
+  public static IntPtr il2cpp_method_get_param(IntPtr method, uint index) => (IntPtr)77;
+  public static IntPtr il2cpp_field_get_type(IntPtr field) => field;
+  public static string il2cpp_type_get_name_(IntPtr type) => type==(IntPtr)31 ? "eGameProgressionFlag" :
+   type==(IntPtr)32 ? "DefinedInt" : WrongConstructor ? "System.String" : "System.Int32";
   public static IntPtr il2cpp_object_new(IntPtr p)=>NewObject;
   public static unsafe IntPtr il2cpp_runtime_invoke(IntPtr m,IntPtr o,void** args,ref IntPtr exception){Value=*(int*)args[0];exception=IntPtr.Zero;return IntPtr.Zero;}
   public static void il2cpp_field_set_value_object(IntPtr instance,IntPtr field,IntPtr value){

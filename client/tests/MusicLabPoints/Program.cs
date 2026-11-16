@@ -85,14 +85,19 @@ using (var exporter = System.Diagnostics.Process.Start(new System.Diagnostics.Pr
     foreach (var world in worlds)
     {
         var data = RoundTripSlotData(world);
+        var routingVersion = (string)data["implementation_version"];
+        Equal(true, RepairCompatibilityPolicy.IsCompatible(routingVersion, (bool)data["plant_pipes_durable_reconciliation"]),
+            "generated implementation markers preserve Plant Pipes");
+        Equal(true, RootsBucketRandomizationPolicy.IsCompatible(routingVersion, (bool)data["randomize_hip_glasses_chicken_bucket"]),
+            "generated implementation markers preserve Hip Glasses and Chicken Bucket");
         Equal(CampaignLocationCompatibilityMode.Compatible, CampaignLocationContract.Validate(data).Mode,
             "current APWorld wire data enables campaign mapping");
         Equal(MusicLabPointCompatibilityMode.Compatible, MusicLabPointContract.ValidateSlotData(data).Mode,
             "current APWorld wire data enables AP Music Lab Points");
         PacketHistoryTests.Run(() => world);
-        MusicLabPointRandomization.ApplySlotData(data, "game", "current-world", "slot", 200);
-        MusicLabPointRandomization.SynchronizeHistory(200,
-            new[] { new MusicLabPointReceipt(0, 187256153), new MusicLabPointReceipt(1, 187256154), new MusicLabPointReceipt(2, 187256155) });
+        MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(data, "game", "current-world", "slot"), 200);
+        PointTestInputs.Publish(200,
+            new[] { 187256153L, 187256154L, 187256155L });
         Equal(31, MusicLabPointRandomization.ResolveEffectiveScore(99), "current contract uses weighted AP history for effective score");
         foreach (string field in new[] { "schema_version", "music_lab_points_schema", "music_lab_point_values", "implementation_version" })
         {
@@ -262,9 +267,9 @@ Equal(0, runtime.ResolveEffectiveScore(42), "awaiting defers the native score");
 
 runtime.Synchronize(identity, new[]
 {
-    new MusicLabPointReceipt(1, 187256153),
-    new MusicLabPointReceipt(2, 187256154),
-    new MusicLabPointReceipt(3, 187256155),
+    187256153L,
+    187256154L,
+    187256155L,
 });
 Equal(MusicLabPointRuntimeMode.Synchronized, runtime.Snapshot.Mode, "history synchronizes");
 Equal(31, runtime.Snapshot.Total, "weighted receipts sum");
@@ -273,15 +278,14 @@ Equal(31, runtime.ResolveEffectiveScore(42), "synchronized returns the synchroni
 
 runtime.Synchronize(identity, new[]
 {
-    new MusicLabPointReceipt(1, 187256153),
-    new MusicLabPointReceipt(1, 187256155),
-    new MusicLabPointReceipt(2, 187256154),
-    new MusicLabPointReceipt(3, 999999999),
+    187256153L,
+    187256154L,
+    999999999L,
 });
-Equal(11, runtime.Snapshot.Total, "duplicate receipt indexes cannot change sum");
+Equal(11, runtime.Snapshot.Total, "known point denominations still accumulate beside an unknown item");
 Equal(2, runtime.Snapshot.AcceptedInstances, "unknown IDs are ignored");
 
-runtime.Synchronize(identity, Enumerable.Range(0, 30).Select(index => new MusicLabPointReceipt(index, 187256155)));
+runtime.Synchronize(identity, Enumerable.Range(0, 30).Select(index => 187256155L));
 Equal(180, runtime.Snapshot.Total, "point total saturates at cap");
 Equal(30, runtime.Snapshot.AcceptedInstances, "all known receipt instances are counted");
 
@@ -292,8 +296,8 @@ runtime.Configure(compatible, identity);
 Equal(MusicLabPointRuntimeMode.RetainedDisconnected, runtime.Snapshot.Mode, "same identity reconnect retains total");
 runtime.Synchronize(identity, new[]
 {
-    new MusicLabPointReceipt(1, 187256153),
-    new MusicLabPointReceipt(2, 187256155),
+    187256153L,
+    187256155L,
 });
 Equal(MusicLabPointRuntimeMode.Synchronized, runtime.Snapshot.Mode, "same identity reconnect accepts refreshed history");
 Equal(21, runtime.Snapshot.Total, "refreshed history replaces retained total");
@@ -312,7 +316,7 @@ Equal(0, runtime.Snapshot.AcceptedInstances, "reset clears receipts");
 
 MusicLabPointRandomization.Configure();
 Equal(42, MusicLabPointRandomization.ResolveEffectiveScore(42), "adapter starts native");
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a", 1L);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a"), 1L);
 Equal(MusicLabPointRuntimeMode.AwaitingInitialSynchronization, MusicLabPointRandomization.Snapshot.Mode, "adapter validates slot data before history");
 foreach (string name in new[] { "Music Lab Point", "Music Lab Point Bundle", "Music Lab Point Large Bundle" })
 {
@@ -322,39 +326,39 @@ foreach (string name in new[] { "Music Lab Point", "Music Lab Point Bundle", "Mu
 Equal(false, MusicLabPointRandomization.TryHandleItemName("music lab point"), "item name matching is exact");
 Equal(false, MusicLabPointRandomization.TryHandleItemName("Stardust"), "unknown item is not consumed");
 
-MusicLabPointReceipt[] history = { new(0, 187256153), new(1, 187256155), new(2, 187256155), new(3, 999999999) };
-MusicLabPointRandomization.SynchronizeHistory(1L, history);
+long[] history = { 187256153, 187256155, 187256155, 999999999 };
+PointTestInputs.Publish(1L, history);
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "authoritative history includes each permanent-ID instance");
 Equal(3, MusicLabPointRandomization.Snapshot.AcceptedInstances, "unknown IDs do not count");
 int logCount = Plugin.LoggerInstance.Messages.Count;
-MusicLabPointRandomization.SynchronizeHistory(1L, history);
+PointTestInputs.Publish(1L, history);
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "replayed history replaces rather than increments");
 Equal(logCount, Plugin.LoggerInstance.Messages.Count, "unchanged history does not log again");
 MusicLabPointRandomization.OnDisconnected(99L);
 Equal(MusicLabPointRuntimeMode.Synchronized, MusicLabPointRandomization.Snapshot.Mode, "stale disconnect is ignored");
 MusicLabPointRandomization.OnDisconnected(1L);
 Equal(MusicLabPointRuntimeMode.RetainedDisconnected, MusicLabPointRandomization.Snapshot.Mode, "disconnect retains synchronized matching identity");
-MusicLabPointRandomization.SynchronizeHistory(1L, Array.Empty<MusicLabPointReceipt>());
+PointTestInputs.Publish(1L, Array.Empty<long>());
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "ended generation cannot overwrite retained points");
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a", 2L);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-a", "slot-a"), 2L);
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "same identity reconnect retains points before history");
-MusicLabPointRandomization.SynchronizeHistory(1L, Array.Empty<MusicLabPointReceipt>());
+PointTestInputs.Publish(1L, Array.Empty<long>());
 Equal(41, MusicLabPointRandomization.Snapshot.Total, "old callback cannot overwrite reconnect");
-MusicLabPointRandomization.SynchronizeHistory(2L, new[] { new MusicLabPointReceipt(0, 187256154) });
+PointTestInputs.Publish(2L, new[] { 187256154L });
 Equal(10, MusicLabPointRandomization.ResolveEffectiveScore(99), "adapter score uses refreshed history");
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-b", "slot-a", 3L);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "Super Crazy Rhythm Castle", "seed-b", "slot-a"), 3L);
 Equal(0, MusicLabPointRandomization.Snapshot.Total, "replacement identity cannot inherit an old total");
-MusicLabPointRandomization.SynchronizeHistory(2L, history);
+PointTestInputs.Publish(2L, history);
 Equal(0, MusicLabPointRandomization.Snapshot.Total, "replacement rejects previous identity callback");
-MusicLabPointRandomization.SynchronizeHistory(3L, history);
+PointTestInputs.Publish(3L, history);
 MusicLabPointRandomization.Reset();
-MusicLabPointRandomization.SynchronizeHistory(3L, history);
+PointTestInputs.Publish(3L, history);
 Equal(MusicLabPointRuntimeMode.Native, MusicLabPointRandomization.Snapshot.Mode, "shutdown reset rejects late history");
 Equal(0, MusicLabPointRandomization.Snapshot.Total, "shutdown clears authoritative total");
-MusicLabPointRandomization.ApplySlotData(new Dictionary<string, object> { ["implementation_version"] = V023 }, "Super Crazy Rhythm Castle", "seed-a", "slot-a", 4L);
-MusicLabPointRandomization.SynchronizeHistory(4L, history);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(new Dictionary<string, object> { ["implementation_version"] = V023 }, "Super Crazy Rhythm Castle", "seed-a", "slot-a"), 4L);
+PointTestInputs.Publish(4L, history);
 Equal(0, MusicLabPointRandomization.ResolveEffectiveScore(99), "invalid contract fails closed in adapter");
-MusicLabPointRandomization.ApplySlotData(null, "Super Crazy Rhythm Castle", "legacy", "slot-a", 5L);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(null, "Super Crazy Rhythm Castle", "legacy", "slot-a"), 5L);
 Equal(99, MusicLabPointRandomization.ResolveEffectiveScore(99), "legacy adapter keeps native score");
 MusicLabPointRandomization.Reset();
 
@@ -391,14 +395,14 @@ foreach (string mode in new[] { "non-ap", "legacy", "awaiting", "synchronized", 
 {
     MusicLabPointRandomization.Reset();
     if (mode == "legacy")
-        MusicLabPointRandomization.ApplySlotData(new() { ["implementation_version"] = V022 }, "game", "score-test", "slot", 50);
+        MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(new() { ["implementation_version"] = V022 }, "game", "score-test", "slot"), 50);
     else if (mode != "non-ap")
     {
         var data = CompatibleSlotData();
         if (mode == "incompatible") data.Remove("music_lab_point_total_value");
-        MusicLabPointRandomization.ApplySlotData(data, "game", "score-test", "slot", 50);
+        MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(data, "game", "score-test", "slot"), 50);
         if (mode is "synchronized" or "retained")
-            MusicLabPointRandomization.SynchronizeHistory(50, new[] { new MusicLabPointReceipt(0, 187256154), new MusicLabPointReceipt(1, 187256155) });
+            PointTestInputs.Publish(50, new[] { 187256154L, 187256155L });
         if (mode == "retained") MusicLabPointRandomization.OnDisconnected(50);
     }
     foreach (string room in new[] { "GameRoom_Hub6", "GameRoom_Hub2", "GameRoom_Hub6_Logic", "", "GameRoom_Level27" })
@@ -432,34 +436,34 @@ Equal(unavailableLogCount, Plugin.LoggerInstance.Messages.Count, "unavailable ge
 MusicLabPointRandomization.ReportGetterAvailability(true);
 Contains("MusicLabPointRandomization.ReportGetterAvailability(musicLabScorePatches > 0)", pluginSource,
     "production patch outcome reports getter availability");
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 60);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "game", "logs", "slot"), 60);
 Contains("contract accepted", string.Join('\n', Plugin.LoggerInstance.Messages), "accepted contract is observable");
 Contains("awaiting", string.Join('\n', Plugin.LoggerInstance.Messages), "awaiting history is observable");
 int acceptedLogCount = Plugin.LoggerInstance.Messages.Count;
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 60);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "game", "logs", "slot"), 60);
 Equal(acceptedLogCount, Plugin.LoggerInstance.Messages.Count, "repeated contract does not repeat logs");
-MusicLabPointRandomization.SynchronizeHistory(60, new[] { new MusicLabPointReceipt(0, 187256155) });
+PointTestInputs.Publish(60, new[] { 187256155L });
 Contains("instances=1", string.Join('\n', Plugin.LoggerInstance.Messages), "synchronization includes instance count");
 MusicLabPointRandomization.OnDisconnected(60);
 Contains("retained", string.Join('\n', Plugin.LoggerInstance.Messages), "disconnect retention is observable");
-MusicLabPointRandomization.ApplySlotData(CompatibleSlotData(), "game", "logs", "slot", 61);
-MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256154) });
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(CompatibleSlotData(), "game", "logs", "slot"), 61);
+PointTestInputs.Publish(61, new[] { 187256154L });
 Contains("reconnect rebuild", string.Join('\n', Plugin.LoggerInstance.Messages), "reconnect rebuild is observable");
 Contains("previous=20 total=10", string.Join('\n', Plugin.LoggerInstance.Messages), "reconnect correction reports old and rebuilt totals");
-var excessHistory = Enumerable.Range(0, 10).Select(i => new MusicLabPointReceipt(i, 187256155)).ToArray();
-MusicLabPointRandomization.SynchronizeHistory(61, excessHistory);
+var excessHistory = Enumerable.Range(0, 10).Select(i => 187256155L).ToArray();
+PointTestInputs.Publish(61, excessHistory);
 Contains("cap anomaly", string.Join('\n', Plugin.LoggerInstance.Messages), "overflow beyond cap is observable");
 int anomalyLogCount = Plugin.LoggerInstance.Messages.Count;
-MusicLabPointRandomization.SynchronizeHistory(61, excessHistory);
+PointTestInputs.Publish(61, excessHistory);
 Equal(anomalyLogCount, Plugin.LoggerInstance.Messages.Count, "replayed anomaly and state remain quiet");
-MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 187256103), new MusicLabPointReceipt(1, 187256152), new MusicLabPointReceipt(2, 187256164), new MusicLabPointReceipt(3, 187256183) });
+PointTestInputs.Publish(61, new[] { 187256103L, 187256152L, 187256164L, 187256183L });
 Equal(false, Plugin.LoggerInstance.Messages.Any(m => m.Contains("unknown received item ID", StringComparison.Ordinal)), "valid unrelated SCRC IDs are quiet");
-MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 999999999) });
+PointTestInputs.Publish(61, new[] { 999999999L });
 Contains("unknown received item ID ignored for Music Lab Points", string.Join('\n', Plugin.LoggerInstance.Messages), "unrecognized received ID is observable");
 int unknownLogCount = Plugin.LoggerInstance.Messages.Count;
-MusicLabPointRandomization.SynchronizeHistory(61, new[] { new MusicLabPointReceipt(0, 999999998) });
+PointTestInputs.Publish(61, new[] { 999999998L });
 Equal(unknownLogCount, Plugin.LoggerInstance.Messages.Count, "unknown IDs log once per AP identity");
-MusicLabPointRandomization.ApplySlotData(new() { ["implementation_version"] = V023 }, "game", "invalid", "slot", 62);
+MusicLabPointRandomization.Apply(MusicLabPointRoom.Read(new() { ["implementation_version"] = V023 }, "game", "invalid", "slot"), 62);
 Contains("contract rejected", string.Join('\n', Plugin.LoggerInstance.Messages), "incompatibility is observable");
 MusicLabPointRandomization.Reset();
 Console.WriteLine("PASS: bounded_contract_history_reconnect_anomaly_and_getter_logs");

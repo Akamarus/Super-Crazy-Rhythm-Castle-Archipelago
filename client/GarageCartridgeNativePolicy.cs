@@ -26,6 +26,12 @@ internal readonly record struct GarageCartridgeProgressionFlag(
 
 internal static class GarageCartridgeNativePolicy
 {
+    internal static string ResultSong(string observed, string evaluated)
+    {
+        if (string.IsNullOrEmpty(observed)) return evaluated;
+        return string.IsNullOrEmpty(evaluated) || evaluated == observed ? observed : string.Empty;
+    }
+
     internal static readonly GarageCartridgeNativeDefinition[] AllCartridges =
     {
         new(

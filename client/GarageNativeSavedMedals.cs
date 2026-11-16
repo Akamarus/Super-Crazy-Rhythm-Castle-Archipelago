@@ -40,7 +40,8 @@ internal static class GarageNativeSavedMedals
                 Bindings.Add(getter, binding);
             }
         }
-        int song = Convert.ToInt32(Enum.Parse(binding.Song, nativeSong));
+        if (!Enum.TryParse(binding.Song, nativeSong, out object? parsed)) return null;
+        int song = Convert.ToInt32(parsed);
         void** args = stackalloc void*[1];
         args[0] = &song;
         IntPtr exception = IntPtr.Zero;

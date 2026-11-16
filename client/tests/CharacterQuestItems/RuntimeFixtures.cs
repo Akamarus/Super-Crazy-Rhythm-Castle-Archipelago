@@ -14,10 +14,13 @@ internal static class CurrentPlayerSaveEnquiries {
  internal static bool Maniac, Fail;
  public static bool IsCharacterUnlocked(ePlayableCharacter character) { if(Fail) throw new Exception(); return Maniac; }
 }
-internal static class CassetteReceiptRandomization {
+internal static class NativeGrantSaveBinding {
+  internal static void ObserveBoundSave(Action<object,string> action) => WithBoundSave(action);
+  internal static bool IsCurrentSaveBound() { bool ok=false; WithBoundSave((_,_) => ok=true); return ok; }
+
  internal static bool Stable;
  internal static string Identity = "slot4:epoch1";
- internal static void WithStableQuestItemSave(Action<object,string> action) { if(Stable) action(new object(),Identity); }
+ internal static void WithBoundSave(Action<object,string> action) { if(Stable) action(new object(),Identity); }
 }
 internal static class RootsBucketRandomization {
  internal static Dictionary<string,bool> Flags = new();

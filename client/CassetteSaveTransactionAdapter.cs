@@ -80,8 +80,7 @@ internal static class CassetteSaveTransactionAdapter
         try
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries");
-            MethodInfo? method = enquiries?.GetMethod(
-                "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            MethodInfo? method = FindEnquiry(enquiries, "IsAValidExistingSaveSelected");
             valid = method?.Invoke(null, null) is true;
         }
         catch
@@ -92,8 +91,7 @@ internal static class CassetteSaveTransactionAdapter
         try
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries", processor?.GetType().Assembly);
-            MethodInfo? method = enquiries?.GetMethod(
-                "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            MethodInfo? method = FindEnquiry(enquiries, "TryGetSelectedSlotSaveFileState");
             if (method != null &&
                 TryUnwrapPublicDiagnosticNullable(
                     ReadPublicNullableMethod(method, null!, Array.Empty<object?>()), "selected-state",
@@ -264,7 +262,7 @@ internal static class CassetteSaveTransactionAdapter
             if (obtainState == null) { stage = "processor-identity-obtain-state-missing"; return false; }
             object? currentState = obtainState.Invoke(processor, null);
             if (currentState == null) { stage = "processor-identity-state-null"; return false; }
-            PropertyInfo? pointerProperty = currentState.GetType().GetProperty("Pointer", PublicInstance);
+            PropertyInfo? pointerProperty = PointerProperty(currentState.GetType());
             object? rawPointer = pointerProperty?.GetValue(currentState);
             if (rawPointer is not IntPtr pointer) { stage = "processor-identity-pointer-missing"; return false; }
             if (pointer == IntPtr.Zero) { stage = "processor-identity-pointer-zero"; return false; }
@@ -493,16 +491,14 @@ internal static class CassetteSaveTransactionAdapter
         {
             Type? enquiries = FindType("PlayerSaveManagementEnquiries");
             if (enquiries == null) { stage = "readiness-enquiries-owner-missing"; return false; }
-            MethodInfo? validityMethod = enquiries.GetMethod(
-                "IsAValidExistingSaveSelected", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            MethodInfo? validityMethod = FindEnquiry(enquiries, "IsAValidExistingSaveSelected");
             if (validityMethod == null) { stage = "readiness-selected-save-validity-method-missing"; return false; }
             stage = "readiness-selected-save-validity-get";
             object? rawValidity = validityMethod.Invoke(null, null);
             if (rawValidity is not bool valid) { stage = "readiness-selected-save-validity-invalid"; return false; }
             if (!valid) { stage = "readiness-selected-save-invalid"; return false; }
 
-            MethodInfo? stateMethod = enquiries.GetMethod(
-                "TryGetSelectedSlotSaveFileState", PublicStatic, binder: null, types: Type.EmptyTypes, modifiers: null);
+            MethodInfo? stateMethod = FindEnquiry(enquiries, "TryGetSelectedSlotSaveFileState");
             if (stateMethod == null) { stage = "readiness-selected-state-method-missing"; return false; }
             stage = "readiness-selected-state-get";
             object? rawSelectedState = ReadPublicNullableMethod(stateMethod, null!, Array.Empty<object?>());
@@ -807,8 +803,7 @@ internal static class CassetteSaveTransactionAdapter
 
         Type? songType = FindType("ePlayableSong", preferredAssembly);
         if (songType?.IsEnum != true) { stage = $"{label}-song-type-missing"; return false; }
-        MethodInfo? effectiveMethod = stateType.GetMethod(
-            "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
+        MethodInfo? effectiveMethod = FindStatusGetter(stateType, PublicInstance, songType);
         if (effectiveMethod == null) { stage = $"{label}-effective-status-method-missing"; return false; }
         PropertyInfo? progressionProperty = stateType.GetProperty("GameProgression", PublicInstance);
         if (progressionProperty != null && progressionProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
@@ -832,7 +827,7 @@ internal static class CassetteSaveTransactionAdapter
         foreach (string nativeSong in nativeSongs.Distinct(StringComparer.Ordinal).OrderBy(song => song, StringComparer.Ordinal))
         {
             stage = $"{label}-status-{nativeSong}-song-parse";
-            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            object song = ParseSong(songType, nativeSong);
             stage = $"{label}-status-{nativeSong}-effective-invoke";
             string? effective = effectiveMethod.Invoke(nativeState, new[] { song })?.ToString();
             if (string.IsNullOrWhiteSpace(effective)) { stage = $"{label}-status-{nativeSong}-effective-empty"; return false; }
@@ -946,7 +941,7 @@ internal static class CassetteSaveTransactionAdapter
             if (!TryObtainPublicState(processor, "write-diagnostic", out object? nativeState, out stage))
                 return false;
             Type stateType = nativeState!.GetType();
-            PropertyInfo? pointerProperty = stateType.GetProperty("Pointer", PublicInstance);
+            PropertyInfo? pointerProperty = PointerProperty(stateType);
             if (pointerProperty == null) { stage = "write-diagnostic-pointer-missing"; return false; }
             stage = "write-diagnostic-pointer-get";
             object? rawPointer = pointerProperty.GetValue(nativeState);
@@ -1021,13 +1016,12 @@ internal static class CassetteSaveTransactionAdapter
             {
                 Type? songType = FindType("ePlayableSong", processor!.GetType().Assembly);
                 if (songType?.IsEnum != true) { stage = "write-diagnostic-status-song-type-missing"; return false; }
-                MethodInfo? readStatus = stateType.GetMethod(
-                    "GetCassetteStatusForSong", PublicInstance, binder: null, types: new[] { songType }, modifiers: null);
+                MethodInfo? readStatus = FindStatusGetter(stateType, PublicInstance, songType);
                 if (readStatus == null) { stage = "write-diagnostic-status-method-missing"; return false; }
                 foreach (string nativeSong in songs)
                 {
                     stage = $"write-diagnostic-status-{nativeSong}-song-parse";
-                    object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+                    object song = ParseSong(songType, nativeSong);
                     stage = $"write-diagnostic-status-{nativeSong}-invoke";
                     string? nativeStatus = readStatus.Invoke(nativeState, new[] { song })?.ToString();
                     if (string.IsNullOrWhiteSpace(nativeStatus))
@@ -1257,7 +1251,7 @@ internal static class CassetteSaveTransactionAdapter
     private static bool TryReadPublicPointer(object state, string label, out long pointerValue, out string stage)
     {
         pointerValue = 0;
-        PropertyInfo? pointerProperty = state.GetType().GetProperty("Pointer", PublicInstance);
+        PropertyInfo? pointerProperty = PointerProperty(state.GetType());
         if (pointerProperty == null) { stage = $"{label}-pointer-missing"; return false; }
         if (pointerProperty.GetGetMethod(nonPublic: false)?.IsPublic != true)
         { stage = $"{label}-pointer-getter-non-public"; return false; }
@@ -1303,13 +1297,12 @@ internal static class CassetteSaveTransactionAdapter
 
             stage = "cassette-status-contract-find";
             Type? songType = FindType("ePlayableSong", processor.GetType().Assembly);
-            MethodInfo? readStatus = songType == null ? null : state.GetType().GetMethod(
-                "GetCassetteStatusForSong", AllInstance, binder: null, types: new[] { songType }, modifiers: null);
+            MethodInfo? readStatus = songType == null ? null : FindStatusGetter(state.GetType(), AllInstance, songType);
             if (readStatus == null || songType?.IsEnum != true)
             { stage = "cassette-status-contract-missing"; return false; }
 
             stage = $"cassette-status-{nativeSong}-song-parse";
-            object song = Enum.Parse(songType, nativeSong, ignoreCase: false);
+            object song = ParseSong(songType, nativeSong);
             stage = $"cassette-status-{nativeSong}-invoke";
             nativeStatus = UnwrapNullable(readStatus.Invoke(state, new[] { song }))?.ToString();
             if (string.IsNullOrWhiteSpace(nativeStatus))
@@ -1374,6 +1367,24 @@ internal static class CassetteSaveTransactionAdapter
             return false;
         }
     }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Owner, string Name), MethodInfo?> Enquiries = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, PropertyInfo?> PointerProperties = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Owner, BindingFlags Flags, Type Song), MethodInfo?> StatusGetters = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Type, string Name), object> SongValues = new();
+
+    private static MethodInfo? FindEnquiry(Type? owner, string name) => owner == null ? null :
+        Enquiries.GetOrAdd((owner, name), key => key.Owner.GetMethod(key.Name, PublicStatic, null, Type.EmptyTypes, null));
+
+    private static PropertyInfo? PointerProperty(Type owner) =>
+        PointerProperties.GetOrAdd(owner, type => type.GetProperty("Pointer", PublicInstance));
+
+    private static MethodInfo? FindStatusGetter(Type owner, BindingFlags flags, Type song) =>
+        StatusGetters.GetOrAdd((owner, flags, song), key =>
+            key.Owner.GetMethod("GetCassetteStatusForSong", key.Flags, null, new[] { key.Song }, null));
+
+    private static object ParseSong(Type type, string name) =>
+        SongValues.GetOrAdd((type, name), key => Enum.Parse(key.Type, key.Name, ignoreCase: false));
 
     private static readonly Dictionary<(Assembly, string), Type> PreferredTypes = new();
     private static readonly Dictionary<(Type, BindingFlags), MethodInfo> StateGetters = new();

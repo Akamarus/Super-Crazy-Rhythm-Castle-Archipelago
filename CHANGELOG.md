@@ -1,11 +1,27 @@
 # Changelog
 
-## Unreleased
+## v0.30.2 — November 16, 2026 — Client 0.77.2 / APWorld 0.30.1
+
+- Universal Tracker now waits for Boring Room completion and Important Letters delivery before showing School Trip. Its generated Star requirement still applies, and players can skip Demolition Training.
+
+- Recover pending cassettes when the game resumes its last save before Archipelago connects. The client retries save identification without requiring a trip to Roots and checks the room's save slot before applying the cassette.
+
+- Restore Plant Pipes, Hip Glasses and Chicken Bucket delivery on seeds with the new route markers. Existing seeds can use the corrected client.
+- Respect each seed's Lobby and Cell Tower routes. Legacy Star Eater test settings now require an explicit opt-in and a connected legacy room. They change the individual Star Eater's threshold.
+- Keep earned location checks across restarts and reconcile them against the server. Hold native grants for the room's bound save and retry interrupted cassette and Garage operations.
+- Reduce repeated Music Lab Point history scans, popup text measurement and native flag reads during songs.
+- Add an optional process-only room password and pace sustained incoming traffic on SCRC connections. Pin the networking dependencies and validate the game directory before deployment.
 
 - Pause automatic reconnect when the player needs to correct their login or restore a damaged quest journal. Temporary outages and occupied slots retry with increasing delays up to one minute.
 - Preserve pending quest checks across failed logins and identify the journal file that needs attention in the client log.
+- Keep offline campaign checks and item history with their original room when a replacement room fails validation. Apply waiting items in server order after the new room is accepted.
+- Retry cassette ownership verification after an unreadable save. A recovered in-bag cassette queues one save, and a deposited cassette stays deposited.
 - Limit memory used for notifications before login and reuse the F6 history layout between changes.
 - Release gameplay hooks and plugin-created Unity components on unload and restore Star Eater threshold changes the client still owns.
+- Fix the first room login after reloading the client plugin in the same game process. Pending Garage cartridge insertions retry only for their original room and player slot.
+- Reject incomplete APWorlds during packaging and when validating a finished download. Older releases can still be repackaged with their original files.
+
+[Release notes](docs/releases/v0.30.2.md).
 
 ## v0.30.1 — November 8, 2026 — Client 0.77.1 / APWorld 0.30.0
 

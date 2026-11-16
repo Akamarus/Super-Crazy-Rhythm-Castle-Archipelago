@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../AreaRoutingVersion.cs" />
     <Compile Include="..\..\RootsBucketRandomizationPolicy.cs" Link="RootsBucketRandomizationPolicy.cs" />
   </ItemGroup>
 </Project>

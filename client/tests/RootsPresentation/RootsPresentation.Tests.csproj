@@ -15,4 +15,12 @@
     <Compile Include="..\..\MeatMouseEscortCharacterReader.cs" Link="MeatMouseEscortCharacterReader.cs" />
     <Compile Include="..\..\AreaAccessSessionPolicy.cs" Link="AreaAccessSessionPolicy.cs" />
   </ItemGroup>
+  <Target Name="CompileAreaAccess" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
+      <AreaSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^internal static class AreaAccessPrototype\b.*?^}').Value)</AreaSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)AreaAccessPrototype.cs" Lines="namespace RhythmCastleAP%3B $(AreaSource)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup><Compile Include="$(IntermediateOutputPath)AreaAccessPrototype.cs" /></ItemGroup>
+  </Target>
 </Project>

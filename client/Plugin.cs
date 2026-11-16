@@ -17,7 +17,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "jack.rhythmcastle.archipelago";
     public const string PluginName = "Super Crazy Rhythm Castle Archipelago";
-    public const string PluginVersion = "0.77.1";
+    public const string PluginVersion = "0.77.2";
     public const string GameName = "Super Crazy Rhythm Castle";
 
     internal static ManualLogSource? LoggerInstance;
@@ -26,9 +26,23 @@ public sealed class Plugin : BasePlugin
     private Harmony? _harmony;
     private readonly OwnedPluginComponents _components = new();
 
+    internal static void ResetRoomOwnership()
+    {
+        AreaAccessPrototype.ResetRoomOwnership();
+        PlantPipesRandomization.Configure(preserveProcessor: true);
+        PreviewAbilityRandomization.Configure(preserveProcessor: true);
+        CassetteReceiptRandomization.ResetRoomOwnership(() =>
+        {
+            RootsBucketRandomization.Configure();
+            WeedKillerRandomization.Configure();
+        });
+    }
+
     public override void Load()
     {
         LoggerInstance = Log;
+        if (!ApStarEaterThresholds.Restore())
+            throw new InvalidOperationException("Could not restore the previous Star Eater threshold before reload.");
 
         var enabled = Config.Bind("Archipelago", "Enabled", false,
             "Enable the Archipelago network connection.");
@@ -37,12 +51,16 @@ public sealed class Plugin : BasePlugin
         var slot = Config.Bind("Archipelago", "Slot", "Player1",
             "Archipelago slot/player name.");
         var password = Config.Bind("Archipelago", "Password", "",
-            "Archipelago room password, if any.");
+            "Optional room password. This config stores it as plain text.");
+        var sessionPassword = Config.Bind("Archipelago", "UseEnvironmentPassword", false,
+            "Read SCRC_AP_PASSWORD from the game process environment for this room. Leave Password blank when using this option.");
         var directStartAtLevelOne = Config.Bind("QualityOfLife", "DirectStartAtLevelOne", false,
             "Legacy option: skip the fresh-save intro/tutorial and start in Roots outside Level 1.");
         var directStartAtPhoneHub = Config.Bind("QualityOfLife", "DirectStartAtPhoneHub", false,
             "Area-routing start: skip the fresh-save intro/tutorial and start in the Music Lab / six-phone hub (GameRoom_Hub6). If enabled, this takes precedence over DirectStartAtLevelOne.");
-        var bunkerStarRequirement = Config.Bind("QualityOfLife", "BunkerStarRequirement", 50,
+        var legacyStarOverrides = Config.Bind("Developer", "EnableLegacyStarEaterOverrides", false,
+            "Apply local Royal and Bunker thresholds only while connected to an older room without AP Stars.");
+        var bunkerStarRequirement = Config.Bind("QualityOfLife", "BunkerStarRequirement", 66,
             "Star requirement for the final Secret Bunker Star Eater. Vanilla is 66. This changes only that Star Eater threshold and does not alter saved level star ratings.");
         var royalStarRequirement = Config.Bind("Developer", "RoyalStarRequirement", 40,
             "TEST ONLY: Royal Corridor Star Eater threshold. Vanilla is 40. Does not change earned stars or saved scores. Set back to 40 after testing.");
@@ -76,7 +94,10 @@ public sealed class Plugin : BasePlugin
         int bunkerResultRequestHooks = PatchMethodsByParameterWithPrefixAndPostfix("ProcessRequest", "PersistLevelResultRequest",
             nameof(GamePatches.PersistResultPrefix), null);
         patched += bunkerResultRequestHooks;
-        ApStars.Configure(identity => AP?.SendStarGoal(identity) == true);
+        var legacyEaters = StarEaterTestOverridePolicy.Create(legacyStarOverrides.Value,
+            royalStarRequirement.Value, bunkerStarRequirement.Value);
+        ApStars.Configure(identity => AP?.SendStarGoal(identity) == true,
+            legacyEaters: () => AP?.Connected == true ? legacyEaters : null);
         patched += ApStarNativeHooks.Install(_harmony, ApStars.ResolveTotal, ApStars.CanEnter,
             ApStars.ReportBlocked, ApStars.OnAdmittedStart, ApStars.OnPreviewObserved);
         int bunkerApplyResultHooks = PatchMethodsByParameterWithPrefixAndPostfix(
@@ -128,7 +149,10 @@ public sealed class Plugin : BasePlugin
         Log.LogInfo($"[SCRC-AP] Game hooks installed: {patched}.");
 
         IntroHubSkip.Configure(directStartAtPhoneHub.Value, directStartAtLevelOne.Value);
-        AP = new ArchipelagoClient(server.Value, slot.Value, password.Value);
+        var client = new ArchipelagoClient(server.Value, slot.Value, sessionPassword.Value ? "" : password.Value,
+            Path.Combine(Paths.ConfigPath, "RhythmCastleAP", "check-outbox"),
+            sessionPassword.Value ? () => Environment.GetEnvironmentVariable("SCRC_AP_PASSWORD") : null);
+        AP = client;
 
         GarageCartridgeAccess.Configure();
         WeedKillerRandomization.Configure();
@@ -162,17 +186,6 @@ public sealed class Plugin : BasePlugin
             Log.LogInfo($"[SCRC-AP] Area access routing enabled with starting source '{AreaAccessPrototype.StartingArea}'.");
         }
 
-        BunkerStarRequirementKeeper.RequiredStars =
-            Math.Clamp(bunkerStarRequirement.Value, 0, 66);
-
-        BunkerStarRequirementKeeper.RoyalRequiredStars = Math.Clamp(royalStarRequirement.Value, 0, 40);
-        if (BunkerStarRequirementKeeper.RequiredStars != 66 || BunkerStarRequirementKeeper.RoyalRequiredStars != 40)
-        {
-            _components.Add(AddComponent<BunkerStarRequirementKeeper>());
-            Log.LogWarning(
-                $"[SCRC-AP] STAR EATER TEST OVERRIDES: Royal={BunkerStarRequirementKeeper.RoyalRequiredStars} (vanilla40), Bunker={BunkerStarRequirementKeeper.RequiredStars} (vanilla66). Exact scene-root and proximity guards apply; earned stars and saved scores are unchanged.");
-        }
-
         if (enabled.Value)
             _components.Add(AddComponent<MusicLabProgressionKeeper>());
 
@@ -183,7 +196,7 @@ public sealed class Plugin : BasePlugin
 
         if (enabled.Value)
         {
-            Log.LogInfo($"[SCRC-AP] Archipelago enabled; connecting to {server.Value} as '{slot.Value}'.");
+            Log.LogInfo("[SCRC-AP] Archipelago enabled; connecting to the configured room.");
             Log.LogInfo("[SCRC-AP] NET stage=before-background-task");
 
             _ = Task.Run(() =>
@@ -191,7 +204,7 @@ public sealed class Plugin : BasePlugin
                 try
                 {
                     LoggerInstance?.LogInfo("[SCRC-AP] NET stage=background-task-started");
-                    AP.Connect();
+                    client.Connect();
                     LoggerInstance?.LogInfo("[SCRC-AP] NET stage=background-task-returned");
                 }
                 catch (Exception ex)
@@ -543,78 +556,31 @@ public sealed class Plugin : BasePlugin
 
     private int PatchHub6AreaPhoneProgressionConditions()
     {
-        Assembly? asm = ReflectionUtil.GameAssembly;
-        if (asm == null || _harmony == null)
-            return 0;
-
-        Type? conditionType = ReflectionUtil.SafeGetTypes(asm)
-            .FirstOrDefault(t => string.Equals(
-                t.Name, "IsGameProgressionFlagTrueCondition", StringComparison.Ordinal));
-        MethodInfo? prefix = AccessTools.Method(
-            typeof(AreaPhoneConditionPatches),
-            nameof(AreaPhoneConditionPatches.BoolConditionPrefix));
-
-        if (conditionType == null || prefix == null)
-        {
-            Log.LogWarning(
-                "[SCRC-AP] AREA PHONE CONDITION BYPASS unavailable: IsGameProgressionFlagTrueCondition or prefix was not found.");
-            return 0;
-        }
-
-        var methods = new HashSet<MethodInfo>();
         try
         {
-            for (Type? current = conditionType;
-                 current != null && current.Assembly == asm;
-                 current = current.BaseType)
+            Type? owner = ReflectionUtil.GameAssembly?.GetType(QuestConditionHookPlan.SharedOwner);
+            MethodInfo? target = owner?.GetMethod("CheckIfMet",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly,
+                null, Type.EmptyTypes, null);
+            if (_harmony == null || target == null || target.ReturnType != typeof(bool) ||
+                target.IsAbstract || target.ContainsGenericParameters)
             {
-                foreach (MethodInfo method in current.GetMethods(
-                             BindingFlags.Public | BindingFlags.NonPublic |
-                             BindingFlags.Instance | BindingFlags.DeclaredOnly))
-                {
-                    if (method.IsAbstract || method.ContainsGenericParameters || method.ReturnType != typeof(bool))
-                        continue;
-                    methods.Add(method);
-                }
+                Log.LogWarning("[SCRC-AP] Area phone condition hook unavailable: expected IsGameProgressionFlagTrueCondition.CheckIfMet() -> bool.");
+                return 0;
             }
+
+            QuestSharedConditionHook.VerifyAlias();
+            _harmony.Patch(target, prefix: new HarmonyMethod(typeof(AreaPhoneConditionPatches),
+                nameof(AreaPhoneConditionPatches.BoolConditionPrefix)));
+            QuestSharedConditionHook.RecordInstalled(target);
+            Log.LogInfo("[SCRC-AP] AREA PHONE CONDITION HOOKED IsGameProgressionFlagTrueCondition.CheckIfMet -> bool.");
+            return 1;
         }
         catch (Exception ex)
         {
-            Log.LogError($"[SCRC-AP] AREA PHONE CONDITION BYPASS method discovery failed: {ex.GetBaseException().Message}");
+            Log.LogWarning($"[SCRC-AP] Area phone condition hook unavailable: {ex.GetBaseException().Message}");
             return 0;
         }
-
-        QuestSharedConditionHook.VerifyAlias();
-        int count = 0;
-        foreach (MethodInfo method in methods)
-        {
-            try
-            {
-                _harmony.Patch(method, prefix: new HarmonyMethod(prefix));
-                QuestSharedConditionHook.RecordInstalled(method);
-                Log.LogInfo(
-                    $"[SCRC-AP] AREA PHONE CONDITION HOOKED {method.DeclaringType?.Name}.{method.Name} -> bool.");
-                count++;
-            }
-            catch (Exception ex)
-            {
-                Log.LogWarning(
-                    $"[SCRC-AP] AREA PHONE CONDITION hook skipped {method.DeclaringType?.Name}.{method.Name}: {ex.GetBaseException().Message}");
-            }
-        }
-
-        if (count == 0)
-        {
-            Log.LogWarning(
-                "[SCRC-AP] AREA PHONE CONDITION BYPASS found no patchable bool-return condition methods; late-area phone conditions may remain vanilla-gated.");
-        }
-        else
-        {
-            Log.LogWarning(
-                $"[SCRC-AP] AREA PHONE VANILLA CONDITION BYPASS READY: boolMethods={count}. Only IsGameProgressionFlagTrueCondition objects under an AP-unlocked Hub6 phone are forced true; save flags are not changed.");
-        }
-
-        return count;
     }
 
     private static MethodInfo? FindPatchMethod(Type type, string name)
@@ -807,9 +773,13 @@ public sealed class Plugin : BasePlugin
 
     public override bool Unload()
     {
+        if (!CassetteReceiptRandomization.TryPrepareUnload())
+        {
+            Log.LogWarning("[SCRC-AP] Cassette save is pending. Keep the current save open and retry plugin unload after the write completes.");
+            return false;
+        }
         bool released = _components.Shutdown(ex =>
             Log.LogError($"[SCRC-AP] Component removal failed: {ex.GetBaseException().Message}"));
-        released &= BunkerStarRequirementKeeper.RestorePatches("plugin unload");
         try { AP?.Shutdown(); }
         catch (Exception ex) { released = false; Log.LogError($"[SCRC-AP] Client shutdown failed: {ex.GetBaseException().Message}"); }
         released &= ApStarEaterThresholds.Restore();
@@ -866,6 +836,14 @@ internal sealed class ArchipelagoClient
     private readonly string _server;
     private readonly string _slot;
     private readonly string _password;
+    private readonly Func<string?>? _readSessionPassword;
+    private readonly LocationCheckOutbox _outbox;
+    private readonly HashSet<string> _earned = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<long> _serverChecked = new();
+    private string? _outboxIdentity;
+    private long _resultRoomGeneration;
+    private bool _outboxDirty;
+    private bool _reportedUnbound;
     private readonly ConcurrentQueue<string> _pendingChecks = new();
     private readonly HashSet<string> _queuedOrSent = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
@@ -874,19 +852,23 @@ internal sealed class ArchipelagoClient
     private readonly CancellationTokenSource _shutdownToken = new();
 
     private readonly SessionGenerationLeaseGate<ArchipelagoSession> ConnectionLifecycle = new();
-    private long _connectionGeneration;
+    // Static receipt and Garage guards outlive an individual plugin load.
+    private static long _connectionGeneration;
     private volatile bool _connected;
     private int _reconnectWorkerActive;
-    private readonly HashSet<int> _processedReceivedItemIndexes = new();
+    private readonly List<long> _appliedNamedIds = new();
     private (string Game, string Seed, int Team, int Slot)? _authenticatedIdentity;
 
     public bool Connected => _connected && MusicLabPointRandomization.Snapshot.Mode != MusicLabPointRuntimeMode.Incompatible;
 
-    public ArchipelagoClient(string server, string slot, string password)
+    public ArchipelagoClient(string server, string slot, string password, string outboxDirectory,
+        Func<string?>? readSessionPassword = null)
     {
+        _outbox = new(outboxDirectory);
         _server = server;
         _slot = slot;
         _password = password;
+        _readSessionPassword = readSessionPassword;
     }
 
     public void Connect()
@@ -911,20 +893,78 @@ internal sealed class ArchipelagoClient
 
         try
         {
+            string? roomPassword = _readSessionPassword == null ? _password : _readSessionPassword();
+            if (_readSessionPassword != null && string.IsNullOrWhiteSpace(roomPassword))
+            {
+                _reconnectPolicy.OnActionRequired();
+                Plugin.LoggerInstance?.LogError("[SCRC-AP] Set SCRC_AP_PASSWORD for the game process and restart, or turn off UseEnvironmentPassword.");
+                return false;
+            }
             Plugin.LoggerInstance?.LogInfo(
                 $"[SCRC-AP] NET assemblies Archipelago.MultiClient.Net loaded=" +
                 $"{AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "Archipelago.MultiClient.Net")}");
 
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] NET stage=create-session");
-            NetworkReceiveGuard.EnsureInstalled();
+            try { NetworkReceiveGuard.EnsureInstalled(); }
+            catch
+            {
+                _reconnectPolicy.OnActionRequired();
+                Plugin.LoggerInstance?.LogError("[SCRC-AP] Automatic reconnect paused. Restore the matching client and Archipelago.MultiClient.Net 6.7.1 files, then restart the game.");
+                throw;
+            }
             session = ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize(_server));
+            NetworkReceiveGuard.RegisterRoomSocket(session.Socket);
             var pointHistory = new MusicLabPointSessionHistory(generation);
             var starHistory = new ApStarSessionHistory(generation, ApStars.State);
             var bunkerHistory = new BunkerSessionHistory(generation, BunkerRuntime.State);
             var questHistory = new CharacterQuestItemSessionHistory(generation, CharacterQuestItems.State);
             var weedKillerHistory = new WeedKillerSessionHistory(generation);
             var cassetteBundleHistory = new CassetteBundleSessionHistory(generation, CassetteReceiptRandomization.TryApplyItem);
+            Dictionary<string, object>? acceptedSlotData = null;
+            var namedItems = new NamedItemSessionHistory((index, ids) =>
+                ApplyNamedHistory(index, ids, session, acceptedSlotData, cassetteBundleHistory), reason =>
+            {
+                Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] {reason} Requesting a full replay.");
+                try { session.Socket.SendPacket(new Archipelago.MultiClient.Net.Packets.SyncPacket()); }
+                catch
+                {
+                    // The packet callback holds a read lease. Retire its generation only after it returns.
+                    _ = Task.Run(() => ClearCurrentSession(session, generation, () => RequestReconnect("item history sync failed")));
+                }
+            });
             var questChecks = new QuestChecksSession(generation);
+            string? schoolTripMailKey = null;
+            long boringRoomId = -1, mailDeliveryId = -1;
+            void ObserveServerChecks(IEnumerable<long> checkedLocations)
+            {
+                string key;
+                lock (_lock)
+                {
+                    if (!_connected) return;
+                    _serverChecked.UnionWith(checkedLocations);
+                    if (schoolTripMailKey == null || !_serverChecked.Contains(boringRoomId) || !_serverChecked.Contains(mailDeliveryId))
+                        return;
+                    key = schoolTripMailKey;
+                    schoolTripMailKey = null;
+                }
+                // UT receives this slot's confirmed story progress, including on reconnect.
+                try
+                {
+                    session.Socket.SendPacket(new Archipelago.MultiClient.Net.Packets.SetPacket
+                    {
+                        Key = key, DefaultValue = false,
+                        Operations = new Archipelago.MultiClient.Net.Models.OperationSpecification[]
+                        {
+                            new() { OperationType = Archipelago.MultiClient.Net.Enums.OperationType.Replace, Value = true }
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    lock (_lock) schoolTripMailKey = key;
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Could not update School Trip for Universal Tracker: {ConnectionAttemptDiagnostics.LogField(ex.Message)}");
+                }
+            }
             var notificationSession = ItemNotifications.CreateSession(session, generation, action =>
             {
                 if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? notificationLease)) return;
@@ -946,8 +986,8 @@ internal sealed class ArchipelagoClient
             {
                 ClearCurrentSession(session, generation, () =>
                 {
-                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{reason}'");
-                    RequestReconnect($"socket closed: {reason}");
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] NET socket-closed reason='{ConnectionAttemptDiagnostics.LogField(reason)}'");
+                    RequestReconnect("socket closed");
                 });
             };
 
@@ -968,8 +1008,8 @@ internal sealed class ArchipelagoClient
                     ClearCurrentSession(session, generation, () =>
                     {
                         Plugin.LoggerInstance?.LogError(
-                            $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
-                        RequestReconnect($"terminal socket error: {message}");
+                            $"[SCRC-AP] NET socket-error {ConnectionAttemptDiagnostics.Summarize(exception, message)}");
+                        RequestReconnect("terminal socket error");
                     });
                     return;
                 }
@@ -978,66 +1018,7 @@ internal sealed class ArchipelagoClient
                     return;
                 using (callbackLease)
                     Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] NET socket-error message='{message}' exception={exception}");
-            };
-
-            session.Items.ItemReceived += helper =>
-            {
-                if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? callbackLease))
-                    return;
-                using (callbackLease)
-                {
-                    try
-                    {
-                        while (helper.Any())
-                        {
-                            // Dequeue advances the history cursor. Capture it first so a replay
-                            // can skip the same delivery while two copies of one item both count.
-                            int itemIndex = helper.Index;
-                            var item = helper.DequeueItem();
-                            bool firstProcessing;
-                            lock (_lock)
-                                firstProcessing = _processedReceivedItemIndexes.Add(itemIndex);
-                            if (!firstProcessing)
-                            {
-                                Plugin.LoggerInstance?.LogInfo(
-                                    $"[SCRC-AP] ITEM HISTORY REPLAY SKIPPED index={itemIndex} name='{item.ItemName}'.");
-                                continue;
-                            }
-                            Plugin.LoggerInstance?.LogInfo(
-                                $"[SCRC-AP] ITEM RECEIVED id={item.ItemId} name='{item.ItemName}' from='{item.Player?.Name ?? "unknown"}'");
-
-                            try
-                            {
-                                // These items rebuild ownership from indexed packet history. Dispatching them here
-                                // would also process the individual notification for the same receipt.
-                                if (item.ItemId == ApStarContract.StarId) continue;
-                                if (BunkerRuntime.Handles(item.ItemName) || CharacterQuestItems.TryHandleItemName(item.ItemName) || QuestChecks.Handles(item.ItemName)) continue;
-                                ReceivedItemDispatch.TryApply(
-                                    item.ItemName,
-                                    AreaAccessPrototype.TryApplyItem,
-                                    GarageCartridgeAccess.TryApplyItem,
-                                    WeedKillerRandomization.TryApplyItem,
-                                    PlantPipesRandomization.TryApplyItem,
-                                    PreviewAbilityRandomization.TryApplyItem,
-                                    RootsBucketRandomization.TryApplyItem,
-                                    cassetteBundleHistory.TryApplyItem,
-                                    MusicLabPointRandomization.TryHandleItemName);
-                            }
-                            catch (Exception ex)
-                            {
-                                lock (_lock)
-                                    _processedReceivedItemIndexes.Remove(itemIndex);
-                                Plugin.LoggerInstance?.LogError(
-                                    $"[SCRC-AP] Failed to apply received item '{item.ItemName}': {ex}");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Error while reading received item: {ex}");
-                    }
-                }
+                        $"[SCRC-AP] NET socket-error {ConnectionAttemptDiagnostics.Summarize(exception, message)}");
             };
 
             session.Socket.PacketReceived += packet =>
@@ -1046,6 +1027,8 @@ internal sealed class ArchipelagoClient
                     return;
                 using (packetLease)
                 {
+                    if (packet is Archipelago.MultiClient.Net.Packets.RoomUpdatePacket update && update.CheckedLocations != null)
+                        ObserveServerChecks(update.CheckedLocations);
                     pointHistory.HandlePacket(packet);
                     starHistory.HandlePacket(packet);
                     bunkerHistory.HandlePacket(packet);
@@ -1054,20 +1037,27 @@ internal sealed class ArchipelagoClient
                     cassetteBundleHistory.HandlePacket(packet);
                     questChecks.HandlePacket(packet);
                     notificationSession.HandlePacket(packet);
+                    if (packet is Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket received)
+                    {
+                        // MultiClient has finished updating its ledger before this subscriber runs.
+                        while (session.Items.Any()) session.Items.DequeueItem();
+                        namedItems.Observe(received);
+                    }
                 }
             };
 
             if (!ConnectionLifecycle.TryPublish(session, generation, previousSession =>
                 {
+                    NativeGrantSaveBinding.Disconnect();
                     CharacterQuestItems.State.Suspend(generation);
                     BunkerRuntime.State.Suspend(generation);
                     QuestChecks.State.Suspend(generation);
                     _connected = false;
                     AreaAccessPrototype.EndAuthenticatedSession();
-                    CampaignLevelRandomization.OnDisconnected();
                     if (previousSession.Session != null &&
                         !ReferenceEquals(previousSession.Session, session))
                     {
+                        ApStars.State.Disconnect(previousSession.Generation);
                         GarageCartridgeAccess.EndServerSync(previousSession.Generation);
                         WeedKillerRandomization.History.End(previousSession.Generation);
                         CassetteBundleSessionHistory.End(previousSession.Generation);
@@ -1086,14 +1076,14 @@ internal sealed class ArchipelagoClient
                 ObserveDisconnect(previous);
 
             Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] NET stage=login-begin server='{_server}' slot='{_slot}' game='{Plugin.GameName}'");
+                $"[SCRC-AP] NET stage=login-begin game='{Plugin.GameName}'");
 
             LoginResult result = session.TryConnectAndLogin(
                 Plugin.GameName,
                 _slot,
                 ItemsHandlingFlags.AllItems,
                 new Version(0, 6, 0),
-                password: string.IsNullOrWhiteSpace(_password) ? null : _password,
+                password: string.IsNullOrWhiteSpace(roomPassword) ? null : roomPassword,
                 requestSlotData: true);
 
             Plugin.LoggerInstance?.LogInfo(
@@ -1114,7 +1104,7 @@ internal sealed class ArchipelagoClient
                     Plugin.LoggerInstance?.LogError($"[SCRC-AP] Automatic reconnect paused. {correction} Restart the game to reconnect.");
                 else if (result is LoginFailure failure)
                     Plugin.LoggerInstance?.LogError(
-                        $"[SCRC-AP] Archipelago login failed: {string.Join("; ", failure.Errors)}");
+                        $"[SCRC-AP] Archipelago login failed: {string.Join("; ", failure.Errors.Take(3).Select(ConnectionAttemptDiagnostics.LogField))}");
                 else
                     Plugin.LoggerInstance?.LogError("[SCRC-AP] Archipelago login failed.");
                 return false;
@@ -1124,6 +1114,7 @@ internal sealed class ArchipelagoClient
             {
                 if (!ConnectionLifecycle.TryAcquire(session, generation, out LifecycleLease? loginLease))
                     return false;
+                bool validatingConfiguration = true;
                 try
                 {
                     using (loginLease)
@@ -1139,82 +1130,120 @@ internal sealed class ArchipelagoClient
                         CharacterQuestItemMode questMode = CharacterQuestItemPolicy.Validate(loginSuccess.SlotData);
                         if (questMode == CharacterQuestItemMode.Invalid)
                             throw new InvalidOperationException("Character quest item contract is incompatible.");
+                        if (string.IsNullOrWhiteSpace(session.RoomState.Seed) || loginSuccess.Team < 0 || loginSuccess.Slot <= 0)
+                            throw new InvalidDataException("The room did not supply a valid seed, team and player slot.");
                         string roomIdentity = string.Join("|", Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
                         // Validate on disk before any grants, replay, or replacement of the previous seed's pending checks.
+                        var acceptNativeSave = NativeGrantSaveBinding.Prepare(roomIdentity, checksMode == QuestChecksMode.Enabled);
+                        string[] restoredChecks = _outbox.Load(roomIdentity);
                         QuestJournalRecord? questJournal = checksMode == QuestChecksMode.Enabled
                             ? QuestChecks.Journal.Load(roomIdentity) : null;
+                        var cassetteCompatibility = CassetteSlotDataCompatibility.Validate(loginSuccess.SlotData);
+                        ApStarSettings starSettings = ApStarContract.Validate(loginSuccess.SlotData,
+                            CellTowerPathPatches.Ready, LobbyDoorPatches.Ready, BunkerRuntime.Ready);
+                        if (starSettings.Mode == ApStarMode.Awaiting && !ApStarNativeHooks.Ready)
+                            throw new InvalidOperationException("AP Stars incompatible: Required AP Star native hooks unavailable.");
+                        if (starSettings.Mode == ApStarMode.Incompatible)
+                            throw new InvalidOperationException($"AP Stars incompatible: {starSettings.Detail}");
+                        BunkerRecord? bunkerJournal = starSettings.BunkerEnabled ? BunkerRuntime.Journal.Load(roomIdentity) : null;
+                        var pointContract = pointHistory.PrepareSlotData(
+                            loginSuccess.SlotData, Plugin.GameName, session.RoomState.Seed,
+                            $"{loginSuccess.Team}:{loginSuccess.Slot}");
+                        if (pointContract.Mode == MusicLabPointCompatibilityMode.IncompatibleClaim)
+                            throw new InvalidOperationException($"Music Lab Points incompatible: {pointContract.Detail}");
+                        var acceptExpanded = ExpandedChecks.Prepare(generation, roomIdentity,
+                            expandedMode == ExpandedChecksMode.Enabled, session.Locations.AllLocationsChecked,
+                            includeStarChecks: starSettings.Mode == ApStarMode.Awaiting);
+                        var identity = (Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
+                        bool replaceRoom = _authenticatedIdentity.HasValue && _authenticatedIdentity != identity;
+                        bool garageSync = GarageCartridgeAccess.UsesServerSync(loginSuccess.SlotData);
+                        lock (_lock) if (_outboxDirty) PersistEarnedChecks();
+                        validatingConfiguration = false;
+                        if (garageSync && !GarageCartridgeAccess.BeginServerSync(session, generation, roomIdentity, replaceRoom))
+                            throw new InvalidOperationException(
+                                $"Garage inserted-state synchronization generation {generation} was already ended.");
+
+                        // Start the new room's grants only after all contracts, journals and sync checks pass.
+                        if (replaceRoom)
+                        {
+                            if (!garageSync) GarageCartridgeAccess.ResetRoomOwnership();
+                            Plugin.ResetRoomOwnership();
+                        }
                         AreaAccessPrototype.ApplySlotDataStarter(loginSuccess.SlotData);
                         IntroHubSkip.ApplySlotData(loginSuccess.SlotData);
                         GarageCartridgeAccess.ApplySlotData(loginSuccess.SlotData);
                         WeedKillerRandomization.ApplySlotData(loginSuccess.SlotData);
                         PlantPipesRandomization.ApplySlotData(loginSuccess.SlotData);
-                        var cassetteCompatibility = CassetteSlotDataCompatibility.Validate(loginSuccess.SlotData);
                         CassetteReceiptRandomization.ApplySlotData(cassetteCompatibility, cassetteContract.Bundled);
                         CassetteSourceRandomization.ApplySlotData(cassetteCompatibility);
                         PreviewAbilityRandomization.ApplySlotData(loginSuccess.SlotData);
                         RootsBucketRandomization.ApplySlotData(loginSuccess.SlotData);
-                        lock (_lock)
-                        {
-                            var identity = (Plugin.GameName, session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot);
-                            if (_authenticatedIdentity != identity)
-                            {
-                                _pendingChecks.Clear();
-                                _queuedOrSent.Clear();
-                                _processedReceivedItemIndexes.Clear();
-                                CampaignLevelRandomization.OnIdentityReplaced();
-                            }
-                            _authenticatedIdentity = identity;
-                            CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
-                            CampaignLevelRandomizationSnapshot campaignState = CampaignLevelRandomization.Snapshot;
-                            if (campaignState.Mode == CampaignLocationCompatibilityMode.IncompatibleClaim)
-                                Plugin.LoggerInstance?.LogError(
-                                    $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {campaignState.Detail}; campaign checks disabled.");
-                        }
-                        ApStarSettings starSettings = starHistory.ApplySlotData(loginSuccess.SlotData,
-                            roomIdentity, CellTowerPathPatches.Ready, LobbyDoorPatches.Ready, BunkerRuntime.Ready);
-                        if (starSettings.Mode == ApStarMode.Awaiting && !ApStarNativeHooks.Ready)
-                        {
-                            starSettings = new(ApStarMode.Incompatible, Detail: "Required AP Star native hooks unavailable");
-                            ApStars.State.Configure(generation, roomIdentity, starSettings);
-                        }
-                        if (starSettings.Mode == ApStarMode.Incompatible)
-                            throw new InvalidOperationException($"AP Stars incompatible: {starSettings.Detail}");
-                        MusicLabPointSnapshot pointState = pointHistory.ApplySlotData(
-                            loginSuccess.SlotData,
-                            Plugin.GameName,
-                            session.RoomState.Seed,
-                            _slot);
-                        if (pointState.Mode == MusicLabPointRuntimeMode.Incompatible)
-                            throw new InvalidOperationException($"Music Lab Points incompatible: {pointState.Detail}");
-                        bunkerHistory.Configure(roomIdentity, starSettings.BunkerEnabled, BunkerRuntime.Journal.Load);
+                        starHistory.Configure(roomIdentity, starSettings);
+                        pointHistory.Accept();
+                        bunkerHistory.Configure(roomIdentity, bunkerJournal);
                         questHistory.Configure(questMode == CharacterQuestItemMode.Enabled);
                         weedKillerHistory.Configure();
                         cassetteBundleHistory.Configure(cassetteContract);
-                        questChecks.Configure(roomIdentity, questJournal, session.Locations.AllLocationsChecked);
-                        ExpandedChecks.Configure(generation, roomIdentity,
-                            expandedMode == ExpandedChecksMode.Enabled, session.Locations.AllLocationsChecked,
-                            includeStarChecks: starSettings.Mode == ApStarMode.Awaiting);
-                        if (GarageCartridgeAccess.Enabled &&
-                            !GarageCartridgeAccess.BeginServerSync(session, generation))
-                            throw new InvalidOperationException(
-                                $"Garage inserted-state synchronization generation {generation} was already ended.");
                         notificationSession.Configure(session.RoomState.Seed, loginSuccess.Team, loginSuccess.Slot, cassetteContract);
-                        _connected = true;
+                        lock (_lock)
+                        {
+                            CampaignLevelRandomization.ApplySlotData(loginSuccess.SlotData);
+                            if (_authenticatedIdentity != identity)
+                            {
+                                if (_outboxDirty) PersistEarnedChecks();
+                                _earned.Clear();
+                                _appliedNamedIds.Clear();
+                                _resultRoomGeneration = generation;
+                            }
+                            _authenticatedIdentity = identity;
+                            _outboxIdentity = roomIdentity;
+                            _earned.UnionWith(restoredChecks);
+                            _queuedOrSent.Clear();
+                            _pendingChecks.Clear();
+                            _serverChecked.Clear();
+                            foreach (string earned in _earned)
+                            {
+                                _queuedOrSent.Add(earned);
+                                _pendingChecks.Enqueue(earned);
+                            }
+                            CampaignLevelRandomizationSnapshot campaignState = CampaignLevelRandomization.Snapshot;
+                            if (campaignState.Mode == CampaignLocationCompatibilityMode.IncompatibleClaim)
+                                Plugin.LoggerInstance?.LogError(
+                                    $"[SCRC-AP] CAMPAIGN COMPATIBILITY ERROR: {ConnectionAttemptDiagnostics.LogField(campaignState.Detail)}; campaign checks disabled.");
+                        }
+                        // Journal replay must add its checks to the accepted room's queue.
+                        acceptExpanded();
+                        questChecks.Configure(roomIdentity, questJournal, session.Locations.AllLocationsChecked);
+                        acceptNativeSave();
+                        acceptedSlotData = loginSuccess.SlotData;
+                        namedItems.Accept();
+                        lock (_lock)
+                        {
+                            if (starSettings.LobbyOpenDoors)
+                            {
+                                boringRoomId = session.Locations.GetLocationIdFromName(Plugin.GameName, "Level 6 - Completion");
+                                mailDeliveryId = session.Locations.GetLocationIdFromName(Plugin.GameName, "Lobby - Important Letters Delivery");
+                                schoolTripMailKey = $"SCRC_{loginSuccess.Team}_{loginSuccess.Slot}_school_trip_mail";
+                            }
+                            _serverChecked.UnionWith(session.Locations.AllLocationsChecked);
+                            _connected = true;
+                        }
+                        if (starSettings.LobbyOpenDoors) ObserveServerChecks(Array.Empty<long>());
                         _reconnectPolicy.ResetRetries();
                         Plugin.LoggerInstance?.LogInfo(
-                            $"[SCRC-AP] CONNECTED server={_server} slot='{_slot}' game='{Plugin.GameName}'.");
+                            $"[SCRC-AP] CONNECTED game='{Plugin.GameName}'.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    if (ex is QuestJournalLoadException)
-                        _reconnectPolicy.OnActionRequired();
+                    bool pause = validatingConfiguration || ex is IOException or UnauthorizedAccessException;
+                    if (pause) _reconnectPolicy.OnActionRequired();
                     ClearCurrentSession(session, generation);
                     ObserveDisconnect(session);
-                    if (ex is QuestJournalLoadException)
-                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Automatic reconnect paused. {ex.Message} Restart the game to reconnect.");
+                    if (pause)
+                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Automatic reconnect paused. Failed to configure AP session: {ConnectionAttemptDiagnostics.LogField(ex.Message)} Check the room contract and client installation or repair the indicated file, then restart the game.");
                     else
-                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Failed to configure AP session from slot data: {ex}");
+                        Plugin.LoggerInstance?.LogError($"[SCRC-AP] Session synchronization failed: {ConnectionAttemptDiagnostics.Summarize(ex, "session synchronization failed")}");
                     return false;
                 }
             }
@@ -1238,7 +1267,7 @@ internal sealed class ArchipelagoClient
                     ConnectionLifecycle.Abandon(generation);
                     GarageCartridgeAccess.EndServerSync(generation);
                     WeedKillerRandomization.History.End(generation);
-                CassetteBundleSessionHistory.End(generation);
+                    CassetteBundleSessionHistory.End(generation);
                 }
                 ObserveDisconnect(session);
             }
@@ -1250,9 +1279,48 @@ internal sealed class ArchipelagoClient
                 CassetteBundleSessionHistory.End(generation);
             }
             Plugin.LoggerInstance?.LogError(
-                $"[SCRC-AP] NET inner exception type={ex.GetType().FullName}: {ex}");
+                $"[SCRC-AP] NET connection failed: {ConnectionAttemptDiagnostics.Summarize(ex, "connection failed")}");
             return false;
         }
+        }
+    }
+
+    private void ApplyNamedHistory(int start, IReadOnlyList<long> ids, ArchipelagoSession session,
+        Dictionary<string, object>? slotData, CassetteBundleSessionHistory cassetteBundleHistory)
+    {
+        // Same-room reconnects often replay an unchanged prefix. Native grants already
+        // written to the save stay intact, but a corrected history replaces AP ownership.
+        if (start == 0 && (_appliedNamedIds.Count > ids.Count ||
+            !_appliedNamedIds.SequenceEqual(ids.Take(_appliedNamedIds.Count))))
+        {
+            AreaAccessPrototype.ResetRoomOwnership();
+            AreaAccessPrototype.ApplySlotDataStarter(slotData);
+            GarageCartridgeAccess.ResetNamedReceipts();
+            CassetteReceiptRandomization.ReplaceIndividualReceipts(ids, () =>
+            {
+                PlantPipesRandomization.ResetNamedReceipts();
+                PreviewAbilityRandomization.ResetNamedReceipts();
+                RootsBucketRandomization.ResetNamedReceipts();
+            });
+            _appliedNamedIds.Clear();
+        }
+        for (int offset = _appliedNamedIds.Count - start; offset < ids.Count; offset++)
+        {
+            long id = ids[offset];
+            int itemIndex = start + offset + 1;
+            string name = session.Items.GetItemName(id, Plugin.GameName);
+            Plugin.LoggerInstance?.LogInfo(
+                $"[SCRC-AP] ITEM RECEIVED index={itemIndex} id={id} name='{ConnectionAttemptDiagnostics.LogField(name)}'");
+            if (id != ApStarContract.StarId && !BunkerRuntime.Handles(name) &&
+                !CharacterQuestItems.TryHandleItemName(name) && !QuestChecks.Handles(name))
+            {
+                ReceivedItemDispatch.TryApply(name,
+                    AreaAccessPrototype.TryApplyItem, GarageCartridgeAccess.TryApplyItem,
+                    WeedKillerRandomization.TryApplyItem, PlantPipesRandomization.TryApplyItem,
+                    PreviewAbilityRandomization.TryApplyItem, RootsBucketRandomization.TryApplyItem,
+                    cassetteBundleHistory.TryApplyItem, MusicLabPointRandomization.TryHandleItemName);
+            }
+            _appliedNamedIds.Add(id);
         }
     }
 
@@ -1289,6 +1357,7 @@ internal sealed class ArchipelagoClient
         GenerationSession<ArchipelagoSession> current = ConnectionLifecycle.Shutdown(current =>
         {
             _connected = false;
+            NativeGrantSaveBinding.Disconnect();
             AreaAccessPrototype.EndAuthenticatedSession();
             _reconnectPolicy.OnDeliberateShutdown();
             MusicLabPointRandomization.Reset();
@@ -1300,7 +1369,10 @@ internal sealed class ArchipelagoClient
             ItemNotifications.Feed.Reset();
             lock (_lock)
             {
+                TryPersistEarnedChecks();
                 _authenticatedIdentity = null;
+                _outboxIdentity = null;
+                _earned.Clear();
                 _pendingChecks.Clear();
                 _queuedOrSent.Clear();
                 CampaignLevelRandomization.Shutdown();
@@ -1309,7 +1381,7 @@ internal sealed class ArchipelagoClient
             if (current.Session != null)
                 GarageCartridgeAccess.EndServerSync(current.Generation);
             WeedKillerRandomization.History.End(current.Generation);
-                CassetteBundleSessionHistory.End(current.Generation);
+            CassetteBundleSessionHistory.End(current.Generation);
         });
         ArchipelagoSession? session = current.Session;
         if (session != null)
@@ -1324,13 +1396,16 @@ internal sealed class ArchipelagoClient
         return ConnectionLifecycle.TryEnd(session, generation, () =>
         {
             _connected = false;
+            NativeGrantSaveBinding.Disconnect();
+            CharacterQuestItems.State.Suspend(generation);
+            BunkerRuntime.State.Suspend(generation);
+            QuestChecks.State.Suspend(generation);
             AreaAccessPrototype.EndAuthenticatedSession();
             GarageCartridgeAccess.EndServerSync(generation);
             WeedKillerRandomization.History.End(generation);
-                CassetteBundleSessionHistory.End(generation);
+            CassetteBundleSessionHistory.End(generation);
             MusicLabPointRandomization.OnDisconnected(generation);
             ApStars.State.Disconnect(generation);
-            CampaignLevelRandomization.OnDisconnected();
             terminal?.Invoke();
         });
     }
@@ -1389,21 +1464,34 @@ internal sealed class ArchipelagoClient
         }
     }
 
-    public void QueueCampaignResult(string? level, string? variant, int? starsEarned)
+    internal readonly record struct CampaignResultContext(long RoomGeneration, string Save);
+
+    internal CampaignResultContext? CaptureCampaignResultContext()
     {
-        // Evaluation and queue admission share the login identity boundary.
-        // A result cannot be evaluated for one seed and queued for its replacement.
-        lock (_lock)
+        lock (_lock) if (!HasCheckIdentity()) return null;
+        CampaignResultContext? result = null;
+        NativeGrantSaveBinding.WithCheckSave((room, save) =>
         {
-            if (!_authenticatedIdentity.HasValue)
-                return;
-            IReadOnlyList<string> locations = CampaignLevelRandomization.EvaluatePersistedResult(level, variant, starsEarned);
-            if (locations.Count == 0)
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={starsEarned?.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
-            foreach (string location in locations)
-                QueueLocation(location);
-        }
+            lock (_lock) if (_outboxIdentity == room) result = new(_resultRoomGeneration, save);
+        });
+        return result;
+    }
+
+    public void QueueCampaignResult(string? level, string? variant, int? starsEarned, CampaignResultContext? applied)
+    {
+        if (!applied.HasValue) return;
+        NativeGrantSaveBinding.WithCheckSave((room, save) =>
+        {
+            lock (_lock)
+            {
+                if (_outboxIdentity != room || applied.Value.RoomGeneration != _resultRoomGeneration || applied.Value.Save != save) return;
+                var locations = CampaignLevelRandomization.EvaluatePersistedResult(level, variant, starsEarned);
+                if (locations.Count == 0)
+                    Plugin.LoggerInstance?.LogInfo(
+                        $"[SCRC-AP] CAMPAIGN RESULT produced no active locations internal={level} variant={variant} stars={starsEarned?.ToString() ?? "<missing>"} mode={CampaignLevelRandomization.Snapshot.Mode}.");
+                foreach (string location in locations) QueueBoundLocation(location);
+            }
+        });
     }
 
     internal bool SendStarGoal(string expectedIdentity)
@@ -1428,30 +1516,61 @@ internal sealed class ArchipelagoClient
     {
         lock (_lock)
         {
-            if (!_authenticatedIdentity.HasValue) return false;
-            var identity = _authenticatedIdentity.Value;
-            if (string.Join("|", identity.Game, identity.Seed, identity.Team, identity.Slot) != expectedIdentity)
-                return false;
-            QueueLocation(locationName);
+            if (_outboxIdentity == null || _outboxIdentity != expectedIdentity) return false;
+            QueueBoundLocation(locationName);
             return true;
         }
     }
 
+    // Native observations require a stable selected save. Persisted journal replay
+    // enters separately with the identity that was validated when it was loaded.
     public void QueueLocation(string locationName)
     {
-        lock (_lock)
+        lock (_lock) if (!HasCheckIdentity()) return;
+        NativeGrantSaveBinding.WithCheckSave(identity => QueueExpandedLocation(locationName, identity));
+    }
+
+    private void QueueBoundLocation(string locationName)
+    {
+        if (_earned.Add(locationName)) _outboxDirty = true;
+        TryPersistEarnedChecks();
+        if (!_queuedOrSent.Add(locationName))
         {
-            if (!_queuedOrSent.Add(locationName))
-            {
-                Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Duplicate local check ignored: {locationName}");
-                return;
-            }
-            _pendingChecks.Enqueue(locationName);
+            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] Duplicate local check ignored: {locationName}");
+            return;
         }
+        _pendingChecks.Enqueue(locationName);
         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] QUEUED CHECK '{locationName}'.");
 
         if (Connected)
             Task.Run(FlushPendingChecks);
+    }
+
+    private bool HasCheckIdentity()
+    {
+        if (_outboxIdentity != null) return true;
+        if (!_reportedUnbound)
+        {
+            _reportedUnbound = true;
+            Plugin.LoggerInstance?.LogWarning("[SCRC-AP] Check observed before a room was verified. Connect to the intended room before collecting checks.");
+        }
+        return false;
+    }
+
+    private void PersistEarnedChecks()
+    {
+        _outbox.Save(_outboxIdentity!, _earned);
+        _outboxDirty = false;
+    }
+
+    private void TryPersistEarnedChecks()
+    {
+        if (!_outboxDirty) return;
+        try { PersistEarnedChecks(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Plugin.LoggerInstance?.LogError($"[SCRC-AP] Could not save earned checks to check-outbox. They are held in memory. Check folder access before quitting. {ex.Message}");
+        }
     }
 
     private void FlushPendingChecks()
@@ -1479,15 +1598,18 @@ internal sealed class ArchipelagoClient
                     if (id < 0)
                     {
                         Plugin.LoggerInstance?.LogWarning(
-                            $"[SCRC-AP] Location '{locationName}' is not in the connected datapackage; keeping it local only.");
+                            $"[SCRC-AP] Location '{locationName}' is not in the connected datapackage; retained for replay.");
+                        lock (_lock) _queuedOrSent.Remove(locationName);
                         continue;
                     }
 
                     if (!session.Locations.AllLocations.Contains(id))
                     {
                         Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SKIPPED INACTIVE CHECK '{locationName}' ({id}); not enabled in this seed.");
+                        lock (_lock) _queuedOrSent.Remove(locationName);
                         continue;
                     }
+                    lock (_lock) if (_serverChecked.Contains(id)) continue;
                     session.Locations.CompleteLocationChecks(id);
                     Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] SENT CHECK '{locationName}' ({id}).");
                 }
@@ -1508,1372 +1630,6 @@ internal sealed class ArchipelagoClient
                 () => RequestReconnect("location check send failed"));
     }
 }
-
-internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
-{
-    public static int RequiredStars = 50;
-
-    public static int RoyalRequiredStars = 40;
-    private static StarEaterTestTarget? _activeTarget;
-    private static int ActiveRequiredStars => _activeTarget?.Required ?? 66;
-
-    private const string StarEaterComponentName =
-        "StarEaterInteraction";
-
-    private const string ThresholdFieldName =
-        "feedingThreshold";
-
-    // Patch only while physically near the actual StarEaterInteraction object.
-    // This keeps the generic DefinedValue<int>.GetValue() override extremely
-    // short-lived and avoids changing other Hub8 numeric definitions while the
-    // player is elsewhere.
-    private const float PatchRadius =
-        8.0f;
-
-    private const float ReleaseRadius =
-        10.0f;
-
-    private Transform? _interactionTransform;
-    private Transform? _playerTransform;
-
-    private IntPtr _thresholdObject;
-    private IntPtr _thresholdClass;
-    private IntPtr _getValueMethod;
-
-    private int _targetRetryFrame;
-    private int _playerRetryFrame;
-    private bool _reportedReady;
-    private bool _reportedPlayerFailure;
-
-    private static LegacyStarEaterPatch? _getValuePatch;
-    private static bool _restorePending;
-    private bool _retired;
-    private static bool _reportedPatchFailure;
-
-    private static readonly Dictionary<IntPtr, LegacyStarEaterPatch> StarEaterBoolPatches =
-        new();
-
-    private static bool _starEaterInteractionChecksPatched;
-    private static bool _interactionSessionStarted;
-    private static bool _reportedInteractionPatchActive;
-    private static bool _reportedInteractionInterestActive;
-    private static bool _reportedInteractionInterestFailure;
-
-    public BunkerStarRequirementKeeper(
-        IntPtr pointer) : base(pointer)
-    {
-    }
-
-    public static void ResetForSceneChange()
-    {
-        RestorePatches("scene transition");
-        _activeTarget = null;
-        _reportedPatchFailure = false;
-        _reportedInteractionInterestFailure = false;
-    }
-
-    private void Update()
-    {
-        if (_retired || (_restorePending && !RestorePatches("retry pending restoration"))) return;
-        if (ApStars.State.Active)
-        {
-            RestorePatches("AP Star contract active");
-            ClearCachedTargets();
-            _activeTarget = null;
-            return;
-        }
-        StarEaterTestTarget? selected = StarEaterTestOverridePolicy.Select(
-            DeveloperHarness.CurrentRoomId, RoyalRequiredStars, RequiredStars);
-        if (_activeTarget != selected)
-        {
-            if (!RestorePatches("test target changed")) return;
-            ClearCachedTargets();
-            _activeTarget = selected;
-        }
-        if (selected == null)
-        {
-            ClearCachedTargets();
-            return;
-        }
-
-        if (!TargetsReady())
-        {
-            if (Time.frameCount >= _targetRetryFrame)
-            {
-                _targetRetryFrame =
-                    Time.frameCount + 30;
-
-                ResolveThresholdTarget();
-            }
-        }
-
-        if (!TargetsReady())
-        {
-            RestorePatches("Star Eater threshold target unavailable");
-            return;
-        }
-
-        if (!PlayerReady())
-        {
-            if (Time.frameCount >= _playerRetryFrame)
-            {
-                _playerRetryFrame =
-                    Time.frameCount + 30;
-
-                ResolvePlayer();
-            }
-        }
-
-        if (!PlayerReady())
-        {
-            RestorePatches("player marker unavailable");
-            return;
-        }
-
-        float distance;
-
-        try
-        {
-            distance =
-                Vector3.Distance(
-                    _playerTransform!.position,
-                    _interactionTransform!.position);
-        }
-        catch
-        {
-            _playerTransform = null;
-
-            RestorePatches("player/interaction transform invalid");
-
-            return;
-        }
-
-        bool shouldEnable = distance <= PatchRadius;
-
-        if (!shouldEnable)
-        {
-            if (distance > ReleaseRadius)
-            {
-                RestorePatches($"player left Star Eater range ({distance:0.###})");
-            }
-
-            return;
-        }
-
-        if (_getValuePatch == null)
-        {
-            TryApplyNativeGetValuePatch(
-                $"player distance={distance:0.###}");
-        }
-
-        if (_getValuePatch == null || _restorePending)
-            return;
-
-        if (!_starEaterInteractionChecksPatched)
-        {
-            TryApplyStarEaterInteractionPatches(
-                $"player distance={distance:0.###}");
-        }
-
-        if (_starEaterInteractionChecksPatched)
-        {
-            TryRegisterStarEaterInteractionInterest();
-        }
-    }
-
-    private void OnDisable()
-    {
-        if (!_retired) RestorePatches("keeper disabled");
-    }
-
-    private void OnDestroy()
-    {
-        if (!_retired) RestorePatches("keeper destroyed");
-    }
-
-    internal void Retire()
-    {
-        _retired = true;
-        _activeTarget = null;
-    }
-
-    internal static bool RestorePatches(string reason)
-    {
-        RestoreStarEaterInteractionPatches(reason);
-        RestoreNativeGetValuePatch(reason);
-        _restorePending = StarEaterBoolPatches.Count != 0 || _getValuePatch != null;
-        return !_restorePending;
-    }
-
-    private void ClearCachedTargets()
-    {
-        _interactionTransform = null;
-        _playerTransform = null;
-
-        _thresholdObject = IntPtr.Zero;
-        _thresholdClass = IntPtr.Zero;
-        _getValueMethod = IntPtr.Zero;
-
-        _targetRetryFrame = 0;
-        _playerRetryFrame = 0;
-        _reportedReady = false;
-        _reportedPlayerFailure = false;
-
-        _interactionSessionStarted = false;
-        _reportedInteractionInterestActive = false;
-        _reportedInteractionInterestFailure = false;
-    }
-
-    private bool TargetsReady()
-    {
-        try
-        {
-            return _interactionTransform != null &&
-                   _interactionTransform.gameObject != null &&
-                   _thresholdObject != IntPtr.Zero &&
-                   _thresholdClass != IntPtr.Zero &&
-                   _getValueMethod != IntPtr.Zero;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private bool PlayerReady()
-    {
-        try
-        {
-            return _playerTransform != null &&
-                   _playerTransform.gameObject != null &&
-                   _playerTransform.gameObject.activeInHierarchy;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private void ResolveThresholdTarget()
-    {
-        GameObject? root =
-            FindKnownStarEaterRoot();
-
-        if (root == null)
-            return;
-
-        if (!FindNativeComponentInNarrowSubtree(
-                root,
-                StarEaterComponentName,
-                out object? rawComponent,
-                out Transform? componentTransform))
-        {
-            return;
-        }
-
-        if (rawComponent == null ||
-            componentTransform == null)
-        {
-            return;
-        }
-
-        IntPtr componentPointer =
-            GetIl2CppPointer(
-                rawComponent);
-
-        if (componentPointer == IntPtr.Zero)
-            return;
-
-        try
-        {
-            IntPtr componentClass =
-                il2cpp_object_get_class(
-                    componentPointer);
-
-            if (componentClass == IntPtr.Zero)
-                return;
-
-            IntPtr thresholdField =
-                FindFieldInHierarchy(
-                    componentClass,
-                    ThresholdFieldName);
-
-            if (thresholdField == IntPtr.Zero)
-                return;
-
-            IntPtr thresholdObject =
-                il2cpp_field_get_value_object(
-                    thresholdField,
-                    componentPointer);
-
-            if (thresholdObject == IntPtr.Zero)
-                return;
-
-            IntPtr thresholdClass =
-                il2cpp_object_get_class(
-                    thresholdObject);
-
-            if (thresholdClass == IntPtr.Zero)
-                return;
-
-            IntPtr getValueMethod =
-                FindMethodInHierarchy(
-                    thresholdClass,
-                    "GetValue",
-                    0);
-
-            if (getValueMethod == IntPtr.Zero)
-                return;
-
-            _interactionTransform =
-                componentTransform;
-
-            _thresholdObject =
-                thresholdObject;
-
-            _thresholdClass =
-                thresholdClass;
-
-            _getValueMethod =
-                getValueMethod;
-
-            if (!_reportedReady)
-            {
-                _reportedReady = true;
-
-                int current =
-                    TryInvokeGetValue(
-                        thresholdObject,
-                        getValueMethod,
-                        out int evaluated)
-                        ? evaluated
-                        : int.MinValue;
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH READY: interaction='{BuildHierarchy(componentTransform)}', currentGetValue={(current == int.MinValue ? "<unknown>" : current.ToString())}, patchRadius={PatchRadius:0.##}, releaseRadius={ReleaseRadius:0.##}. feedingThreshold object data will not be modified.");
-            }
-        }
-        catch (Exception ex)
-        {
-            ReportPatchFailureOnce(
-                $"target resolution failed: {ex.GetBaseException().Message}");
-        }
-    }
-
-    private void ResolvePlayer()
-    {
-        string[] candidates =
-        {
-            "GameRoomContainer/GameRoomSystems(Clone)/SpawnedEntityContainer/PlayerCharacter(Clone)",
-            "PlayerCharacter(Clone)",
-            "PlayerCharacter",
-        };
-
-        foreach (string candidate in candidates)
-        {
-            try
-            {
-                GameObject? player =
-                    GameObject.Find(
-                        candidate);
-
-                if (player == null ||
-                    player.transform == null ||
-                    !player.activeInHierarchy)
-                {
-                    continue;
-                }
-
-                _playerTransform =
-                    player.transform;
-
-                _reportedPlayerFailure = false;
-
-                Plugin.LoggerInstance?.LogInfo(
-                    $"[SCRC-AP] STAR EATER TEST player marker resolved directly: '{BuildHierarchy(_playerTransform)}'.");
-
-                return;
-            }
-            catch
-            {
-            }
-        }
-
-        if (!_reportedPlayerFailure)
-        {
-            _reportedPlayerFailure = true;
-
-            Plugin.LoggerInstance?.LogWarning(
-                "[SCRC-AP] STAR EATER TEST player marker not yet available through direct GameObject.Find; no scene-wide search will be performed.");
-        }
-    }
-
-    private void TryApplyStarEaterInteractionPatches(
-        string reason)
-    {
-        if (_starEaterInteractionChecksPatched)
-            return;
-
-        if (_thresholdObject == IntPtr.Zero ||
-            _interactionTransform == null ||
-            _interactionTransform.gameObject == null)
-        {
-            return;
-        }
-
-        object? rawComponent =
-            FindNativeComponentByName(
-                _interactionTransform.gameObject,
-                StarEaterComponentName);
-
-        if (rawComponent == null)
-        {
-            ReportInteractionFailureOnce(
-                "could not re-resolve StarEaterInteraction on the exact interaction transform");
-
-            return;
-        }
-
-        IntPtr componentPointer =
-            GetIl2CppPointer(
-                rawComponent);
-
-        if (componentPointer == IntPtr.Zero)
-        {
-            ReportInteractionFailureOnce(
-                "StarEaterInteraction native object pointer was null");
-
-            return;
-        }
-
-        IntPtr componentClass;
-
-        try
-        {
-            componentClass =
-                il2cpp_object_get_class(
-                    componentPointer);
-        }
-        catch (Exception ex)
-        {
-            ReportInteractionFailureOnce(
-                $"could not resolve StarEaterInteraction native class: {ex.GetBaseException().Message}");
-
-            return;
-        }
-
-        if (componentClass == IntPtr.Zero)
-            return;
-
-        var targets =
-            new (string Name, int Args)[]
-            {
-                ("DoesStarEaterWantToInteract", 0),
-                ("CanFeedNewStars", 0),
-                ("IsCharacterAllowedToInteract", 1),
-                ("IsInteractionEnabled", 0),
-            };
-
-        try
-        {
-            foreach (var target in targets)
-            {
-                IntPtr method =
-                    FindMethodInHierarchy(
-                        componentClass,
-                        target.Name,
-                        target.Args);
-
-                if (method == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException(
-                        $"{target.Name}({target.Args}) not found");
-                }
-
-                IntPtr codePointer =
-                    GetMethodCodePointer(
-                        method);
-
-                if (codePointer == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException(
-                        $"{target.Name} code pointer was null");
-                }
-
-                // Multiple inherited/generic methods can theoretically share a
-                // native code pointer. Store/patch each unique pointer once.
-                if (StarEaterBoolPatches.ContainsKey(
-                        codePointer))
-                {
-                    continue;
-                }
-
-                byte[] forceTrue =
-                {
-                    0xB8, 0x01, 0x00, 0x00, 0x00,
-                    0xC3
-                };
-
-                byte[] original =
-                    new byte[forceTrue.Length];
-
-                Marshal.Copy(
-                    codePointer,
-                    original,
-                    0,
-                    original.Length);
-
-                StarEaterBoolPatches.Add(codePointer, new LegacyStarEaterPatch(codePointer, original, forceTrue));
-                if (!WriteExecutableBytes(
-                        codePointer,
-                        forceTrue))
-                {
-                    throw new InvalidOperationException(
-                        $"failed to patch {target.Name} at 0x{codePointer.ToInt64():X}");
-                }
-
-            }
-
-            _starEaterInteractionChecksPatched =
-                true;
-
-            _interactionSessionStarted =
-                false;
-
-            if (!_reportedInteractionPatchActive)
-            {
-                _reportedInteractionPatchActive =
-                    true;
-
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH ACTIVE: forced Star Eater DoesStarEaterWantToInteract, CanFeedNewStars, IsCharacterAllowedToInteract, and IsInteractionEnabled true; reason='{reason}'. Patches are proximity-scoped and restored on exit/scene transition.");
-            }
-        }
-        catch (Exception ex)
-        {
-            RestorePatches("incomplete interaction patch");
-            ReportInteractionFailureOnce(
-                $"interaction patch apply failed: {ex.GetBaseException().Message}");
-        }
-    }
-
-    private static void RestoreStarEaterInteractionPatches(
-        string reason)
-    {
-        if (StarEaterBoolPatches.Count == 0 &&
-            !_starEaterInteractionChecksPatched)
-        {
-            _interactionSessionStarted = false;
-            _reportedInteractionInterestActive = false;
-            return;
-        }
-
-        foreach (var patch in StarEaterBoolPatches.Values.ToArray())
-        {
-            if (TryRestorePatch(patch, reason))
-                StarEaterBoolPatches.Remove(patch.Address);
-        }
-
-        _starEaterInteractionChecksPatched =
-            false;
-
-        _interactionSessionStarted =
-            false;
-
-        _reportedInteractionInterestActive =
-            false;
-
-        _reportedInteractionInterestFailure =
-            false;
-
-        if (_reportedInteractionPatchActive)
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH RESTORE: reason='{reason}', outstanding={StarEaterBoolPatches.Count}.");
-        }
-
-        _reportedInteractionPatchActive =
-            false;
-    }
-
-    private void TryRegisterStarEaterInteractionInterest()
-    {
-        if (!_starEaterInteractionChecksPatched ||
-            _interactionTransform == null ||
-            _interactionTransform.gameObject == null)
-        {
-            return;
-        }
-
-        object? rawComponent =
-            FindNativeComponentByName(
-                _interactionTransform.gameObject,
-                StarEaterComponentName);
-
-        if (rawComponent == null)
-            return;
-
-        IntPtr componentPointer =
-            GetIl2CppPointer(
-                rawComponent);
-
-        if (componentPointer == IntPtr.Zero)
-            return;
-
-        IntPtr componentClass =
-            il2cpp_object_get_class(
-                componentPointer);
-
-        if (componentClass == IntPtr.Zero)
-            return;
-
-        try
-        {
-            if (!_interactionSessionStarted)
-            {
-                IntPtr sessionMethod =
-                    FindMethodInHierarchy(
-                        componentClass,
-                        "OnNewInteractionInterestSession",
-                        0);
-
-                if (sessionMethod != IntPtr.Zero)
-                {
-                    IntPtr sessionException =
-                        IntPtr.Zero;
-
-                    il2cpp_runtime_invoke(
-                        sessionMethod,
-                        componentPointer,
-                        IntPtr.Zero,
-                        ref sessionException);
-
-                    if (sessionException != IntPtr.Zero)
-                    {
-                        ReportInteractionInterestFailureOnce(
-                            $"OnNewInteractionInterestSession exception=0x{sessionException.ToInt64():X}");
-
-                        return;
-                    }
-                }
-
-                _interactionSessionStarted =
-                    true;
-            }
-
-            IntPtr interestMethod =
-                FindMethodInHierarchy(
-                    componentClass,
-                    "RecordInteractionInterest",
-                    0);
-
-            if (interestMethod == IntPtr.Zero)
-            {
-                ReportInteractionInterestFailureOnce(
-                    "RecordInteractionInterest() not found");
-
-                return;
-            }
-
-            IntPtr interestException =
-                IntPtr.Zero;
-
-            il2cpp_runtime_invoke(
-                interestMethod,
-                componentPointer,
-                IntPtr.Zero,
-                ref interestException);
-
-            if (interestException != IntPtr.Zero)
-            {
-                _interactionSessionStarted =
-                    false;
-
-                ReportInteractionInterestFailureOnce(
-                    $"RecordInteractionInterest exception=0x{interestException.ToInt64():X}");
-
-                return;
-            }
-
-            _reportedInteractionInterestFailure =
-                false;
-
-            if (!_reportedInteractionInterestActive)
-            {
-                _reportedInteractionInterestActive =
-                    true;
-
-                Plugin.LoggerInstance?.LogInfo(
-                    "[SCRC-AP] STAR EATER TEST NATIVE INTERACTION INTEREST ACTIVE: registered the real StarEaterInteraction with the game's interaction-interest pipeline.");
-            }
-        }
-        catch (Exception ex)
-        {
-            ReportInteractionInterestFailureOnce(
-                $"interaction-interest registration failed: {ex.GetBaseException().Message}");
-        }
-    }
-
-    private static object? FindNativeComponentByName(
-        GameObject gameObject,
-        string componentName)
-    {
-        MethodInfo? getByName =
-            typeof(GameObject).GetMethod(
-                "GetComponent",
-                BindingFlags.Public |
-                BindingFlags.Instance,
-                binder: null,
-                types: new[] { typeof(string) },
-                modifiers: null);
-
-        if (getByName == null)
-            return null;
-
-        return TryGetNativeComponentByName(
-            getByName,
-            gameObject,
-            componentName);
-    }
-
-    private static void ReportInteractionFailureOnce(
-        string message)
-    {
-        if (_reportedInteractionPatchActive)
-            return;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] STAR EATER TEST INTERACTION PATCH FAILURE: {message}");
-    }
-
-    private static void ReportInteractionInterestFailureOnce(
-        string message)
-    {
-        if (_reportedInteractionInterestFailure)
-            return;
-
-        _reportedInteractionInterestFailure =
-            true;
-
-        Plugin.LoggerInstance?.LogDebug(
-            $"[SCRC-AP] STAR EATER TEST interaction-interest transient failure: {message}");
-    }
-
-    private void TryApplyNativeGetValuePatch(
-        string reason)
-    {
-        if (_getValuePatch != null)
-            return;
-
-        if (_getValueMethod == IntPtr.Zero ||
-            _thresholdObject == IntPtr.Zero)
-        {
-            return;
-        }
-
-        try
-        {
-            int before =
-                TryInvokeGetValue(
-                    _thresholdObject,
-                    _getValueMethod,
-                    out int evaluatedBefore)
-                    ? evaluatedBefore
-                    : int.MinValue;
-
-            IntPtr codePointer =
-                GetMethodCodePointer(
-                    _getValueMethod);
-
-            if (codePointer == IntPtr.Zero)
-            {
-                ReportPatchFailureOnce(
-                    "DefinedValue<int>.GetValue() native code pointer was null");
-
-                return;
-            }
-
-            // Windows x64:
-            //   mov eax, imm32
-            //   ret
-            //
-            // GetValue returns System.Int32, so this bypasses only the evaluator
-            // while the player is near this Star Eater. It does not mutate the
-            // DefinedInt or IntDefinition objects.
-            byte[] forceConfiguredValue =
-            {
-                0xB8,
-                (byte)(ActiveRequiredStars & 0xFF),
-                (byte)((ActiveRequiredStars >> 8) & 0xFF),
-                (byte)((ActiveRequiredStars >> 16) & 0xFF),
-                (byte)((ActiveRequiredStars >> 24) & 0xFF),
-                0xC3
-            };
-
-            byte[] original =
-                new byte[forceConfiguredValue.Length];
-
-            Marshal.Copy(
-                codePointer,
-                original,
-                0,
-                original.Length);
-
-            _getValuePatch = new LegacyStarEaterPatch(codePointer, original, forceConfiguredValue);
-            if (!WriteExecutableBytes(
-                    codePointer,
-                    forceConfiguredValue))
-            {
-                RestorePatches("threshold write failed");
-                ReportPatchFailureOnce(
-                    $"VirtualProtect/write failed at 0x{codePointer.ToInt64():X}");
-
-                return;
-            }
-
-            bool verified =
-                TryInvokeGetValue(
-                    _thresholdObject,
-                    _getValueMethod,
-                    out int after);
-
-            if (!verified ||
-                after != ActiveRequiredStars)
-            {
-                RestorePatches(
-                    "verification failed");
-
-                ReportPatchFailureOnce(
-                    $"patched GetValue verification returned {(verified ? after.ToString() : "<invoke-failed>")} instead of {ActiveRequiredStars}");
-
-                return;
-            }
-
-            Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH ACTIVE: DefinedValue<int>.GetValue() {(before == int.MinValue ? "<unknown>" : before.ToString())} -> {after}; reason='{reason}'. Patch is temporary and feedingThreshold data is untouched.");
-        }
-        catch (Exception ex)
-        {
-            RestorePatches(
-                "exception during apply");
-
-            ReportPatchFailureOnce(
-                $"native GetValue patch failed: {ex.GetBaseException().Message}");
-        }
-    }
-
-    private static void RestoreNativeGetValuePatch(
-        string reason)
-    {
-        if (_getValuePatch != null && TryRestorePatch(_getValuePatch, reason))
-        {
-            _getValuePatch = null;
-            Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] STAR EATER TEST GETVALUE PATCH RELEASED: reason='{reason}'.");
-        }
-    }
-
-    private static bool TryRestorePatch(LegacyStarEaterPatch patch, string reason)
-    {
-        try
-        {
-            if (patch.TryRestore(WriteExecutableBytes)) return true;
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Star Eater patch restore failed during {reason}; Win32={Marshal.GetLastWin32Error()}.");
-        }
-        catch (Exception ex)
-        {
-            Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Star Eater patch restore failed during {reason}: {ex.GetBaseException().Message}");
-        }
-        return false;
-    }
-
-    private static bool WriteExecutableBytes(
-        IntPtr codePointer,
-        byte[] bytes)
-    {
-        if (codePointer == IntPtr.Zero ||
-            bytes.Length == 0)
-        {
-            return false;
-        }
-
-        const uint PAGE_EXECUTE_READWRITE =
-            0x40;
-
-        if (!VirtualProtect(
-                codePointer,
-                (UIntPtr)bytes.Length,
-                PAGE_EXECUTE_READWRITE,
-                out uint oldProtect))
-        {
-            return false;
-        }
-
-        try
-        {
-            Marshal.Copy(
-                bytes,
-                0,
-                codePointer,
-                bytes.Length);
-
-            FlushInstructionCache(
-                GetCurrentProcess(),
-                codePointer,
-                (UIntPtr)bytes.Length);
-
-            return true;
-        }
-        finally
-        {
-            VirtualProtect(
-                codePointer,
-                (UIntPtr)bytes.Length,
-                oldProtect,
-                out _);
-        }
-    }
-
-    private static IntPtr GetMethodCodePointer(
-        IntPtr method)
-    {
-        if (method == IntPtr.Zero)
-            return IntPtr.Zero;
-
-        try
-        {
-            return il2cpp_method_get_pointer(
-                method);
-        }
-        catch (EntryPointNotFoundException)
-        {
-            // Same Unity 2021 fallback already proven by the native
-            // LevelEntranceDoor interaction bridge.
-            try
-            {
-                return Marshal.ReadIntPtr(
-                    method);
-            }
-            catch
-            {
-                return IntPtr.Zero;
-            }
-        }
-    }
-
-    private static bool TryInvokeGetValue(
-        IntPtr thresholdObject,
-        IntPtr getValueMethod,
-        out int value)
-    {
-        value =
-            int.MinValue;
-
-        try
-        {
-            IntPtr exc =
-                IntPtr.Zero;
-
-            IntPtr boxed =
-                il2cpp_runtime_invoke(
-                    getValueMethod,
-                    thresholdObject,
-                    IntPtr.Zero,
-                    ref exc);
-
-            if (exc != IntPtr.Zero ||
-                boxed == IntPtr.Zero)
-            {
-                return false;
-            }
-
-            IntPtr unboxed =
-                il2cpp_object_unbox(
-                    boxed);
-
-            if (unboxed == IntPtr.Zero)
-                return false;
-
-            value =
-                Marshal.ReadInt32(
-                    unboxed);
-
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static GameObject? FindKnownStarEaterRoot()
-    {
-        try
-        {
-            GameObject? exact =
-                GameObject.Find(
-                    _activeTarget!.RootPath);
-
-            if (exact != null)
-                return exact;
-        }
-        catch
-        {
-        }
-
-        try
-        {
-            GameObject? named =
-                GameObject.Find(
-                    "StarEater");
-
-            if (named == null ||
-                named.transform == null)
-            {
-                return null;
-            }
-
-            string path =
-                BuildHierarchy(
-                    named.transform);
-
-            return string.Equals(path, _activeTarget?.RootPath, StringComparison.Ordinal)
-                ? named
-                : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static bool FindNativeComponentInNarrowSubtree(
-        GameObject root,
-        string componentName,
-        out object? component,
-        out Transform? componentTransform)
-    {
-        component = null;
-        componentTransform = null;
-
-        MethodInfo? getByName =
-            typeof(GameObject).GetMethod(
-                "GetComponent",
-                BindingFlags.Public |
-                BindingFlags.Instance,
-                binder: null,
-                types: new[] { typeof(string) },
-                modifiers: null);
-
-        if (getByName == null)
-            return false;
-
-        object? direct =
-            TryGetNativeComponentByName(
-                getByName,
-                root,
-                componentName);
-
-        if (direct != null)
-        {
-            component = direct;
-            componentTransform = root.transform;
-            return true;
-        }
-
-        var queue =
-            new Queue<(Transform Transform, int Depth)>();
-
-        queue.Enqueue(
-            (root.transform, 0));
-
-        while (queue.Count > 0)
-        {
-            var entry =
-                queue.Dequeue();
-
-            Transform tr =
-                entry.Transform;
-
-            int depth =
-                entry.Depth;
-
-            if (tr == null ||
-                tr.gameObject == null)
-            {
-                continue;
-            }
-
-            string name =
-                tr.name ?? string.Empty;
-
-            if (depth > 0 &&
-                (name.Contains(
-                     "IdlingTendrils",
-                     StringComparison.OrdinalIgnoreCase) ||
-                 name.Contains(
-                     "Skeleton",
-                     StringComparison.OrdinalIgnoreCase) ||
-                 name.Contains(
-                     "Geom",
-                     StringComparison.OrdinalIgnoreCase) ||
-                 name.Contains(
-                     "Shadow",
-                     StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
-
-            if (depth > 0)
-            {
-                object? found =
-                    TryGetNativeComponentByName(
-                        getByName,
-                        tr.gameObject,
-                        componentName);
-
-                if (found != null)
-                {
-                    component = found;
-                    componentTransform = tr;
-                    return true;
-                }
-            }
-
-            if (depth >= 6)
-                continue;
-
-            for (int i = 0;
-                 i < tr.childCount;
-                 i++)
-            {
-                Transform? child =
-                    null;
-
-                try
-                {
-                    child =
-                        tr.GetChild(i);
-                }
-                catch
-                {
-                }
-
-                if (child != null)
-                {
-                    queue.Enqueue(
-                        (child, depth + 1));
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static object? TryGetNativeComponentByName(
-        MethodInfo getByName,
-        GameObject gameObject,
-        string componentName)
-    {
-        try
-        {
-            return getByName.Invoke(
-                gameObject,
-                new object[] { componentName });
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private const string NativeLibrary =
-        "GameAssembly.dll";
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_object_get_class(
-        IntPtr obj);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_class_get_parent(
-        IntPtr klass);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_class_get_field_from_name(
-        IntPtr klass,
-        [MarshalAs(UnmanagedType.LPStr)] string name);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_field_get_value_object(
-        IntPtr field,
-        IntPtr obj);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_class_get_method_from_name(
-        IntPtr klass,
-        [MarshalAs(UnmanagedType.LPStr)] string name,
-        int argsCount);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_method_get_pointer(
-        IntPtr method);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_runtime_invoke(
-        IntPtr method,
-        IntPtr obj,
-        IntPtr parameters,
-        ref IntPtr exc);
-
-    [DllImport(NativeLibrary, CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr il2cpp_object_unbox(
-        IntPtr obj);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool VirtualProtect(
-        IntPtr lpAddress,
-        UIntPtr dwSize,
-        uint flNewProtect,
-        out uint lpflOldProtect);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetCurrentProcess();
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool FlushInstructionCache(
-        IntPtr hProcess,
-        IntPtr lpBaseAddress,
-        UIntPtr dwSize);
-
-    private static IntPtr FindFieldInHierarchy(
-        IntPtr klass,
-        string fieldName)
-    {
-        IntPtr current =
-            klass;
-
-        for (int depth = 0;
-             current != IntPtr.Zero &&
-             depth < 10;
-             depth++)
-        {
-            IntPtr field =
-                il2cpp_class_get_field_from_name(
-                    current,
-                    fieldName);
-
-            if (field != IntPtr.Zero)
-                return field;
-
-            current =
-                il2cpp_class_get_parent(
-                    current);
-        }
-
-        return IntPtr.Zero;
-    }
-
-    private static IntPtr FindMethodInHierarchy(
-        IntPtr klass,
-        string methodName,
-        int argCount)
-    {
-        IntPtr current =
-            klass;
-
-        for (int depth = 0;
-             current != IntPtr.Zero &&
-             depth < 10;
-             depth++)
-        {
-            IntPtr method =
-                il2cpp_class_get_method_from_name(
-                    current,
-                    methodName,
-                    argCount);
-
-            if (method != IntPtr.Zero)
-                return method;
-
-            current =
-                il2cpp_class_get_parent(
-                    current);
-        }
-
-        return IntPtr.Zero;
-    }
-
-    private static IntPtr GetIl2CppPointer(
-        object value)
-    {
-        try
-        {
-            PropertyInfo? property =
-                value.GetType().GetProperty(
-                    "Pointer",
-                    BindingFlags.Public |
-                    BindingFlags.NonPublic |
-                    BindingFlags.Instance);
-
-            return property?.GetValue(
-                       value) is IntPtr pointer
-                ? pointer
-                : IntPtr.Zero;
-        }
-        catch
-        {
-            return IntPtr.Zero;
-        }
-    }
-
-    private static void ReportPatchFailureOnce(
-        string message)
-    {
-        if (_reportedPatchFailure)
-            return;
-
-        _reportedPatchFailure = true;
-
-        Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] STAR EATER TEST GETVALUE PATCH FAILURE: {message}");
-    }
-
-    private static string BuildHierarchy(
-        Transform tr)
-    {
-        try
-        {
-            var names =
-                new List<string>();
-
-            Transform? current =
-                tr;
-
-            for (int i = 0;
-                 i < 40 &&
-                 current != null;
-                 i++)
-            {
-                names.Add(
-                    current.name ??
-                    "<unnamed>");
-
-                current =
-                    current.parent;
-            }
-
-            names.Reverse();
-
-            return string.Join(
-                "/",
-                names);
-        }
-        catch
-        {
-            return "<unavailable>";
-        }
-    }
-}
-
 
 internal static class CassetteSaveTransactionPatches
 {
@@ -3020,8 +1776,10 @@ internal static class GamePatches
 
         MusicLabDiscovery.RecordResultRequest(request, level, variant, score, difficulty);
         int? starsEarned = MusicLabDiscovery.ProbeNormalLevelStarRating(level, variant, score);
-        // The persisted event can omit the scoring variant and quest context. Capture both while applying the result.
-        Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned, ExpandedChecks.CaptureResultContext());
+        // The persisted event can omit the variant and save. Associate its Star tiers with the save receiving the score.
+        Pending[level] = new PendingResult(level, variant, players, score, difficulty, starsEarned,
+            ExpandedChecks.CaptureResultContext(),
+            CampaignLevelCatalog.TryGet(level, out _) ? Plugin.AP?.CaptureCampaignResultContext() : null);
 
         PlantPipesRandomization.OnLevelResultApplied(level);
         CassetteReceiptRandomization.OnLifecyclePoint("level result applied");
@@ -3041,13 +1799,12 @@ internal static class GamePatches
         string level = ReflectionUtil.ExtractIdentifier(
             ReflectionUtil.ReadMember(evt, "Level")) ?? "<unknown>";
 
-        Pending.TryGetValue(level, out PendingResult? result);
+        Pending.Remove(level, out PendingResult? result);
 
-        string variant =
-            result?.Variant
-            ?? ReflectionUtil.ExtractIdentifier(
-                ReflectionUtil.ReadMember(evt, "LevelVariant"))
-            ?? "<none>";
+        string? eventVariant = ReflectionUtil.ExtractIdentifier(ReflectionUtil.ReadMember(evt, "LevelVariant"));
+        if (!string.IsNullOrEmpty(eventVariant) && result != null && eventVariant != result.Variant)
+            result = null;
+        string variant = result?.Variant ?? eventVariant ?? "<none>";
 
         string persistedKey =
             $"{level}|{variant}";
@@ -3095,7 +1852,7 @@ internal static class GamePatches
 
         if (CampaignLevelCatalog.TryGet(level, out _))
         {
-            Plugin.AP?.QueueCampaignResult(level, variant, result?.StarsEarned);
+            Plugin.AP?.QueueCampaignResult(level, variant, result?.StarsEarned, result?.CampaignContext);
         }
         else if (!explicitlyNonDefaultVariant)
         {
@@ -3127,7 +1884,8 @@ internal static class GamePatches
         int? Score,
         string Difficulty,
         int? StarsEarned,
-        string? ExpandedContext);
+        string? ExpandedContext,
+        ArchipelagoClient.CampaignResultContext? CampaignContext);
 }
 
 
@@ -3231,7 +1989,7 @@ internal static class DeveloperHarness
         CassetteReceiptRandomization.OnLifecyclePoint(
             $"room transition to {observedRoom}");
 
-        BunkerStarRequirementKeeper.ResetForSceneChange();
+        ApStarEaterThresholds.Restore();
         MontageAnimalTick.Reset();
         PlayerMovementTiming.Reset();
     }
@@ -3340,8 +2098,8 @@ internal static class WeedKillerRandomization
 
         Plugin.LoggerInstance?.LogWarning(
             Enabled
-                ? $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{SourceLocationName}'. Gecko source check is live; vanilla Weed Killer grant is suppressed and AP delivery grants the native consumable."
-                : $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION disabled implementation='{implementation}' requested={requested}; Gecko/Weed Killer remain vanilla for this seed.");
+                ? $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION ENABLED item='{ItemName}' source='{SourceLocationName}'. Gecko source check is live; vanilla Weed Killer grant is suppressed and AP delivery grants the native consumable."
+                : $"[SCRC-AP] ROOTS WEED KILLER RANDOMIZATION disabled requested={requested}; Gecko/Weed Killer remain vanilla for this seed.");
 
     }
 
@@ -3363,7 +2121,7 @@ internal static class WeedKillerRandomization
             (ReflectionUtil.ReadBool(evt, "FlagWasSet") ?? ReflectionUtil.ReadBool(evt, "_FlagWasSet_k__BackingField")) != true ||
             (ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")) != false) return;
         // Vanilla removes the bag before its delayed door-reveal sequence completes.
-        CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) =>
+        NativeGrantSaveBinding.ObserveBoundSave((_, identity) =>
         {
             lock (Sync) _consumedSaveIdentity = identity;
         });
@@ -3378,7 +2136,7 @@ internal static class WeedKillerRandomization
         lock (Sync)
             if (!Enabled || !History.Owned) return;
 
-        CassetteReceiptRandomization.WithStableQuestItemSave((processor, identity) => History.WithOwned(() =>
+        NativeGrantSaveBinding.WithBoundSave((processor, identity) => History.WithOwned(() =>
         {
             // Source collected is not consumption: the native door consequence is.
             // Unknown native state must never restore a potentially consumed item.
@@ -3420,7 +2178,7 @@ internal static class WeedKillerRandomization
             return false;
 
         bool value = ReflectionUtil.ReadBool(request, "Value") ?? false;
-        if (!value)
+        if (!value || !NativeGrantSaveBinding.IsCurrentSaveBound())
             return false;
 
         Plugin.LoggerInstance?.LogWarning(
@@ -3599,6 +2357,7 @@ internal static class RootsIntroCutsceneBypass
             return;
         }
 
+        processor ??= CassetteReceiptRandomization.GetSelectedSaveProcessor();
         if (processor != null && !outstanding)
         {
             bool submitted = true;
@@ -3878,6 +2637,7 @@ internal static class CassetteReceiptRandomization
     private static object? _playerSaveRequestProcessor;
     private static object? _joinedSaveDataRequestProcessor;
     private static bool _slotDataSynchronized;
+    private static bool _unloading;
     private static bool _bundleRouting;
     private static IReadOnlyList<string>? _lastBundleSongs;
     private static CassetteSaveEpochRuntime _runtime = new();
@@ -3885,6 +2645,7 @@ internal static class CassetteReceiptRandomization
     private static CassetteGameplayReadyGate _gameplayReady = new();
     private static CassetteReconciliationRetry _reconciliationRetry = new();
     private static CassetteRegularSavePointerJoinProbe _regularSavePointerJoinProbe = new();
+    private static TimeSpan _saveIdentityRetryDelay;
     private static long _activeSaveGeneration;
     private static long _activeSavePointer;
     private static CassetteDiagnosticSignatureDeduplicator _mostRecentQueueLogDeduper = new();
@@ -3899,6 +2660,7 @@ internal static class CassetteReceiptRandomization
         new(() => RequestUnityReconciliation("cassette persistence verified"));
     private static readonly CassettePersistenceAcceptanceMarkerEmitter _persistenceMarkerEmitter = new();
     private static CassettePersistencePollScheduler _persistencePoll = new();
+    private static TimeSpan _writePollElapsed;
     [ThreadStatic] private static bool _applyingNativeGrant;
 
     internal static bool Enabled { get; private set; }
@@ -3907,11 +2669,13 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
+            _unloading = false;
             Enabled = false; _slotDataSynchronized = false; _bundleRouting = false; _lastBundleSongs = null;
             _playerSaveRequestProcessor = null; _joinedSaveDataRequestProcessor = null; _runtime = new CassetteSaveEpochRuntime(); _saveIdentity = new CassetteProcessorSaveIdentityStabilizer();
             _gameplayReady = new CassetteGameplayReadyGate();
             _reconciliationRetry = new CassetteReconciliationRetry();
             _regularSavePointerJoinProbe = new CassetteRegularSavePointerJoinProbe();
+            _saveIdentityRetryDelay = TimeSpan.Zero;
             _activeSaveGeneration = 0; _activeSavePointer = 0;
             _mostRecentQueueLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
             _mostRecentResultLogDeduper = new CassetteDiagnosticSignatureDeduplicator();
@@ -3923,27 +2687,77 @@ internal static class CassetteReceiptRandomization
         }
     }
 
+    internal static bool TryPrepareUnload()
+    {
+        lock (CassetteBundleSessionHistory.Sync)
+        lock (Sync)
+        {
+            if (_productionPersistence.HasPendingWrite || _runtime.HasUnverifiedSubmission)
+            {
+                var identity = new CassetteGameplayReadyIdentity(_activeSaveGeneration, _runtime.Epoch,
+                    _runtime.ActiveSlot ?? -1, _activeSavePointer);
+                // A selection boundary invalidates the old epoch before the replacement
+                // slot is known. Its write cannot run against a new or unreadable save.
+                if (!_saveIdentity.Pending && _gameplayReady.IsOpen(identity)) {
+                    var selected = CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(_playerSaveRequestProcessor);
+                    if (!selected.Valid || !selected.Pointer.HasValue || selected.Pointer.Value == _activeSavePointer)
+                        return false;
+                }
+                CancelPointerBoundPersistence("unload-after-save-change");
+                _runtime.DeactivateSave();
+            }
+            _unloading = true;
+            return true;
+        }
+    }
+
+    internal static void ResetRoomOwnership(Action resetSelectedSaveReceipts)
+    {
+        // A frame holds the bundle lock through native cassette grants. Roots and Weed Killer
+        // hold the selected-save lock through their grants. Finish any such work before switching.
+        lock (CassetteBundleSessionHistory.Sync)
+        lock (Sync)
+        {
+            resetSelectedSaveReceipts();
+            _runtime.ClearRoomOwnership();
+            _lastBundleSongs = null;
+            _unityReconciliationRequested = false;
+            _unityReconciliationReason = string.Empty;
+            _productionPersistence.DiscardRoomWaves();
+        }
+    }
+
     internal static void ApplySlotData(CassetteSlotCompatibilityResult compatibility, bool bundled)
     {
         bool enabled = compatibility.Compatible;
         if (!enabled) CancelPointerBoundPersistence("cassette-routing-disabled");
         lock (Sync)
         {
-            if (_bundleRouting || bundled) _runtime.ReplaceOwnedSongs(Array.Empty<string>());
+            if (_bundleRouting != bundled) _runtime.ClearRoomOwnership();
             _bundleRouting = bundled;
             _lastBundleSongs = null;
             Enabled = enabled;
             _slotDataSynchronized = true;
-            if (!enabled)
-            {
-                _runtime.DeactivateSave();
-                _gameplayReady.BeginBoundary();
-            }
+            if (!enabled) _runtime.ClearRoomOwnership();
         }
         Plugin.LoggerInstance?.LogWarning(enabled
             ? $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION ENABLED entries={CassetteCatalog.All.Count}. AP-owned cassettes will be reconciled as HAVE_IN_BAG through the native save lifecycle; deposited cassettes remain deposited."
             : $"[SCRC-AP] CASSETTE RECEIPT RECONCILIATION disabled detail=\"{compatibility.Detail}\"; native cassette inventory remains vanilla.");
-        if (enabled) RequestUnityReconciliation("slot data synchronized");
+        RequestUnityReconciliation("slot data synchronized");
+    }
+
+    internal static void ReplaceIndividualReceipts(IReadOnlyList<long> ids, Action resetFlagReceipts)
+    {
+        // Match the Unity frame's bundle -> selected save lock order. A native
+        // grant based on the old receipts must finish before their replacement.
+        lock (CassetteBundleSessionHistory.Sync)
+        lock (Sync)
+        {
+            resetFlagReceipts();
+            if (!_bundleRouting)
+                _runtime.ReplaceOwnedSongs(ids.Where(CassetteCatalog.NativeSongByItemId.ContainsKey)
+                    .Select(id => CassetteCatalog.NativeSongByItemId[id]));
+        }
     }
 
     internal static bool TryApplyItem(string itemName)
@@ -3989,7 +2803,7 @@ internal static class CassetteReceiptRandomization
     {
         lock (Sync)
         {
-            if (!_slotDataSynchronized || !Enabled) return;
+            if (!_slotDataSynchronized || _unloading) return;
             _unityReconciliationRequested = true;
             _unityReconciliationReason = reason;
         }
@@ -4001,6 +2815,7 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             _regularSavePointerJoinProbe.Cancel();
+            _saveIdentityRetryDelay = TimeSpan.Zero;
             // Retain the exact callback owner for later pointer-bound proof. Never
             // substitute the old save's owner or invoke native work in this callback.
             _joinedSaveDataRequestProcessor = saveDataProcessor != null &&
@@ -4033,6 +2848,7 @@ internal static class CassetteReceiptRandomization
             _gameplayReady.BeginBoundary();
             _saveIdentity.SuspendUnresolved();
             _regularSavePointerJoinProbe.Cancel();
+            _saveIdentityRetryDelay = TimeSpan.Zero;
             _joinedSaveDataRequestProcessor = null;
             _unityReconciliationRequested = false;
             _unityReconciliationReason = string.Empty;
@@ -4094,7 +2910,7 @@ internal static class CassetteReceiptRandomization
         DrainPersistenceMarkers();
     }
 
-    internal static void TryReconcile(string reason)
+    internal static void TryReconcile(string reason, bool historyAvailable)
     {
         IReadOnlyList<string> songs;
         long generation;
@@ -4103,13 +2919,13 @@ internal static class CassetteReceiptRandomization
         long pointer;
         lock (Sync)
         {
-            if (_saveIdentity.Pending || !_slotDataSynchronized || !Enabled || !_runtime.HasActiveSave) return;
+            if (_saveIdentity.Pending || !_slotDataSynchronized || !_runtime.HasActiveSave) return;
             generation = _activeSaveGeneration;
             epoch = _runtime.Epoch;
             slot = _runtime.ActiveSlot!.Value;
             pointer = _activeSavePointer;
             if (!_gameplayReady.IsOpen(new(generation, epoch, slot, pointer))) return;
-            songs = _runtime.PendingSongs;
+            songs = Enabled && historyAvailable ? _runtime.PendingSongs : Array.Empty<string>();
         }
         if (!TryConfirmSaveSynchronizationReady(
                 generation, epoch, slot, pointer,
@@ -4179,26 +2995,30 @@ internal static class CassetteReceiptRandomization
         return ready;
     }
 
+    internal static object? GetSelectedSaveProcessor()
+    {
+        if (!EnsureCassetteProcessorAvailable()) return null;
+        lock (Sync) return _playerSaveRequestProcessor;
+    }
+
     private static bool EnsureCassetteProcessorAvailable()
     {
         lock (Sync)
         {
             if (_playerSaveRequestProcessor != null) return true;
-            if (!_runtime.HasActiveSave) return false;
         }
         if (!CassetteSaveTransactionAdapter.TryGetLoadedSave(out _)) return false;
         try
         {
-            Type? processorType = ReflectionUtil.GameAssembly == null
-                ? null
-                : ReflectionUtil.SafeGetTypes(ReflectionUtil.GameAssembly)
-                    .FirstOrDefault(type => string.Equals(type.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal));
+            Type? processorType = ReflectionUtil.GameAssembly?.GetType("PlayerSaveRequestProcessor");
             ConstructorInfo? constructor = processorType?.GetConstructors(
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                 .FirstOrDefault(candidate => candidate.GetParameters().Length == 0);
             object? processor = constructor?.Invoke(Array.Empty<object>());
             if (!CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(processor)) return false;
             CapturePlayerSaveRequestProcessor(processor, reconcileNow: false);
+            RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(processor);
+            GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(processor);
             Plugin.LoggerInstance?.LogInfo("[SCRC-AP] CASSETTE constructed stateless PlayerSaveRequestProcessor after selected save became readable.");
             return true;
         }
@@ -4230,6 +3050,7 @@ internal static class CassetteReceiptRandomization
                 generation, epoch, slot, pointer,
                 allowObservationProbe: true, out _))
             return;
+        if (!NativeGrantSaveBinding.IsCurrentSaveBound()) return;
         if (!CassetteSaveTransactionAdapter.IsCompatiblePlayerSaveRequestProcessor(processor) ||
             !CassetteSaveTransactionAdapter.TryReadCassetteStatus(processor!, nativeSong, out string? status))
         {
@@ -4245,7 +3066,11 @@ internal static class CassetteReceiptRandomization
         lock (Sync)
         {
             if (!_runtime.HasActiveSave || _runtime.Epoch != epoch) return;
-            if (verificationDue) _runtime.RecordVerification(nativeSong, status);
+            if (verificationDue) {
+                _runtime.RecordVerification(nativeSong, status);
+                if (CassetteRandomizationPolicy.IsUnearned(status) && _runtime.AttemptsExhausted(nativeSong))
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Cassette '{nativeSong}' is still missing after three submissions. Reload the bound save to retry.");
+            }
             else _runtime.Observe(nativeSong, status);
             if (!_runtime.IsPending(nativeSong))
             {
@@ -4281,7 +3106,8 @@ internal static class CassetteReceiptRandomization
                 !_gameplayReady.IsOpen(new(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot!.Value, _activeSavePointer)))
                 return;
             if (!CassetteSaveTransactionAdapter.TryGetProcessorSaveIdentity(_playerSaveRequestProcessor,
-                out long pointer, out _) || pointer != _activeSavePointer) return;
+                out long pointer, out _) || pointer != _activeSavePointer ||
+                !CassetteSaveTransactionAdapter.TryConfirmSaveSynchronizationReady(pointer, out _)) return;
             action(_playerSaveRequestProcessor, $"{_activeSaveGeneration}:{_runtime.Epoch}:{_runtime.ActiveSlot}:{pointer:X}");
         }
     }
@@ -4333,21 +3159,42 @@ internal static class CassetteReceiptRandomization
     {
         CassetteBundleSessionHistory.WithSongs((managed, songs) =>
         {
-            if (managed && !ReferenceEquals(_lastBundleSongs, songs))
+            lock (Sync) if (_unloading) return;
+            if (managed && songs != null && !ReferenceEquals(_lastBundleSongs, songs))
             {
                 _lastBundleSongs = songs;
                 lock (Sync) _runtime.ReplaceOwnedSongs(songs);
                 RequestUnityReconciliation("authenticated cassette bundle history");
             }
-            TickUnityCore(elapsed);
+            TickUnityCore(elapsed, historyAvailable: !managed || songs != null);
         });
     }
 
-    private static void TickUnityCore(TimeSpan elapsed)
+    private static void TickUnityCore(TimeSpan elapsed, bool historyAvailable)
     {
         CassetteRegularSavePointerJoinSnapshot joinSnapshot;
-        lock (Sync) joinSnapshot = _regularSavePointerJoinProbe.Capture();
-        if (joinSnapshot.Ready)
+        bool attemptIdentity;
+        bool needsProcessor;
+        lock (Sync)
+        {
+            joinSnapshot = _regularSavePointerJoinProbe.Capture();
+            if (_saveIdentityRetryDelay > TimeSpan.Zero) _saveIdentityRetryDelay -= elapsed;
+            attemptIdentity = _saveIdentity.Pending && _saveIdentityRetryDelay <= TimeSpan.Zero;
+            needsProcessor = attemptIdentity && _playerSaveRequestProcessor == null &&
+                (joinSnapshot.Pending || _saveIdentity.Capture().ExpectedSlot.HasValue);
+        }
+        // Starting offline in the tutorial or Music Lab may produce no player-save callback.
+        // Obtain a read handle independently; only a confirmed selection can authorize a grant.
+        if (needsProcessor)
+        {
+            bool available = EnsureCassetteProcessorAvailable();
+            lock (Sync)
+            {
+                joinSnapshot = _regularSavePointerJoinProbe.Capture();
+                if (!available) _saveIdentityRetryDelay = TimeSpan.FromSeconds(2);
+            }
+        }
+        if (attemptIdentity && joinSnapshot.Ready)
         {
             bool joined = CassetteSaveTransactionAdapter.TryMatchRegularSaveSlot(
                 joinSnapshot.SaveDataProcessor,
@@ -4355,17 +3202,19 @@ internal static class CassetteReceiptRandomization
                 out int joinedSlot,
                 out IReadOnlyList<CassetteRegularSavePointerEntry> regularEntries,
                 out string joinStage);
-            bool consume;
+            bool current;
             lock (Sync)
             {
-                consume = _regularSavePointerJoinProbe.TryConsume(joinSnapshot);
-                if (consume && joined)
+                current = joined ? _regularSavePointerJoinProbe.TryConsume(joinSnapshot)
+                    : _regularSavePointerJoinProbe.IsCurrent(joinSnapshot);
+                if (current && joined)
                 {
                     _joinedSaveDataRequestProcessor = joinSnapshot.SaveDataProcessor;
                     _saveIdentity.Signal(joinedSlot, CassetteSaveBoundarySignalKind.Selection, joinSnapshot.PlayerSaveProcessor);
                 }
+                else if (current) _saveIdentityRetryDelay = TimeSpan.FromSeconds(2);
             }
-            if (consume)
+            if (current)
             {
                 string fingerprints = string.Join(",", regularEntries.Select(entry =>
                     $"slot={entry.Slot}:pointer=0x{entry.Pointer:X}:lastPlayUtcTicks={entry.LastPlayDateTimeUtcTicks}"));
@@ -4412,11 +3261,11 @@ internal static class CassetteReceiptRandomization
 
         lock (Sync)
         {
-            bool readyForRetry = !_saveIdentity.Pending && _slotDataSynchronized && Enabled &&
+            bool readyForRetry = !_saveIdentity.Pending && _slotDataSynchronized &&
                 _runtime.HasActiveSave && _gameplayReady.IsOpen(new(
                     _activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot!.Value, _activeSavePointer));
             if (_reconciliationRetry.Tick(elapsed, readyForRetry,
-                    !_saveSynchronizationReady || _runtime.HasPendingSongs))
+                    !_saveSynchronizationReady || (Enabled && historyAvailable && _runtime.HasPendingSongs)))
             {
                 _unityReconciliationRequested = true;
                 _unityReconciliationReason = "bounded pending delivery retry";
@@ -4434,7 +3283,11 @@ internal static class CassetteReceiptRandomization
                 _unityReconciliationReason = string.Empty;
             }
         }
-        if (reason != null) TryReconcile(reason);
+        if (reason != null) TryReconcile(reason, historyAvailable);
+
+        // Keep the selected save and any invoked write observable during a reconnect.
+        // Resume pending song verification when the room confirms its ownership again.
+        if (!historyAvailable || !Enabled) return;
 
         IReadOnlyList<string> ready;
         lock (Sync)
@@ -4496,7 +3349,7 @@ internal static class CassetteReceiptRandomization
             if (!gameplayReady || retainedSaveDataProcessor == null ||
                 !_persistencePoll.TryBegin(identity, wave.WaveId, elapsed))
                 return;
-            ownedSongs = _runtime.OwnedSongs;
+            ownedSongs = wave.Songs;
         }
 
         CassetteSelectedSaveIdentity selected = CassetteSaveTransactionAdapter.ReadSelectedSaveIdentity(playerProcessor);
@@ -4534,7 +3387,7 @@ internal static class CassetteReceiptRandomization
             waveCurrent, expectedEntryMatches, selectedEntryMatches);
         bool statusesRetained = target.HasPlayer && wave.Songs.All(song =>
             target.Player.EffectiveStatuses.TryGetValue(song, out string? status) &&
-            string.Equals(status, "HAVE_IN_BAG", StringComparison.Ordinal));
+            CassetteRandomizationPolicy.IsOwned(status));
 
         var evidence = new CassettePersistenceAcceptanceEligibilityEvidence(
             OptInEnabled: true,
@@ -4552,6 +3405,15 @@ internal static class CassetteReceiptRandomization
             activeReadable && activeState.HasUnstagedChanges,
             activeReadable && activeState.HasChanges,
             !activeReadable || activeState.RequiresWriteToDisk);
+        // The game's save may already have flushed this batch while it waited.
+        if (waveCurrent && selectionValid && selectedPointerMatches && registeredRetainedMatch &&
+            expectedEntryMatches && statusesRetained && activeReadable && writeReadable &&
+            !activeState.HasUnstagedChanges && !activeState.HasChanges && !activeState.RequiresWriteToDisk &&
+            !writeState.HasUnstagedChanges && !writeState.WriteState.HasChanges && !writeState.WriteState.RequiresWriteToDisk)
+        {
+            _productionPersistence.FinishCleanWave(wave);
+            return;
+        }
         if (!CassettePersistenceAcceptanceEligibility.Evaluate(evidence, out string gateStage))
         {
             LogPersistenceDeferredOnce(wave, gateStage);
@@ -4621,6 +3483,13 @@ internal static class CassetteReceiptRandomization
         {
             if (!_productionPersistence.Active || !_productionPersistence.Invoked)
                 return;
+            if (phase == "IMMEDIATE POST") _writePollElapsed = TimeSpan.Zero;
+            else {
+                if (elapsed > TimeSpan.Zero) _writePollElapsed += elapsed;
+                if (_writePollElapsed < TimeSpan.FromSeconds(1)) return;
+                elapsed = _writePollElapsed;
+                _writePollElapsed = TimeSpan.Zero;
+            }
             attempt = _productionPersistence.Attempt;
             baseline = _productionPersistence.Baseline;
             playerProcessor = _playerSaveRequestProcessor;
@@ -4652,7 +3521,7 @@ internal static class CassetteReceiptRandomization
                 target.HasSelected);
         bool statusesRetained = writeReadable && baseline.Songs.All(song =>
             writeState.Statuses.TryGetValue(song, out string? status) &&
-            string.Equals(status, "HAVE_IN_BAG", StringComparison.Ordinal));
+            CassetteRandomizationPolicy.IsOwned(status));
         CassettePersistenceAcceptanceIdentity currentIdentity;
         lock (Sync)
             currentIdentity = new(_activeSaveGeneration, _runtime.Epoch, _runtime.ActiveSlot ?? -1, _activeSavePointer);
@@ -4745,13 +3614,11 @@ internal static class PlantPipesRandomization
     public const string SourceRoomId = "GameRoom_07";
 
     private static readonly object Sync = new();
-    private static object? _playerSaveRequestProcessor;
     private static bool _slotDataSynchronized;
     private static bool _compatible;
     private static int _receivedCount;
     private static PlantPipesRuntime _runtime = new(new NativeAdapter());
     private static string _lastRuntimeOutcome = string.Empty;
-    private static bool _processorConstructionFailureLogged;
 
     [ThreadStatic]
     private static bool _applyingNativeGrant;
@@ -4759,20 +3626,18 @@ internal static class PlantPipesRandomization
     public static bool Enabled { get; private set; }
     public static string ImplementationVersion { get; private set; } = string.Empty;
 
-    public static void Configure()
+    public static void Configure(bool preserveProcessor = false)
     {
         lock (Sync)
         {
             ActiveSourceLocationName = SourceLocationName;
             Enabled = false;
             ImplementationVersion = string.Empty;
-            _playerSaveRequestProcessor = null;
             _slotDataSynchronized = false;
             _compatible = false;
             _receivedCount = 0;
             _runtime = new PlantPipesRuntime(new NativeAdapter());
             _lastRuntimeOutcome = string.Empty;
-            _processorConstructionFailureLogged = false;
         }
     }
 
@@ -4815,8 +3680,18 @@ internal static class PlantPipesRandomization
 
         Plugin.LoggerInstance?.LogWarning(
             Enabled
-                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED implementation='{implementation}' item='{ItemName}' source='{ActiveSourceLocationName}' durableRepair={repairClaimed}. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP ownership is reconciled against the selected save."
-                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled implementation='{implementation}' requested={requested} repairContractValid={repairContractValid}; Plant Pipes remain vanilla for this seed.");
+                ? $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION ENABLED item='{ItemName}' source='{ActiveSourceLocationName}' durableRepair={repairClaimed}. Level 3 Frog/Hippo source check is live; vanilla '{NativeAbilityFlag}' is suppressed there while '{NativeSourceMarkerFlag}' remains native, and AP ownership is reconciled against the selected save."
+                : $"[SCRC-AP] ROOTS PLANT PIPES RANDOMIZATION disabled requested={requested} repairContractValid={repairContractValid}; Plant Pipes remain vanilla for this seed.");
+    }
+
+    internal static void ResetNamedReceipts()
+    {
+        lock (Sync)
+        {
+            _receivedCount = 0;
+            _runtime = new PlantPipesRuntime(new NativeAdapter());
+            _runtime.Configure(_slotDataSynchronized, _compatible);
+        }
     }
 
     public static bool TryApplyItem(string itemName)
@@ -4836,84 +3711,89 @@ internal static class PlantPipesRandomization
         return true;
     }
 
-    public static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null || !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
-    }
 
     public static void TryFlushPendingNativeGrant()
     {
-        if (_applyingNativeGrant)
-            return;
-
-        string previous;
-        string current;
-        lock (Sync)
+        if (_applyingNativeGrant || _receivedCount == 0) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
         {
-            _runtime.Configure(_slotDataSynchronized, _compatible);
-            _runtime.NoteReceivedCount(_receivedCount);
-            previous = _lastRuntimeOutcome;
-            _runtime.OnLifecyclePoint("lifecycle");
-            current = _runtime.LastOutcome;
-            _lastRuntimeOutcome = current;
-        }
+            string previous;
+            string current;
+            lock (Sync)
+            {
+                _runtime.Configure(_slotDataSynchronized, _compatible);
+                _runtime.NoteReceivedCount(_receivedCount);
+                previous = _lastRuntimeOutcome;
+                _runtime.OnLifecyclePoint("lifecycle");
+                current = _runtime.LastOutcome;
+                _lastRuntimeOutcome = current;
+            }
 
-        if (!string.Equals(previous, current, StringComparison.Ordinal))
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] ROOTS PLANT PIPES reconciliation result={current} receivedCount={_receivedCount} room='{DeveloperHarness.CurrentRoomId}'.");
-        }
+            if (!string.Equals(previous, current, StringComparison.Ordinal))
+            {
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] ROOTS PLANT PIPES reconciliation result={current} receivedCount={_receivedCount} room='{DeveloperHarness.CurrentRoomId}'.");
+            }
+        });
     }
 
     public static void OnLevelResultApplied(string level)
     {
-        if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
-            return;
-        lock (Sync)
-            _runtime.OnLifecyclePoint("level-result-applied:Level_08");
+        if (_receivedCount == 0) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
+        {
+            if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
+                return;
+            lock (Sync)
+                _runtime.OnLifecyclePoint("level-result-applied:Level_08");
+        });
     }
 
     public static void OnLevelResultPersisted(string level)
     {
-        if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
-            return;
-        lock (Sync)
-            _runtime.OnLifecyclePoint("level-result-persisted:Level_08");
+        if (_receivedCount == 0) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
+        {
+            if (!string.Equals(level, "Level_08", StringComparison.OrdinalIgnoreCase))
+                return;
+            lock (Sync)
+                _runtime.OnLifecyclePoint("level-result-persisted:Level_08");
+        });
     }
 
     internal static void TickPending(TimeSpan elapsed)
     {
-        string previous;
-        string current;
-        lock (Sync)
+        if (_receivedCount == 0) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
         {
-            previous = _lastRuntimeOutcome;
-            _runtime.TickPending(elapsed, "bounded retry");
-            current = _runtime.LastOutcome;
-            _lastRuntimeOutcome = current;
-        }
+            string previous;
+            string current;
+            lock (Sync)
+            {
+                previous = _lastRuntimeOutcome;
+                _runtime.TickPending(elapsed, "bounded retry");
+                current = _runtime.LastOutcome;
+                _lastRuntimeOutcome = current;
+            }
 
-        if (!string.Equals(previous, current, StringComparison.Ordinal))
-        {
-            Plugin.LoggerInstance?.LogInfo(
-                $"[SCRC-AP] ROOTS PLANT PIPES retry result={current} room='{DeveloperHarness.CurrentRoomId}'.");
-        }
+            if (!string.Equals(previous, current, StringComparison.Ordinal))
+            {
+                Plugin.LoggerInstance?.LogInfo(
+                    $"[SCRC-AP] ROOTS PLANT PIPES retry result={current} room='{DeveloperHarness.CurrentRoomId}'.");
+            }
+        });
     }
 
     public static bool ShouldSuppressFrogHippoVanillaGrant(object request, string flag)
     {
         if (_applyingNativeGrant ||
-            !Enabled ||
+            !_compatible ||
             !string.Equals(DeveloperHarness.CurrentRoomId, SourceRoomId, StringComparison.Ordinal) ||
             !string.Equals(flag, NativeAbilityFlag, StringComparison.OrdinalIgnoreCase))
             return false;
 
         bool value = ReflectionUtil.ReadBool(request, "Value") ?? false;
-        if (!value)
+        if (!value || !NativeGrantSaveBinding.IsCurrentSaveBound())
             return false;
 
         Plugin.LoggerInstance?.LogWarning(
@@ -4946,81 +3826,23 @@ internal static class PlantPipesRandomization
         return bool.TryParse(raw.ToString(), out bool parsed) && parsed;
     }
 
-    private static bool EnsureProcessorAvailable()
-    {
-        lock (Sync)
-        {
-            if (_playerSaveRequestProcessor != null)
-                return true;
-        }
-
-        if (!RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _))
-            return false;
-
-        try
-        {
-            Type? processorType = ReflectionUtil.GameAssembly == null
-                ? null
-                : ReflectionUtil.SafeGetTypes(ReflectionUtil.GameAssembly)
-                    .FirstOrDefault(t => string.Equals(t.Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal));
-            ConstructorInfo? constructor = processorType?.GetConstructors(
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(c => c.GetParameters().Length == 0);
-            object? processor = constructor?.Invoke(Array.Empty<object>());
-            if (processor == null)
-                throw new InvalidOperationException("parameterless PlayerSaveRequestProcessor constructor unavailable");
-
-            lock (Sync)
-                _playerSaveRequestProcessor = processor;
-            RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(processor);
-            CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(processor);
-            GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(processor);
-            Plugin.LoggerInstance?.LogInfo(
-                "[SCRC-AP] ROOTS PLANT PIPES constructed stateless PlayerSaveRequestProcessor after selected-save enquiries became readable.");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            bool log;
-            lock (Sync)
-            {
-                log = !_processorConstructionFailureLogged;
-                _processorConstructionFailureLogged = true;
-            }
-            if (log)
-            {
-                Plugin.LoggerInstance?.LogWarning(
-                    $"[SCRC-AP] ROOTS PLANT PIPES processor construction unavailable: {ex.GetBaseException().Message}");
-            }
-            return false;
-        }
-    }
 
     private sealed class NativeAdapter : IPlantPipesNativeAdapter
     {
         public bool SaveAvailable =>
             RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out _);
 
-        public bool ProcessorAvailable => EnsureProcessorAvailable();
+        public bool ProcessorAvailable => NativeGrantSaveBinding.CurrentProcessor != null;
 
         public bool TryReadOwned(out bool owned) =>
             RootsBucketRandomization.TryReadProgressionFlag(NativeAbilityFlag, out owned);
 
         public bool TryApply(out string detail)
         {
-            object? processor;
-            lock (Sync)
-                processor = _playerSaveRequestProcessor;
-            if (processor == null && !EnsureProcessorAvailable())
-            {
-                detail = "PlayerSaveRequestProcessor unavailable.";
-                return false;
-            }
-            lock (Sync)
-                processor = _playerSaveRequestProcessor;
+            object? processor = NativeGrantSaveBinding.CurrentProcessor;
             if (processor == null)
             {
-                detail = "PlayerSaveRequestProcessor unavailable after construction.";
+                detail = "PlayerSaveRequestProcessor unavailable.";
                 return false;
             }
             return NativeProgressionFlagRequest.TrySubmit(
@@ -5033,7 +3855,6 @@ internal static class PreviewAbilityRandomization
 {
     private static readonly object Sync = new();
     private static readonly PreviewAbilityReconcileDispatcher UnityDispatcher = new();
-    private static object? _playerSaveRequestProcessor;
     private static HypnoPanReconciler _hypnoPan = new(new NativeAdapter());
     private static ViolanceReconciler _violance = new(new NativeAdapter());
     private static int _hypnoPanReceived;
@@ -5045,11 +3866,10 @@ internal static class PreviewAbilityRandomization
     [ThreadStatic]
     private static bool _applyingNativeGrant;
 
-    internal static void Configure()
+    internal static void Configure(bool preserveProcessor = false)
     {
         lock (Sync)
         {
-            _playerSaveRequestProcessor = null;
             _hypnoPan = new HypnoPanReconciler(new NativeAdapter());
             _violance = new ViolanceReconciler(new NativeAdapter());
             _hypnoPanReceived = 0;
@@ -5077,7 +3897,19 @@ internal static class PreviewAbilityRandomization
             _violance.Configure(compatible);
         }
         Plugin.LoggerInstance?.LogInfo(
-            $"[SCRC-AP] PREVIEW ABILITIES configured compatible={compatible} implementation='{implementation}'. Items remain excluded from generated seeds.");
+            $"[SCRC-AP] PREVIEW ABILITIES configured compatible={compatible}. Items remain excluded from generated seeds.");
+    }
+
+    internal static void ResetNamedReceipts()
+    {
+        lock (Sync)
+        {
+            _hypnoPanReceived = _violanceReceived = 0;
+            _hypnoPan = new HypnoPanReconciler(new NativeAdapter());
+            _violance = new ViolanceReconciler(new NativeAdapter());
+            _hypnoPan.Configure(_compatible);
+            _violance.Configure(_compatible);
+        }
     }
 
     internal static bool TryApplyItem(string itemName)
@@ -5106,30 +3938,24 @@ internal static class PreviewAbilityRandomization
         return true;
     }
 
-    internal static void CapturePlayerSaveRequestProcessor(object? instance)
-    {
-        if (instance == null ||
-            !string.Equals(instance.GetType().Name, "PlayerSaveRequestProcessor", StringComparison.Ordinal))
-            return;
-        lock (Sync)
-            _playerSaveRequestProcessor = instance;
-    }
 
     internal static void OnLifecyclePoint(string reason)
     {
-        if (_applyingNativeGrant)
-            return;
-        lock (Sync)
+        if (_applyingNativeGrant || (_hypnoPanReceived == 0 && _violanceReceived == 0)) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
         {
-            _hypnoPan.Configure(_compatible);
-            _violance.Configure(_compatible);
-            _hypnoPan.NoteReceivedCount(_hypnoPanReceived);
-            _violance.NoteReceivedCount(_violanceReceived);
-            _hypnoPan.OnLifecyclePoint(reason);
-            _violance.OnLifecyclePoint(reason);
-            LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, reason);
-            LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, reason);
-        }
+            lock (Sync)
+            {
+                _hypnoPan.Configure(_compatible);
+                _violance.Configure(_compatible);
+                _hypnoPan.NoteReceivedCount(_hypnoPanReceived);
+                _violance.NoteReceivedCount(_violanceReceived);
+                _hypnoPan.OnLifecyclePoint(reason);
+                _violance.OnLifecyclePoint(reason);
+                LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, reason);
+                LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, reason);
+            }
+        });
     }
 
     internal static void RequestUnityReconciliation(string reason)
@@ -5145,15 +3971,17 @@ internal static class PreviewAbilityRandomization
 
     internal static void TickPending(TimeSpan elapsed)
     {
-        if (_applyingNativeGrant)
-            return;
-        lock (Sync)
+        if (_applyingNativeGrant || (_hypnoPanReceived == 0 && _violanceReceived == 0)) return;
+        NativeGrantSaveBinding.WithBoundSave((_, _) =>
         {
-            _hypnoPan.TickPending(elapsed);
-            _violance.TickPending(elapsed);
-            LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, "pending tick");
-            LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, "pending tick");
-        }
+            lock (Sync)
+            {
+                _hypnoPan.TickPending(elapsed);
+                _violance.TickPending(elapsed);
+                LogOutcome(HypnoPanReconciler.ItemName, _hypnoPan.LastOutcome, ref _lastHypnoOutcome, "pending tick");
+                LogOutcome(ViolanceReconciler.ItemName, _violance.LastOutcome, ref _lastViolanceOutcome, "pending tick");
+            }
+        });
     }
 
     private static void LogOutcome(string itemName, string outcome, ref string previous, string reason)
@@ -5183,9 +4011,7 @@ internal static class PreviewAbilityRandomization
 
         public bool TrySubmit(string nativeFlag, out string detail)
         {
-            object? processor;
-            lock (Sync)
-                processor = _playerSaveRequestProcessor;
+            object? processor = NativeGrantSaveBinding.CurrentProcessor;
             if (processor == null)
             {
                 detail = "PlayerSaveRequestProcessor unavailable.";
@@ -5336,7 +4162,8 @@ internal static class GarageCartridgeAccess
     private static readonly object Sync = new();
     private static readonly GarageCartridgeInsertionCoordinator InsertionCoordinator = new(
         GarageCartridgeNativePolicy.RandomizedCartridges.Select(cartridge =>
-            new KeyValuePair<string, string>(cartridge.Song, cartridge.ServerInsertionKey)));
+            new KeyValuePair<string, string>(cartridge.Song, cartridge.ServerInsertionKey)),
+        Path.Combine(BepInEx.Paths.ConfigPath, "RhythmCastleAP", "garage-insertions"));
     private static readonly GarageCartridgeReconciliationAccess ServerSyncLifecycle = new();
     private static readonly PreviewAbilityReconcileDispatcher UnityDispatcher = new();
     private static readonly HashSet<string> OwnedSongs = new(StringComparer.OrdinalIgnoreCase);
@@ -5398,18 +4225,30 @@ internal static class GarageCartridgeAccess
     {
         ServerSyncLifecycle.EndActive(generation =>
             InsertionCoordinator.EndConnection(generation));
+        lock (Sync) _playerSaveRequestProcessor = null;
+        ResetRoomOwnership();
+    }
 
+    internal static void ResetRoomOwnership()
+    {
         Enabled = false;
         SourceRandomizationEnabled = false;
         VanillaEntranceEnabled = false;
         ImplementationVersion = string.Empty;
         lock (Sync)
+            OwnedSongs.Clear();
+        ResetNativeBagObservations("reset room ownership");
+        UnityDispatcher.Clear();
+    }
+
+    internal static void ResetNamedReceipts()
+    {
+        lock (Sync)
         {
             OwnedSongs.Clear();
-            _playerSaveRequestProcessor = null;
+            if (VanillaEntranceEnabled) OwnedSongs.Add(GarageVanillaEntrancePolicy.Song);
         }
-        ResetNativeBagObservations("configure");
-        UnityDispatcher.Clear();
+        RequestUnityReconciliation("corrected item history");
     }
 
     public static bool TryApplyItem(string itemName)
@@ -5434,19 +4273,17 @@ internal static class GarageCartridgeAccess
         return false;
     }
 
-    public static bool BeginServerSync(ArchipelagoSession session, long generation)
+    public static bool BeginServerSync(ArchipelagoSession session, long generation, string roomIdentity, bool replaceRoom)
     {
-        if (!Enabled)
-            return false;
-
         bool began = ServerSyncLifecycle.TryBegin(generation, () =>
-            InsertionCoordinator.BeginConnection(
-                generation,
-                new ArchipelagoGarageInsertionDataStore(session)));
+        {
+            var store = new ArchipelagoGarageInsertionDataStore(session);
+            if (replaceRoom) ResetRoomOwnership();
+            InsertionCoordinator.BeginConnection(generation, store, roomIdentity);
+        });
         if (!began)
             return false;
         ResetNativeBagObservations("server synchronization started");
-        RequestUnityReconciliation("Garage inserted-state synchronization started");
         return true;
     }
 
@@ -5750,6 +4587,8 @@ internal static class GarageCartridgeAccess
             ResetNativeBagObservations("PlayerSaveRequestProcessor replacement", preserveDoorSaveBoundary: true);
     }
 
+    internal static void RetryFailedOperations() => InsertionCoordinator.RetryFailedOperations();
+
     public static void TryFlushPendingNativeGrants()
     {
         if (!GarageRoomInitialization.CanMutate || _applyingArchipelagoGrant != 0)
@@ -5868,6 +4707,15 @@ internal static class GarageCartridgeAccess
         });
     }
 
+    internal static bool UsesServerSync(Dictionary<string, object>? slotData)
+    {
+        return slotData != null &&
+            slotData.TryGetValue("implementation_version", out var version) &&
+            version?.ToString()?.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase) == true &&
+            slotData.TryGetValue("randomize_game_garage_cartridges", out var setting) &&
+            bool.TryParse(setting?.ToString(), out bool enabled) && enabled;
+    }
+
     public static void ApplySlotData(Dictionary<string, object>? slotData)
     {
         if (slotData == null || slotData.Count == 0)
@@ -5882,16 +4730,7 @@ internal static class GarageCartridgeAccess
             ? rawVersion?.ToString() ?? string.Empty
             : string.Empty;
 
-        bool requested = false;
-        if (slotData.TryGetValue("randomize_game_garage_cartridges", out object? rawEnabled) && rawEnabled != null)
-        {
-            if (rawEnabled is bool boolValue)
-                requested = boolValue;
-            else
-                bool.TryParse(rawEnabled.ToString(), out requested);
-        }
-
-        Enabled = requested && ImplementationVersion.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
+        Enabled = UsesServerSync(slotData);
 
         bool sourceRequested = false;
         if (slotData.TryGetValue("randomize_vanilla_cartridge_sources", out object? rawSources) && rawSources != null)
@@ -5919,7 +4758,7 @@ internal static class GarageCartridgeAccess
         if (!Enabled)
         {
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION disabled by slot data implementation='{ImplementationVersion}' requested={requested}; vanilla Garage cartridge availability remains untouched.");
+                $"[SCRC-AP] GAME GARAGE CARTRIDGE RANDOMIZATION disabled by slot data implementation='{ImplementationVersion}'; vanilla Garage cartridge availability remains untouched.");
             return;
         }
 
@@ -6025,6 +4864,7 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
 {
     private string _lastRoom = string.Empty;
     private float _nextNativeReconcile;
+    private float _nextStorageRetry;
     public GarageCartridgeAccessKeeper(IntPtr pointer) : base(pointer) { }
     private void Update()
     {
@@ -6034,6 +4874,10 @@ internal sealed class GarageCartridgeAccessKeeper : MonoBehaviour
                 $"room transition '{_lastRoom}' -> '{room}'", preservePendingConsumption: true,
                 GarageCartridgeRoomPolicy.IsGarageEntryFromApproach(_lastRoom, room));
             _lastRoom = room;
+        }
+        if (Time.unscaledTime >= _nextStorageRetry) {
+            _nextStorageRetry = Time.unscaledTime + 5;
+            GarageCartridgeAccess.RetryFailedOperations();
         }
         GarageCartridgeAccess.OnUnityLifecycle();
         if (Time.unscaledTime >= _nextNativeReconcile) {
@@ -6061,8 +4905,10 @@ internal static class AreaPhoneConditionPatches
                 return true;
 
             string currentRoom = DeveloperHarness.CurrentRoomId;
-            string? flag = ReadProgressionFlag(__instance);
-            if (AreaArrivalPresentationOverride.ShouldBypass(currentRoom, flag))
+            var arrival = AreaArrivalPresentationOverride.Current;
+            if (AreaArrivalPresentationPolicy.MatchesRoom(arrival, currentRoom) &&
+                ReadProgressionFlag(__instance) is string flag &&
+                AreaArrivalPresentationPolicy.ShouldBypassCondition(arrival, currentRoom, flag))
             {
                 __result = true;
                 string arrivalKey = $"arrival|{currentRoom}|{flag}";
@@ -6169,13 +5015,9 @@ internal static class AreaArrivalPresentationOverride
         }
     }
 
-    internal static bool ShouldBypass(string? currentRoom, string? progressionFlag)
+    internal static AreaArrivalKind Current
     {
-        AreaArrivalKind arrival;
-        lock (Sync)
-            arrival = _arrival;
-        return AreaArrivalPresentationPolicy.ShouldBypassCondition(
-            arrival, currentRoom, progressionFlag);
+        get { lock (Sync) return _arrival; }
     }
 
 }
@@ -6684,6 +5526,13 @@ internal static class AreaAccessPrototype
             ? "AP precollected item"
             : NormalizeAreaName(requestedStartingArea) ?? "Roots";
 
+        ResetRoomOwnership();
+        if (Enabled)
+            LogStatus("configured");
+    }
+
+    internal static void ResetRoomOwnership()
+    {
         lock (Sync)
         {
             _authenticatedCompatibleSession = false;
@@ -6691,9 +5540,6 @@ internal static class AreaAccessPrototype
             if (Enabled && !APDrivenStartingArea)
                 UnlockedAreas.Add(StartingArea);
         }
-
-        if (Enabled)
-            LogStatus("configured");
     }
 
     public static bool TryApplyItem(string itemName)
@@ -6706,7 +5552,7 @@ internal static class AreaAccessPrototype
             if (!string.Equals(area.ItemName, itemName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            GrantArea(area.AreaName, $"AP item '{itemName}'");
+            GrantArea(area.AreaName, $"AP item '{area.ItemName}'");
             return true;
         }
 
@@ -6745,12 +5591,12 @@ internal static class AreaAccessPrototype
             : string.Empty;
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] AREA ACCESS SLOT DATA implementation='{implementationVersion}' startingAreaItem='{starterItem}' startingArea='{starterArea}'.");
+            $"[SCRC-AP] AREA ACCESS SLOT DATA compatible={compatible}.");
 
         if (!compatible)
         {
             Plugin.LoggerInstance?.LogError(
-                $"[SCRC-AP] AREA ACCESS SEED INCOMPATIBLE: server slot data implementation='{implementationVersion}'. Generate AND HOST a NEW seed with APWorld v0.13; replacing the installed .apworld does not change an already-generated seed. All major-area phones remain locked for safety.");
+                "[SCRC-AP] AREA ACCESS SEED INCOMPATIBLE: the room must be generated and hosted with a compatible APWorld. All major-area phones remain locked for safety.");
             return;
         }
 
@@ -6760,7 +5606,7 @@ internal static class AreaAccessPrototype
         if (!string.IsNullOrWhiteSpace(starterItem) && TryApplyItem(starterItem))
         {
             Plugin.LoggerInstance?.LogWarning(
-                $"[SCRC-AP] AREA ACCESS STARTER APPLIED FROM SLOT DATA item='{starterItem}'.");
+                "[SCRC-AP] AREA ACCESS STARTER APPLIED FROM SLOT DATA.");
             LogStatus("slot-data starter");
             return;
         }
@@ -6770,7 +5616,7 @@ internal static class AreaAccessPrototype
         string? normalized = NormalizeAreaName(starterArea);
         if (normalized != null)
         {
-            GrantArea(normalized, $"AP slot data starting_area '{starterArea}'");
+            GrantArea(normalized, "AP slot data starting_area");
             Plugin.LoggerInstance?.LogWarning(
                 $"[SCRC-AP] AREA ACCESS STARTER APPLIED FROM SLOT DATA area='{normalized}' fallback=True.");
             LogStatus("slot-data starter fallback");
@@ -6778,7 +5624,7 @@ internal static class AreaAccessPrototype
         }
 
         Plugin.LoggerInstance?.LogError(
-            $"[SCRC-AP] AREA ACCESS SLOT DATA did not contain a recognized starter: starting_area_item='{starterItem}' starting_area='{starterArea}'.");
+            "[SCRC-AP] AREA ACCESS SLOT DATA did not contain a recognized starting area or item.");
     }
 
     public static void EndAuthenticatedSession()
@@ -7074,7 +5920,7 @@ internal static class IntroHubSkip
                      implementation.StartsWith("area-routing", StringComparison.OrdinalIgnoreCase);
 
         Plugin.LoggerInstance?.LogWarning(
-            $"[SCRC-AP] INTRO DIRECT START SLOT CONTRACT synchronized=True enabled={Enabled} compatible={Compatible} implementation='{implementation}'.");
+            $"[SCRC-AP] INTRO DIRECT START SLOT CONTRACT synchronized=True enabled={Enabled} compatible={Compatible}.");
     }
 }
 
@@ -7404,6 +6250,7 @@ internal static class MusicLabDiscovery
     private static string _currentGarageSong = string.Empty;
     private static bool _musicLabStageInProgress;
     private static bool _garageCartridgeBaselineReady;
+    private static GameObject? _garageCartridgeRoot;
     private static readonly Dictionary<string, bool> GarageCartridgeBaselineActive = new(StringComparer.Ordinal);
     private static string _garagePickupCandidate = string.Empty;
 
@@ -7444,6 +6291,7 @@ internal static class MusicLabDiscovery
             {
                 _currentGarageSong = string.Empty;
                 _garageCartridgeBaselineReady = false;
+                _garageCartridgeRoot = null;
                 GarageCartridgeBaselineActive.Clear();
                 _garagePickupCandidate = string.Empty;
             }
@@ -7770,7 +6618,8 @@ internal static class MusicLabDiscovery
             return;
 
         const string rootPath = "Root/GameRoom_27_Logic/Objects/Cartridges";
-        GameObject? root = GameObject.Find(rootPath);
+        if (_garageCartridgeRoot == null) _garageCartridgeRoot = GameObject.Find(rootPath);
+        GameObject? root = _garageCartridgeRoot;
         if (root == null)
             return;
 
@@ -8352,16 +7201,15 @@ internal static class MusicLabDiscovery
                     "ScoredSong");
                 string evaluationFriendly = FriendlyGarageSong(evaluationRawSong);
 
-                // Some builds expose a song member on SongStickerEvaluation and
-                // some do not. Treat it only as a fallback; the cartridge-state detector captures the
-                // Garage identity from the inserted cartridge holder state.
-                if (!string.IsNullOrWhiteSpace(evaluationFriendly))
+                // A prior song's result can still be visible immediately after a swap.
+                // Its medal cannot be attributed to the currently inserted cartridge.
+                string resultSong = GarageCartridgeNativePolicy.ResultSong(friendly, evaluationFriendly);
+                if (resultSong.Length == 0 && friendly.Length != 0 && evaluationFriendly.Length != 0)
                 {
-                    rawSong = evaluationRawSong;
-                    friendly = evaluationFriendly;
-                    lock (Sync)
-                        _currentGarageSong = evaluationFriendly;
+                    Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] Garage medal deferred: selected '{friendly}', result '{evaluationFriendly}'.");
+                    return;
                 }
+                friendly = resultSong;
 
                 string sticker = ReadDiagnosticMember(evaluation, "StickerQualityEarned");
                 string stickerPro = ReadDiagnosticMember(evaluation, "StickerQualityEarnedByPro");
@@ -8683,9 +7531,7 @@ internal static class ProgressionPatches
     {
         GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
-        PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request prefix");
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");
@@ -8725,10 +7571,8 @@ internal static class ProgressionPatches
     {
         GarageCartridgeAccess.CapturePlayerSaveRequestProcessor(__instance);
         RootsIntroCutsceneBypass.CapturePlayerSaveRequestProcessor(__instance);
-        PlantPipesRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PlantPipesRandomization.TryFlushPendingNativeGrant();
         CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(__instance);
-        PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance);
         PreviewAbilityRandomization.OnLifecyclePoint("progression request postfix");
 
         object? req = ReflectionUtil.FindArg(__args, "RecordGameProgressionInSaveDataRequest");

@@ -22,7 +22,7 @@ internal sealed class ItemNotificationSession
     private const int BeforeLoginSendLimit = 512;
     private sealed record PendingSend(int ReceiptEnd, string Key, int Receiver, long ItemId, long LocationId,
         string? Item, string Player, string? Location);
-    private readonly Queue<PendingSend> _sends = new();
+    private readonly List<PendingSend> _sends = new();
     private readonly HashSet<string> _sendKeys = new(StringComparer.Ordinal);
     private bool _sendLimitReported;
     private bool _beforeLogin = true;
@@ -60,7 +60,7 @@ internal sealed class ItemNotificationSession
                 }
                 // Keep only bounded display fields and numeric IDs. Names unavailable during
                 // login can be looked up after the session loads the data package.
-                _sends.Enqueue(new(_receiptEnd, key, sent.Receiver.Slot, sent.Item.ItemId, sent.Item.LocationId,
+                _sends.Add(new(_receiptEnd, key, sent.Receiver.Slot, sent.Item.ItemId, sent.Item.LocationId,
                     SavedName(sent.Item.ItemName), ItemNotificationFeed.Clean(sent.Receiver.Alias ?? sent.Receiver.Name),
                     SavedName(sent.Item.LocationName)));
                 _sendKeys.Add(key);
@@ -78,6 +78,16 @@ internal sealed class ItemNotificationSession
             {
                 if (_beforeLogin)
                 {
+                    if (received.Index == 0 && received.Items.Length < _receiptEnd)
+                    {
+                        // The withdrawn suffix no longer precedes any buffered send. Keep this
+                        // boundary even if new receipts refill the same positions before login.
+                        _receiptEnd = received.Items.Length;
+                        _initialReceiptEnd = Math.Min(_initialReceiptEnd, _receiptEnd);
+                        for (int i = 0; i < _sends.Count; i++)
+                            if (_sends[i].ReceiptEnd > _receiptEnd)
+                                _sends[i] = _sends[i] with { ReceiptEnd = _receiptEnd };
+                    }
                     // A later full replay can also supply an earlier prefix if the helper
                     // hadn't published its indexed history when Configure ran.
                     if (_cassettes != null)
@@ -142,7 +152,7 @@ internal sealed class ItemNotificationSession
                 published = end;
             }
         }
-        while (_sends.TryPeek(out var sent))
+        foreach (var sent in _sends)
         {
             PublishThrough(sent.ReceiptEnd);
             try
@@ -152,9 +162,9 @@ internal sealed class ItemNotificationSession
                 _feed.Send(_generation, sent.Key, item, sent.Player, location);
             }
             catch (Exception ex) { Warn(ex); }
-            _sends.Dequeue();
         }
         PublishThrough(_receiptEnd);
+        _sends.Clear();
         _sendKeys.Clear();
         _beforeLogin = false;
     }

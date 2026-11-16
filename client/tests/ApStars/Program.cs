@@ -21,10 +21,11 @@ static class Program {
  badBunker=Bunker();badBunker["schema_version"]=19;Check(ApStarContract.Validate(badBunker).Mode==ApStarMode.Incompatible,"legacy schema cannot claim Bunker");
 
  var lobby=Contract();lobby["implementation_version"]=ApStarContract.Implementation.Replace("-generation-foundation","-lobby-doors-1-generation-foundation");lobby["lobby_open_doors"]=true;
- Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Awaiting,"Lobby-only contract");
+ Check(ApStarContract.Validate(lobby) is { Mode:ApStarMode.Awaiting,LobbyOpenDoors:true,CellTowerOpenRoute:false },"Lobby-only contract");
  Check(ApStarContract.Validate(lobby,lobbyDoorsReady:false).Mode==ApStarMode.Incompatible,"Lobby hooks required");
  lobby["implementation_version"]=((string)lobby["implementation_version"]).Replace("-lobby-doors-1","-cell-tower-path-1-lobby-doors-1");lobby["cell_tower_open_route"]=true;
- Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Awaiting,"combined route contract");
+ Check(ApStarContract.Validate(lobby) is { Mode:ApStarMode.Awaiting,LobbyOpenDoors:true,CellTowerOpenRoute:true },"combined route contract");
+ Check(ApStarContract.Validate(Contract()) is { LobbyOpenDoors:false,CellTowerOpenRoute:false },"older contract preserves both story routes");
  Check(ApStarContract.Validate(lobby,cellTowerPathReady:false).Mode==ApStarMode.Incompatible,"combined needs Cell hook");
  lobby.Remove("lobby_open_doors");Check(ApStarContract.Validate(lobby).Mode==ApStarMode.Incompatible,"Lobby marker requires capability");
 
@@ -55,7 +56,7 @@ static class Program {
  state.Configure(4,"third",ApStarContract.Validate(badType));Check(!state.CanEnter("Level_05","LevelVariant_Default")&&state.ResolveTotal(99)==0,"malformed claim fails closed");
  var packetState=new ApStarState();var h=new ApStarSessionHistory(1,packetState);
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=new[]{new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId}} });
- h.ApplySlotData(Contract(),"packet-slot",true);Check(packetState.Total==1,"prelogin packet retained until config");
+ h.Configure("packet-slot",ApStarContract.Validate(Contract()));Check(packetState.Total==1,"prelogin packet retained until config");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=1, Items=new[]{new Archipelago.MultiClient.Net.Models.NetworkItem {Item=ApStarContract.StarId}} });Check(packetState.Total==2,"incremental packet appended");
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=4, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });Check(packetState.Total==2,"gap retains prior authoritative total");
  Check(packetState.Mode==ApStarMode.Awaiting&&!packetState.CanEnter("Level_05","LevelVariant_Default")&&packetState.ResolveTotal(99)==0,"gap suspends gate and HUD authority until full replay");
@@ -77,7 +78,7 @@ static class Program {
  Check(packetState.Mode==ApStarMode.Ready&&!packetState.Commit(invalidClear,"native"),"valid replay cannot retroactively qualify an invalid-history clear");
  var replay=new ApStarSessionHistory(2,packetState);
  replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=null });
- replay.ApplySlotData(Contract(),"packet-slot",true);
+ replay.Configure("packet-slot",ApStarContract.Validate(Contract()));
  Check(packetState.Mode==ApStarMode.Awaiting,"invalid prelogin history remains suspended after configuration");
  replay.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=0, Items=Array.Empty<Archipelago.MultiClient.Net.Models.NetworkItem>() });
  h.HandlePacket(new Archipelago.MultiClient.Net.Packets.ReceivedItemsPacket { Index=-1, Items=null });

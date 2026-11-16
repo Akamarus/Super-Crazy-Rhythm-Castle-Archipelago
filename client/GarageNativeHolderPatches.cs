@@ -21,7 +21,8 @@ internal static class GarageNativeHolderPatches
     [ThreadStatic] private static int _holderScope;
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
+        if (Hooks.Active) return Hooks.Count;
+        if (Hooks.Count != 0 && !Shutdown()) return 0;
         try {
             IntPtr name = Marshal.StringToHGlobalAnsi("Assembly-CSharp");
             IntPtr assembly;

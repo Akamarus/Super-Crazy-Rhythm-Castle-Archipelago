@@ -12,22 +12,38 @@
     <Compile Include="..\..\CampaignLevelRandomization.cs" Link="CampaignLevelRandomization.cs" />
     <Compile Include="..\..\LevelCompletionPolicy.cs" Link="LevelCompletionPolicy.cs" />
     <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
+    <Compile Include="../../GarageCartridgeDiagnostics.cs" />
+    <Compile Include="../../GarageCartridgeInsertionState.cs" />
+    <Compile Include="../../GarageCartridgeNativePolicy.cs" />
+    <Compile Include="../../GarageVanillaEntrancePolicy.cs" />
     <Compile Include="..\..\ConnectionEndpointPolicy.cs" Link="ConnectionEndpointPolicy.cs" />
     <Compile Include="..\..\ConnectionAttemptDiagnostics.cs" Link="ConnectionAttemptDiagnostics.cs" />
     <Compile Include="..\..\CharacterQuestItemsPolicy.cs" Link="CharacterQuestItemsPolicy.cs" />
     <Compile Include="..\..\CharacterQuestItemSessionHistory.cs" Link="CharacterQuestItemSessionHistory.cs" />
     <Compile Include="..\..\WeedKillerSessionHistory.cs" Link="WeedKillerSessionHistory.cs" />
     <Compile Include="..\..\ReceivedItemDispatch.cs" Link="ReceivedItemDispatch.cs" />
+    <Compile Include="../../LocationCheckOutbox.cs"/>
+    <Compile Include="..\..\NamedItemSessionHistory.cs" Link="NamedItemSessionHistory.cs" />
     <Compile Include="..\..\ReconnectPolicy.cs" Link="ReconnectPolicy.cs" />
   <Compile Include="../../QuestChecksSession.cs" Link="QuestChecksSession.cs"/><Compile Include="../../QuestChecksPolicy.cs" Link="QuestChecksPolicy.cs"/><Compile Include="../../QuestChecksJournal.cs" Link="QuestChecksJournal.cs"/><Compile Include="../../ExpandedCheckCatalog.cs" Link="ExpandedCheckCatalog.cs"/><Compile Include="../../ExpandedChecksPolicy.cs" Link="ExpandedChecksPolicy.cs"/><Compile Include="../../ExpandedChecksJournal.cs" Link="ExpandedChecksJournal.cs"/></ItemGroup>
   <Target Name="ExtractProductionConnection" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <PluginSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../Plugin.cs'))</PluginSource>
       <ConnectionSource>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^internal sealed class ArchipelagoClient\b.*?^}').Value)</ConnectionSource>
+      <GarageSyncPolicy>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^    internal static bool UsesServerSync\b.*?^    }').Value)</GarageSyncPolicy>
+      <GarageSyncMethods>$([System.Text.RegularExpressions.Regex]::Match('$(PluginSource)', '(?ms)^    public static bool BeginServerSync\b.*?^    public static void EndServerSync\b.*?^    }').Value)</GarageSyncMethods>
+      <GarageStorageSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../GarageCartridgeInsertionStorage.cs'))</GarageStorageSource>
+      <GarageCoordinator>$([System.Text.RegularExpressions.Regex]::Match('$(GarageStorageSource)', '(?s)^.*?(?=internal readonly record struct GarageInsertionWriteConfirmation)').Value)</GarageCoordinator>
+      <QuestChecksSource>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/../../QuestChecks.cs'))</QuestChecksSource>
+      <JournalReplay>$([System.Text.RegularExpressions.Regex]::Match('$(QuestChecksSource)', '(?ms)^    internal static void ReplayJournal\b.*?^    }').Value)</JournalReplay>
     </PropertyGroup>
-    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionConnection.cs" Lines="using System.Collections.Concurrent%3B namespace RhythmCastleAP%3B $(ConnectionSource)" Overwrite="true" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)ProductionConnection.cs" Lines="using System.Collections.Concurrent%3B namespace RhythmCastleAP%3B $(ConnectionSource)
+internal sealed partial class GarageCartridgeAccess { $(GarageSyncPolicy) $(GarageSyncMethods) }
+internal static partial class QuestChecks { $(JournalReplay) }" Overwrite="true" />
+    <WriteLinesToFile File="$(IntermediateOutputPath)GarageCoordinator.cs" Lines="$(GarageCoordinator)" Overwrite="true" />
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)ProductionConnection.cs" />
+      <Compile Include="$(IntermediateOutputPath)GarageCoordinator.cs" />
     </ItemGroup>
   </Target>
-<ItemGroup><Compile Include="../../BunkerContract.cs" Link="BunkerContract.cs" /></ItemGroup><ItemGroup><Compile Include="../../BunkerState.cs" /><Compile Include="../../BunkerJournal.cs" /><Compile Include="../../BunkerSessionHistory.cs" /></ItemGroup></Project>
+<ItemGroup><Compile Include="../../BunkerContract.cs" Link="BunkerContract.cs" /></ItemGroup><ItemGroup><Compile Include="../../BunkerState.cs" /><Compile Include="../../BunkerJournal.cs" /><Compile Include="../../BunkerSessionHistory.cs" /></ItemGroup><ItemGroup><Compile Include="../../JournalPublication.cs" /></ItemGroup></Project>

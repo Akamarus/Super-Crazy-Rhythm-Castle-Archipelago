@@ -130,12 +130,14 @@ internal sealed class CassetteBundleSessionHistory
         }
     }
     internal static void End(long generation) { lock(Sync) if(_current?._generation==generation) { _current._ended=true;_current._ready=false; } }
-    internal static void WithSongs(Action<bool,IReadOnlyList<string>> action) {
+    // A managed room with unavailable history cannot authorize grants yet.
+    // An authenticated empty list explicitly revokes the previous song ownership.
+    internal static void WithSongs(Action<bool,IReadOnlyList<string>?> action) {
         lock(Sync) {
             var state=_current;
             bool managed=state?._managed==true;
             var songs=state!=null&&!state._ended&&state._ready&&state._contract?.Bundled==true
-                ?(state._cachedSongs ??= state._items.SelectMany(state._contract.ReceiptSongsFor).Distinct(StringComparer.Ordinal).ToArray()):Array.Empty<string>();
+                ?(state._cachedSongs ??= state._items.SelectMany(state._contract.ReceiptSongsFor).Distinct(StringComparer.Ordinal).ToArray()):null;
             action(managed,songs);
         }
     }

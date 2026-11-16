@@ -64,9 +64,14 @@ internal static class RootsBucketRandomization
 
         Plugin.LoggerInstance?.LogWarning(
             compatible
-                ? $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION ENABLED implementation='{implementation}'. Level 4 and Bucket Minion sources are AP checks; received inventory reconciles against native consumption markers."
-                : $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION disabled implementation='{implementation}' requested={requested} metadataMatches={metadataMatches}; native behavior remains unchanged.");
+                ? "[SCRC-AP] ROOTS BUCKET RANDOMIZATION ENABLED. Level 4 and Bucket Minion sources are AP checks; received inventory reconciles against native consumption markers."
+                : $"[SCRC-AP] ROOTS BUCKET RANDOMIZATION disabled requested={requested} metadataMatches={metadataMatches}; native behavior remains unchanged.");
 
+    }
+
+    internal static void ResetNamedReceipts()
+    {
+        lock (Sync) _hipGlassesReceived = _chickenBucketReceived = 0;
     }
 
     internal static bool TryApplyItem(string itemName)
@@ -98,7 +103,7 @@ internal static class RootsBucketRandomization
             (ReflectionUtil.ReadBool(evt, "FlagIsSet") ?? ReflectionUtil.ReadBool(evt, "_FlagIsSet_k__BackingField")) != false) return;
         lock (Sync) if (!_slotDataSynchronized || !_compatible) return;
         // Keep only the two bag identities; native consequence flags handle reloads.
-        CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) =>
+        NativeGrantSaveBinding.ObserveBoundSave((_, identity) =>
         {
             lock (Sync) ConsumedInSave[flag] = identity;
         });
@@ -112,7 +117,7 @@ internal static class RootsBucketRandomization
         _pollRemaining = TimeSpan.FromSeconds(1);
         lock (Sync)
             if (!_compatible || (_hipGlassesReceived <= 0 && _chickenBucketReceived <= 0)) return;
-        CassetteReceiptRandomization.WithStableQuestItemSave(Reconcile);
+        NativeGrantSaveBinding.WithBoundSave(Reconcile);
     }
 
     private static void Reconcile(object processor, string identity)
@@ -227,7 +232,7 @@ internal static class RootsBucketRandomization
                             compatible,
                             DeveloperHarness.CurrentRoomId,
                             flag,
-                            value);
+                            value) && NativeGrantSaveBinding.IsCurrentSaveBound();
         if (suppress)
         {
             Plugin.LoggerInstance?.LogWarning(

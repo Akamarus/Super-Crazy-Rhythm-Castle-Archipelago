@@ -27,7 +27,8 @@ internal static class LobbyDoorPatches
     }
     public static void BeforeDoor(object __instance)
     {
-        if(!Ready || !AreaAccessPrototype.Enabled || !AreaAccessPrototype.AuthenticatedCompatibleSession || !AreaAccessPrototype.HasArea("Lobby") || __instance is not Component c)return;
+        if(!Ready || !ApStars.State.Settings.LobbyOpenDoors || !AreaAccessPrototype.Enabled ||
+            !AreaAccessPrototype.AuthenticatedCompatibleSession || !AreaAccessPrototype.HasArea("Lobby") || __instance is not Component c)return;
         if(c.name is not ("Level19Door" or "Level20Door"))return;
         try
         {

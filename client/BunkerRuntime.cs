@@ -24,16 +24,18 @@ internal static class BunkerRuntime
         bool bag = BunkerCatalog.ByBagFlag.ContainsKey(flag);
         if (!bag && !BunkerCatalog.ByCheckFlag.ContainsKey(flag)) return true;
         bool? value = ReflectionUtil.ReadBool(request, "Value");
-        bool allowed = !bag || value != true;
-        bool prepared = false;
+        bool allowed = true;
         WithSave((_, _) => {
+            // Only the bound save participates in randomized inventory. Once bound,
+            // preserve a held item if its journal update fails.
+            allowed = !bag;
             if (bag && value == true && flag == "BUNKER_HUB_DEMON_KEY" && DeveloperHarness.CurrentRoomId == "GameRoom_Hub8")
                 State.Complete(flag, true, Journal.Save);
             // Persist before allowing consumption; a failed journal write must leave the native item intact.
             if (bag && value == false && Read(flag) == true) State.Consume(flag, Journal.Save);
-            prepared = true;
+            allowed = !bag || value != true;
         });
-        return allowed && prepared;
+        return allowed;
     }
     internal static void Observe(object evt, string flag)
     {
@@ -82,13 +84,20 @@ internal static class BunkerRuntime
     private static void WithSave(Action<object, string> action)
     {
         try {
-            CassetteReceiptRandomization.WithStableSelectedQuestSave((processor, nativeIdentity, slot) =>
-                State.WithBound(slot, Read, Journal.Save, () => action(processor, nativeIdentity)));
+            CassetteReceiptRandomization.WithStableSelectedQuestSave((processor, nativeIdentity, slot) => {
+                bool bound = State.WithBound(slot, Read, Journal.Save, () => action(processor, nativeIdentity));
+                if (bound) _lastError = null;
+                else Report("Selected save is unbound. Select this room's bound slot or a fresh save for a new room.");
+            });
         } catch (Exception ex) {
-            string message = ex.GetBaseException().Message;
-            if (_lastError == message) return;
-            _lastError = message; Plugin.LoggerInstance?.LogError("[SCRC-AP] Bunker action deferred: " + message);
+            Report(ex.GetBaseException().Message);
         }
+    }
+    private static void Report(string message)
+    {
+        if (_lastError == message) return;
+        _lastError = message;
+        Plugin.LoggerInstance?.LogWarning("[SCRC-AP] Bunker AP action deferred: " + message);
     }
 }
 

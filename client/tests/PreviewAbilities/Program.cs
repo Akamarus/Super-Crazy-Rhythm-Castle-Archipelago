@@ -48,8 +48,8 @@ Equal(true, ReceivedItemDispatch.TryApply(
 Equal(true, previewHandlerCalled, "received item dispatch invokes the preview reconciler");
 Equal(true, pluginSource.Contains("AddComponent<PreviewAbilityReconciliationKeeper>()", StringComparison.Ordinal),
     "Unity-thread lifecycle keeper is installed");
-Equal(true, pluginSource.Contains("PreviewAbilityRandomization.CapturePlayerSaveRequestProcessor(__instance)", StringComparison.Ordinal),
-    "save processor lifecycle is captured");
+Equal(true, pluginSource.Contains("NativeGrantSaveBinding.WithBoundSave(", StringComparison.Ordinal),
+    "native reconciliation requires the bound save");
 Equal(true, pluginSource.Contains("PreviewAbilityRandomization.RequestUnityReconciliation(\"Archipelago connected\")", StringComparison.Ordinal),
     "network connection queues preview reconciliation");
 Equal(false, pluginSource.Contains("PreviewAbilityRandomization.OnLifecyclePoint(\"Archipelago connected\")", StringComparison.Ordinal),

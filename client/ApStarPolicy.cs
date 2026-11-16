@@ -4,7 +4,8 @@ namespace RhythmCastleAP;
 internal enum ApStarMode { Native, Awaiting, Ready, Disconnected, Incompatible }
 internal sealed record ApStarSettings(ApStarMode Mode, int Goal = 0,
     IReadOnlyDictionary<string,int>? Gates = null, IReadOnlyDictionary<string,int>? Eaters = null,
-    string Detail = "", bool BunkerEnabled = false, string Ending = "king_ferdinand");
+    string Detail = "", bool BunkerEnabled = false, string Ending = "king_ferdinand",
+    bool CellTowerOpenRoute = false, bool LobbyOpenDoors = false);
 internal sealed record ApStarResult(string Identity, string NativeSave, bool Qualified, long Attempt);
 internal static class ApStarContract
 {
@@ -55,7 +56,7 @@ internal static class ApStarContract
                 return new(ApStarMode.Incompatible,Detail:"Incomplete, out-of-range or non-opening Star gates");
             if (bunker && (goal < 2 || gates["Level 22"] < 1 || eaters["Secret Bunker"] >= gates["Level 22"]))
                 return new(ApStarMode.Incompatible,Detail:"Bunker requires a strictly lower Star threshold than Level 22");
-            return new(ApStarMode.Awaiting,(int)goal,gates,eaters,"compatible",bunker,bunker?(string)obj["goal"]!:"king_ferdinand");
+            return new(ApStarMode.Awaiting,(int)goal,gates,eaters,"compatible",bunker,bunker?(string)obj["goal"]!:"king_ferdinand",openRoute,lobby);
         }
         catch { return new(ApStarMode.Incompatible,Detail:"Malformed AP Star contract"); }
     }

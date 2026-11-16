@@ -83,21 +83,19 @@ internal static class AreaArrivalPresentationPolicy
         return AreaArrivalKind.None;
     }
 
-    internal static bool ShouldBypassCondition(
-        AreaArrivalKind arrival,
-        string? currentRoom,
-        string? progressionFlag)
+    internal static bool MatchesRoom(AreaArrivalKind arrival, string? room) => arrival switch
     {
-        if (arrival == AreaArrivalKind.RootsPhone &&
-            string.Equals(currentRoom, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase))
-        {
-            return progressionFlag is not null && RootsFlags.Contains(progressionFlag);
-        }
+        AreaArrivalKind.RootsPhone => string.Equals(room, "GameRoom_Hub2", StringComparison.OrdinalIgnoreCase),
+        AreaArrivalKind.LobbyPhone => string.Equals(room, "GameRoom_Hub1A", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(room, "GameRoom_Hub1B", StringComparison.OrdinalIgnoreCase),
+        _ => false
+    };
 
-        return arrival == AreaArrivalKind.LobbyPhone &&
-               (string.Equals(currentRoom, "GameRoom_Hub1A", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(currentRoom, "GameRoom_Hub1B", StringComparison.OrdinalIgnoreCase)) &&
-               string.Equals(progressionFlag, "OVERALL_PROGRESS_REACHED_LOBBY_HUB", StringComparison.OrdinalIgnoreCase);
+    internal static bool ShouldBypassCondition(AreaArrivalKind arrival, string? room, string? flag)
+    {
+        if (flag == null || !MatchesRoom(arrival, room)) return false;
+        return arrival == AreaArrivalKind.RootsPhone ? RootsFlags.Contains(flag) :
+            string.Equals(flag, "OVERALL_PROGRESS_REACHED_LOBBY_HUB", StringComparison.OrdinalIgnoreCase);
     }
 
     private static readonly HashSet<string> RootsFlags = new(StringComparer.OrdinalIgnoreCase)

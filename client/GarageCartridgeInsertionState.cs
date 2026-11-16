@@ -148,7 +148,7 @@ internal sealed class GarageCartridgeInsertionTracker
         bool inGarageApproachRoom = false)
     {
         bool validConsumptionContext =
-            (inGarage && releasedThisVisit) ||
+            (inGarage && (releasedThisVisit || (requirePreviouslySet && signalWasSet == true))) ||
             (!inGarage && inGarageApproachRoom);
         if (signalIsSet != false ||
             (requirePreviouslySet && signalWasSet != true) ||
@@ -166,7 +166,7 @@ internal sealed class GarageCartridgeInsertionTracker
             generation,
             resetEpoch,
             inGarage
-                ? GaragePendingNativeConsumptionPhase.InGarageReleaseBacked
+                ? GaragePendingNativeConsumptionPhase.InGarageConsumption
                 : GaragePendingNativeConsumptionPhase.AwaitingGarageEntryAttempt);
         return true;
     }
@@ -276,11 +276,11 @@ internal sealed class GarageCartridgeInsertionTracker
                 pending.Generation == generation &&
                 pending.ResetEpoch == previousResetEpoch;
             if (matchingIdentity &&
-                pending.Phase == GaragePendingNativeConsumptionPhase.InGarageReleaseBacked)
+                pending.Phase == GaragePendingNativeConsumptionPhase.InGarageConsumption)
             {
                 carry.Add(new KeyValuePair<string, GaragePendingNativeConsumptionPhase>(
                     song,
-                    GaragePendingNativeConsumptionPhase.InGarageReleaseBacked));
+                    GaragePendingNativeConsumptionPhase.InGarageConsumption));
             }
             else if (matchingIdentity &&
                      pending.Phase == GaragePendingNativeConsumptionPhase.AwaitingGarageRoom &&
@@ -312,7 +312,7 @@ internal sealed class GarageCartridgeInsertionTracker
     private readonly record struct GarageNativeBagObservation(bool Readable, bool Held);
     private enum GaragePendingNativeConsumptionPhase
     {
-        InGarageReleaseBacked,
+        InGarageConsumption,
         AwaitingGarageEntryAttempt,
         AwaitingGarageRoom,
         GarageReadback,

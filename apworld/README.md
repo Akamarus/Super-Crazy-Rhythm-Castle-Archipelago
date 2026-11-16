@@ -1,6 +1,6 @@
 # SCRC APWorld
 
-**APWorld 0.30.0** supports Bunker progression and the optional True Ending. New schema 21 seeds require Client 0.77.0 or later.
+**APWorld 0.30.1** supports Bunker progression and the optional True Ending. New schema 21 seeds require Client 0.77.0 or later.
 
 The Python package under `scrc/` defines generation, items, locations, options and Universal Tracker reconstruction. With Bunker progression enabled, all cassette modes use schema 21. With Bunker progression disabled, individual cassettes use schema 19 and pairs or triples use schema 20.
 

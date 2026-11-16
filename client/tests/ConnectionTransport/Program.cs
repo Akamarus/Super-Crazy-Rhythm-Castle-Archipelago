@@ -30,6 +30,8 @@ if (ConnectionAttemptDiagnostics.Summarize(nested, "fallback") != "InvalidOperat
     throw new Exception("Expected compact underlying cause.");
 if (ConnectionAttemptDiagnostics.Summarize(new Exception(new string('x', 1000)), "fallback").Length != 320)
     throw new Exception("Expected bounded error length.");
+if (ConnectionAttemptDiagnostics.Summarize(new IOException("a\0b\tc\u2028d\u2029e\u001bf"), "") != "IOException: a b c d e f")
+    throw new Exception("Remote diagnostics must occupy one printable log line.");
 await ConnectionAttemptDiagnostics.ObserveDisconnectAsync(() => Task.FromException(new IOException("failed cleanup")), reports.Enqueue);
 await ConnectionAttemptDiagnostics.ObserveDisconnectAsync(() => throw new IOException("synchronous cleanup"), reports.Enqueue);
 await ConnectionAttemptDiagnostics.ObserveDisconnectAsync(() => Task.CompletedTask, reports.Enqueue);

@@ -54,7 +54,8 @@ internal static class QuestNativeVirtualHooks
 
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
+        if (Hooks.Active) return Hooks.Count;
+        if (Hooks.Count != 0 && !Shutdown()) return 0;
         foreach (string name in QuestConditionHookPlan.DedicatedTypes)
         {
             try

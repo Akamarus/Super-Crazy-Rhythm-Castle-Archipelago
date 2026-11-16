@@ -264,7 +264,7 @@ Equal(true, receiptTryApply.Contains("RequestUnityReconciliation(\"AP cassette r
 Equal(false, receiptTryApply.Contains("TryReconcile(", StringComparison.Ordinal), "network receipt performs no native reconciliation");
 string unityTick = ExtractMethods(receiptRandomizationSource, "private static void TickUnityCore(").Single();
 Equal(false, unityTick.Contains("TickDiskCommit", StringComparison.Ordinal), "Unity keeper does not run a synthetic disk-commit timer");
-Equal(true, unityTick.Contains("TryReconcile(reason)", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
+Equal(true, unityTick.Contains("TryReconcile(reason,", StringComparison.Ordinal), "Unity keeper drains queued reconciliation intent");
 Equal(true, unityTick.Contains("TryGetProcessorSaveIdentity", StringComparison.Ordinal), "Unity keeper observes the processor-local save-state pointer");
 Equal(true, unityTick.Contains("TryMatchRegularSaveSlot", StringComparison.Ordinal), "Unity keeper performs bounded public regular-save pointer join");
 Equal(true, unityTick.Contains("_saveIdentity.Signal(joinedSlot, CassetteSaveBoundarySignalKind.Selection, joinSnapshot.PlayerSaveProcessor)", StringComparison.Ordinal), "only unique join resolves real UI slot into processor stabilizer");
@@ -360,8 +360,8 @@ Equal(true, persistencePoll.Contains("_productionPersistence.Observe", StringCom
             persistenceCoordinatorSource.Contains("_waves.Complete", StringComparison.Ordinal) &&
             persistenceCoordinatorSource.Contains("_requestReconciliation", StringComparison.Ordinal),
     "VERIFIED delegates exact-wave completion and later-batch reconciliation to the coordinator");
-Equal(true, persistenceCoordinatorSource.Contains("_waves.TombstoneEpoch", StringComparison.Ordinal),
-    "FAILED, TIMEOUT, and indeterminate invocation tombstone later same-epoch work inside the coordinator");
+Equal(false, persistenceCoordinatorSource.Contains("_waves.TombstoneEpoch", StringComparison.Ordinal),
+    "a failed batch leaves unrelated batches eligible");
 string cancelPersistence = ExtractMethods(receiptRandomizationSource, "private static void CancelPointerBoundPersistence(").Single();
 Equal(true, cancelPersistence.Contains("_productionPersistence.CancelEpoch", StringComparison.Ordinal),
     "save boundaries delegate cancellation and queue clearing to the coordinator");
@@ -562,21 +562,9 @@ foreach (string submitSource in submitMethods)
     Equal(false, submitSource.Contains("TryWriteMember(request, \"CassetteStatus\"", StringComparison.Ordinal), "cassette submission forbids post-construction status writes");
 }
 
-IReadOnlyList<string> processorFactories =
-    ExtractMethods(pluginSource, "private static bool EnsureProcessorAvailable()");
-Equal(1, processorFactories.Count,
-    "the restart-safe player-save processor factory is uniquely inspectable");
-
-string processorFactory = processorFactories.Single();
-int processorStored = processorFactory.IndexOf(
-    "_playerSaveRequestProcessor = processor;",
-    StringComparison.Ordinal);
-int cassetteHandoff = processorFactory.IndexOf(
-    "CassetteReceiptRandomization.CapturePlayerSaveRequestProcessor(processor);",
-    StringComparison.Ordinal);
-Equal(true,
-    processorStored >= 0 && cassetteHandoff > processorStored,
-    "the restart-safe stateless processor is handed to cassette reconciliation after construction");
+string processorFactory = ExtractMethods(pluginSource, "private static bool EnsureCassetteProcessorAvailable()").Single();
+Equal(true, processorFactory.Contains("CapturePlayerSaveRequestProcessor(processor, reconcileNow: false)", StringComparison.Ordinal),
+    "a constructed stateless processor enters normal selected-save verification");
 
 string[] expectedCatalog =
 {
@@ -880,25 +868,9 @@ Equal(false, persistenceWaveQueue.TryPeek(replacementQueueIdentity, out _),
     "the replacement epoch starts without inherited waves");
 Equal(true, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "KEEP_ON_HUSTLIN" }),
     "the replacement identity accepts its own verified batch");
-persistenceWaveQueue.TombstoneEpoch(replacementQueueIdentity);
-Equal(false, persistenceWaveQueue.TryPeek(replacementQueueIdentity, out _),
-    "tombstoning clears every queued wave in the exact epoch");
-Equal(false, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "ON_THE_WAY" }),
-    "a tombstoned epoch rejects all later verified waves");
-persistenceWaveQueue.BeginEpoch(replacementQueueIdentity);
-Equal(false, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "ON_THE_WAY" }),
-    "repeating the same identity cannot clear its tombstone");
-var afterTombstoneIdentity = replacementQueueIdentity with { Generation = 4, Epoch = 3, Pointer = 0x6600 };
-persistenceWaveQueue.BeginEpoch(afterTombstoneIdentity);
-Equal(true, persistenceWaveQueue.TryEnqueue(afterTombstoneIdentity, new[] { "ON_THE_WAY" }),
-    "only a genuinely new epoch clears the prior tombstone");
-persistenceWaveQueue.CancelEpoch(afterTombstoneIdentity);
-Equal(false, persistenceWaveQueue.TryPeek(afterTombstoneIdentity, out _),
-    "boundary cancellation clears queued work");
-Equal(false, persistenceWaveQueue.TryEnqueue(afterTombstoneIdentity, new[] { "BADASS" }),
-    "a cancelled identity remains inactive until a boundary begins another epoch");
-Console.WriteLine("PASS: persistence_wave_queue_is_identity_bound_sorted_and_tombstoned");
-
+persistenceWaveQueue.CancelEpoch(replacementQueueIdentity);
+Equal(false, persistenceWaveQueue.TryPeek(replacementQueueIdentity, out _), "boundary cancellation clears only the prior epoch's queued work");
+Equal(false, persistenceWaveQueue.TryEnqueue(replacementQueueIdentity, new[] { "BADASS" }), "cancelled save rejects new work");
 var sequentialIdentity = new CassettePersistenceAcceptanceIdentity(60, 12, 4, 0x8800);
 var firstSequentialBaseline = new CassettePersistenceAcceptanceBaseline(
     new CassettePublicWriteState(true, false, 20, 7, "IO_ERROR"),
@@ -947,8 +919,8 @@ indeterminateSequentialRuntime.TryPrepare(
 Equal(CassettePersistenceAcceptanceOutcome.Failed,
     indeterminateSequentialRuntime.MarkIndeterminate(indeterminateSequentialAttempt, "urgency-invocation"),
     "a possibly mutating invocation ambiguity fails the active batch");
-Equal(false, indeterminateSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
-    "an indeterminate batch tombstones sequential persistence for the epoch");
+Equal(true, indeterminateSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "an indeterminate batch leaves later batches eligible");
 
 var failedSequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 failedSequentialRuntime.BeginEpoch(sequentialIdentity);
@@ -960,8 +932,8 @@ Equal(CassettePersistenceAcceptanceOutcome.Failed,
         failedSequentialAttempt, sequentialIdentity, firstSequentialVerifiedState,
         statusesRetained: false, stateReadable: true, TimeSpan.Zero),
     "a polling status regression fails closed in sequential mode");
-Equal(false, failedSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
-    "a polling failure tombstones sequential persistence for the epoch");
+Equal(true, failedSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "a polling failure leaves later batches eligible");
 
 var timedOutSequentialRuntime = new CassettePointerBoundPersistenceRuntime();
 timedOutSequentialRuntime.BeginEpoch(sequentialIdentity);
@@ -987,8 +959,8 @@ Equal(CassettePersistenceAcceptanceOutcome.Timeout,
         timedOutSequentialAttempt, sequentialIdentity, unchangedSequentialState,
         statusesRetained: true, stateReadable: true, TimeSpan.FromSeconds(1)),
     "sequential mode preserves the 130-second hard timeout");
-Equal(false, timedOutSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
-    "a timed-out batch tombstones sequential persistence for the epoch");
+Equal(true, timedOutSequentialRuntime.TryPrepare(sequentialIdentity, firstSequentialBaseline, out _),
+    "a timed-out batch leaves later batches eligible");
 
 Console.WriteLine("PASS: pointer_bound_persistence_runtime_supports_sequential_verified_batches");
 
@@ -1190,8 +1162,8 @@ foreach (string terminalCase in new[] { "indeterminate", "failed", "timeout" })
                 "130-second public polling timeout tombstones production");
         }
     }
-    Equal(false, terminalCoordinator.TryEnqueue(sequentialIdentity, new[] { "ON_THE_WAY" }),
-        $"{terminalCase} tombstone rejects every later same-epoch wave");
+    Equal(true, terminalCoordinator.TryEnqueue(sequentialIdentity, new[] { "ON_THE_WAY" }),
+        $"{terminalCase} permits a later same-epoch wave");
     Equal(false, terminalCoordinator.TryInvoke(
             sequentialIdentity,
             terminalWave.WaveId,
@@ -1204,9 +1176,9 @@ foreach (string terminalCase in new[] { "indeterminate", "failed", "timeout" })
                 terminalAdapterAdmissions++;
                 return new(true, "success", "Invoked");
             }) == CassetteProductionPersistenceStartOutcome.Invoked,
-        $"{terminalCase} tombstone rejects later adapter admission");
+        $"{terminalCase} failed batch cannot invoke the same wave ID again");
     Equal(1, terminalAdapterAdmissions,
-        $"{terminalCase} allows no adapter call after the terminal tombstone");
+        $"{terminalCase} rejected stale wave cannot invoke the adapter");
 }
 
 var boundaryCoordinator = new CassetteProductionPersistenceCoordinator(() => { });
@@ -1429,8 +1401,8 @@ foreach ((string Case, CassettePublicWriteDiagnosticState State, bool Statuses, 
     Equal(failure.Expected, failedRuntime.Observe(
         failedAttempt, acceptanceIdentity, failure.State, failure.Statuses, failure.Readable,
         TimeSpan.Zero), $"acceptance {failure.Case} fails closed");
-    Equal(false, failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
-        $"acceptance {failure.Case} tombstones the epoch");
+    Equal(true, failedRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+        $"acceptance {failure.Case} leaves later batches eligible");
 }
 
 var identityFailureRuntime = new CassettePointerBoundPersistenceRuntime();
@@ -1448,8 +1420,8 @@ indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out Cass
 Equal(CassettePersistenceAcceptanceOutcome.Failed,
     indeterminateRuntime.MarkIndeterminate(indeterminateAttempt, "urgency-invocation"),
     "promotion success followed by urgency throw is tombstoned indeterminate");
-Equal(false, indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
-    "indeterminate promotion is never retried in the epoch");
+Equal(true, indeterminateRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _),
+    "indeterminate batch does not poison later work");
 
 var timeoutRuntime = new CassettePointerBoundPersistenceRuntime();
 timeoutRuntime.BeginEpoch(acceptanceIdentity);
@@ -1465,7 +1437,7 @@ for (int second = 0; second < 129; second++)
 Equal(CassettePersistenceAcceptanceOutcome.Timeout, timeoutRuntime.Observe(
     timeoutAttempt, acceptanceIdentity, unchangedAcceptanceState, true, stateReadable: true,
     TimeSpan.FromSeconds(1)), "acceptance times out at 130 active-update seconds");
-Equal(false, timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _), "timeout tombstones the epoch");
+Equal(true, timeoutRuntime.TryPrepare(acceptanceIdentity, acceptanceBaseline, out _), "timeout leaves later batches eligible");
 
 var cancelledRuntime = new CassettePointerBoundPersistenceRuntime();
 cancelledRuntime.BeginEpoch(acceptanceIdentity);
@@ -1651,7 +1623,13 @@ boundedSchedule.RecordSubmission("BADASS");
 Equal(0, boundedSchedule.Tick(TimeSpan.FromMilliseconds(249)).Count, "attempt one cannot verify before 250ms");
 SequenceEqual(new[] { "BADASS" }, boundedSchedule.Tick(TimeSpan.FromMilliseconds(1)), "attempt one verifies at 250ms");
 boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
-Equal(false, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "one semantic grant attempt exhausts the current epoch budget without duplicate grants");
+Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "verified unlanded request retries in the same save");
+for (int attempt=2; attempt<=3; attempt++) {
+    boundedSchedule.RecordSubmissionFailure("BADASS");
+    boundedSchedule.Tick(TimeSpan.FromMilliseconds(250));
+    boundedSchedule.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveNotEarned);
+}
+Equal(false, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "unlanded submissions are capped at three per save");
 Equal(0, boundedSchedule.Tick(TimeSpan.FromSeconds(10)).Count, "completed unearned verification does not poll every Unity frame");
 boundedSchedule.ActivateSave(3);
 Equal(true, boundedSchedule.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "new epoch revalidates AP ownership and permits one fresh semantic grant");
@@ -1661,10 +1639,14 @@ var staleVerification = new CassetteSaveEpochRuntime();
 staleVerification.Receive("BADASS");
 staleVerification.ActivateSave(1);
 staleVerification.RecordSubmission("BADASS");
+staleVerification.Tick(TimeSpan.FromMilliseconds(250));
+staleVerification.RecordVerification("BADASS", null);
 staleVerification.ActivateSave(2);
 Equal(0, staleVerification.Tick(TimeSpan.FromSeconds(3)).Count, "reload invalidates stale verification timer from prior epoch");
-staleVerification.RecordVerification("BADASS", null);
+staleVerification.RecordVerification("BADASS", CassetteRandomizationPolicy.HaveInBag);
 Equal(true, staleVerification.CanSubmit("BADASS", CassetteRandomizationPolicy.HaveNotEarned, true), "reload clears prior attempt and revalidates new epoch");
+Equal(false, staleVerification.TryConsumeNewlyVerifiedGrantDiagnosticWave(2, 0x710, out _),
+    "a stale verification result cannot queue persistence in the new epoch");
 Console.WriteLine("PASS: reload_clears_attempt_without_process_wide_satisfaction");
 
 Equal("present=False value=<null> bits=<null>", CassetteDiskCommitDiagnosticFormatter.FormatNullableDouble(null), "nullable formatter identifies absent GameTime exactly");
@@ -2475,7 +2457,7 @@ Equal(false, factorySource.Contains("TryCreateDefaultUrgentPersistRequest", Stri
 string diagnosticAdapter = ExtractMethods(adapterSource, "internal static bool TryReadPublicWriteDiagnosticState(").Single();
 Equal(true, diagnosticAdapter.Contains("PublicInstance", StringComparison.Ordinal) && diagnosticAdapter.Contains("PublicStatic", StringComparison.Ordinal), "disk diagnostics use public-only state and enquiry APIs");
 Equal(false, diagnosticAdapter.Contains("AllStatic", StringComparison.Ordinal) || diagnosticAdapter.Contains("AllInstance", StringComparison.Ordinal), "disk diagnostics cannot bind non-public members");
-Equal(true, diagnosticAdapter.Contains("GetCassetteStatusForSong", StringComparison.Ordinal), "disk diagnostic status map is derived from the same obtained public state");
+Equal(true, diagnosticAdapter.Contains("FindStatusGetter(stateType, PublicInstance, songType)", StringComparison.Ordinal), "disk diagnostic status map is derived from the same obtained public state");
 string pointerBoundPlanAdapter = ExtractMethods(adapterSource, "internal static bool TryPreparePointerBoundPersistenceInvocation(").Single();
 string pointerBoundInvokeAdapter = ExtractMethods(adapterSource, "internal static CassettePointerBoundPersistenceInvocationResult InvokePointerBoundPersistence(").Single();
 Equal(true, pointerBoundPlanAdapter.Contains("PublicInstance", StringComparison.Ordinal), "acceptance plan resolves only public instance methods");
@@ -3026,8 +3008,8 @@ sealed class PrivateNullable<T>
 }
 
 enum ePlayerSaveChangeBundleKey { INVALID, DEFAULT, CAMPAIGN }
-enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS, HEAVY_METAL, KEEP_ON_HUSTLIN, ON_THE_WAY }
-enum eSongCassetteStatus { INVALID, HAVE_NOT_EARNED, HAVE_IN_BAG }
+enum ePlayableSong { INVALID, QUIERES_BAILAR, I_GOT_MONEY, BADASS, HEAVY_METAL, KEEP_ON_HUSTLIN, ON_THE_WAY, ZEN }
+enum eSongCassetteStatus { INVALID, HAVE_NOT_EARNED, HAVE_IN_BAG, HAVE_DEPOSITED }
 
 sealed class SelectedIdentityOnlyState
 {
@@ -3348,24 +3330,27 @@ static class RequestSystem
 
 sealed class PlayerSaveRequestProcessor
 {
-    private readonly TransactionSaveState _state;
+    private readonly TransactionSaveState? _state;
     public int ObtainStateCalls { get; private set; }
     public int ProcessRequestCalls { get; private set; }
     public RecordSongCassetteStatusInSaveDataRequest? LastRequest { get; private set; }
     public ePlayerSaveChangeBundleKey EffectiveBundle { get; private set; }
 
+    public PlayerSaveRequestProcessor() { }
     public PlayerSaveRequestProcessor(TransactionSaveState state) => _state = state;
 
-    public TransactionSaveState ObtainState()
+    public object ObtainState()
     {
         ObtainStateCalls++;
-        return _state;
+        return _state ?? PlayerSaveManagementEnquiries.SelectedState!;
     }
 
     public void ProcessRequest(RecordSongCassetteStatusInSaveDataRequest request)
     {
         ProcessRequestCalls++;
         LastRequest = request;
+        if (_state == null && PlayerSaveManagementEnquiries.SelectedState is CassetteVerificationTests.RecordingSave loaded)
+            loaded.Grant(request.Song, request.CassetteStatus);
         EffectiveBundle = request.Bundle.HasValue
             ? request.Bundle.Value
             : ePlayerSaveChangeBundleKey.DEFAULT;

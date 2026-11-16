@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using Newtonsoft.Json;
+using System.Text.Json;
 using UnityEngine;
 
 namespace RhythmCastleAP;
@@ -14,19 +14,33 @@ internal sealed class ApStarGoalJournal
     internal ApStarGoalRecord? Load(string identity, int required, string ending = "king_ferdinand")
     {
         string path = FileFor(identity);
-        if (!File.Exists(path)) return null;
-        var record = JsonConvert.DeserializeObject<ApStarGoalRecord>(File.ReadAllText(path));
-        if (record == null || record.Schema != 1 || record.Identity != identity || record.RequiredStars != required || record.Ending != ending ||
-            !record.Completed || string.IsNullOrWhiteSpace(record.NativeSave))
-            throw new InvalidDataException("AP Star goal journal identity or completion mismatch");
-        return record;
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var document = JsonDocument.Parse(file);
+            var root = document.RootElement;
+            // Early schema-1 writers always used the Ferdinand ending and omitted Ending.
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("Schema", out _) ||
+                !root.TryGetProperty("Identity", out _) || !root.TryGetProperty("RequiredStars", out _) ||
+                !root.TryGetProperty("NativeSave", out _) || !root.TryGetProperty("Completed", out _) ||
+                root.EnumerateObject().Count() != (root.TryGetProperty("Ending", out _) ? 6 : 5))
+                throw new InvalidDataException("Unexpected AP Star goal journal fields.");
+            var record = root.Deserialize<ApStarGoalRecord>();
+            if (record == null || record.Schema != 1 || record.Identity != identity || record.RequiredStars != required ||
+                record.Ending != ending || !record.Completed || string.IsNullOrWhiteSpace(record.NativeSave))
+                throw new InvalidDataException("AP Star goal journal identity or completion mismatch.");
+            return record;
+        }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) when (!File.Exists(_directory)) { return null; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or UnauthorizedAccessException)
+        {
+            throw new InvalidDataException($"Cannot load ap-star-goals/{Path.GetFileName(path)}. Check access or restore its matching .bak.", ex);
+        }
     }
     internal void Save(ApStarGoalRecord record)
     {
-        Directory.CreateDirectory(_directory);
-        string path = FileFor(record.Identity), temporary = path + ".tmp";
-        File.WriteAllText(temporary, JsonConvert.SerializeObject(record));
-        File.Move(temporary, path, true);
+        JournalPublication.Write(FileFor(record.Identity), record);
     }
 }
 
@@ -46,9 +60,12 @@ internal static class ApStars
     private static GUIStyle? _blockedStyle;
     private static int _blockedFontSize;
 
-    internal static void Configure(Func<string, bool> sendGoal, string? journalDirectory = null)
+    private static Func<IReadOnlyDictionary<string, int>?>? _legacyEaters;
+    internal static void Configure(Func<string, bool> sendGoal, string? journalDirectory = null,
+        Func<IReadOnlyDictionary<string, int>?>? legacyEaters = null)
     {
         _sendGoal = sendGoal;
+        _legacyEaters = legacyEaters;
         if (journalDirectory != null) _journal = new(journalDirectory);
         _identity = ""; _journalLoaded = _durableGoal = false; _unsavedGoal = null;
         OnNativeBoundary();
@@ -75,7 +92,7 @@ internal static class ApStars
     }
     internal static int ResolveTotal(int native)
     {
-        if (State.Active && !ApStarEaterThresholds.CanUseStarTotal(DeveloperHarness.CurrentRoomId)) return 0;
+        if (State.Active && !ApStarEaterThresholds.CanUseStarTotal(DeveloperHarness.CurrentRoomId, State.Settings.Eaters)) return 0;
         return State.ResolveTotal(native);
     }
     internal static bool CanEnter(string level, string variant)
@@ -139,8 +156,9 @@ internal static class ApStars
     internal static void OnAdmittedStart(string level, string variant)
     {
         ObserveIdentity(); ResetAttempt();
-        if (!State.Active) return;
-        CassetteReceiptRandomization.WithStableQuestItemSave((_, save) => {
+        if (!State.Active || level != "Level_28" || variant != "LevelVariant_Default") return;
+        NativeGrantSaveBinding.WithCheckSave((room, save) => {
+            if (room != State.Identity) return;
             _startedLevel = level; _startedVariant = variant; _startedSave = save;
         });
     }
@@ -218,7 +236,8 @@ internal static class ApStars
         ObserveIdentity();
         ApStarSettings settings = State.Settings;
         ApStarEaterThresholds.Tick(DeveloperHarness.CurrentRoomId,
-            settings.Mode == ApStarMode.Awaiting ? settings.Eaters : null);
+            settings.Mode == ApStarMode.Awaiting ? settings.Eaters :
+            settings.Mode == ApStarMode.Native ? _legacyEaters?.Invoke() : null);
         if (!State.Active || settings.Mode != ApStarMode.Awaiting || string.IsNullOrEmpty(_identity)) return;
         if (Time.unscaledTime < _nextRetry) return;
         _nextRetry = Time.unscaledTime + 1;
@@ -232,7 +251,7 @@ internal static class ApStars
                 _journalLoaded = true;
                 if (restored != null) { _durableGoal = true; State.RestoreGoal(_identity); }
             }
-            catch (Exception ex) { Error("Goal journal read failed; goal delivery deferred: " + ex.GetBaseException().Message); return; }
+            catch (Exception ex) { Error("Goal journal read failed; goal delivery deferred: " + ex.Message); return; }
         }
         if (!_durableGoal || !State.GoalPending || State.Mode != ApStarMode.Ready) return;
         try { if (_sendGoal(_identity)) State.MarkGoalSent(_identity); }

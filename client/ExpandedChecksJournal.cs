@@ -25,9 +25,10 @@ internal sealed class ExpandedChecksJournal
     internal ExpandedJournalRecord Load(string identity)
     {
         string path = FileFor(identity);
-        if (!File.Exists(path)) return new(null, Array.Empty<long>());
         try {
-            var root = JObject.Parse(File.ReadAllText(path), new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error });
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            using var reader = new StreamReader(file);
+            var root = JObject.Parse(reader.ReadToEnd(), new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error });
             bool current = root["Schema"]?.Type == JTokenType.Integer && (long?)root["Schema"] == 2;
             if (root.Count != (current ? 5 : 4) || root["Schema"]?.Type != JTokenType.Integer || (long?)root["Schema"] != (current ? 2 : 1) ||
                 root["Identity"]?.Type != JTokenType.String || (string?)root["Identity"] != identity ||
@@ -42,22 +43,16 @@ internal sealed class ExpandedChecksJournal
             }
             var record = new ExpandedJournalRecord((int?)root["Slot"], completed.Select(v => (long)v).ToArray(), pending);
             Validate(record); return record;
-        } catch (Exception ex) when (ex is JsonException or OverflowException or FormatException or ArgumentException) {
-            throw new InvalidDataException("Corrupt expanded check journal.", ex);
+        } catch (FileNotFoundException) { return new(null, Array.Empty<long>()); }
+        catch (DirectoryNotFoundException) when (!File.Exists(_directory)) { return new(null, Array.Empty<long>()); }
+        catch (Exception ex) when (ex is JsonException or OverflowException or FormatException or ArgumentException or
+            InvalidDataException or IOException or UnauthorizedAccessException) {
+            throw new InvalidDataException($"Cannot load expanded-checks/{Path.GetFileName(path)}. Check file access or restore this room's matching backup.", ex);
         }
     }
     internal void Save(string identity, ExpandedJournalRecord record)
     {
         Validate(record);
-        Directory.CreateDirectory(_directory);
-        string path = FileFor(identity), temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try {
-            var value = new { Schema = 2, Identity = identity, record.Slot, record.Completed, PendingCharacters = record.PendingCharacters ?? Array.Empty<long>() };
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
-                byte[] bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(value));
-                stream.Write(bytes, 0, bytes.Length); stream.Flush(true);
-            }
-            File.Move(temporary, path, true);
-        } finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        JournalPublication.Write(FileFor(identity), new { Schema = 2, Identity = identity, record.Slot, record.Completed, PendingCharacters = record.PendingCharacters ?? Array.Empty<long>() });
     }
 }

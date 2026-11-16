@@ -24,6 +24,7 @@ internal static class TransportIntegrationTests
         using var listener=new HttpListener(); listener.Prefixes.Add($"http://localhost:{port}/"); listener.Start();
         var accept=listener.GetContextAsync();
         var session=ArchipelagoSessionFactory.CreateSession(ConnectionEndpointPolicy.Normalize($"localhost:{port}"));
+        NetworkReceiveGuard.RegisterRoomSocket(session.Socket);
         var received=new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var closed=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         session.Socket.PacketReceived += packet => received.TrySetResult(packet.GetType().Name);

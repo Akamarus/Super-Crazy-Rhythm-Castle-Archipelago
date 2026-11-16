@@ -23,13 +23,7 @@ internal static class CassetteChestRewardHooks
         {
             CassetteChestRewardAdmission.Run(Hooks.Active && CassetteReceiptRandomization.Enabled, _popup,
                 () => QuestCheckHooks.PathFor(new Component(instance)),
-                () =>
-                {
-                    bool bound = false;
-                    // Selected slot, epoch, processor pointer and gameplay readiness.
-                    CassetteReceiptRandomization.WithStableQuestItemSave((_, _) => bound = true);
-                    return bound;
-                },
+                NativeGrantSaveBinding.IsCurrentSaveBound,
                 () => Original(instance, methodInfo),
                 path => Plugin.LoggerInstance?.LogInfo($"[SCRC-AP] CASSETTE CHEST {(_popup ? "POPUP" : "REWARD")} SUPPRESSED path='{path}'. Source flag and persistence remain native."),
                 ex => Plugin.LoggerInstance?.LogError($"[SCRC-AP] Cassette chest source admission unavailable: {ex.GetBaseException().Message}"));
@@ -38,7 +32,8 @@ internal static class CassetteChestRewardHooks
 
     internal static unsafe int Install()
     {
-        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
+        if (Hooks.Active) return Hooks.Count;
+        if (Hooks.Count != 0 && !Shutdown()) return 0;
         CassetteChestHookInstallation.Run(TryInstall);
         return Hooks.Count;
     }

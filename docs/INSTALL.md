@@ -1,6 +1,6 @@
 # Install and connect
 
-This guide covers **v0.30.1: Client v0.77.1 / APWorld v0.30.0**.
+This guide covers **v0.30.2: Client v0.77.2 / APWorld v0.30.1**.
 APWorld 0.30.0 adds Bunker/schema21 options. Existing schema19/20 rooms retain their original rules; use a fresh seed/save for new options.
 
 The integration is experimental. Back up your native save before starting a new
@@ -28,8 +28,8 @@ if BepInEx does not start.
 
 ## 3. Install the SCRC client
 
-1. Download **RhythmCastleAP-v0.77.1.zip** from the
-   [v0.30.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.1).
+1. Download **RhythmCastleAP-v0.77.2.zip** from the
+   [v0.30.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.2).
 2. With the game closed, create this folder if it does not exist:
 
    ```text
@@ -89,8 +89,16 @@ Archipelago server with your generated seed first, and use its actual port.
 Opening the game or Archipelago Launcher alone does not host the seed.
 
 If an older configuration contains `RandomizeEarlyProgression`, leave it `false`.
-Save the file, then launch the game again. Keep any password private; do not post
-the whole configuration file publicly.
+Save the file, then launch the game again. BepInEx stores the room password in
+plain text. Anyone who can read this configuration or its backups can read the
+password. On a shared PC, restrict access to the file and clear the password
+when you finish playing in that room.
+
+The unreleased client also accepts a process-only password. Set
+`UseEnvironmentPassword = true`, leave `Password` blank, and supply
+`SCRC_AP_PASSWORD` in the environment used to launch the game. This option
+pauses connection attempts if that variable is missing. Clear any password
+previously saved in the config and consider who can read its backups.
 
 ## 5. Connect before loading your save
 
@@ -107,13 +115,13 @@ second seed. Get the connection address and your assigned slot name from its hos
 | --- | --- |
 | No configuration file | Confirm BepInEx and the client DLLs are installed, launch once, then close the game. Check the log for client loading errors. |
 | Connection refused / keeps retrying | Check `Server`, including the port. A local server must be running; a hosted room must be online. Do not leave `localhost` when joining a remote room. |
-| Invalid slot or password | Copy the player name from the generated room and check whether the room requires a password. In the cleanup candidate, automatic reconnect pauses on these refusals. Correct the config, then restart the game. |
-| The log says a quest journal could not be loaded (cleanup candidate) | Close the game. Find the named file under `BepInEx/config/RhythmCastleAP/quest-checks`. Check file access if the log reports a permissions problem. For damaged data, make a backup before repairing it or restoring a known-good copy for the same seed and slot. Then restart the game. |
-| Still cannot connect | Attach `BepInEx\LogOutput.log` from the game folder when asking for help. Readable log text is more useful than a screenshot of the console. |
+| Invalid slot or password | Close the game, copy the player name from the generated room, check its password, and restart the game after saving the config. |
+| The log reports a quest journal error | Close the game. Check file access under `BepInEx/config/RhythmCastleAP/quest-checks`. For damaged data, make a backup before repairing it or restoring a known-good copy for the same seed and slot. Then restart the game. |
+| Still cannot connect | Copy the relevant error lines from `BepInEx\LogOutput.log` into your support request. Redact room addresses, player names, passwords and personal file paths. Keep the config and full log private. |
 
-Client 0.77.1 writes `[SCRC-AP] v0.77.1 loading.` at startup. Wait for a successful room connection before loading your save.
+Client 0.77.2 writes `[SCRC-AP] v0.77.2 loading.` at startup. Wait for a successful room connection before loading your save.
 
-The cleanup candidate retries temporary outages and occupied slots automatically. It starts with short waits and gradually spaces attempts up to one minute apart.
+After a temporary outage, retries start at one second and back off to one minute. Login errors that need attention pause retries until you correct the issue and reconnect.
 
 ## Generating or hosting your own seed
 
@@ -123,7 +131,7 @@ Skip this section if a host has already generated your room.
    [official setup guide](https://archipelago.gg/tutorial/Archipelago/setup_en).
    Its usual Windows installation folder is `C:\ProgramData\Archipelago`.
 2. Download **scrc.apworld** from the
-   [v0.30.1 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.1).
+   [v0.30.2 release](https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago/releases/tag/v0.30.2).
    In Archipelago Launcher, select **Install APWorld**, choose that file, then
    restart the launcher. Custom worlds contain executable code; use trusted downloads.
 3. Select **Generate Template Options**, or use the repository's
@@ -148,7 +156,7 @@ and keep your YAML in the folder required by your tracker setup. Follow
 
 ## Updating or uninstalling
 
-- To update from v0.30.0 to v0.30.1, replace the client with 0.77.1. Both releases use the same APWorld 0.30.0 archive.
+- For the School Trip fix, install client 0.77.2 in the game and APWorld 0.30.1 on the computer running Universal Tracker. Your existing room and save can be used.
 - Close the game before replacing client DLLs. Restart Archipelago after replacing
   its APWorld. An APWorld update does not rewrite an already-generated seed.
 - To uninstall the integration, remove only `BepInEx\plugins\RhythmCastleAP` from
@@ -159,12 +167,12 @@ and keep your YAML in the folder required by your tracker setup. Follow
 
 Building from source requires Git, PowerShell, a .NET SDK that supports .NET 6
 and Python 3.10 or newer for APWorld packaging. The following example checks out
-the source revision for v0.30.1.
+the source revision for v0.30.2.
 
 ```powershell
 git clone https://github.com/Akamarus/Super-Crazy-Rhythm-Castle-Archipelago.git
 cd .\Super-Crazy-Rhythm-Castle-Archipelago
-git checkout cc45a569ad2279747cd89070ff1c4c00ab8ab642
+git checkout v0.30.2
 .\client\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Titus" -SkipInstall
 .\tools\build-apworld.ps1
 ```

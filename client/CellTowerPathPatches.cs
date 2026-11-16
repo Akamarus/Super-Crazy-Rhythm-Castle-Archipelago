@@ -15,7 +15,8 @@ internal static class CellTowerPathPatches
     private static readonly OwnedNativeHooks Hooks = new();
     internal static unsafe int Install(Harmony harmony, Assembly? assembly)
     {
-        if (Hooks.Count != 0) return Hooks.Active ? Hooks.Count : 0;
+        if (Hooks.Active) return Hooks.Count;
+        if (Hooks.Count != 0 && !Shutdown()) return 0;
         Ready = false;
         if (assembly == null) return 0;
         try {
@@ -63,14 +64,14 @@ internal static class CellTowerPathPatches
     {
         // Preserve native initialization for every object before applying the exact Cell Tower repair.
         _original!(instance, evt, methodInfo);
-        if (!Hooks.Active || instance == IntPtr.Zero || !AreaAccessPrototype.Enabled ||
+        if (!Hooks.Active || instance == IntPtr.Zero || !ApStars.State.Settings.CellTowerOpenRoute || !AreaAccessPrototype.Enabled ||
             !AreaAccessPrototype.AuthenticatedCompatibleSession || !AreaAccessPrototype.HasArea("Cell Tower")) return;
         try { AfterRegistered(Il2CppInterop.Runtime.Runtime.Il2CppObjectPool.Get<Component>(instance)); }
         catch (Exception ex) { Plugin.LoggerInstance?.LogWarning($"[SCRC-AP] CELL PATH callback failed: {ex.GetType().Name}."); }
     }
     public static void AfterRegistered(object __instance)
     {
-        if (!AreaAccessPrototype.Enabled || !AreaAccessPrototype.AuthenticatedCompatibleSession ||
+        if (!ApStars.State.Settings.CellTowerOpenRoute || !AreaAccessPrototype.Enabled || !AreaAccessPrototype.AuthenticatedCompatibleSession ||
             __instance is not Component component || component.gameObject == null ||
             component.name != "HangingCell_Raised") return;
         try {

@@ -1,10 +1,20 @@
 # Testing and acceptance
 
-## Unreleased client audit fixes
+## v0.30.2 client and tracker fixes
+
+The [November 12 findings and acceptance record](testing/2026-11-12-source-review.md) covers this candidate. The test counts in the dated release sections below describe those earlier builds.
 
 The connection tests cover login refusal, retry after a temporary outage, a damaged quest journal and recovery from backup with pending checks from another seed. Notification tests replay interleaved receipts and sends and count text measurements while the F6 list is open. The unload tests cover component ownership, restoring thresholds and retrying a failed hook removal. [Audit findings](cleanup-audit.md#follow-up-on-the-external-v0282-audit)
 
 For gameplay acceptance, reconnect to a test room with queued items and open F6 to confirm their order and readability. In a disposable save, revisit an affected Star Eater across client unload and reload to check the restored threshold and interaction.
+
+The connection fixture uses the pinned Archipelago SDK to deliver named items before login returns. It checks same-room replay, two rooms sharing receipt indexes, empty and shortened replacement histories, late packets from the old connection, and both offline campaign checks after a rejected room change. The cassette tests cover an unreadable verification followed by an in-bag or deposited result and count the songs queued for persistence.
+
+For the outstanding in-game check, use disposable saves and two test rooms. Earn a campaign completion and its star check offline in the first room, attempt a rejected login to the second, then reconnect to the first and confirm both checks arrive once. Receive a cassette while its save is loading, let it reach the bag, and reload that save to confirm it persists.
+
+The reload regression keeps the Garage and expanded-check state alive while replacing the client in the same process. For in-game acceptance, unload and reload the plugin in a disposable room, confirm the first login succeeds, and send a Garage or expanded check before restarting the game.
+
+Packaging tests remove `scrc/bunker.py` from the current source and from a finished archive with a matching manifest. Both must fail. The complete package was also used to generate a True Ending seed on Archipelago 0.6.8, and historical release source trees were repackaged and checked against their original contents.
 
 ## v0.30.1 network security
 
@@ -55,7 +65,7 @@ User acceptance confirms note reading, area re-entry, Star Eater feeding and onw
 
 ## v0.30.0 Lobby door access
 
-The door policy tests and three-player generation passed. Entering both doors with Lobby Access before the story prerequisites, checking the Star gates, and playing School Trip's Gecko variant remain open gameplay checks. [Lobby door test record](testing/2026-10-28-lobby-doors.md)
+The player entered Demolition Training before Boring Room and tested School Trip after Boring Room and mail delivery. School Trip denied entry at four Stars and opened at five with Demolition Training unfinished. The School Trip Gecko variant remains a separate gameplay check. [Lobby door rules](PROGRESSION.md#lobby-door-access-in-v0300)
 
 ## v0.30.0 final-level crash repair
 

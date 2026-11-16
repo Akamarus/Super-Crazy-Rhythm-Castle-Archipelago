@@ -30,7 +30,7 @@ internal static class CharacterQuestItems
     {
         // Two bounded entries, scoped to the exact native save epoch. This closes
         // the interval between bag consumption and a later native unlock event.
-        CassetteReceiptRandomization.WithStableQuestItemSave((_, identity) => ConsumedInSave[flag] = identity);
+        NativeGrantSaveBinding.ObserveBoundSave((_, identity) => ConsumedInSave[flag] = identity);
     }
     internal static void TickUnity(TimeSpan elapsed)
     {
@@ -45,7 +45,7 @@ internal static class CharacterQuestItems
         if (!snapshot.Enabled || !snapshot.Ready || snapshot.Owned.Count == 0) return;
         // The existing cassette gate proves selected slot/pointer, gameplay readiness,
         // and processor ownership. Hold its gate and the receipt revision across reads/write.
-        CassetteReceiptRandomization.WithStableQuestItemSave((processor, identity) =>
+        NativeGrantSaveBinding.WithBoundSave((processor, identity) =>
             State.WithCurrent(snapshot.Revision, () => Reconcile(processor, identity, snapshot)));
     }
 

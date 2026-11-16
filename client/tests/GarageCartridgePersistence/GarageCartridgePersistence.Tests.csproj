@@ -18,4 +18,4 @@
     <Compile Include="..\..\ConnectionGenerationLease.cs" Link="ConnectionGenerationLease.cs" />
     <PackageReference Include="Archipelago.MultiClient.Net" Version="6.7.1" />
   </ItemGroup>
-</Project>
+<ItemGroup><Compile Include="../../JournalPublication.cs" /></ItemGroup></Project>

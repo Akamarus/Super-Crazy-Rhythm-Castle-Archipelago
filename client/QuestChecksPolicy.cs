@@ -73,20 +73,31 @@ internal sealed class QuestChecksState
     private string? _identity;
     private int? _slot;
     private bool _enabled, _ready;
-    private HashSet<long> _owned = new(), _checked = new(), _pending = new();
+    private readonly HashSet<long> _serverChecked = new();
+    private HashSet<long> _owned = new(), _localCompleted = new(), _pending = new();
     internal bool Enabled { get { lock (_sync) return _enabled; } }
     internal bool Ready { get { lock (_sync) return _ready; } }
     internal long Revision { get { lock (_sync) return _revision; } }
     internal int? NativeSlot { get { lock (_sync) return _slot; } }
-    internal bool IsCompleted(long source) { lock (_sync) return _checked.Contains(source); }
+    internal bool IsCompleted(long source) { lock (_sync) return _localCompleted.Contains(source) || _serverChecked.Contains(source); }
     internal QuestChecksSnapshot Snapshot { get { lock (_sync) return new(_revision, _enabled, _ready,
-        new HashSet<long>(_owned), new HashSet<long>(_checked), _slot, new HashSet<long>(_pending)); } }
+        new HashSet<long>(_owned), _localCompleted.Union(_serverChecked).ToHashSet(), _slot, new HashSet<long>(_pending)); } }
     internal void Configure(long generation, string identity, bool enabled, QuestJournalRecord? restored = null)
     {
         lock (_sync) {
             if (generation < _generation) return;
-            if (_identity != identity) { _checked.Clear(); _pending.Clear(); _slot = null; }
-            if (restored != null) { _checked.UnionWith(restored.Completed); _pending.UnionWith(restored.Pending); _slot = restored.Slot; }
+            // The current room may have bound a save or completed a hand-in since
+            // preflight. Restore disk state when entering a room, not over live progress.
+            if (_identity != identity || _enabled != enabled)
+            {
+                _localCompleted.Clear(); _pending.Clear(); _slot = restored?.Slot;
+                if (restored != null)
+                {
+                    _localCompleted.UnionWith(restored.Completed);
+                    _pending.UnionWith(restored.Pending);
+                }
+            }
+            _serverChecked.Clear();
             _identity = identity; _generation = generation; _enabled = enabled;
             _ready = false; _owned.Clear(); _revision++;
         }
@@ -97,8 +108,8 @@ internal sealed class QuestChecksState
         lock (_sync) {
             if (generation != _generation || !_enabled) return;
             _owned = owned.Where(QuestChecksPolicy.Items.ContainsValue).ToHashSet();
-            _checked.UnionWith(completed.Where(QuestChecksPolicy.Locations.ContainsValue));
-            _pending.ExceptWith(_checked);
+            _serverChecked.UnionWith(completed.Where(QuestChecksPolicy.Locations.ContainsValue));
+            _pending.ExceptWith(_serverChecked);
             _ready = true; _revision++;
         }
     }
@@ -107,7 +118,7 @@ internal sealed class QuestChecksState
         lock (_sync) {
             if (!_enabled || _identity == null) return false;
             if (_slot.HasValue) return _slot.Value == slot;
-            persist(_identity, new(slot, _checked.ToArray(), _pending.ToArray()));
+            persist(_identity, new(slot, _localCompleted.ToArray(), _pending.ToArray()));
             _slot = slot; _revision++; return true;
         }
     }
@@ -116,20 +127,20 @@ internal sealed class QuestChecksState
         lock (_sync) {
             if (!_enabled || _identity == null || !_slot.HasValue ||
                 (id != QuestChecksPolicy.BatteryHandIn && id != QuestChecksPolicy.MemoryHandIn)) return false;
-            if (_checked.Contains(id) || _pending.Contains(id)) return true;
+            if (_serverChecked.Contains(id) || _localCompleted.Contains(id) || _pending.Contains(id)) return true;
             var next = new HashSet<long>(_pending) { id };
-            persist(_identity, new(_slot, _checked.ToArray(), next.ToArray()));
+            persist(_identity, new(_slot, _localCompleted.ToArray(), next.ToArray()));
             _pending = next; _revision++; return true;
         }
     }
     internal bool RecordSource(long id, Action<string, QuestJournalRecord>? persist = null)
     {
         lock (_sync) {
-            if (!_enabled || _identity == null || !_slot.HasValue || !QuestChecksPolicy.Locations.ContainsValue(id) || _checked.Contains(id)) return false;
-            var next = new HashSet<long>(_checked) { id };
+            if (!_enabled || _identity == null || !_slot.HasValue || !QuestChecksPolicy.Locations.ContainsValue(id) || _localCompleted.Contains(id)) return false;
+            var next = new HashSet<long>(_localCompleted) { id };
             var pending = new HashSet<long>(_pending); pending.Remove(id);
             persist?.Invoke(_identity, new(_slot, next.ToArray(), pending.ToArray()));
-            _checked = next; _pending = pending; _revision++; return true;
+            _localCompleted = next; _pending = pending; _revision++; return true;
         }
     }
     internal void CancelPending(long id, Action<string, QuestJournalRecord> persist)
@@ -137,10 +148,10 @@ internal sealed class QuestChecksState
         lock (_sync) {
             if (_identity == null || !_pending.Contains(id)) return;
             var next = new HashSet<long>(_pending); next.Remove(id);
-            persist(_identity, new(_slot, _checked.ToArray(), next.ToArray()));
+            persist(_identity, new(_slot, _localCompleted.ToArray(), next.ToArray()));
             _pending = next; _revision++;
         }
     }
     internal void WithCurrent(long revision, Action action) { lock (_sync) if (_revision == revision && _enabled && _ready) action(); }
-    internal void Reset() { lock (_sync) { _generation = 0; _slot = null; _identity = null; _enabled = _ready = false; _owned.Clear(); _checked.Clear(); _pending.Clear(); _revision++; } }
+    internal void Reset() { lock (_sync) { _generation = 0; _slot = null; _identity = null; _enabled = _ready = false; _owned.Clear(); _localCompleted.Clear(); _serverChecked.Clear(); _pending.Clear(); _revision++; } }
 }

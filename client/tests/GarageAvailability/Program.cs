@@ -295,6 +295,9 @@ Equal(false,
         string.Equals(cartridge.Song, "Vampire Killer", StringComparison.Ordinal)),
     "physical Vampire Killer is excluded from native AP reconciliation");
 
+Equal("Superstar", GarageCartridgeNativePolicy.ResultSong("Superstar", ""), "holder identity can identify a result without a song field");
+Equal("Superstar", GarageCartridgeNativePolicy.ResultSong("", "Superstar"), "evaluation can supply a missing holder identity");
+Equal("", GarageCartridgeNativePolicy.ResultSong("Bloody Tears", "Superstar"), "conflicting song evidence cannot send a medal for either song");
 var medalPreview = new MedalPreview();
 var medalRow = new MedalRow(); medalPreview.PreviousGarageResults.Add(medalRow);
 int medalReads = 0;

@@ -9,12 +9,12 @@ namespace RhythmCastleAP
             var owner = new OwnedPluginComponents();
             var other = new MonoBehaviour();
             var retry = new MonoBehaviour { Busy = true };
-            var keeper = new BunkerStarRequirementKeeper();
+            var keeper = new MonoBehaviour();
             owner.Add(retry);
             owner.Add(keeper);
             var errors = new List<Exception>();
             if (owner.Shutdown(errors.Add) || errors.Count != 1 || retry.enabled ||
-                keeper.enabled || !keeper.Retired || keeper.Destroyed != 1 || !other.enabled || other.Destroyed != 0)
+                keeper.enabled || keeper.Destroyed != 1 || !other.enabled || other.Destroyed != 0)
                 throw new Exception("unload must disable owned components and preserve other users of their host");
             retry.Busy = false;
             if (!owner.Shutdown(errors.Add) || !owner.Shutdown(errors.Add) || retry.Destroyed != 1 || keeper.Destroyed != 1)
@@ -23,11 +23,7 @@ namespace RhythmCastleAP
         }
     }
 
-    internal sealed class BunkerStarRequirementKeeper : MonoBehaviour
-    {
-        internal bool Retired;
-        internal void Retire() => Retired = true;
-    }
+
 }
 
 namespace UnityEngine

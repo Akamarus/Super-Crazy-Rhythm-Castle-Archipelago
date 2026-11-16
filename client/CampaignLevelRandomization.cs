@@ -89,17 +89,8 @@ internal static class CampaignLevelRandomization
         };
     }
 
-    internal static void OnDisconnected()
-    {
-        lock (Sync)
-        {
-            // Results can persist after a temporary socket loss. Keep the last
-            // validated contract until a replacement identity or shutdown.
-        }
-    }
-
-    internal static void OnIdentityReplaced() => Clear("identity replaced");
-
+    // A transport interruption preserves the active catalog for offline results.
+    // Applying accepted replacement slot data swaps the complete catalog under the lock.
     internal static void Shutdown() => Clear("shutdown");
 
     internal static CampaignLevelRandomizationSnapshot Snapshot

@@ -1,6 +1,6 @@
 # Known issues and coverage limits
 
-This page covers **v0.30.1 / Client 0.77.1 / APWorld 0.30.0**.
+This page covers **v0.30.2 / Client 0.77.2 / APWorld 0.30.1**.
 
 ## Open reports and modeling limits
 

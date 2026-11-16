@@ -11,7 +11,7 @@ class UniversalTrackerTests(unittest.TestCase):
         self.module, cleanup = load_scrc_world()
         self.addCleanup(cleanup)
 
-    def world(self, seed=1, goal=40, difficulty=1, passthrough=None):
+    def world(self, seed=1, goal=40, difficulty=1, passthrough=None, deferred=None):
         w = object.__new__(self.module.SCRCWorld)
         w.player = 1
         w.random = random.Random(seed)
@@ -19,6 +19,8 @@ class UniversalTrackerTests(unittest.TestCase):
         if passthrough is not None:
             w.multiworld.re_gen_passthrough = {w.game: passthrough}
             w.multiworld.generation_is_fake = True
+        if deferred is not None:
+            w.multiworld.enforce_deferred_connections = deferred
         w.options = types.SimpleNamespace(required_stars=OptionValue(goal),
             difficulty=OptionValue(difficulty), starting_area=OptionValue(0))
         w.generate_early()
@@ -59,7 +61,8 @@ class UniversalTrackerTests(unittest.TestCase):
             w.generated_star_requirements.update({"Level 6": 39, "Level 7": 4, "Level 9": 2})
             loc = lambda n: w.multiworld.get_location(f"Level {n} - Completion",1)
             self.assertTrue(loc(7).access_rule(State(["Lobby Access"]+["Star"]*4)))
-            self.assertTrue(loc(9).access_rule(State(["Lobby Access"]+["Star"]*2)))
+            self.assertFalse(loc(9).access_rule(State(["Lobby Access"]+["Star"]*2)))
+            self.assertTrue(loc(9).access_rule(State(["Lobby Access"]+["Star"]*39)))
             self.assertFalse(loc(9).access_rule(State(["Lobby Access"]+["Star"])))
             self.assertFalse(loc(7).access_rule(State(["Star"]*66)))
         legacy=copy.deepcopy(slot)
@@ -71,6 +74,34 @@ class UniversalTrackerTests(unittest.TestCase):
         for bad in (False,1,"true",None):
             broken=copy.deepcopy(slot);broken["lobby_open_doors"]=bad
             with self.assertRaises(ValueError): self.module.SCRCWorld.interpret_slot_data(broken)
+
+    def test_school_trip_waits_for_mail_in_live_tracker(self):
+        from test_world_integration import State
+        slot = self.world().fill_slot_data()
+        for mode in ("default", "on"):
+            w = self.world(passthrough=slot, deferred=mode)
+            w.generated_star_requirements.update({"Level 6": 3, "Level 7": 60, "Level 9": 5})
+            key = w.found_entrances_datastorage_key.format(team=1, player=7)
+            self.assertEqual("SCRC_1_7_school_trip_mail", key)
+            def reachable(name, stars=5, items=("Lobby Access",)):
+                return w.multiworld.get_location(name, 1).access_rule(State([*items, *(["Star"] * stars)]))
+            self.assertTrue(reachable("Level 6 - Completion"))
+            self.assertTrue(reachable("Lobby - Important Letters Delivery"))
+            school_checks = ("Level 9 - Completion", "Level 9 - 2 Stars", "Cassette Source - The Heist")
+            for status in (None, False, "true", 1):
+                w.reconnect_found_entrances(key, status)
+                for name in school_checks:
+                    self.assertFalse(reachable(name), name)
+            w.reconnect_found_entrances(key, True)
+            for name in school_checks:
+                self.assertTrue(reachable(name), name)
+                self.assertFalse(reachable(name, stars=4), name)
+                self.assertFalse(reachable(name, items=()), name)
+            self.assertFalse(reachable("Level 7 - Completion"))
+        offline = self.world(passthrough=slot, deferred="off")
+        offline.generated_star_requirements.update({"Level 6": 3, "Level 7": 60, "Level 9": 5})
+        self.assertTrue(offline.multiworld.get_location("Level 9 - Completion", 1).access_rule(
+            State(["Lobby Access"] + ["Star"] * 5)))
 
     def test_tracker_restores_server_gates_with_different_rng_and_options(self):
         for difficulty in range(4):

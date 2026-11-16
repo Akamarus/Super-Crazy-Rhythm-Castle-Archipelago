@@ -1,7 +1,24 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Diagnostics;
 
 namespace RhythmCastleAP;
+
+// The pinned SDK awaits one complete message before reading again. The budget belongs
+// to that poller, so waiting here applies backpressure without dropping room packets.
+internal sealed class ReceiveTrafficBudget
+{
+    internal const int BytesPerSecond = 16 * 1024 * 1024;
+    internal const int MessagesPerSecond = 2048;
+    private double _byteTime = double.NegativeInfinity, _messageTime = double.NegativeInfinity;
+
+    internal double Reserve(int bytes, double now)
+    {
+        _byteTime = Math.Max(_byteTime, now - 4) + (double)bytes / BytesPerSecond;
+        _messageTime = Math.Max(_messageTime, now - 2) + 1.0 / MessagesPerSecond;
+        return Math.Max(0, Math.Max(_byteTime, _messageTime) - now);
+    }
+}
 
 internal static class BoundedWebSocketReceive
 {
@@ -12,7 +29,8 @@ internal static class BoundedWebSocketReceive
     // ReceiveAsync returns decompressed bytes, so this also bounds compressed
     // messages. The deadline starts after the first fragment, not while idle.
     internal static async Task<string> ReadAsync(WebSocket socket, byte[] buffer,
-        Action closed, int maximumBytes = MaximumMessageBytes, TimeSpan? fragmentDeadline = null)
+        Action closed, int maximumBytes = MaximumMessageBytes, TimeSpan? fragmentDeadline = null,
+        ReceiveTrafficBudget? budget = null)
     {
         using var deadline = new CancellationTokenSource();
         using var message = new MemoryStream(Math.Min(buffer.Length, maximumBytes));
@@ -36,7 +54,16 @@ internal static class BoundedWebSocketReceive
                     throw new InvalidDataException("Archipelago message exceeded the receive-size limit; connection closed.");
                 message.Write(buffer, 0, result.Count);
                 if (result.EndOfMessage)
-                    return StrictUtf8.GetString(message.GetBuffer(), 0, checked((int)message.Length));
+                {
+                    int length = checked((int)message.Length);
+                    if (budget != null)
+                    {
+                        double wait = budget.Reserve(length, (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency);
+                        // Fractional milliseconds round up; repeated tiny messages also pay their share.
+                        if (wait > 0) await Task.Delay((int)Math.Ceiling(wait * 1000)).ConfigureAwait(false);
+                    }
+                    return StrictUtf8.GetString(message.GetBuffer(), 0, length);
+                }
                 if (!fragmented)
                 {
                     fragmented = true;

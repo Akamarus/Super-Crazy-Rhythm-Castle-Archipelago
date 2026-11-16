@@ -18,8 +18,18 @@ internal sealed class ConnectionAttemptDiagnostics
         string text = $"{detail.GetType().Name}: {detail.Message}";
         if (string.IsNullOrWhiteSpace(detail.Message))
             text = $"{detail.GetType().Name}: {message}";
-        text = text.Replace('\r', ' ').Replace('\n', ' ');
-        return text.Length <= 320 ? text : text.Substring(0, 317) + "...";
+        return LogField(text);
+    }
+
+    internal static string LogField(string? value)
+    {
+        if (value == null) return string.Empty;
+        string bounded = value.Length <= 320 ? value : value.Substring(0, 317) + "...";
+        return string.Create(bounded.Length, bounded, (output, input) =>
+        {
+            for (int i = 0; i < output.Length; i++)
+                output[i] = char.IsControl(input[i]) || input[i] is '\u2028' or '\u2029' ? ' ' : input[i];
+        });
     }
 
     internal static async Task ObserveDisconnectAsync(Func<Task> disconnect, Action<string> report)

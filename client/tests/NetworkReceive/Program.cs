@@ -4,7 +4,54 @@ using System.Net.WebSockets;
 using System.Reflection;
 using Archipelago.MultiClient.Net;
 
+var budget = new RhythmCastleAP.ReceiveTrafficBudget();
+int maximum = RhythmCastleAP.BoundedWebSocketReceive.MaximumMessageBytes;
+if (budget.Reserve(maximum, 100) != 0 || budget.Reserve(maximum, 100) != 0 ||
+    budget.Reserve(maximum, 100) != 2 || budget.Reserve(1, 120) != 0)
+    throw new Exception("A normal burst must pass, sustained bytes must wait, and idle time must restore credit.");
+var smallMessages = new RhythmCastleAP.ReceiveTrafficBudget();
+for (int i = 0; i < 2 * RhythmCastleAP.ReceiveTrafficBudget.MessagesPerSecond; i++)
+    if (smallMessages.Reserve(1, 0) != 0) throw new Exception("Initial message burst was throttled early.");
+if (smallMessages.Reserve(1, 0) <= 0 || new RhythmCastleAP.ReceiveTrafficBudget().Reserve(1, 0) != 0)
+    throw new Exception("Receipt budgets must count tiny messages and remain independent per connection.");
+
+// Exercise the parser shipped in the plugin without a server or any game state.
+var parser = ArchipelagoSessionFactory.CreateSession("ws://localhost:38281").Socket;
+var parse = parser.GetType().BaseType!.GetMethod("OnMessageReceived", BindingFlags.Instance | BindingFlags.NonPublic)!;
+int packets = 0;
+Exception? parseError = null;
+parser.PacketReceived += _ => packets++;
+parser.ErrorReceived += (error, _) => parseError = error;
+string SamplePacket(int levels) => "[{\"cmd\":\"PrintJSON\",\"data\":[],\"sample\":" +
+    new string('[', levels - 2) + "0" + new string(']', levels - 2) + "}]";
+parse.Invoke(parser, new object[] { SamplePacket(64) });
+if (packets != 1 || parseError != null) throw new Exception("Expected a normal packet at the supported depth.", parseError);
+parse.Invoke(parser, new object[] { SamplePacket(65) });
+if (packets != 1 || parseError is not Newtonsoft.Json.JsonReaderException ||
+    !parseError.Message.Contains("MaxDepth", StringComparison.OrdinalIgnoreCase))
+    throw new Exception("Expected bounded parser error without packet dispatch.", parseError);
+Console.WriteLine("PASS: shipped MultiClient/Newtonsoft dispatches depth 64 and rejects 65.");
+RhythmCastleAP.NetworkReceiveGuard.VerifyDependencies(typeof(ArchipelagoSessionFactory).Assembly, typeof(Newtonsoft.Json.JsonReader).Assembly);
+foreach (bool substituteParser in new[] { false, true })
+{
+    var sdk = substituteParser ? typeof(ArchipelagoSessionFactory).Assembly : typeof(Program).Assembly;
+    var json = substituteParser ? typeof(Program).Assembly : typeof(Newtonsoft.Json.JsonReader).Assembly;
+    try { RhythmCastleAP.NetworkReceiveGuard.VerifyDependencies(sdk, json); }
+    catch (InvalidOperationException) { continue; }
+    throw new Exception("Unexpected dependency module was accepted.");
+}
+
 RhythmCastleAP.NetworkReceiveGuard.EnsureInstalled();
+if (args.Contains("--room-smoke"))
+{
+    await TransportIntegrationTests.Run();
+    return;
+}
+if (args.Contains("--offline"))
+{
+    await ReceiverTests.Run();
+    return;
+}
 
 var probe = new TcpListener(IPAddress.Loopback, 0);
 probe.Start();

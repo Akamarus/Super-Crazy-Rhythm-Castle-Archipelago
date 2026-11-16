@@ -6,7 +6,12 @@ internal static class ExpandedChecks
     private static TimeSpan _remaining;
     private static string? _lastError;
     internal static void Configure(long generation, string identity, bool enabled, IEnumerable<long> serverChecked, bool includeStarChecks = false)
-    { State.Configure(generation, identity, enabled, serverChecked, Journal.Load, includeStarChecks); _remaining = TimeSpan.Zero; }
+        => Prepare(generation, identity, enabled, serverChecked, includeStarChecks)();
+    internal static Action Prepare(long generation, string identity, bool enabled, IEnumerable<long> serverChecked, bool includeStarChecks = false)
+    {
+        var accept = State.Prepare(generation, identity, enabled, serverChecked, Journal.Load, includeStarChecks);
+        return () => { accept(); _remaining = TimeSpan.Zero; };
+    }
     internal static void Reset() { State.Reset(); _remaining = TimeSpan.Zero; _lastError = null; }
     internal static void BeforeProgressionRequest(object request, string flag)
     {

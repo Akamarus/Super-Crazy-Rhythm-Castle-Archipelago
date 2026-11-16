@@ -16,6 +16,15 @@ internal static class OverlayTests
         Invoke("Update"); Invoke("OnGUI");
         if (GUI.ScrollViews != 1 || (int)typeof(ItemNotificationOverlay).GetField("_drawnCount", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(overlay)! != 1)
             throw new Exception("an oversized first popup must draw a scrollable card and accrue visible time");
+        int popupMeasurements = GUIStyle.Measurements;
+        for (int i = 0; i < 10; i++) Invoke("OnGUI");
+        if (GUIStyle.Measurements != popupMeasurements)
+            throw new Exception("repainting unchanged popups, including the scrollable card, must reuse measurements");
+        Screen.width -= 40;
+        Invoke("OnGUI");
+        if (GUIStyle.Measurements <= popupMeasurements)
+            throw new Exception("resizing the popup must rewrap its text");
+        Screen.width += 40;
         for (int i = 0; i < 62; i++) { Invoke("Update"); Invoke("OnGUI"); }
         if (feed.Visible.Count != 1 || !feed.Visible[0].Text.Contains("Following reward"))
             throw new Exception("oversized popup must expire and allow the next reward through");

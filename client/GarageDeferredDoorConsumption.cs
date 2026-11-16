@@ -1,22 +1,25 @@
 namespace RhythmCastleAP;
 internal enum GarageDoorReadback { None, Waiting, Consumed }
-internal sealed class GarageDeferredDoorConsumption
+internal sealed class GarageDeferredDoorConsumption(Func<long>? clock = null)
 {
-    private readonly Dictionary<string, (long Generation, long Epoch, bool Entered)> _pending = new();
-    internal void Arm(string song, long generation, long epoch) => _pending[song] = (generation, epoch, false);
+    private const long EntryTimeoutMilliseconds = 15000;
+    private readonly Dictionary<string, (long Generation, long Epoch, bool Entered, long ArmedAt)> _pending = new();
+    private long Now => clock?.Invoke() ?? Environment.TickCount64;
+    internal void Arm(string song, long generation, long epoch) => _pending[song] = (generation, epoch, false, Now);
     internal void Transition(long? generation, long previousEpoch, long epoch, bool enteringGarage)
     {
         foreach (string song in _pending.Keys.ToArray()) {
             var pending = _pending[song];
-            if (enteringGarage && pending.Generation == generation && pending.Epoch == previousEpoch && !pending.Entered)
-                _pending[song] = (pending.Generation, epoch, true);
+            if (enteringGarage && pending.Generation == generation && pending.Epoch == previousEpoch &&
+                !pending.Entered && Now - pending.ArmedAt < EntryTimeoutMilliseconds)
+                _pending[song] = (pending.Generation, epoch, true, pending.ArmedAt);
             else _pending.Remove(song);
         }
     }
     internal GarageDoorReadback Observe(string song, long generation, long epoch, bool inGarage, bool readable, bool held)
     {
         if (!_pending.TryGetValue(song, out var pending)) return GarageDoorReadback.None;
-        if (pending.Generation != generation || pending.Epoch != epoch || (pending.Entered && !inGarage)) {
+        if (pending.Generation != generation || pending.Epoch != epoch || (pending.Entered && !inGarage) || (!pending.Entered && Now - pending.ArmedAt >= EntryTimeoutMilliseconds)) {
             _pending.Remove(song); return GarageDoorReadback.None;
         }
         if (!pending.Entered || !readable) return GarageDoorReadback.Waiting;

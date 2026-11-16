@@ -15,7 +15,7 @@ internal sealed class QuestChecksSession
         lock (_sync) {
             QuestChecks.State.Configure(_generation, identity, restored != null, restored);
             _checks.UnionWith(checks); _configured = true; Publish();
-            if (restored != null) QuestChecks.ReplayJournal(restored.Completed);
+            if (restored != null) QuestChecks.ReplayJournal(identity, restored.Completed.Except(_checks));
         }
     }
     internal void HandlePacket(object packet)

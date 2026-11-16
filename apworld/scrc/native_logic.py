@@ -72,8 +72,13 @@ def can_complete(world, state, number, stars=None):
     # Existing seeds retain the original predecessor graph during Tracker replay.
     if number == 16 and getattr(world, "cell_tower_open_route", False):
         return True
-    if number in (7, 9) and getattr(world, "lobby_open_doors", False):
+    if number == 7 and getattr(world, "lobby_open_doors", False):
         return True
+    if number == 9 and getattr(world, "lobby_open_doors", False):
+        # The unlocked door is beyond the mail blocker. Delivery's native route
+        # includes Boring Room; Universal Tracker can also observe the actual checks.
+        return (getattr(world, "school_trip_mail_confirmed", None) is not False
+                and source_rule(world, "Lobby - Important Letters Delivery", state))
     for prior in LEVEL_PREDECESSORS[number]:
         if not can_complete(world, state, prior, stars):
             return False

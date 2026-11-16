@@ -18,7 +18,6 @@ internal readonly record struct MusicLabPointCompatibilityResult(
 internal readonly record struct MusicLabPointSessionIdentity(
     string Game, string Seed, string Slot, int Schema);
 
-internal readonly record struct MusicLabPointReceipt(int Index, long ItemId);
 
 internal enum MusicLabPointRuntimeMode
 {
@@ -297,15 +296,23 @@ internal static class MusicLabPointContract
     private static string Bound(string value) => value.Length <= 160 ? value : value[..160];
 }
 
+// The network packet index establishes contiguity. Count each appended delivery once.
+internal struct MusicLabPointTotals
+{
+    internal int Accepted { get; private set; }
+    internal long Total { get; private set; }
+    internal bool UnknownItem { get; private set; }
+
+    internal void Add(long itemId)
+    {
+        int value = itemId switch { 187256153 => 1, 187256154 => 10, 187256155 => 20, _ => 0 };
+        if (value > 0) { Total += value; Accepted++; }
+        else if (itemId is < 187256101 or > 187256183) UnknownItem = true;
+    }
+}
+
 internal sealed class MusicLabPointRuntime
 {
-    private static readonly IReadOnlyDictionary<long, int> ValuesById = new Dictionary<long, int>
-    {
-        [187256153] = 1,
-        [187256154] = 10,
-        [187256155] = 20,
-    };
-
     private MusicLabPointSessionIdentity? _identity;
 
     internal MusicLabPointSnapshot Snapshot { get; private set; } =
@@ -329,9 +336,8 @@ internal sealed class MusicLabPointRuntime
         Clear(identity, MusicLabPointRuntimeMode.AwaitingInitialSynchronization, "awaiting initial synchronization");
     }
 
-    internal (bool UnknownItem, bool OverCap) Synchronize(MusicLabPointSessionIdentity identity, IEnumerable<MusicLabPointReceipt> receipts)
+    internal (bool UnknownItem, bool OverCap) Synchronize(MusicLabPointSessionIdentity identity, MusicLabPointTotals totals)
     {
-        ArgumentNullException.ThrowIfNull(receipts);
         bool synchronizationAllowed = Snapshot.Mode is
             MusicLabPointRuntimeMode.AwaitingInitialSynchronization or
             MusicLabPointRuntimeMode.Synchronized or
@@ -339,27 +345,8 @@ internal sealed class MusicLabPointRuntime
         if (!synchronizationAllowed || _identity != identity)
             return default;
 
-        HashSet<int> seenIndexes = new();
-        int accepted = 0;
-        long total = 0;
-        bool unknownItem = false;
-        foreach (MusicLabPointReceipt receipt in receipts)
-        {
-            if (!seenIndexes.Add(receipt.Index)) continue;
-            if (ValuesById.TryGetValue(receipt.ItemId, out int value))
-            {
-                accepted++;
-                total += value;
-            }
-            else if (receipt.ItemId is < 187256101 or > 187256183)
-            {
-                // docs/IDS.md reserves this entire span, including non-point items.
-                unknownItem = true;
-            }
-        }
-
-        Snapshot = new(MusicLabPointRuntimeMode.Synchronized, (int)Math.Min(180, total), accepted, "synchronized received-item history");
-        return (unknownItem, total > 180);
+        Snapshot = new(MusicLabPointRuntimeMode.Synchronized, (int)Math.Min(180, totals.Total), totals.Accepted, "synchronized received-item history");
+        return (totals.UnknownItem, totals.Total > 180);
     }
 
     internal void MarkDisconnected(MusicLabPointSessionIdentity identity)

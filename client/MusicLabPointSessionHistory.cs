@@ -9,20 +9,33 @@ internal sealed class MusicLabPointSessionHistory
 {
     private readonly object _sync = new();
     private readonly long _generation;
-    private readonly List<MusicLabPointReceipt> _history = new();
+    private MusicLabPointTotals _totals;
+    private long _nextIndex;
+    private MusicLabPointRoom? _candidate;
     private bool _configured;
     private bool _historyReady;
 
     internal MusicLabPointSessionHistory(long generation) => _generation = generation;
 
-    internal MusicLabPointSnapshot ApplySlotData(Dictionary<string, object>? slotData, string game, string seed, string slot)
+    internal MusicLabPointCompatibilityResult PrepareSlotData(Dictionary<string, object>? slotData, string game, string seed, string slot)
     {
         lock (_sync)
         {
-            MusicLabPointRandomization.ApplySlotData(slotData, game, seed, slot, _generation);
+            var room = MusicLabPointRoom.Read(slotData, game, seed, slot);
+            var compatibility = MusicLabPointRandomization.CheckCompatibility(room, _generation);
+            _candidate = compatibility.Mode == MusicLabPointCompatibilityMode.IncompatibleClaim ? null : room;
+            return compatibility;
+        }
+    }
+
+    internal void Accept()
+    {
+        lock (_sync)
+        {
+            if (!_candidate.HasValue) throw new InvalidOperationException("No compatible Music Lab Point room was prepared.");
+            MusicLabPointRandomization.Apply(_candidate.Value, _generation);
             _configured = true;
             PublishIfReady();
-            return MusicLabPointRandomization.Snapshot;
         }
     }
 
@@ -43,10 +56,11 @@ internal sealed class MusicLabPointSessionHistory
             }
             if (received.Index == 0)
             {
-                _history.Clear();
+                _totals = default;
+                _nextIndex = 0;
                 _historyReady = true;
             }
-            else if (!_historyReady || received.Index != _history.Count)
+            else if (!_historyReady || received.Index != _nextIndex)
             {
                 // The library requests Sync on a gap; retain the last published
                 // total and wait for the resulting index-zero authoritative packet.
@@ -54,7 +68,8 @@ internal sealed class MusicLabPointSessionHistory
                 return;
             }
             foreach (var item in received.Items)
-                _history.Add(new MusicLabPointReceipt(_history.Count, item.Item));
+                _totals.Add(item.Item);
+            _nextIndex += received.Items.Length;
             PublishIfReady();
         }
     }
@@ -62,6 +77,6 @@ internal sealed class MusicLabPointSessionHistory
     private void PublishIfReady()
     {
         if (_configured && _historyReady)
-            MusicLabPointRandomization.SynchronizeHistory(_generation, _history);
+            MusicLabPointRandomization.SynchronizeTotals(_generation, _totals);
     }
 }

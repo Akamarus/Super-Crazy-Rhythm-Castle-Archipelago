@@ -16,7 +16,6 @@ internal sealed class OwnedPluginComponents
             {
                 if (component != null)
                 {
-                    if (component is BunkerStarRequirementKeeper keeper) keeper.Retire();
                     component.enabled = false;
                     // BepInEx's host object may contain components from other plugins.
                     UnityEngine.Object.Destroy(component);

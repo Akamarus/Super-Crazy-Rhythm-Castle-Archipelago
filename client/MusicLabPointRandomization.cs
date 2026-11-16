@@ -2,6 +2,19 @@ using System.Globalization;
 
 namespace RhythmCastleAP;
 
+internal readonly record struct MusicLabPointRoom(
+    MusicLabPointSessionIdentity Identity, MusicLabPointCompatibilityResult Contract)
+{
+    internal static MusicLabPointRoom Read(Dictionary<string, object>? slotData, string game, string seed, string slot)
+    {
+        object? rawSchema = null;
+        slotData?.TryGetValue("schema_version", out rawSchema);
+        int.TryParse(Convert.ToString(rawSchema, CultureInfo.InvariantCulture), NumberStyles.Integer,
+            CultureInfo.InvariantCulture, out int schema);
+        return new(new(game, seed, slot, schema), MusicLabPointContract.ValidateSlotData(slotData));
+    }
+}
+
 internal static class MusicLabPointRandomization
 {
     private static readonly object Sync = new();
@@ -16,32 +29,29 @@ internal static class MusicLabPointRandomization
 
     internal static void Configure() => Reset();
 
-    internal static MusicLabPointSnapshot ApplySlotData(
-        Dictionary<string, object>? slotData,
-        string game,
-        string seed,
-        string slot,
-        long generation)
+    internal static MusicLabPointCompatibilityResult CheckCompatibility(MusicLabPointRoom room, long generation)
+    {
+        lock (Sync)
+            return room.Contract.Mode == MusicLabPointCompatibilityMode.Compatible &&
+                (!_getterAvailable || (_identity == room.Identity && _getterRejectedGeneration == generation))
+                ? new(MusicLabPointCompatibilityMode.IncompatibleClaim, GetterUnavailableReason)
+                : room.Contract;
+    }
+
+    internal static void Apply(MusicLabPointRoom room, long generation)
     {
         lock (Sync)
         {
-            MusicLabPointCompatibilityResult compatibility = MusicLabPointContract.ValidateSlotData(slotData);
-            object? rawSchema = null;
-            slotData?.TryGetValue("schema_version", out rawSchema);
-            int.TryParse(Convert.ToString(rawSchema, CultureInfo.InvariantCulture), NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out int schema);
-            MusicLabPointSessionIdentity identity = new(game, seed, slot, schema);
+            var identity = room.Identity;
             if (_identity.HasValue && _identity.Value != identity)
                 Reset();
             MusicLabPointSnapshot previous = Runtime.Snapshot;
             _identity = identity;
             _activeGeneration = generation;
-            _pointContractCompatible = compatibility.Mode == MusicLabPointCompatibilityMode.Compatible;
-            if (_pointContractCompatible && (!_getterAvailable || _getterRejectedGeneration == generation))
-            {
+            _pointContractCompatible = room.Contract.Mode == MusicLabPointCompatibilityMode.Compatible;
+            var compatibility = CheckCompatibility(room, generation);
+            if (_pointContractCompatible && compatibility.Mode == MusicLabPointCompatibilityMode.IncompatibleClaim)
                 _getterRejectedGeneration = generation;
-                compatibility = new(MusicLabPointCompatibilityMode.IncompatibleClaim, GetterUnavailableReason);
-            }
             Runtime.Configure(compatibility, identity);
             if (compatibility.Mode == MusicLabPointCompatibilityMode.Compatible)
             {
@@ -51,22 +61,17 @@ internal static class MusicLabPointRandomization
             else if (compatibility.Mode == MusicLabPointCompatibilityMode.IncompatibleClaim)
                 LogOnce("contract-rejected", $"contract rejected: {compatibility.Detail}");
             LogChange(previous);
-            return Runtime.Snapshot;
         }
     }
 
-    internal static MusicLabPointSnapshot SynchronizeHistory(
-        long generation,
-        IEnumerable<MusicLabPointReceipt> receipts)
+    internal static MusicLabPointSnapshot SynchronizeTotals(long generation, MusicLabPointTotals totals)
     {
         lock (Sync)
         {
             if (_activeGeneration != generation || !_identity.HasValue)
                 return Runtime.Snapshot;
-            // Enumerate under the same lock as configuration and other rebuilds;
-            // no deferred history enumeration escapes into the runtime.
             MusicLabPointSnapshot previous = Runtime.Snapshot;
-            var anomalies = Runtime.Synchronize(_identity.Value, receipts);
+            var anomalies = Runtime.Synchronize(_identity.Value, totals);
             if (Runtime.Snapshot.Mode == MusicLabPointRuntimeMode.Synchronized)
             {
                 if (anomalies.UnknownItem)
