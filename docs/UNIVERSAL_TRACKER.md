@@ -1,6 +1,6 @@
 # Universal Tracker
 
-APWorld 0.30.1 supports schema21 Bunker seeds and existing schema-19 individual-cassette seeds and schema-20 bundled-cassette seeds. Use the matching APWorld on the computer running Universal Tracker. New schema21 seeds require game client 0.77.0. For live School Trip tracking, use client 0.77.2 and leave deferred entrances at their default setting. Once Boring Room and Important Letters delivery are confirmed, School Trip appears if its Star requirement is met.
+APWorld 0.30.2 supports schema21 Bunker seeds and existing schema-19 individual-cassette seeds and schema-20 bundled-cassette seeds. Use the matching APWorld on the computer running Universal Tracker. Super Nectar delivery requires Hypno Pan as well as its existing route prerequisites; restart Universal Tracker after installing 0.30.2 to apply the corrected rule to supported existing seeds. New schema21 seeds require game client 0.77.0. For live School Trip tracking, use client 0.77.2 and leave deferred entrances at their default setting. Once Boring Room and Important Letters delivery are confirmed, School Trip appears if its Star requirement is met.
 
 ## Setup
 

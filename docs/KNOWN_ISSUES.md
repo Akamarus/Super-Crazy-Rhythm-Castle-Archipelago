@@ -1,6 +1,6 @@
 # Known issues and coverage limits
 
-This page covers **v0.30.2 / Client 0.77.2 / APWorld 0.30.1**.
+This page covers **v0.30.3 / Client 0.77.2 / APWorld 0.30.2**.
 
 ## Open reports and modeling limits
 
@@ -18,6 +18,8 @@ This page covers **v0.30.2 / Client 0.77.2 / APWorld 0.30.1**.
 | Display startup | A fullscreen/fallback warning loop was reported historically. The mod does not force fullscreen or alter display preferences; a general native/driver fix is not established. |
 
 ## Accepted fixes and remaining coverage
+
+APWorld 0.30.2 fixes Super Nectar delivery appearing in logic before Hypno Pan. The correction applies to generation and Tracker reconstruction, while existing rooms keep their placed items. [Validation](testing/2026-11-21-super-nectar.md)
 
 Client 0.76.2 passed return-gate interaction/traversal and unsafe upper-Lobby exit fallback tests. Other story orders and multiplayer remain broader coverage.
 

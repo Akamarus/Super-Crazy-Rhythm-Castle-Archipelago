@@ -30,7 +30,7 @@ class ExpandedChecksTests(unittest.TestCase):
             'Lobby - Important Letters Delivery': ('Lobby Access',),
             'Lobby - Plunger Hand-In': ('Lobby Access','Plunger'),
             'Meat Dimension - Return Scruffy': ('Meat Dimension Access','Hypno Pan'),
-            'Cell Tower - Deliver Super Nectar': ('Cell Tower Access','Roots Access','Meat Dimension Access'),
+            'Cell Tower - Deliver Super Nectar': ('Cell Tower Access','Roots Access','Meat Dimension Access','Hypno Pan'),
             'Tower of Fear - Restore Eye Statue': ('Tower of Fear Access','Plant Pipes','Violance'),
             'Tower of Fear - Restore Mind Statue': ('Tower of Fear Access','Hypno Pan','Violance'),
             'Tower of Fear - Restore Heart Statue': ('Tower of Fear Access','Plant Pipes','Hypno Pan','Violance'),

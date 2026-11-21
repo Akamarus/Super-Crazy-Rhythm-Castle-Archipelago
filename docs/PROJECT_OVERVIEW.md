@@ -4,7 +4,7 @@ Unofficial Windows Archipelago integration for Super Crazy Rhythm Castle, combin
 
 The [November source review](testing/2026-11-12-source-review.md) covers the released client's progression, save, connection and performance changes. It identifies the remaining in-game acceptance checks.
 
-Release **v0.30.2 / Client 0.77.2 / APWorld 0.30.1** supports schema 21 Bunker seeds and older seeds using schemas 19 and 20.
+Release **v0.30.3 / Client 0.77.2 / APWorld 0.30.2** supports schema 21 Bunker seeds and older seeds using schemas 19 and 20.
 
 ## Implemented systems
 
@@ -18,6 +18,8 @@ Release **v0.30.2 / Client 0.77.2 / APWorld 0.30.1** supports schema 21 Bunker s
 With Bunker progression enabled (the default), the active checks are **Normal 170 / Hard 228 / Expert 286 / Perfection 322**. With it disabled, they are **Normal 164 / Hard 222 / Expert 280 / Perfection 316**. AP performance difficulty is separate from Regular/Pro.
 
 ## Current evidence and limits
+
+APWorld 0.30.2 corrects Super Nectar delivery to require Hypno Pan. The game client is unchanged. [Validation](testing/2026-11-21-super-nectar.md) covers generation and actual Universal Tracker reconstruction.
 
 A Hard/40-Star run completed with server-confirmed Victory without assistance. Recent targeted acceptance includes movement, item delivery, entrances and source suppression; [testing](TESTING.md) distinguishes that from automated checks. See [known issues](KNOWN_ISSUES.md) for remaining modeling/performance limits.
 

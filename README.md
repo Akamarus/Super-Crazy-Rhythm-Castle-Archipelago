@@ -33,7 +33,7 @@ The [progression rules](docs/PROGRESSION.md) document how access works. The [bui
 
 ## Setup
 
-The current release is **v0.30.2 / Client 0.77.2 / APWorld 0.30.1**. It corrects School Trip tracking and improves item delivery on existing saves. [Release notes](docs/releases/v0.30.2.md).
+The current release is **v0.30.3 / Client 0.77.2 / APWorld 0.30.2**. It requires Hypno Pan for Super Nectar delivery in generation and Universal Tracker. The game client is unchanged. [Release notes](docs/releases/v0.30.3.md).
 
 You'll need a Windows copy of *Super Crazy Rhythm Castle*, the supported BepInEx setup, and Archipelago. I've kept the setup steps in the [installation guide](docs/INSTALL.md), with separate instructions for [Universal Tracker](docs/UNIVERSAL_TRACKER.md).
 

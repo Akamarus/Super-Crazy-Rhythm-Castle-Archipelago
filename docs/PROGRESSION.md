@@ -1,6 +1,6 @@
 # Progression reference
 
-**APWorld 0.30.1**, included in release v0.30.2.
+**APWorld 0.30.2**, included in release v0.30.3.
 
 ## Stars, results and Victory
 
@@ -13,6 +13,8 @@ Collect the configured number of Stars (default 50, maximum 66), then complete t
 Area Access items open their supported routes. Roots is the validated starting area. Lobby Access independently opens Boring Room, Minim Tower and The Vault, subject to each level's Star gate; Lift Quest completion is not required for these routes.
 
 Plunger use requires Lobby Access and Plunger. Lobby Star Eater additionally requires the seed's Star threshold. Roots Level 3's extra door and Level 4's plants require Weed Killer. Plant Pipes is required for Level 15 completion, Level 16's higher ratings and Level 22; Loneliness and Party Non Stop require Hypno Pan.
+
+`Cell Tower - Deliver Super Nectar` requires Hypno Pan for the Bee Mode nectar routes, in addition to its existing campaign routes, area access and Star gates. APWorld 0.30.2 corrects the missing dependency in generation and Universal Tracker. Existing seed placements remain unchanged.
 
 These highlights are not the complete rule table. The [reviewed prerequisite audit](testing/2026-10-12-user-rule-audit.md), [APWorld rule source](../apworld/scrc/__init__.py) and [known limitations](KNOWN_ISSUES.md) provide the full implementation context. Native uncertainty must not be inferred away from tracker agreement.
 

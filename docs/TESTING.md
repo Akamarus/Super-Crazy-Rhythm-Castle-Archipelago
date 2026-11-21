@@ -1,5 +1,9 @@
 # Testing and acceptance
 
+## v0.30.3 Super Nectar logic correction
+
+The [Super Nectar validation record](testing/2026-11-21-super-nectar.md) covers the missing Hypno Pan prerequisite, generation and Universal Tracker reconstruction. This release changes only APWorld rules and documentation; it ships the unchanged client from v0.30.2.
+
 ## v0.30.2 client and tracker fixes
 
 The [November 12 findings and acceptance record](testing/2026-11-12-source-review.md) covers this candidate. The test counts in the dated release sections below describe those earlier builds.

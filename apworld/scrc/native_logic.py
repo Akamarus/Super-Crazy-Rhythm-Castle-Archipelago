@@ -107,7 +107,8 @@ SOURCE_PATHS = {
  'Meat Dimension - Mouse Revolution': ((13,),('Hypno Pan',)),
  'Meat Dimension - Fish Tears Award': ((14,),()),
  'Cell Tower - Meet the Bees': ((),('Cell Tower Access',)),
- 'Cell Tower - Deliver Super Nectar': ((15,2,11),()),
+ # Both nectar-producing Bee Mode routes require Hypno Pan, beyond the base songs.
+ 'Cell Tower - Deliver Super Nectar': ((15,2,11),('Hypno Pan',)),
  'Tower of Fear - Eye Pickup': ((19,),()),
  'Tower of Fear - Mind Pickup': ((20,),()),
  'Tower of Fear - Heart Pickup': ((18,),()),

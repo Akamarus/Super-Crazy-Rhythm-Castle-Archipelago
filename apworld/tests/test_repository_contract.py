@@ -140,8 +140,8 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         version = re.search(r'PluginVersion\s*=\s*"([^"]+)"', (REPO_ROOT / "client/Plugin.cs").read_text()).group(1)
         self.assertIn(f"Client:  v{version}", result.stdout)
-        self.assertIn("APWorld: v0.30.1", result.stdout)
-        self.assertIn('"world_version": "0.30.1"', result.stdout)
+        self.assertIn("APWorld: v0.30.2", result.stdout)
+        self.assertIn('"world_version": "0.30.2"', result.stdout)
         self.assertIn(
             '"implementation_version": "area-routing-plant-pipes-0.15-generation-foundation-0.16-hip-glasses-chicken-bucket-0.17-next-release-repair-0.18-consolidated-preview-0.19-difficulty-filtering-0.20-vanilla-vampire-garage-0.21-full-cassettes-0.22-music-lab-points-0.23-full-level-mapping-0.24-character-quest-items-0.25-quest-checks-0.26-check-expansion-0.27-ap-stars-0.28"',
             result.stdout,
@@ -505,7 +505,7 @@ class RepositoryContractTests(unittest.TestCase):
         }
         self.assertTrue(required <= names)
         self.assertFalse(any("__pycache__" in name or name.endswith(".pyc") for name in names))
-        self.assertEqual(manifest["world_version"], "0.30.1")
+        self.assertEqual(manifest["world_version"], "0.30.2")
         self.assertEqual(manifest["version"], 7)
         self.assertEqual(manifest["compatible_version"], 7)
 

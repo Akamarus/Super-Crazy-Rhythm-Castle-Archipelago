@@ -51,6 +51,18 @@ class UniversalTrackerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.module.SCRCWorld.interpret_slot_data(broken)
 
+    def test_super_nectar_delivery_waits_for_hypno_pan_after_reconstruction(self):
+        from test_world_integration import State
+        slot = json.loads(json.dumps(self.world().fill_slot_data()))
+        owned = [name for name in self.module.SCRCWorld.item_name_to_id if name != "Hypno Pan"] + ["Star"] * 66
+        for data in (slot, self.module.SCRCWorld.interpret_slot_data(slot)):
+            restored = self.world(passthrough=data)
+            delivery = restored.multiworld.get_location("Cell Tower - Deliver Super Nectar", 1)
+            self.assertFalse(delivery.access_rule(State(owned)))
+            self.assertTrue(delivery.access_rule(State(owned + ["Hypno Pan"])))
+            self.assertFalse(delivery.access_rule(State(owned)))
+            self.assertEqual(restored.generated_star_requirements, slot["generated_star_requirements"])
+
     def test_lobby_door_routes_and_legacy(self):
         from test_world_integration import State
         source = self.world()

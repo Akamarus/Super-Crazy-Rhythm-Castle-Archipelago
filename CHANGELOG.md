@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.30.3 — November 21, 2026 — Client 0.77.2 / APWorld 0.30.2
+
+- Require Hypno Pan for `Cell Tower - Deliver Super Nectar` in generation and Universal Tracker. The delivery previously checked the base campaign routes but omitted the ability required by their Bee Mode nectar routes.
+- Retain all other prerequisites, generated Star gates, item/location IDs and slot-data schemas. Existing seeds keep their placements; restarting Universal Tracker with the updated APWorld applies the corrected availability rule.
+- The bundled client is the unchanged 0.77.2 download from v0.30.2. No game-client update is required for this fix.
+
+[Release notes](docs/releases/v0.30.3.md) · [Validation](docs/testing/2026-11-21-super-nectar.md).
+
 ## v0.30.2 — November 16, 2026 — Client 0.77.2 / APWorld 0.30.1
 
 - Universal Tracker now waits for Boring Room completion and Important Letters delivery before showing School Trip. Its generated Star requirement still applies, and players can skip Demolition Training.
